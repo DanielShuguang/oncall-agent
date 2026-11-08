@@ -13,7 +13,7 @@ from __future__ import annotations
 import asyncio
 import random
 from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import StrEnum
 from time import perf_counter
 from typing import Any
@@ -340,7 +340,7 @@ class ToolGuard:
                 last = ToolError(ToolErrorKind.TIMEOUT, f"工具超时 {spec.timeout_ms}ms")
             except ToolError as exc:
                 last = exc
-            except Exception as exc:  # noqa: BLE001 - 工具边界必须兜住所有异常
+            except Exception as exc:
                 last = ToolError(ToolErrorKind.INTERNAL, str(exc))
 
             if not self._should_retry(spec, last, attempt):
@@ -365,9 +365,7 @@ class ToolGuard:
         if err.kind.value not in spec.retryable:
             return False
         # 写操作只在工具显式声明幂等安全时才允许重试
-        if spec.is_write and not err.idempotent_safe:
-            return False
-        return True
+        return not (spec.is_write and not err.idempotent_safe)
 
     def _backoff_seconds(self, attempt: int) -> float:
         base = self.backoff_base_ms / 1000

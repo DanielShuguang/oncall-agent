@@ -26,9 +26,7 @@ def build_graph(deps: Any = None) -> Any:
     try:
         from langgraph.graph import END, StateGraph
     except ImportError as exc:  # pragma: no cover - 仅在未安装 extras 时触发
-        raise RuntimeError(
-            "未安装 agent 依赖，请执行：uv sync --extra agent"
-        ) from exc
+        raise RuntimeError("未安装 agent 依赖，请执行：uv sync --extra agent") from exc
 
     graph = StateGraph(AgentState)
 

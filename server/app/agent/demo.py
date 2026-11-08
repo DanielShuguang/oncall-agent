@@ -30,48 +30,63 @@ async def demo_stream(message: str) -> AsyncIterator[Event]:
     # ---- classify ----
     yield EventType.STEP_STARTED, {"node": "classify", "title": "判断问题类型"}
     await asyncio.sleep(0.01)
-    yield EventType.STEP_COMPLETED, {
-        "node": "classify",
-        "duration_ms": 8,
-        "summary": "命中规则：hardware（关键词「打印机」）",
-    }
+    yield (
+        EventType.STEP_COMPLETED,
+        {
+            "node": "classify",
+            "duration_ms": 8,
+            "summary": "命中规则：hardware（关键词「打印机」）",
+        },
+    )
 
     # ---- 工具：查资产（只读，自动执行）----
-    yield EventType.TOOL_CALL, {
-        "call_id": "call_1",
-        "tool": "query_cmdb",
-        "args": {"owner_id": "u_102"},
-        "write": False,
-    }
+    yield (
+        EventType.TOOL_CALL,
+        {
+            "call_id": "call_1",
+            "tool": "query_cmdb",
+            "args": {"owner_id": "u_102"},
+            "write": False,
+        },
+    )
     await asyncio.sleep(0.02)
-    yield EventType.TOOL_RESULT, {
-        "call_id": "call_1",
-        "tool": "query_cmdb",
-        "status": "ok",
-        "result": {"asset_id": "PC-20481", "model": "ThinkPad T14", "status": "online"},
-        "duration_ms": 126,
-    }
+    yield (
+        EventType.TOOL_RESULT,
+        {
+            "call_id": "call_1",
+            "tool": "query_cmdb",
+            "status": "ok",
+            "result": {"asset_id": "PC-20481", "model": "ThinkPad T14", "status": "online"},
+            "duration_ms": 126,
+        },
+    )
 
     # ---- 工具：检索知识库（只读）----
-    yield EventType.TOOL_CALL, {
-        "call_id": "call_2",
-        "tool": "search_kb",
-        "args": {"query": "打印机 离线 排查"},
-        "write": False,
-    }
-    await asyncio.sleep(0.02)
-    yield EventType.TOOL_RESULT, {
-        "call_id": "call_2",
-        "tool": "search_kb",
-        "status": "ok",
-        "result": {
-            "hits": [
-                {"chunk_id": 10231, "score": 0.82},
-                {"chunk_id": 10233, "score": 0.71},
-            ]
+    yield (
+        EventType.TOOL_CALL,
+        {
+            "call_id": "call_2",
+            "tool": "search_kb",
+            "args": {"query": "打印机 离线 排查"},
+            "write": False,
         },
-        "duration_ms": 348,
-    }
+    )
+    await asyncio.sleep(0.02)
+    yield (
+        EventType.TOOL_RESULT,
+        {
+            "call_id": "call_2",
+            "tool": "search_kb",
+            "status": "ok",
+            "result": {
+                "hits": [
+                    {"chunk_id": 10231, "score": 0.82},
+                    {"chunk_id": 10233, "score": 0.71},
+                ]
+            },
+            "duration_ms": 348,
+        },
+    )
 
     citations = [
         {
@@ -96,19 +111,22 @@ async def demo_stream(message: str) -> AsyncIterator[Event]:
 
     # ---- 写操作：需要人工审批 ----
     if wants_ticket:
-        yield EventType.APPROVAL_REQUIRED, {
-            "approval_id": "apr_demo_1",
-            "tool": "create_ticket",
-            "args": {
-                "title": "打印机离线无法打印",
-                "category": "hardware",
-                "priority": "P2",
-                "asset_id": "PC-20481",
+        yield (
+            EventType.APPROVAL_REQUIRED,
+            {
+                "approval_id": "apr_demo_1",
+                "tool": "create_ticket",
+                "args": {
+                    "title": "打印机离线无法打印",
+                    "category": "hardware",
+                    "priority": "P2",
+                    "asset_id": "PC-20481",
+                },
+                "risk_level": "medium",
+                "reason": "将在工单系统创建一条记录，影响：IT 服务台派单",
+                "expires_at": "2026-11-09T03:00:00Z",
             },
-            "risk_level": "medium",
-            "reason": "将在工单系统创建一条记录，影响：IT 服务台派单",
-            "expires_at": "2026-11-09T03:00:00Z",
-        }
+        )
         return
 
     # ---- 生成 ----
@@ -126,11 +144,14 @@ async def demo_stream(message: str) -> AsyncIterator[Event]:
         await asyncio.sleep(0.01)
 
     yield EventType.MESSAGE_COMPLETED, {"text": answer, "citations": citations}
-    yield EventType.RUN_COMPLETED, {
-        "status": "completed",
-        "steps": 6,
-        "token_in": 1820,
-        "token_out": 310,
-        "cost_cents": 3,
-        "duration_ms": 1240,
-    }
+    yield (
+        EventType.RUN_COMPLETED,
+        {
+            "status": "completed",
+            "steps": 6,
+            "token_in": 1820,
+            "token_out": 310,
+            "cost_cents": 3,
+            "duration_ms": 1240,
+        },
+    )

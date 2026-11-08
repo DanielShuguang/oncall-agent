@@ -42,7 +42,7 @@ export default function ChatPage() {
 
         {runtime.steps.map((step) => (
           <div
-            key={`${step.node}-${step.title}`}
+            key={step.seq ?? `${step.node}-${step.title}`}
             className="flex items-center gap-2 text-xs text-muted-foreground"
           >
             <Badge

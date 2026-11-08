@@ -53,6 +53,8 @@ export interface StepItem {
   node: string;
   title: string;
   status: 'running' | 'done';
+  /** 对应 step.started 的 seq，用于 React key（节点可能重规划重复出现） */
+  seq?: number;
   summary?: string;
   durationMs?: number;
 }

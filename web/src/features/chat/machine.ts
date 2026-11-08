@@ -103,6 +103,7 @@ export function runtimeReducer(state: Runtime, event: RunEvent): Runtime {
             node: String(event.payload.node ?? ''),
             title: String(event.payload.title ?? event.payload.node ?? ''),
             status: 'running',
+            seq: event.seq,
           },
         ],
       };

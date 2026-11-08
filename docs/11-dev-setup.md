@@ -89,7 +89,7 @@ pwsh -File scripts/dev.ps1 docker-down
 | `make api` | 起后端 |
 | `make web` | 起前端 |
 | `make fmt` | ruff + oxfmt 格式化 |
-| `make lint` | ruff + mypy + oxlint + `oxfmt --check` |
+| `make lint` | ruff check + ruff format --check + mypy + oxlint + `oxfmt --check` |
 | `make test` | pytest + vitest |
 | `make eval` | 跑评测出报告 |
 | `make seed` | 灌演示数据 |

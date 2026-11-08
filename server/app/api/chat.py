@@ -7,14 +7,17 @@
 - 能建流就返回 200，运行期失败用 run.failed 事件表达
 - 每条事件先落库、再推送，保证可回放（R2）
 - 客户端断开即停止，并标记 interrupted，不产生"幽灵事件"
-- `client_msg_id` 命中时只回放已落库事件，不重复执行
+- `client_msg_id` 命中时只回放已落库事件，不重复执行；仍在 running 时持续跟到终态
+- 空闲每 15s 发 `: heartbeat`，避免代理空闲超时
 """
 
 from __future__ import annotations
 
 import asyncio
+import time
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator
+from contextlib import suppress
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -23,7 +26,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.agent.demo import demo_stream
 from app.core.logging import get_logger
-from app.core.sse import encode_frame
+from app.core.sse import encode_comment, encode_frame
 from app.core.store import RunStore, get_store
 from app.schemas.chat import ChatRequest
 from app.schemas.event import RunStatus
@@ -37,6 +40,10 @@ SSE_HEADERS = {
     "X-Accel-Buffering": "no",  # Nginx 不缓冲，否则看不到流式
 }
 
+HEARTBEAT_INTERVAL_S = 15.0
+REPLAY_POLL_INTERVAL_S = 1.0
+REPLAY_TAIL_MAX_S = 300.0
+
 
 def _resume_after(request: Request) -> int:
     """SSE 重连时浏览器会带 Last-Event-ID；非法值按 0 处理，不让续传拖垮主流程。"""
@@ -47,6 +54,60 @@ def _resume_after(request: Request) -> int:
         return max(0, int(raw))
     except ValueError:
         return 0
+
+
+async def _with_heartbeat(
+    source: AsyncGenerator[str, None],
+    interval: float = HEARTBEAT_INTERVAL_S,
+) -> AsyncIterator[str]:
+    """在事件之间空闲超过 interval 时补 `: heartbeat` 注释帧。
+
+    用一个 pending task 拉下一帧，`asyncio.wait` 超时就发心跳；客户端断开时
+    取消 pending，让内层生成器走 CancelledError 收尾。
+    """
+    iterator = source
+    pending: asyncio.Task[str] = asyncio.ensure_future(iterator.__anext__())
+    try:
+        while True:
+            done, _ = await asyncio.wait({pending}, timeout=interval)
+            if not done:
+                yield encode_comment("heartbeat")
+                continue
+            try:
+                frame = pending.result()
+            except StopAsyncIteration:
+                return
+            yield frame
+            pending = asyncio.ensure_future(iterator.__anext__())
+    finally:
+        pending.cancel()
+        with suppress(asyncio.CancelledError, StopAsyncIteration):
+            await pending
+        with suppress(RuntimeError):
+            await iterator.aclose()
+
+
+async def _replay(store: RunStore, run_id: str, after_seq: int) -> AsyncGenerator[str, None]:
+    """幂等命中：回放已落库事件；仍在 running 就跟到终态。"""
+    after = after_seq
+    deadline = time.monotonic() + REPLAY_TAIL_MAX_S
+    while True:
+        status = await store.status(run_id)
+        if status is None:
+            return
+
+        for event in await store.events_after(run_id, after_seq=after):
+            after = event.seq
+            yield encode_frame(
+                seq=event.seq,
+                event=event.type.value,
+                data=event.model_dump(mode="json"),
+            )
+
+        if status != RunStatus.RUNNING.value or time.monotonic() >= deadline:
+            log.info("run_replay_finished", run_id=run_id, after_seq=after, status=status)
+            return
+        await asyncio.sleep(REPLAY_POLL_INTERVAL_S)
 
 
 @router.post("/chat/stream")
@@ -76,17 +137,6 @@ async def chat_stream(
     resumed_after = _resume_after(request)
 
     async def gen() -> AsyncIterator[str]:
-        if not created:
-            # 幂等：重复提交只回放事件，不重跑 Agent
-            for event in await store.events_after(rec.run_id, after_seq=resumed_after):
-                yield encode_frame(
-                    seq=event.seq,
-                    event=event.type.value,
-                    data=event.model_dump(mode="json"),
-                )
-            log.info("run_replayed", run_id=rec.run_id, after_seq=resumed_after)
-            return
-
         async for etype, payload in demo_stream(req.message):
             if await request.is_disconnected():
                 log.info("client_disconnected", run_id=rec.run_id)
@@ -109,7 +159,7 @@ async def chat_stream(
 
         log.info("run_finished", run_id=rec.run_id)
 
-    async def guarded() -> AsyncIterator[str]:
+    async def guarded() -> AsyncGenerator[str, None]:
         # 客户端硬断时 Starlette 会直接取消任务，不会走 is_disconnected 分支；
         # shield 保证"标记 interrupted"这个收尾写入不被取消掉。
         try:
@@ -124,8 +174,11 @@ async def chat_stream(
             await asyncio.shield(_mark_failed(store, rec.run_id, "INTERNAL_ERROR"))
             raise
 
+    source = _replay(store, rec.run_id, resumed_after) if not created else guarded()
     return StreamingResponse(
-        guarded(), media_type="text/event-stream; charset=utf-8", headers=SSE_HEADERS
+        _with_heartbeat(source),
+        media_type="text/event-stream; charset=utf-8",
+        headers=SSE_HEADERS,
     )
 
 

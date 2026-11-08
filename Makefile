@@ -45,7 +45,7 @@ fmt:
 	cd web && pnpm exec oxfmt
 
 lint:
-	cd server && uv run ruff check . && uv run mypy app
+	cd server && uv run ruff check . && uv run ruff format --check . && uv run mypy app
 	cd web && pnpm exec oxlint && pnpm exec oxfmt --check
 
 test:

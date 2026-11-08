@@ -126,6 +126,7 @@ ConsoleLayout（侧边导航）
 - `run_status == "running"` → 每秒轮询，最长 2 分钟；`awaiting_approval` / 终态立即停止
 - 用户主动 `abort` 不触发补拉；补拉是**重放**而不是增量猜测，UI 仍由归约器重建
 - 事件必须按 `seq` 幂等应用：重复帧、补拉与实时流交错都不能产生重复卡片
+- 服务端空闲每 15s 发 `: heartbeat`；幂等 replay 遇到 `running` 会继续跟到终态（上限 5 分钟）
 
 ## 7. 性能
 

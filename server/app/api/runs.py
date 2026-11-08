@@ -70,8 +70,9 @@ async def get_events(
     limit: Annotated[int, Query(ge=1, le=500)] = 200,
     last_event_id: Annotated[str | None, Header(alias="Last-Event-ID")] = None,
 ) -> dict[str, Any]:
-    rec = await store.get(run_id)
-    if rec is None:
+    # 只取状态：不要再走 get() 的 COUNT(*)，补拉会每秒轮询
+    run_status = await store.status(run_id)
+    if run_status is None:
         raise HTTPException(status_code=404, detail="run not found")
 
     # 查询参数优先：显式传 0 表示"从头补"，不会被旧 header 覆盖
@@ -81,5 +82,5 @@ async def get_events(
     return {
         "events": [e.model_dump(mode="json") for e in events],
         "next_seq": next_seq,
-        "run_status": rec.status,
+        "run_status": run_status,
     }

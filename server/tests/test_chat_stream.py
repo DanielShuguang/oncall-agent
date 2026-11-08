@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import uuid
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.api.chat import _with_heartbeat
 from app.core.store import InMemoryRunStore, get_store
 from app.main import app
 from app.schemas.event import EventType, RunStatus
@@ -110,6 +113,42 @@ async def test_blank_client_msg_id_is_treated_as_absent(
         await _stream(client, {"session_id": "s", "client_msg_id": "", "message": "打印机"})
     )
     assert first[0]["run_id"] != second[0]["run_id"]
+
+
+async def test_duplicate_running_run_tails_to_terminal(
+    client: AsyncClient, mem_store: InMemoryRunStore
+) -> None:
+    run_id = str(uuid.uuid4())
+    await mem_store.create(
+        run_id=run_id,
+        user_id="u_102",
+        session_id="s",
+        message="旧问题",
+        client_msg_id="cmsg_tail",
+    )
+    await mem_store.append(run_id, EventType.RUN_STARTED, {})
+
+    task = asyncio.create_task(
+        _stream(client, {"session_id": "s", "client_msg_id": "cmsg_tail", "message": "旧问题"})
+    )
+    await asyncio.sleep(0.05)
+    await mem_store.append(run_id, EventType.RUN_COMPLETED, {"steps": 0})
+
+    events = _parse(await task)
+    assert [e["seq"] for e in events] == [1, 2]
+
+
+async def test_heartbeat_is_emitted_between_idle_events() -> None:
+    async def source():
+        await asyncio.sleep(0.05)
+        yield "data: x\n\n"
+
+    async def run() -> list[str]:
+        return [frame async for frame in _with_heartbeat(source(), interval=0.01)]
+
+    frames = await run()
+    assert any(frame.startswith(": heartbeat") for frame in frames)
+    assert frames[-1].startswith("data: ")
 
 
 async def test_duplicate_with_last_event_id_resumes(

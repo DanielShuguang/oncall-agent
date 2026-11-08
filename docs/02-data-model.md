@@ -231,7 +231,7 @@ CREATE TABLE eval_results (
 | 事件 | `runs` 变化 |
 |---|---|
 | `run.started` | `status=running`，写 `model` / `max_steps` |
-| `step.completed` | 不改汇总（`step_count` 以 `run.completed.payload.steps` 为准） |
+| `step.completed` | `step_count += 1`（失败 run 也能看到跑了几个节点；`run.completed.payload.steps` 会覆盖为准确值） |
 | `approval.required` | `status=awaiting_approval` |
 | `approval.resolved` | `approved → running`；`rejected/expired → failed` + `error_code`，写 `finished_at` |
 | `message.completed` | 写 `output` |

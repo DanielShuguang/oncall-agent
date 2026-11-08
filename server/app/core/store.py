@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
+from app.core.logging import get_logger
 from app.models.run import Run
 from app.models.run import RunEvent as RunEventRow
 from app.schemas.event import EventType, RunEvent, RunStatus
@@ -27,6 +28,8 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
     from app.core.config import Settings
+
+log = get_logger(__name__)
 
 
 class RunNotFoundError(LookupError):
@@ -68,9 +71,6 @@ class RunPatch:
     token_in: int | None = None
     token_out: int | None = None
     cost_cents: int | None = None
-
-    def is_empty(self) -> bool:
-        return all(getattr(self, f) is None for f in self.__dataclass_fields__)
 
 
 _TERMINAL_STATUSES = {
@@ -166,6 +166,8 @@ class RunStore(Protocol):
 
     async def get(self, run_id: str) -> RunRecord | None: ...
 
+    async def status(self, run_id: str) -> str | None: ...
+
     async def append(
         self, run_id: str, event_type: EventType, payload: dict[str, Any] | None = None
     ) -> RunEvent:
@@ -232,6 +234,14 @@ class InMemoryRunStore:
             record.event_count = len(self._events[rid])
         return record
 
+    async def status(self, run_id: str) -> str | None:
+        try:
+            rid = str(uuid.UUID(run_id))
+        except ValueError:
+            return None
+        record = self._runs.get(rid)
+        return record.status if record is not None else None
+
     async def append(
         self, run_id: str, event_type: EventType, payload: dict[str, Any] | None = None
     ) -> RunEvent:
@@ -251,6 +261,9 @@ class InMemoryRunStore:
             self._events[rid].append(event)
             record.event_count = len(self._events[rid])
             _apply_patch(record, build_run_patch(event_type, event.payload, now))
+            if event_type is EventType.STEP_COMPLETED:
+                # 失败 run 也需要“跑了几步”的口径；run.completed 会覆盖为准确值
+                record.step_count += 1
             return event
 
     async def events_after(
@@ -339,6 +352,14 @@ class PostgresRunStore:
             )
         return _record_from_row(row, event_count=int(count or 0))
 
+    async def status(self, run_id: str) -> str | None:
+        try:
+            rid = uuid.UUID(run_id)
+        except ValueError:
+            return None
+        async with self._sessionmaker() as session:
+            return await session.scalar(select(Run.status).where(Run.id == rid))
+
     async def append(
         self, run_id: str, event_type: EventType, payload: dict[str, Any] | None = None
     ) -> RunEvent:
@@ -370,6 +391,9 @@ class PostgresRunStore:
                 value = getattr(patch, name)
                 if value is not None:
                     setattr(row, name, value)
+            if event_type is EventType.STEP_COMPLETED:
+                # 失败 run 也需要“跑了几步”的口径；run.completed 会覆盖为准确值
+                row.step_count += 1
 
             await session.flush()
 
@@ -391,7 +415,8 @@ class PostgresRunStore:
                     .limit(limit)
                 )
             ).all()
-        return [_event_from_row(row) for row in rows]
+        events = [_event_from_row(row) for row in rows]
+        return [event for event in events if event is not None]
 
     async def set_status(self, run_id: str, status: str, *, error_code: str | None = None) -> None:
         rid = uuid.UUID(run_id)
@@ -446,11 +471,22 @@ def _record_from_row(row: Run, *, event_count: int) -> RunRecord:
     )
 
 
-def _event_from_row(row: RunEventRow) -> RunEvent:
+def _event_from_row(row: RunEventRow) -> RunEvent | None:
+    try:
+        event_type = EventType(row.type)
+    except ValueError:
+        # 事件类型只增不改（R1）：旧后端读到新事件时忽略而不是 500
+        log.warning(
+            "unknown_event_type",
+            run_id=str(row.run_id),
+            seq=row.seq,
+            type=row.type,
+        )
+        return None
     return RunEvent(
         seq=row.seq,
         run_id=str(row.run_id),
-        type=EventType(row.type),
+        type=event_type,
         ts=row.created_at,
         payload=row.payload or {},
     )

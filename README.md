@@ -128,7 +128,7 @@ oncall/
 |---|---|---|
 | 文档（12 篇 + 9 篇 ADR） | ✅ 完成 | — |
 | 前端骨架（状态机 / SSE 客户端 / 页面） | ✅ 可用 | `tsc --noEmit`、`oxlint`、`oxfmt --check` 通过；`vitest` 18/18 通过；`pnpm build` 成功 |
-| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` 33 passed + 1 skipped；设 `ONCALL_TEST_DATABASE_URL` 后 34 passed（含 Postgres 契约与并发 seq） |
+| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` 35 passed + 1 skipped；设 `ONCALL_TEST_DATABASE_URL` 后 36 passed（含 Postgres 契约与并发 seq） |
 | 事件落库 + 断线续传（D4） | ✅ 已完成 | `alembic upgrade head` + `alembic check` 无漂移；chat 落库 23 帧后重启服务仍可补拉；同一用户同一 `client_msg_id` 重放不新增事件 |
 | 工具治理五道闸门 + 超时重试 | ✅ 已实现 | `tests/test_tools_guard.py` 随 `make test` 通过 |
 | RAG / LangGraph / 模型网关 / 评测 | 🚧 待实现 | 见 [路线图](docs/10-roadmap-6weeks.md) |

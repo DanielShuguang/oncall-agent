@@ -90,6 +90,9 @@ async def _exercise(store: RunStore) -> None:
 
     await store.append(run_id, EventType.STEP_STARTED, {"node": "intake"})
     await store.append(run_id, EventType.STEP_COMPLETED, {"node": "intake", "duration_ms": 5})
+    rec = await store.get(run_id)
+    assert rec is not None
+    assert rec.step_count == 1  # 失败 run 也要有步数口径
     await store.append(run_id, EventType.TOOL_CALL, {"tool": "query_cmdb"})
     await store.append(run_id, EventType.TOOL_RESULT, {"tool": "query_cmdb", "status": "ok"})
     await store.append(run_id, EventType.APPROVAL_REQUIRED, {"approval_id": "apr_1"})
@@ -156,6 +159,22 @@ async def _exercise(store: RunStore) -> None:
     assert interrupted is not None
     assert interrupted.status == RunStatus.INTERRUPTED.value
     assert interrupted.finished_at is not None
+
+    # 失败的 run 也保留 step_count
+    failed_id = str(uuid.uuid4())
+    await store.create(run_id=failed_id, user_id="u_102", session_id="sess_3", message="失败")
+    await store.append(failed_id, EventType.RUN_STARTED, {})
+    await store.append(failed_id, EventType.STEP_COMPLETED, {"node": "intake"})
+    await store.append(failed_id, EventType.STEP_COMPLETED, {"node": "classify"})
+    await store.append(failed_id, EventType.RUN_FAILED, {"error_code": "MODEL_TIMEOUT"})
+    failed = await store.get(failed_id)
+    assert failed is not None
+    assert failed.status == RunStatus.FAILED.value
+    assert failed.step_count == 2
+    assert failed.error_code == "MODEL_TIMEOUT"
+
+    assert await store.status(run_id) == RunStatus.COMPLETED.value
+    assert await store.status(str(uuid.uuid4())) is None
 
 
 async def _exercise_concurrent_seq(store: RunStore) -> None:

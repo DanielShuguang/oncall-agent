@@ -60,7 +60,7 @@ switch ($Target) {
         Push-Location "$root\web"; pnpm exec oxfmt; Pop-Location
     }
     'lint' {
-        Push-Location "$root\server"; uv run ruff check .; uv run mypy app; Pop-Location
+        Push-Location "$root\server"; uv run ruff check .; uv run ruff format --check .; uv run mypy app; Pop-Location
         Push-Location "$root\web"; pnpm exec oxlint; pnpm exec oxfmt --check; Pop-Location
     }
     'test' {

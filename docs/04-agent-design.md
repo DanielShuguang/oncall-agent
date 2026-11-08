@@ -84,6 +84,8 @@ class AgentState(TypedDict, total=False):
 
 > W1 D5 的运行时把 `classify` 的关键词规则合并在 `plan` 节点里（`intent` 由 plan 产出），
 > 图上仍是 8 节点；W3 D13 拆成独立 `classify` 节点再换 LLM 兜底。
+> W2 D9 已把 `retrieve` 落成运行时里的独立步骤（规则：混合检索 + RRF + 阈值），
+> 当前手写调度顺序是 `intake → retrieve → plan → act → finalize`；LangGraph 8 节点图仍留给 W3。
 
 ## 4. 为什么 plan 用 LLM 而 act 不用
 
@@ -167,10 +169,10 @@ while state["step"] < MAX_STEPS and not terminal(state):
 
 每个节点记录 `duration_ms` 与 `model_calls`，写入 `model_calls` 表。评测报告按节点聚合延迟与成本，便于回答"慢在哪一步、贵在哪一步"。
 
-## 10. 运行时（W1 D5）
+## 10. 运行时（W1 D5 → W2 D9）
 
-`server/app/agent/runtime.py` 是手写调度器（ADR-0003）：按 `intake → plan → act → finalize`
-线性推进，**节点是纯函数，事件由 runtime 统一发**（R5）。
+`server/app/agent/runtime.py` 是手写调度器（ADR-0003）：按
+`intake → retrieve → plan → act → finalize` 推进，**节点是纯函数，事件由 runtime 统一发**（R5）。
 
 | 事件 | 发出时机 |
 |---|---|
@@ -179,8 +181,18 @@ while state["step"] < MAX_STEPS and not terminal(state):
 | `tool.call` | 计划里的每个工具调用前，带 `call_id/tool/args/write` |
 | `tool.result` | 工具执行后（含 denied / timeout / requires_approval），payload 来自 `ToolCallResult` |
 | `approval.required` | 写操作被挂起，run 停在 `awaiting_approval` |
-| `message.delta` / `message.completed` | finalize 拼装回答并流式发出 |
+| `message.delta` / `message.completed` | finalize 拼装回答并流式发出；`citations` 是实际用到的 1-3 条 |
 | `run.completed` / `run.failed` | 正常结束 / 超限或内部异常 |
+
+`retrieve`（W2）：
+- 只通过 `AgentDeps.retriever` 调 `search()`，节点里没有 SQL
+- 检索异常降级为空召回并记日志，由 finalize 走兜底话术；检索失败不能把 run 打挂
+- 阈值在 `KnowledgeBase` 里（`ONCALL_RAG_MIN_SCORE`，默认 0.38）；低于阈值的候选不会进入 state
+
+`finalize`（W2）：
+- 有召回：抽取式回答 + `[1][2]` 角标，引用三元组 `chunk_id/document_id/ord`
+- 无召回：固定兜底话术，**不调用模型生成**
+- 归档文档（标题带「归档」）不进入回答，只用于召回对照
 
 护栏：`max_steps` 来自请求（默认 12），`MAX_TOOL_CALLS=6`；超限发 `run.failed`，
 `error_code` 为 `STEP_LIMIT` / `TOOL_LIMIT`。总时长 `RUN_TIMEOUT_S` 在节点与工具边界
@@ -188,5 +200,6 @@ while state["step"] < MAX_STEPS and not terminal(state):
 标 `interrupted`，运行时本身不吞 `CancelledError`。
 
 W1 的 `plan` / `finalize` 是规则实现（关键词分类 + 模板回答）；W3 D13 把 plan 换成 LLM
-（JSON Schema 约束 + 失败降级），节点签名不变。W2 接 RAG 前 `citations` 恒为空。
+（JSON Schema 约束 + 失败降级），节点签名不变。W2 已接入 RAG 与引用；W4 才把
+`citations` 的来源从确定性抽取换成模型生成 + 校验。
 

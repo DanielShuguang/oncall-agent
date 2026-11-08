@@ -12,12 +12,29 @@ from httpx import ASGITransport, AsyncClient
 
 from app.core.store import InMemoryRunStore, get_store
 from app.main import app
+from app.rag.embed import HashingEmbedder
+from app.rag.memory import MemoryKnowledgeStore
+from app.rag.retrieve import KnowledgeBase
+from app.rag.service import set_knowledge_base
 from tests.support import auth_headers
 
 
 @pytest.fixture
 def mem_store() -> InMemoryRunStore:
     return InMemoryRunStore()
+
+
+@pytest.fixture(autouse=True)
+def memory_kb() -> AsyncIterator[KnowledgeBase]:
+    """测试一律用内存知识库：不碰 pgvector，也不让上传文档跨用例污染。"""
+    kb = KnowledgeBase(
+        store=MemoryKnowledgeStore(),
+        embedder=HashingEmbedder(),
+        auto_seed=True,
+    )
+    set_knowledge_base(kb)
+    yield kb
+    set_knowledge_base(None)
 
 
 @pytest.fixture

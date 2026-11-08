@@ -4,6 +4,13 @@ import { Alert, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useChat } from './store';
@@ -21,6 +28,7 @@ const PHASE_LABEL: Record<string, string> = {
 export default function ChatPage() {
   const { runtime, sending, send, abort, reset } = useChat();
   const [text, setText] = useState('');
+  const [activeCitation, setActiveCitation] = useState<Citation | null>(null);
 
   const onSend = async () => {
     const value = text.trim();
@@ -35,7 +43,7 @@ export default function ChatPage() {
         {runtime.messages.length === 0 && (
           <Card className="gap-0 py-0">
             <CardContent className="p-3 text-sm">
-              试试：「我电脑连不上打印机了」　或　「我要申请开单报修打印机」
+              试试：「VPN 连不上怎么办」　或　「我电脑连不上打印机了」
             </CardContent>
           </Card>
         )}
@@ -133,6 +141,7 @@ export default function ChatPage() {
                       <button
                         type="button"
                         className="text-xs text-brand underline-offset-4 hover:underline"
+                        onClick={() => setActiveCitation(c)}
                       >
                         [{i + 1}] {c.title}
                         {c.page ? ` p.${c.page}` : ''}
@@ -152,6 +161,29 @@ export default function ChatPage() {
           </Alert>
         )}
       </div>
+
+      <Dialog
+        open={activeCitation !== null}
+        onOpenChange={(open) => {
+          if (!open) setActiveCitation(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{activeCitation?.title}</DialogTitle>
+            <DialogDescription>
+              {activeCitation?.heading ?? '知识库原文'}
+              {activeCitation?.page ? ` · 第 ${activeCitation.page} 页` : ''}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-80 overflow-auto rounded-md border bg-panel p-3 text-sm whitespace-pre-wrap">
+            {activeCitation?.snippet}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            原文位置：{activeCitation?.document_id} · 第 {activeCitation?.ord} 段
+          </p>
+        </DialogContent>
+      </Dialog>
 
       <div className="border-t px-4 py-3">
         <div className="flex items-end gap-2">

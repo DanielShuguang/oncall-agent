@@ -140,23 +140,24 @@ CREATE TABLE role_tool_permissions (
 CREATE TABLE kb_documents (
   id          UUID PRIMARY KEY,
   title       TEXT NOT NULL,
-  source      TEXT NOT NULL,          -- 文件名/URL
+  source      TEXT NOT NULL,          -- 文件名/URL；同 source 再上传会覆盖
   version     TEXT,
-  checksum    TEXT NOT NULL,
+  checksum    TEXT NOT NULL,          -- 标题 + 正文的 sha256，用于判断是否变化
   chunk_count INT NOT NULL DEFAULT 0,
-  status      TEXT NOT NULL,          -- pending|indexed|failed
+  status      TEXT NOT NULL,          -- pending|indexed|failed（v1 只写 indexed）
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE kb_chunks (
   id          BIGSERIAL PRIMARY KEY,
   document_id UUID NOT NULL REFERENCES kb_documents(id) ON DELETE CASCADE,
-  ord         INT NOT NULL,           -- 文档内序号，用于引用定位
-  heading     TEXT,                   -- 所属标题路径
+  ord         INT NOT NULL,           -- 文档内序号（1 起），用于引用定位
+  heading     TEXT,                   -- 标题路径：打印机 > 离线排查 > 步骤 3
   content     TEXT NOT NULL,
-  page        INT,
-  embedding   vector(1024) NOT NULL,  -- bge-m3 维度；用云模型时改为 1536/3072
-  tsv         tsvector,
+  page        INT,                    -- PDF 页码；其他格式为 NULL
+  tokens      TEXT NOT NULL,          -- 应用层分词结果（中文单字 + 二元组）
+  tsv         tsvector NOT NULL,      -- to_tsvector('simple', tokens)
+  embedding   vector(1024) NOT NULL,  -- 维度与 ONCALL_EMBEDDING_DIM 强一致
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_chunks_doc ON kb_chunks (document_id, ord);
@@ -165,6 +166,12 @@ CREATE INDEX idx_chunks_vec ON kb_chunks USING hnsw (embedding vector_cosine_ops
 ```
 
 > 引用溯源要求：`chunk_id + document_id + ord` 三者是前端"跳到原文位置"的唯一依据。
+> `tokens` 是应用层切分（单字 + 二元组）再喂给 `to_tsvector('simple', ...)`：
+> Postgres 默认分词器会把连续汉字当成一个 token，中文 BM25 会失效（见 ADR-0011）。
+> `embedding` 固定 1024 维；换 embedding 模型必须先迁移表结构，配置里改了维度会启动即拒绝。
+
+实现：`server/app/models/kb.py` + `migrations/versions/20261109_0003_kb_and_business.py`。
+W2 D8 起真实使用 pgvector HNSW + GIN；`alembic check` 无漂移。
 
 ### 2.7 业务域（模拟真实系统，可换真实接口）
 
@@ -194,6 +201,9 @@ CREATE TABLE tickets (
   resolved_at TIMESTAMPTZ
 );
 ```
+
+> W2 D6：`app/seed/generate.py` 生成 200 资产 / 500 工单（含重复报修等噪声），
+> `--db` 时写入这两张表；W3 让 `query_cmdb` / `create_ticket` 真正查表（当前仍是代码常量）。
 
 ### 2.8 评测
 
@@ -263,3 +273,7 @@ uv run alembic upgrade head --sql    # 无库环境渲染 DDL，评审用
 
 - 迁移文件在 `server/migrations/versions/`；`alembic.ini` 只放占位 DSN，真实 DSN 由 `migrations/env.py` 从环境变量读
 - 必须写 `downgrade`，并在空库上验证一次 `downgrade base && upgrade head`
+- 当前迁移链：`0001` runs/events → `0002` 幂等键按用户作用域 → `0003` kb（pgvector/tsvector）+ assets/tickets
+
+> `0003` 先 `CREATE EXTENSION IF NOT EXISTS vector`，否则 vector 类型与 HNSW 索引会失败；
+> 测试库由 fixture 建扩展后再 `create_all`（扩展是库级对象，`drop_all` 不会删）。

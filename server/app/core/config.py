@@ -11,6 +11,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_SESSION_SECRET = "dev-change-me"
 MIN_SESSION_SECRET_LEN = 32
+#: kb_chunks.embedding 的维度；换模型必须先迁移再改这里，不允许静默截断。
+VECTOR_DIM = 1024
 
 #: 仓库根目录的 .env。`make api` / README 都在 server/ 下启动 uvicorn，
 #: 相对 cwd 的 ".env" 会读不到根配置（DB URL、JWT 密钥等），这里用绝对路径。
@@ -49,9 +51,33 @@ class Settings(BaseSettings):
     daily_budget_cny: float = 5.0
     rate_limit_per_min: int = 30
 
+    # RAG（W2）。rag_backend=auto：store 用 Postgres 时走 pgvector，否则内存索引。
+    rag_backend: Literal["auto", "memory", "postgres"] = "auto"
+    rag_top_k: int = 5
+    rag_candidates: int = 20
+    rag_min_score: float = 0.38
+    rag_rrf_k: int = 60
+    embedding_provider: Literal["hashing", "http"] = "hashing"
+    embedding_dim: int = VECTOR_DIM
+    embedding_base_url: str = ""
+    embedding_api_key: str = ""
+    embedding_model: str = "bge-m3"
+    kb_max_upload_mb: int = 10
+    #: 知识库管理接口要求的角色（W3 会换成 tables 里的权限矩阵）
+    admin_roles: str = "admin"
+
     # 运行态
     session_secret: str = DEFAULT_SESSION_SECRET
     event_retention_days: int = 30
+
+    @model_validator(mode="after")
+    def _validate_embedding_dim(self) -> Self:
+        if self.embedding_dim != VECTOR_DIM:
+            raise ValueError(
+                f"ONCALL_EMBEDDING_DIM 必须是 {VECTOR_DIM}（与 kb_chunks.embedding 一致）；"
+                "换维度需要先迁移表结构"
+            )
+        return self
 
     @model_validator(mode="after")
     def _validate_session_secret(self) -> Self:
@@ -71,6 +97,10 @@ class Settings(BaseSettings):
     @property
     def provider_names(self) -> list[str]:
         return [p.strip() for p in self.model_providers.split(",") if p.strip()]
+
+    @property
+    def admin_role_list(self) -> list[str]:
+        return [r.strip() for r in self.admin_roles.split(",") if r.strip()]
 
 
 @lru_cache

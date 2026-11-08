@@ -29,6 +29,7 @@ from app.agent.deps import AgentDeps
 from app.agent.nodes.finalize import finalize_node
 from app.agent.nodes.intake import intake_node
 from app.agent.nodes.plan import plan_node
+from app.agent.nodes.retrieve import retrieve_node
 from app.agent.state import (
     MAX_STEPS,
     MAX_TOOL_CALLS,
@@ -36,7 +37,9 @@ from app.agent.state import (
     AgentState,
     initial_state,
 )
+from app.core.config import get_settings
 from app.core.logging import get_logger
+from app.rag.service import get_knowledge_base
 from app.schemas.event import EventType
 from app.tools.builtin import default_registry
 from app.tools.registry import Decision, Identity, ToolGuard
@@ -52,7 +55,12 @@ APPROVAL_TTL_MIN = 10
 
 
 def build_deps() -> AgentDeps:
-    return AgentDeps(guard=ToolGuard(default_registry()))
+    settings = get_settings()
+    return AgentDeps(
+        guard=ToolGuard(default_registry()),
+        retriever=get_knowledge_base(),
+        top_k=settings.rag_top_k,
+    )
 
 
 async def stream(
@@ -111,6 +119,29 @@ async def stream(
                 "node": "intake",
                 "duration_ms": _ms(node_started),
                 "summary": "输入已规范化",
+            },
+        )
+
+        # ---------- retrieve ----------
+        expired = _timeout_event(deadline, timeout_s, step)
+        if expired is not None:
+            yield expired
+            return
+        step += 1
+        if step > max_steps:
+            yield _failed("STEP_LIMIT", f"超过最大步数 {max_steps}", step)
+            return
+        yield EventType.STEP_STARTED, {"step": step, "node": "retrieve", "title": "检索知识库"}
+        node_started = perf_counter()
+        state = _merge(state, await retrieve_node(state, resolved))
+        hits = len(state.get("retrieved", []))
+        yield (
+            EventType.STEP_COMPLETED,
+            {
+                "step": step,
+                "node": "retrieve",
+                "duration_ms": _ms(node_started),
+                "summary": f"命中 {hits} 条资料" if hits else "未命中，走兜底话术",
             },
         )
 
@@ -234,7 +265,13 @@ async def stream(
                 "summary": "回答已生成",
             },
         )
-        yield EventType.MESSAGE_COMPLETED, {"text": answer, "citations": []}
+        yield (
+            EventType.MESSAGE_COMPLETED,
+            {
+                "text": answer,
+                "citations": state.get("citations", []),
+            },
+        )
         yield (
             EventType.RUN_COMPLETED,
             {

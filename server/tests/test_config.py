@@ -40,3 +40,15 @@ def test_production_rejects_short_secret() -> None:
 def test_production_accepts_strong_secret() -> None:
     secret = "x" * MIN_SESSION_SECRET_LEN
     assert Settings(env="prod", session_secret=secret).session_secret == secret
+
+
+def test_embedding_dim_must_match_vector_column() -> None:
+    """kb_chunks.embedding 是 vector(1024)，换维度必须先迁移，不能在运行期截断。"""
+    with pytest.raises(ValidationError, match="ONCALL_EMBEDDING_DIM"):
+        Settings(embedding_dim=1536)
+    assert Settings(embedding_dim=1024).embedding_dim == 1024
+
+
+def test_admin_roles_are_parsed_from_csv() -> None:
+    settings = Settings(admin_roles="admin, kb_admin")
+    assert settings.admin_role_list == ["admin", "kb_admin"]

@@ -42,3 +42,7 @@ logs/
 *.sqlite3
 tmp/
 out/
+
+# ---- Generated seed / eval artifacts（`make seed` / `make eval` 重建）----
+server/seed_data/
+server/eval-reports/

@@ -122,7 +122,7 @@ agent 决定 create_ticket
 | 流式 | SSE（`fetch` + `ReadableStream`，非 EventSource） |
 | 后端 | Python 3.12 + FastAPI + Pydantic v2 + SQLAlchemy 2 + Alembic |
 | 编排 | LangGraph（8 节点，2 个调 LLM） |
-| 检索 | PostgreSQL 16 + pgvector + BM25(tsvector) + RRF + bge-reranker |
+| 检索 | PostgreSQL 16 + pgvector + tsvector + RRF + 确定性重排（bge-reranker W4 可选） |
 | 工具 | MCP（FastMCP），stdio + streamable HTTP |
 | 模型 | OpenAI 兼容协议；Ollama（dev）/ vLLM（演示） |
 | 观测 | 自研事件表 + 成本表 + 看板；Langfuse 可选 |

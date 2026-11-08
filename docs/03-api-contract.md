@@ -21,6 +21,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 - 失败：`401 {"code":"UNAUTHORIZED","message":"缺少或无效的 token"}` + `WWW-Authenticate: Bearer`，**不建 SSE**
 - 归属：只能访问自己的 run；别人的 run 返回 `404`（不用 403，避免泄露 run 是否存在）
 - 前端：没有登录页，token 存在 `localStorage.oncall.token`，对话框入口在右上角「设置 Token」；接 SSO 时替换 `api/deps.get_identity` 与前端 token 获取（`api/client.ts`）
+- 管理接口（`/api/admin/kb/*`）额外要求 `ONCALL_ADMIN_ROLES` 中的任一角色（默认 `admin`）；不满足返回 `403 {"code":"FORBIDDEN","message":"需要管理员角色"}`。权限矩阵 W3 D12 再落库。
 
 ## 1. 接口清单
 
@@ -31,11 +32,13 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | GET | `/runs` | 运行列表（分页） | W4 D19 |
 | GET | `/runs/{run_id}` | 单次运行详情（含指标） | W1 D4 |
 | GET | `/runs/{run_id}/events?after_seq=` | 补拉事件（断线续传，兼容 `Last-Event-ID`） | W1 D4 |
-| GET | `/runs/{run_id}/stream` | 重连增量流（可选，v1 可用轮询替代） | W2 |
+| GET | `/runs/{run_id}/stream` | 重连增量流（可选，v1 用轮询替代） | — |
 | POST | `/approvals/{id}/resolve` | 审批通过/拒绝 | W3 D14 |
 | GET | `/approvals?status=pending` | 待办审批列表 | W3 D14 |
-| POST | `/admin/kb/documents` | 上传知识文档 | W2 D7 |
-| POST | `/admin/kb/reindex` | 重建索引 | W2 D8 |
+| POST | `/admin/kb/documents` | 上传知识文档（multipart，≤10MB） | W2 D7 |
+| GET | `/admin/kb/documents` | 知识库文档列表 + chunk 总数 | W2 D7 |
+| GET | `/admin/kb/documents/{id}?preview=20` | 文档详情与切片预览（含 heading_path） | W2 D7 |
+| POST | `/admin/kb/reindex` | 重建索引（用当前 embedder 重算向量） | W2 D8 |
 | GET | `/admin/tools` | 工具注册表 | W3 D12 |
 | POST | `/admin/tools/{name}/test` | 工具试调用 | W5 D22 |
 | GET | `/admin/perm-matrix` | 角色 × 工具矩阵 | W3 D12 |
@@ -91,12 +94,14 @@ data: {"seq":7,"run_id":"01J...","type":"tool.call","ts":"2026-11-09T02:11:03.12
 | `approval.required` | `{approval_id, tool, args, risk_level, expires_at, reason}` | 弹审批卡，state→awaiting_approval |
 | `approval.resolved` | `{approval_id, status:"approved"\|"rejected"\|"expired", resolved_by}` | 审批卡置终态 |
 | `message.delta` | `{text}` | 追加到当前消息气泡 |
-| `message.completed` | `{text, citations:[{chunk_id,document_id,ord,title,snippet}]}` | 收尾，渲染引用角标 |
+| `message.completed` | `{text, citations:[{chunk_id,document_id,ord,title,heading,snippet,page}]}` | 收尾，渲染引用角标；点击打开原文片段 |
 | `run.completed` | `{status, steps, token_in, token_out, cost_cents, duration_ms}` | 置 completed，显示成本 |
 | `run.failed` | `{error_code, message, at_step}` | 置 failed，显示重试 |
 | `heartbeat` | — | 忽略（或用于探测超时） |
 
 > W1 没有 LLM 调用：`run.started.model` 默认是 `rule-engine`，W4 网关接入后才是真实模型名。
+> W2 的 `retrieve` 是**节点**而不是工具，所以只发 `step.*`，不发 `tool.call`；
+> `message.completed.citations` 为本次实际用到的 1-3 条（无命中时为空数组）。
 > OpenAPI 已声明 `BearerAuth` 安全方案（`fastapi.security.HTTPBearer`），Swagger 可直接 Authorize。
 
 ### 2.4 错误语义（三种，不要混）
@@ -104,6 +109,7 @@ data: {"seq":7,"run_id":"01J...","type":"tool.call","ts":"2026-11-09T02:11:03.12
 | 情况 | HTTP/事件 | 前端表现 |
 |---|---|---|
 | 请求本身不合法（未鉴权、字段缺失） | `4xx` JSON `{code,message}`（401 见 §0；422 是 FastAPI 校验格式），**不建 SSE** | 表单报错 / 提示设置 Token |
+| 管理接口无权限 | `403 {"code":"FORBIDDEN","message":"需要管理员角色"}` | 提示切换有 admin 角色的 Token |
 | 数据库不可用（建流前落库失败） | `503` JSON `{detail}` | 提示稍后重试，不要进入"假运行" |
 | 运行期失败（模型超时、工具全挂） | `200` + `run.failed` 事件 | 卡片显示失败 + 重试按钮 |
 | 连接断开 | 无 | 用 `lastEventId` 补拉 |
@@ -190,6 +196,48 @@ GET /api/admin/cost/summary?from=2026-11-01&to=2026-11-30&group_by=model
   ]
 }
 ```
+
+### 知识库上传与重建索引（W2 D7/D8）
+
+```http
+POST /api/admin/kb/documents
+Authorization: Bearer <admin token>
+Content-Type: multipart/form-data
+
+file=@vpn-guide.pdf
+```
+
+```json
+{
+  "document": {
+    "id": "9d0f...",
+    "title": "VPN 连接失败排查指南",
+    "source": "vpn-guide.pdf",
+    "version": null,
+    "checksum": "6f1c...",
+    "chunk_count": 5,
+    "status": "indexed",
+    "created_at": "2026-11-09T01:00:00Z"
+  },
+  "chunks": [
+    {
+      "ord": 1,
+      "heading": "VPN 连接失败排查指南 > 快速判断",
+      "content": "VPN 连不上时先确认三件事……",
+      "page": null,
+      "is_table": false
+    }
+  ]
+}
+```
+
+- 支持 PDF / DOCX / MD / TXT；PDF 只取文本层（扫描件返回 `422 PARSE_FAILED`，v1 不做 OCR）
+- 同一 `source` 再次上传会覆盖旧文档（先删后插，`document_id` 会变化）
+- `413 FILE_TOO_LARGE`：超过 `ONCALL_KB_MAX_UPLOAD_MB`（默认 10MB）
+- `503 EMBEDDING_FAILED` / `DATABASE_UNAVAILABLE`：向量化或写库失败，可重试
+- `POST /api/admin/kb/reindex` 返回 `{"chunks": 156}`：用当前 embedder 重算所有切片的向量与分词，**不重新切分源文件**
+
+W5 D21 再做知识库管理页；当前接口返回的 `chunks` 已经能直接看到 `heading_path` 与切片内容。
 
 ### 工具试调用
 

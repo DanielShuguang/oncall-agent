@@ -68,7 +68,7 @@ switch ($Target) {
         Push-Location "$root\web"; pnpm test; Pop-Location
     }
     'eval' { Push-Location "$root\server"; uv run python -m app.eval.runner; Pop-Location }
-    'seed' { Push-Location "$root\server"; uv run python -m app.seed.generate; Pop-Location }
+    'seed' { Push-Location "$root\server"; uv run python -m app.seed.generate --db; Pop-Location }
     'clean' {
         Remove-Item -Recurse -Force "$root\web\dist" -ErrorAction SilentlyContinue
         Remove-Item -Recurse -Force "$root\server\.pytest_cache" -ErrorAction SilentlyContinue

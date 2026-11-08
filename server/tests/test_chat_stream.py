@@ -56,7 +56,7 @@ async def test_stream_persists_events_and_completes(
     tool_results = [e for e in events if e["type"] == EventType.TOOL_RESULT.value]
     assert tool_results[0]["payload"]["status"] == "ok"
     completed = next(e for e in events if e["type"] == EventType.RUN_COMPLETED.value)
-    assert completed["payload"]["steps"] == 4
+    assert completed["payload"]["steps"] == 5
 
     # id 帧与 data.seq 一致
     ids = [int(line[4:]) for line in lines if line.startswith("id: ")]
@@ -67,7 +67,7 @@ async def test_stream_persists_events_and_completes(
     assert rec is not None
     assert rec.status == RunStatus.COMPLETED.value
     assert rec.event_count == len(events)
-    assert rec.output is not None and "Print Spooler" in rec.output
+    assert rec.output is not None and "打印机" in rec.output
 
     res = await client.get(f"/api/runs/{run_id}")
     assert res.json()["status"] == RunStatus.COMPLETED.value

@@ -23,6 +23,7 @@ class AgentState(TypedDict, total=False):
     intent: str
     incident_type: str  # hardware|network|software|account|other
     retrieved: list[dict[str, Any]]
+    citations: list[dict[str, Any]]
     plan: list[dict[str, Any]]
     tool_results: list[dict[str, Any]]
     pending_approval: dict[str, Any] | None
@@ -47,6 +48,7 @@ def initial_state(*, run_id: str, user: dict[str, Any], query: str) -> AgentStat
         intent="",
         incident_type="other",
         retrieved=[],
+        citations=[],
         plan=[],
         tool_results=[],
         pending_approval=None,

@@ -28,7 +28,9 @@ docker compose up -d
 
 # 4. 后端
 cd server
-uv sync
+uv sync --extra rag
+uv run alembic upgrade head
+uv run python -m app.seed.generate --db   # 50 篇知识库 + 200 资产 + 500 工单
 uv run uvicorn app.main:app --reload --port 8000
 
 # 5. 前端（新开一个终端）
@@ -37,7 +39,8 @@ pnpm install
 pnpm dev
 ```
 
-> 跑测试/迁移检查需要开发依赖：`uv sync --extra dev`（CI 还装 `--extra agent` 以通过 mypy）。
+> 跑测试/迁移检查需要开发依赖：`uv sync --extra dev --extra rag`（CI 还装 `--extra agent` 以通过 mypy）。
+> `rag` extra 只有 `pypdf` + `python-docx`；PDF/DOCX 上传需要它，只跑单测可不装。
 
 访问：
 
@@ -53,7 +56,22 @@ v1 不接 SSO，除 `/api/health` 与 OpenAPI 文档外，业务接口都要 Bea
 ```powershell
 uv run python -m app.cli token --user u_102 --roles employee
 # 输出一串 JWT，复制到前端右上角「设置 Token」，或 curl 里加 -H "Authorization: Bearer <token>"
+
+# 上传/重建知识库需要管理员角色（ONCALL_ADMIN_ROLES 默认 admin）
+uv run python -m app.cli token --user admin_1 --roles admin
 ```
+
+上传一个文档验证 RAG 链路（`server/` 下执行）：
+
+```powershell
+$token = "<admin token>"
+curl.exe -X POST http://127.0.0.1:8000/api/admin/kb/documents `
+  -H "Authorization: Bearer $token" `
+  -F "file=@seed_data/kb/kb-vpn-troubleshooting.md"
+# 返回 document + chunks（含 heading_path），再用 employee token 问「VPN 连不上怎么办」
+```
+
+> 知识库为空时先跑 `uv run python -m app.seed.generate --db`；内存模式首次检索会自动载入 seed 语料。
 
 ## 3. 本机 Docker 方案（WSL + docker.io，无 Docker Desktop）
 
@@ -101,8 +119,8 @@ pwsh -File scripts/dev.ps1 docker-down
 | `make fmt` | ruff + oxfmt 格式化 |
 | `make lint` | ruff check + ruff format --check + mypy + oxlint + `oxfmt --check` |
 | `make test` | pytest + vitest |
-| `make eval` | 跑评测出报告 |
-| `make seed` | 灌演示数据 |
+| `make eval` | 跑 20 条评测出报告（内存知识库，不依赖数据库） |
+| `make seed` | 生成演示数据并写入 Postgres（需先 `make migrate`） |
 
 ### 4.1 数据库迁移与测试库
 
@@ -124,10 +142,10 @@ wsl -d Ubuntu -u root -- bash -lc "docker exec oncall-postgres psql -U oncall -d
 
 cd server
 $env:ONCALL_TEST_DATABASE_URL = "postgresql+asyncpg://oncall:oncall@127.0.0.1:5432/oncall_test"
-uv run pytest tests/test_store_contract.py -q
+uv run pytest -q               # 含 Postgres 契约、并发 seq、pgvector 检索
 ```
 
-> 测试会 `drop_all` / `create_all`，**不要指向开发库**。
+> 测试会 `drop_all` / `create_all`，**不要指向开发库**；pgvector 扩展由 fixture 自动创建。
 
 ## 5. 项目约定
 
@@ -157,7 +175,7 @@ docker compose logs postgres --tail=50
 
 - 确认 `ONCALL_DATABASE_URL` 用 `postgresql+asyncpg://`（不是 `postgres://`）
 - 容器名解析：宿主机跑 uvicorn 用 `127.0.0.1:5432`；容器内跑用 `postgres:5432`
-- pgvector 扩展未启用：`CREATE EXTENSION IF NOT EXISTS vector;`（W2 D8 才需要）
+- pgvector 扩展未启用：`CREATE EXTENSION IF NOT EXISTS vector;`（W2 起知识库表依赖它；迁移 0003 也会自动建）
 
 ### 前端 404 / CORS
 
@@ -191,7 +209,7 @@ uv sync
 
 ```powershell
 docker compose up -d      # 中间件常在，可跳过
-cd server; uv sync        # 拉依赖变更
+cd server; uv sync --extra dev --extra rag   # 拉依赖变更
 uv run alembic upgrade head
 uv run uvicorn app.main:app --reload
 ```

@@ -8,7 +8,7 @@
 **OnCall** = 可私有化部署的企业服务台 Agent：查资产 → 验权限 → 调工具 → 开单 → 审批 → 回填。
 技术栈：Python 3.12 + FastAPI + LangGraph ｜ React 19 + Vite + Tailwind CSS ｜ PostgreSQL + pgvector ｜ SSE。
 
-当前状态：**骨架与文档完成，RAG / LangGraph 图 / 模型网关 / 评测尚未实现**。
+当前状态：**W2 已完成（RAG 全链路 + 评测 v0）；LangGraph 8 节点图 / 模型网关 / 成本看板尚未实现**。
 写代码前先确认你要做的是路线图里的哪一天（`docs/10-roadmap-6weeks.md`）。
 
 ## 1. 开始前必读（按顺序，别跳）
@@ -51,7 +51,7 @@ Windows 用 `pwsh -File scripts/dev.ps1 <target>`，其余用 `make <target>`，
 | `fmt` | `ruff format` + `oxfmt` |
 | `lint` | `ruff check` + `mypy app` + `oxlint` + `oxfmt --check` |
 | `test` | `pytest` + `vitest` |
-| `eval` / `seed` | 评测 / 造数据（当前为占位） |
+| `eval` / `seed` | 评测基线 / 演示数据（W2 已实现，见 docs/05、docs/08） |
 
 单独跑：
 
@@ -160,10 +160,13 @@ cd web && pnpm exec tsc --noEmit && pnpm test && pnpm lint && pnpm format:check
 | W1 D2 | ✅ 已完成：本地 JWT（CLI 签发 + Bearer 校验 + run 归属） | `core/security.py`, `api/deps.py`, `cli.py` |
 | W1 D4 | ✅ 已完成：Postgres store + alembic 0001 + `Last-Event-ID` 续传 | `core/store.py`, `migrations/` |
 | W1 D5 | ✅ 已完成：手写运行时 + 规则节点 + `query_cmdb` 走治理层 | `agent/runtime.py`, `agent/nodes/*`, `tools/builtin.py` |
-| W2 | RAG 全链路 + 评测 v0 | `rag/*`, `eval/*`, `seed/*` |
+| W2 | ✅ 已完成：50 篇 seed + 解析/切分 + pgvector/tsvector + 混合检索/引用 + 20 条评测 | `rag/*`, `seed/*`, `eval/*` |
 | W3 | 8 节点图 + 审批闭环 | `agent/graph.py`, `agent/nodes/*` |
 | W4 | 模型网关 + 成本看板 | `gateway/*` |
 | W5–W6 | 后台四页 + 私有化交付 | `web/src/features/console/*` |
+
+> 迁移现在到 0003（kb + assets/tickets）；改检索参数/语料必须跑 `make eval` 并对比
+> `docs/eval/baseline-v0.md`（回归超过 -3pp 不合并）。
 
 ## 10. 不确定时
 

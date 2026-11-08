@@ -76,10 +76,15 @@ docker compose up -d          # postgres:16 + pgvector, redis:7
 
 ```bash
 cd server
-uv sync
+uv sync --extra rag        # rag = pypdf + python-docx；不装则只能上传 MD/TXT
+uv run alembic upgrade head
+uv run python -m app.seed.generate --db   # 50 篇知识库 / 200 资产 / 500 工单
 uv run uvicorn app.main:app --reload --port 8000
 # 打开 http://127.0.0.1:8000/docs
 ```
+
+> `seed --db` 需要 Postgres 已启动（第 1 步）且迁移已执行；只想看生成的文件可省略 `--db`。
+> 默认 embedding 是确定性哈希（无模型依赖）；接 bge-m3 见 `.env.example` 的 `ONCALL_EMBEDDING_*`。
 
 ### 3. 签发本地 token
 
@@ -88,6 +93,9 @@ v1 不接 SSO，除 `/api/health` 与 OpenAPI 文档外，业务接口都要求 
 ```bash
 uv run python -m app.cli token --user u_102 --roles employee
 # 复制输出，粘到前端右上角「设置 Token」
+
+# 管理知识库时需要 admin 角色
+uv run python -m app.cli token --user admin_1 --roles admin
 ```
 
 ### 4. 起前端
@@ -101,7 +109,9 @@ pnpm dev
 
 前端已配置 `/api` 代理到 `http://127.0.0.1:8000`。
 
-> `/api/chat/stream` 已由真实运行时驱动（W1 D5）：规则节点 → `query_cmdb`（走治理层）→ 模板回答；W2 接 RAG，W3 换 LangGraph。
+> `/api/chat/stream` 已由真实运行时驱动：规则节点 → 混合检索（pgvector + tsvector）→
+> `query_cmdb`（走治理层）→ 带引用的回答。W2 验收：问「VPN 连不上怎么办」，
+> 答案带 3 条可点击引用。W3 换 LangGraph 8 节点图并打通审批。
 
 ## 目录
 
@@ -135,16 +145,26 @@ oncall/
 
 | 模块 | 状态 | 验证方式 |
 |---|---|---|
-| 文档（12 篇 + 10 篇 ADR） | ✅ 完成 | — |
+| 文档（12 篇 + 11 篇 ADR + 评测基线） | ✅ 完成 | — |
 | 前端骨架（状态机 / SSE 客户端 / 页面） | ✅ 可用 | `tsc --noEmit`、`oxlint`、`oxfmt --check` 通过；`vitest` 22/22；`pnpm build` 成功 |
-| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` 68 passed + 1 skipped；设 `ONCALL_TEST_DATABASE_URL` 后 69 passed（含 Postgres 契约与并发 seq） |
+| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` 95 passed + 4 skipped；设 `ONCALL_TEST_DATABASE_URL` 后 99 passed（含 Postgres 契约、并发 seq、pgvector 检索） |
 | 本地 JWT（W1 D2） | ✅ 已完成 | `tests/test_auth.py` 20 条：签发/验签、过期、alg=none、401 JSON、OpenAPI Bearer、run 归属隔离 |
 | 事件落库 + 断线续传（D4） | ✅ 已完成 | `alembic upgrade head` + `alembic check` 无漂移；`tests/test_store_contract.py`（内存 + Postgres 契约）、`tests/test_chat_stream.py`（落库、幂等回放、503 语义） |
-| 最小 Agent 运行时（W1 D5） | ✅ 已完成 | `tests/test_agent_runtime.py` 7 条：工具真实执行、写操作挂起审批、工具失败降级、步数/时长上限；e2e SSE 帧含 `tool.call` / `tool.result` |
+| 最小 Agent 运行时（W1 D5） | ✅ 已完成 | `tests/test_agent_runtime.py` 9 条：工具真实执行、检索引用、写操作挂起审批、工具失败降级、步数/时长上限 |
+| RAG 全链路（W2 D6–D10） | ✅ 已完成 | 50 篇 seed 知识库（含过期版本/冲突/噪声）；解析→切分→pgvector+tsvector→RRF→阈值→引用；`tests/test_rag_parse.py`、`test_rag_retrieve.py`、`test_rag_pg.py`、`test_kb_api.py`；评测基线 [docs/eval/baseline-v0](docs/eval/baseline-v0.md)（20 条，recall@5 100%、cite_acc 91.7%） |
 | 工具治理五道闸门 + 超时重试 | ✅ 已实现 | `tests/test_tools_guard.py` 随 `make test` 通过 |
-| RAG / LangGraph / 模型网关 / 评测 | 🚧 待实现 | 见 [路线图](docs/10-roadmap-6weeks.md) |
+| LangGraph 8 节点 / 模型网关 / 成本看板 | 🚧 W3–W4 | 见 [路线图](docs/10-roadmap-6weeks.md) |
 
-> 首次拉仓库先执行 `uv sync --all-extras`（后端）与 `pnpm install`（前端）。
+> 首次拉仓库先执行 `uv sync --extra rag`（后端）与 `pnpm install`（前端）；跑测试再加 `--extra dev`。
+
+## 已知局限
+
+- 评测集 v0 只有 20 条（负样本 2、注入 2），阈值与重排权重也在同一批用例上调过，结论只能说方向性
+- 默认 embedding 是确定性哈希，不是语义模型；生产建议切 `ONCALL_EMBEDDING_PROVIDER=http` 接 bge-m3
+- PDF 用 `pypdf` 提取文本层，扫描件不做 OCR；复杂版面/表格请先转 DOCX/MD
+- 重排是确定性规则，bge-reranker 留到 W4 有模型服务后再评估
+- 中文检索用「单字 + 二元组」，长句与跨文档对比仍弱于 zhparser + 领域词典
+- W2 的答案是指令抽取 + 模板，不是生成；W3 接 LangGraph 与审批，W4 才有 token 成本
 
 ## License
 

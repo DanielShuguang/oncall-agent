@@ -14,10 +14,12 @@ from typing import Any
 from app.agent.deps import AgentDeps
 from app.agent.state import AgentState
 
-#: 写操作意图：命中即计划 create_ticket，由治理层挂起等审批（R10）
-WRITE_KEYWORDS = ("开单", "报修", "申请", "审批", "工单")
+#: 写操作意图：命中即计划 create_ticket，由治理层挂起等审批（R10）。
+#: 只收「明确要开单」的说法；“申请/审批”单独出现时多是政策咨询，交给 RAG。
+WRITE_KEYWORDS = ("开单", "报修", "帮我申请", "提交申请", "申请开通")
 
-#: 需要先查资产的关键词
+#: 需要先查资产的关键词。`连不上` 这类泛化词不在此列：
+#: VPN/网络问题查资产没有意义，W2 起由 RAG 回答，W3 再由 LLM 决定。
 ASSET_KEYWORDS = (
     "打印机",
     "电脑",
@@ -29,7 +31,6 @@ ASSET_KEYWORDS = (
     "设备",
     "资产",
     "蓝屏",
-    "连不上",
     "离线",
 )
 

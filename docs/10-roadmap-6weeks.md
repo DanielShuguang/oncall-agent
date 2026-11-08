@@ -41,6 +41,21 @@
 
 **关键指标**：recall@5 ≥ 0.7 才继续；低于 0.6 先修切分与检索，不要急着做 Agent。
 
+**实现状态（2026-11-09）**
+
+| 天 | 状态 | 落地 |
+|---|---|---|
+| D6 造数据 | ✅ | `seed/generate.py` 一条命令生成 50 文档 / 200 资产 / 500 工单（含过期版本、冲突、噪声），`--db` 同时写入 Postgres |
+| D7 解析 + 切分 | ✅ | `rag/parse.py`（pypdf / python-docx / MD）、`rag/chunk.py`（标题路径 + 表格独立 chunk）、`POST /admin/kb/documents` 返回 chunks 与 heading_path |
+| D8 embedding + 索引 | ✅ | `rag/embed.py`（哈希 / HTTP 两种）、pgvector HNSW + `tsvector` GIN，迁移 0003 |
+| D9 混合检索 + 引用 | ✅ | tsvector + 向量 + RRF + 确定性重排 + 阈值 + 引用三元组；聊天回答带 `[1][2]` |
+| D10 评测 v0 | ✅ | `eval/runner.py` 20 条出 markdown 报告；基线 [eval/baseline-v0.md](eval/baseline-v0.md) |
+
+W2 指标：`recall@5 100%` / `cite_acc 91.7%` / `refusal_correct 100%` /
+`injection_blocked 100%` / `p95 69ms`（20 条小样本，内存检索，口径见基线文档）。
+与计划的差异：PDF 默认用 `pypdf` 而不是 PyMuPDF（体积与依赖原因，ADR-0011）；
+重排是确定性规则，bge-reranker 留到 W4 有模型服务后再评估。
+
 ---
 
 ## W3 工具治理 + 审批（项目的灵魂）

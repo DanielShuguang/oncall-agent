@@ -66,7 +66,33 @@ async def test_printer_query_executes_cmdb_and_answers() -> None:
 
     answer = _of(events, EventType.MESSAGE_COMPLETED)[0]["text"]
     assert "PC-20481" in answer
-    assert "Print Spooler" in answer
+    assert "打印机" in answer
+
+    citations = _of(events, EventType.MESSAGE_COMPLETED)[0]["citations"]
+    assert len(citations) >= 2
+    assert "打印机离线排查指南" in {citation["title"] for citation in citations}
+
+
+async def test_retrieve_emits_three_vpn_citations() -> None:
+    events = await _run("VPN 连不上怎么办")
+    citations = _of(events, EventType.MESSAGE_COMPLETED)[0]["citations"]
+
+    assert len(citations) == 3
+    assert {citation["title"] for citation in citations} == {"VPN 连接失败排查指南"}
+    # 引用必须可定位：chunk_id/document_id/ord 是前端跳原文的三元组
+    for citation in citations:
+        assert citation["chunk_id"] > 0
+        assert citation["document_id"]
+        assert citation["ord"] >= 0
+        assert citation["snippet"]
+
+
+async def test_no_retrieval_falls_back_to_refusal() -> None:
+    events = await _run("公司年会抽奖规则是什么")
+    completed = _of(events, EventType.MESSAGE_COMPLETED)[0]
+
+    assert completed["citations"] == []
+    assert "没有检索到" in completed["text"]
 
 
 async def test_step_events_carry_contract_fields() -> None:
@@ -74,8 +100,14 @@ async def test_step_events_carry_contract_fields() -> None:
     started = _of(events, EventType.STEP_STARTED)
     completed = _of(events, EventType.STEP_COMPLETED)
 
-    assert [s["step"] for s in started] == [1, 2, 3, 4]
-    assert [s["node"] for s in started] == ["intake", "plan", "act", "finalize"]
+    assert [s["step"] for s in started] == [1, 2, 3, 4, 5]
+    assert [s["node"] for s in started] == [
+        "intake",
+        "retrieve",
+        "plan",
+        "act",
+        "finalize",
+    ]
     for payload in started:
         assert {"step", "node", "title"} <= payload.keys()
     for payload in completed:

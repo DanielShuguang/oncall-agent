@@ -1,11 +1,14 @@
-"""检索增强（W2 D7-D9 起实现）。
+"""检索增强（W2 D6-D10）。
 
 模块划分：
-    parse.py     文档解析（PDF / DOCX / MD）
+    parse.py     文档解析（PDF / DOCX / MD / TXT）
     chunk.py     结构切分（按标题层级，超长再递归）
-    index.py     embedding 入库 + tsvector 建索引
-    retrieve.py  混合检索（BM25 + 向量 + RRF）+ rerank
-    cite.py      引用溯源（chunk_id -> 原文定位）
+    text.py      中文分词（单字 + 二元组）与 tsvector token 串
+    embed.py     向量化（确定性哈希 / OpenAI 兼容 HTTP）
+    retrieve.py  混合检索（tsvector + pgvector + RRF）+ 重排 + 阈值
+    repository.py pgvector 持久化（业务代码不直接写向量 SQL）
+    memory.py    内存实现（测试 / 无库 demo）
+    service.py   单例装配
 
 约束：
 - `Retriever` 是协议，允许替换 pgvector -> Qdrant/Milvus（见 ADR-0004）
@@ -14,20 +17,15 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Protocol
+from app.rag.retrieve import KnowledgeBase, Retriever
+from app.rag.types import ChunkRow, DocumentInfo, Hit, KnowledgeStore, Ranked
 
-
-@dataclass(slots=True)
-class Hit:
-    chunk_id: int
-    document_id: str
-    ord: int
-    title: str
-    heading: str | None
-    content: str
-    score: float
-
-
-class Retriever(Protocol):
-    async def search(self, query: str, top_k: int = 5) -> list[Hit]: ...
+__all__ = [
+    "ChunkRow",
+    "DocumentInfo",
+    "Hit",
+    "KnowledgeBase",
+    "KnowledgeStore",
+    "Ranked",
+    "Retriever",
+]

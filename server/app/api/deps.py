@@ -49,3 +49,17 @@ def get_identity(
         raise _unauthorized() from None
 
     return Identity(user_id=claims.user_id, roles=frozenset(claims.roles))
+
+
+def require_admin(
+    identity: Annotated[Identity, Depends(get_identity)],
+) -> Identity:
+    """知识库管理接口：要求 `ONCALL_ADMIN_ROLES` 中的任一角色。
+
+    W3 D12 会换成数据库里的角色 × 工具权限矩阵；现在先守住入口，
+    避免任何员工都能往检索语料里投毒。
+    """
+    allowed = set(get_settings().admin_role_list)
+    if not allowed.intersection(identity.roles):
+        raise ApiError(403, "FORBIDDEN", "需要管理员角色")
+    return identity

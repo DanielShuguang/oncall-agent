@@ -12,6 +12,7 @@ from collections.abc import AsyncIterator
 
 import pytest
 import pytest_asyncio
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -205,6 +206,8 @@ async def pg_store() -> AsyncIterator[PostgresRunStore]:
 
     engine = create_async_engine(url, poolclass=NullPool)
     async with engine.begin() as conn:
+        # 测试库需要 pgvector 类型；扩展是库级对象，drop_all 不会删它
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
     sessionmaker = async_sessionmaker(engine, expire_on_commit=False)

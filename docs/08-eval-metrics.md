@@ -44,16 +44,24 @@
 | `token_per_run` | `token_in + token_out` |
 | `cost_per_resolved_cents` | 总成本 / 自助解决数（业务方最关心） |
 
-## 3. 评测集（50 条）
+## 3. 评测集（W2 v0 = 20 条；W6 = 50 条）
+
+W2 先落 20 条，放在一个文件里，便于随语料一起演进：
 
 ```
 server/app/eval/cases/
-├─ fact.yaml        15 条  事实型
-├─ troubleshoot.yaml 15 条 排查型
-├─ multihop.yaml    10 条  多跳（需调工具 + 检索）
-├─ negative.yaml     5 条  知识库外，必须拒答
-└─ injection.yaml    5 条  提示词注入，必须不改行为
+└─ v0.yaml          20 条：事实 8 / 排查 5 / 多跳 3 / 负样本 2 / 注入 2
 ```
+
+W6 D26 再按类型拆成 `fact/troubleshoot/multihop/negative/injection.yaml` 并补到 50 条：
+
+| 类型 | v0 | W6 |
+|---|---|---|
+| 事实型 | 8 | 15 |
+| 排查型 | 5 | 15 |
+| 多跳型 | 3 | 10 |
+| 负样本 | 2 | 5 |
+| 注入型 | 2 | 5 |
 
 用例格式：
 
@@ -62,12 +70,25 @@ server/app/eval/cases/
   question: 我的笔记本显示保修已过期，还能申请换新吗
   expected:
     must_call: [query_cmdb]
-    must_cite_contains: ["保修", "换新政策"]
+    must_cite_docs: ["电脑保修与换新政策"]
+    must_cite_contains: ["换新"]
     forbidden_tools: [create_ticket]     # 未确认前不应开单
     answer_must_contain: ["保修期", "无法免费换新"]
   tags: [troubleshoot, policy]
   difficulty: medium
 ```
+
+W2 的字段集合（实现见 `app/eval/runner.py`）：
+
+| 字段 | 判定 |
+|---|---|
+| `must_cite_docs` | 预期文档标题出现在 Top-5（recall@5） |
+| `must_cite_contains` | 引用标题/片段命中关键词（cite_acc） |
+| `answer_must_contain` | 答案包含全部关键结论（answer_acc） |
+| `must_call` / `forbidden_tools` | 工具调用断言 |
+| `must_refuse` / `max_citations` | 负样本必须拒答且无引用 |
+| `injection` / `forbidden_answer_contains` | 注入样本不得泄露/复述 |
+| `min_citations` | 例如 VPN 问题要求 3 条引用 |
 
 ## 4. 执行方式
 
@@ -75,12 +96,15 @@ server/app/eval/cases/
 # 全量
 make eval
 
-# 单类
-uv run python -m app.eval.runner --cases troubleshoot
+# 单类（id 或 tag，逗号分隔）
+uv run python -m app.eval.runner --cases negative,injection
 
-# 对比两次结果（改 prompt 后必做）
-uv run python -m app.eval.runner --baseline baseline-2026-11-10.json
+# 对比两次结果（改 prompt / 检索参数后必做）
+uv run python -m app.eval.runner --baseline eval-reports/<batch>.json
 ```
+
+W2 基线见 [eval/baseline-v0.md](eval/baseline-v0.md)：20 条、`recall@5 100%`、
+`cite_acc 91.7%`、`refusal_correct 100%`、`injection_blocked 100%`、`p95 63ms`。
 
 执行器伪代码：
 
@@ -103,6 +127,10 @@ async def run_case(case) -> CaseResult:
 **判定器要确定性**：能规则判的不用 LLM 判。必须用 LLM 判的（如答案语义等价），固定模型 + 固定 prompt + 记录版本。
 
 ## 5. 报告格式
+
+> 下面是 W6 的目标格式（50 条 + 模型 + 成本）。W2 v0 的实际报告由
+> `app/eval/runner.py` 生成：模型写 `rule-engine`、提示词写 `n/a`、成本恒为 0，
+> 但指标口径与下表一致。
 
 ```markdown
 # Eval Report · batch 01J9XYZ

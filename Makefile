@@ -31,7 +31,7 @@ migrate:
 	cd server && uv run alembic upgrade head
 
 install:
-	cd server && uv sync
+	cd server && uv sync --all-extras
 	cd web && pnpm install
 
 api:
@@ -56,7 +56,7 @@ eval:
 	cd server && uv run python -m app.eval.runner
 
 seed:
-	cd server && uv run python -m app.seed.generate
+	cd server && uv run python -m app.seed.generate --db
 
 clean:
 	rm -rf web/dist server/.venv/.cache .pytest_cache

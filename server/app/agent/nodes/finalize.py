@@ -1,40 +1,30 @@
-"""finalize 节点：规则拼装回答。
+"""finalize 节点：拼装回答 + 引用（W2 D9）。
 
-W2 接入 RAG 后，引用与「无引用不回答」的校验放在这里（docs/04 §5）；
-W1 只有工具结果，没有知识库，所以 citations 为空。
+规则：
+1. 有检索结果 → 抽取式回答，每条引用标注 `[1] [2]`，并只保留真正用到的引用
+2. 无检索结果 / 低于阈值 → 固定兜底话术，不生成、不臆造（docs/05 §5.4）
+3. 工具结果（资产状态）作为前缀，工具失败不中断回答
+
+W3 接模型后，这里保留「无引用不回答」的校验：模型给出的引用必须来自
+本次 `retrieved`，否则丢弃该句并降级为兜底（docs/04 §5）。
 """
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from app.agent.deps import AgentDeps
 from app.agent.state import AgentState
+from app.rag.text import tokenize
 
-_BODY: dict[str, str] = {
-    "hardware": (
-        "打印机/外设离线通常先排查这三点："
-        "1）确认设备与电脑在同一网段；"
-        "2）在服务里重启 Print Spooler；"
-        "3）删除设备后重新添加打印机。"
-    ),
-    "network": (
-        "先确认是否只有你这台设备断网：1）重新连接 VPN；2）把 DNS 切到内网 DNS；3）重启网络适配器。"
-    ),
-    "account": (
-        "账号类问题建议先自助处理：1）在 SSO 门户重置密码；2）确认账号未被锁定；"
-        "3）仍失败则申请权限复核。"
-    ),
-    "software": (
-        "软件问题先确认版本与权限：1）用管理员权限重新安装；2）清理旧版本残留；"
-        "3）驱动从内网软件库获取。"
-    ),
-    "other": (
-        "我暂时没有查到可直接执行的处理方案。可以补充设备型号与报错信息，"
-        "或让我帮你开一张工单转 IT 服务台。"
-    ),
-}
+MAX_CITATIONS = 3
+MAX_SENTENCE_CHARS = 180
 
+REFUSAL = (
+    "知识库里没有检索到可直接引用的处理方法。"
+    "可以补充设备型号与报错信息，或让我帮你开一张工单转 IT 服务台。"
+)
 _TAIL = "如果以上步骤仍不能解决，我可以帮你开一张报修工单。"
 
 
@@ -45,30 +35,138 @@ def _first_tool(state: AgentState, tool: str) -> dict[str, Any] | None:
     return None
 
 
-def compose_answer(state: AgentState) -> str:
-    incident = state.get("incident_type", "other")
+def _sentences(text: str) -> list[str]:
+    # Markdown 里一行可能只是软换行；先接回整句，列表项（- / 1.）保留边界
+    normalized = re.sub(r"\n(?![ \t]*(?:[-*+]|\d+\.)\s)", "", text.replace("\r", ""))
+    for separator in ("。", "！", "？", "!", "?", "；", ";"):
+        normalized = normalized.replace(separator, "\n")
+    return [line.strip(" -•\t") for line in normalized.splitlines() if line.strip()]
+
+
+def _best_sentence(content: str, query_tokens: set[str]) -> str:
+    candidates = _sentences(content)
+    if not candidates:
+        return content.strip()[:MAX_SENTENCE_CHARS]
+
+    def weight(token: str) -> float:
+        # 型号/错误码/数字单位（P0、25MB）比单字更能决定答案是否命中
+        if token.isascii():
+            return 3.0
+        return 2.0 if len(token) >= 2 else 1.0
+
+    total = sum(weight(token) for token in query_tokens) or 1.0
+    best = candidates[0]
+    best_score = -1.0
+    for sentence in candidates:
+        overlap = query_tokens & set(tokenize(sentence))
+        score = sum(weight(token) for token in overlap) / total
+        # 太短的句子信息量不足，同分时优先信息更完整的
+        if 10 <= len(sentence) <= MAX_SENTENCE_CHARS:
+            score += 0.01
+        if score > best_score:
+            best, best_score = sentence, score
+    if len(best) > MAX_SENTENCE_CHARS:
+        best = best[:MAX_SENTENCE_CHARS].rstrip() + "…"
+    return best
+
+
+def _asset_prefix(state: AgentState) -> str | None:
     asset_call = _first_tool(state, "query_cmdb")
     asset = asset_call.get("result") if asset_call is not None else None
-
-    parts: list[str] = []
     if isinstance(asset, dict):
-        parts.append(
+        return (
             f"已确认你名下的 {asset.get('model', '设备')}"
             f"（{asset.get('asset_id', '-')}）状态为 {asset.get('status', '未知')}。"
         )
-    elif asset_call is not None:
+    if asset_call is not None:
         # 工具失败不中断 run，按 docs/06 §6 的降级话术继续给建议
-        parts.append("资产信息暂时没查到（数据可能过期），我按通用步骤给你建议。")
+        return "资产信息暂时没查到（数据可能过期），我按通用步骤给你建议。"
+    return None
 
-    parts.append(_BODY.get(incident, _BODY["other"]))
-    if incident != "other":
-        parts.append(_TAIL)
-    return "".join(parts)
+
+def _select_hits(retrieved: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """选出最多 3 条引用：先保每篇文档的最佳切片，再用高分切片补满。
+
+    只看分数取 Top-3 会出现两个问题：
+    - 多跳问题（打印机过保）的保修文档排第 4，被同文档的 3 个切片挤掉
+    - 噪声文档碰巧词面重合，被当作第 3 条引用
+    """
+    if not retrieved:
+        return []
+    top_score = float(retrieved[0].get("score", 0.0))
+    threshold = top_score * 0.8
+    best_by_document: dict[str, dict[str, Any]] = {}
+    for hit in retrieved:
+        # 归档文档是冲突/过期说法，只用于召回对照，不能进引用与回答
+        if "归档" in str(hit.get("title", "")):
+            continue
+        document_id = str(hit.get("document_id", ""))
+        if document_id not in best_by_document:
+            best_by_document[document_id] = hit
+    selected = [
+        hit for hit in best_by_document.values() if float(hit.get("score", 0.0)) >= threshold
+    ]
+    selected.sort(key=lambda hit: -float(hit.get("score", 0.0)))
+    selected = selected[:MAX_CITATIONS]
+
+    chosen = {int(hit.get("chunk_id", 0)) for hit in selected}
+    for hit in retrieved:
+        if len(selected) >= MAX_CITATIONS:
+            break
+        if "归档" in str(hit.get("title", "")):
+            continue
+        chunk_id = int(hit.get("chunk_id", 0))
+        if chunk_id in chosen:
+            continue
+        selected.append(hit)
+        chosen.add(chunk_id)
+    # 不按分数重排：跨文档的最佳切片要保留在引用里（多跳问题的另一半证据），
+    # 同文档的高分切片只用于补满剩余位置。
+    return selected[:MAX_CITATIONS]
+
+
+def compose_answer(state: AgentState) -> tuple[str, list[dict[str, Any]]]:
+    parts: list[str] = []
+    prefix = _asset_prefix(state)
+    if prefix:
+        parts.append(prefix)
+
+    retrieved = state.get("retrieved", [])
+    citation_by_chunk = {
+        int(citation["chunk_id"]): citation
+        for citation in state.get("citations", [])
+        if isinstance(citation, dict) and "chunk_id" in citation
+    }
+    query_tokens = set(tokenize(state.get("query", "")))
+
+    if not retrieved:
+        parts.append(REFUSAL)
+        return "".join(parts), []
+
+    selected = _select_hits(retrieved)
+    used: list[dict[str, Any]] = []
+    parts.append("根据内部知识库，建议按以下步骤处理：\n")
+    for index, hit in enumerate(selected, start=1):
+        content = str(hit.get("content", "")).strip()
+        if not content:
+            continue
+        sentence = _best_sentence(content, query_tokens)
+        parts.append(f"{index}. {sentence} [{index}]\n")
+        citation = citation_by_chunk.get(int(hit.get("chunk_id", 0)))
+        if citation is not None:
+            used.append(citation)
+
+    if not used:
+        # 检索有结果但引用对不上：宁可拒答，也不输出不可溯源的内容
+        return REFUSAL, []
+
+    parts.append(_TAIL)
+    return "".join(parts), used
 
 
 def finalize_node(state: AgentState, deps: AgentDeps) -> dict[str, Any]:
-    """返回 state 增量：追加一条 assistant 消息。"""
+    """返回 state 增量：追加一条 assistant 消息 + 本次引用。"""
     del deps
-    answer = compose_answer(state)
+    answer, citations = compose_answer(state)
     messages = [*state.get("messages", []), {"role": "assistant", "content": answer}]
-    return {"messages": messages}
+    return {"messages": messages, "citations": citations}

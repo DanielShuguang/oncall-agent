@@ -10,7 +10,7 @@ help:
 	@echo "install 安装前后端依赖"
 	@echo "api     起后端 (8000)"
 	@echo "web     起前端 (5173)"
-	@echo "fmt     格式化 (ruff + biome)"
+	@echo "fmt     格式化 (ruff + oxfmt)"
 	@echo "lint    静态检查"
 	@echo "test    跑测试"
 	@echo "eval    跑评测并生成报告"
@@ -38,11 +38,11 @@ web:
 
 fmt:
 	cd server && uv run ruff format . && uv run ruff check --fix .
-	cd web && pnpm biome format --write .
+	cd web && pnpm exec oxfmt
 
 lint:
 	cd server && uv run ruff check . && uv run mypy app
-	cd web && pnpm biome check .
+	cd web && pnpm exec oxlint && pnpm exec oxfmt --check
 
 test:
 	cd server && uv run pytest -q

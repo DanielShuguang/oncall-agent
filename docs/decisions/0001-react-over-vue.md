@@ -27,7 +27,7 @@
 
 - 正面：可直接参考 AG-UI / assistant-ui 的事件与状态设计；面试时说"React"匹配更多 JD
 - 负面：前期组件写法需要适应（约 0.5 天）；失去 UnoCSS 的熟练度红利
-- 缓解：UI 层用 Ant Design（我熟），样式用 CSS 变量 + 少量 Tailwind，避免从零搭设计系统
+- 缓解：样式统一用 Tailwind CSS，设计令牌收敛到 `@theme`，避免从零搭设计系统（最初的 Ant Design 方案已在 [ADR-0006](0006-tailwind-and-oxc.md) 被取代）
 
 ## 如果重来
 

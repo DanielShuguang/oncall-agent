@@ -7,9 +7,12 @@
 | Docker Desktop | 最新 | Postgres / Redis | 官网 |
 | Python | 3.12 | 后端 | `uv python install 3.12` |
 | uv | 0.5+ | Python 依赖 | `powershell -c "irm https://astral.sh/uv/install.ps1 \| iex"` |
-| Node.js | 20+ | 前端 | 已装（v24 亦可） |
-| pnpm | 9+ | 前端依赖 | `corepack enable && corepack prepare pnpm@latest --activate` |
+| Node.js | 22.12+（本项目用 24） | 前端（Vite 8 / Vitest 5 / React Router 8 的下限） | 已装（v24 亦可） |
+| pnpm | 10+ | 前端依赖（`packageManager` 已声明 10.34.3） | `corepack enable && corepack prepare pnpm@latest --activate` |
 | Git | 最新 | 版本控制 | 已装 |
+
+> 版本策略见 [decisions/0007](decisions/0007-dependency-versions.md)：前端依赖跟最新，TypeScript 用 6.0.3。
+> TS 7 的原生编译器不提供 JS API，`openapi-typescript` 无法运行，因此 7.0 暂缓。
 
 ## 2. 首次启动
 
@@ -40,7 +43,40 @@ pnpm dev
 - 后端文档 http://127.0.0.1:8000/docs
 - 健康检查 http://127.0.0.1:8000/api/health
 
-## 3. 常用命令
+## 3. 本机 Docker 方案（WSL + docker.io，无 Docker Desktop）
+
+本机情况：**没有装 Docker Desktop**（它需要管理员权限，且 2025-06 已被卸载），但 WSL 2.3.26 可用。因此用「导入 Ubuntu 根文件系统 + 在 WSL 内装 docker.io」的方案，**全程不需要管理员权限**。
+
+已完成的一次性准备（记录备查）：
+
+| 步骤 | 做法 |
+|---|---|
+| 1. 准备 rootfs | 下载 `ubuntu-base-24.04.3-base-amd64.tar.gz`（29MB，无管理员也能下） |
+| 2. 注册发行版 | `wsl --import Ubuntu E:\wsl\Ubuntu <tar> --version 2`（导入，非安装） |
+| 3. 装 Docker | `wsl -d Ubuntu -u root -- bash /mnt/e/workspace/github/oncall/scripts/wsl-setup.sh` |
+| 4. 镜像加速 | 脚本写入 `/etc/docker/daemon.json`（daocloud / 1ms.run / xuanyuan） |
+
+脚本做了什么：换 aliyun 镜像源 → 引导装 CA 证书 → 装 `docker.io` + `docker-compose-v2` → 写镜像加速器 → 启动 `dockerd`（无 systemd，用 nohup 兜底）。
+
+### 日常使用
+
+```powershell
+pwsh -File scripts/dev.ps1 docker-up     # 确保 dockerd 在线 + compose up -d
+pwsh -File scripts/dev.ps1 docker-ps     # 看容器状态
+pwsh -File scripts/dev.ps1 docker-logs   # 跟日志
+pwsh -File scripts/dev.ps1 docker-down
+```
+
+> 不要用 `make up` —— Makefile 假设宿主机有 docker CLI，本机没有。`docker-*` 系列会经 WSL 执行。
+
+### 注意
+
+- WSL 空闲会自动关虚拟机，`dockerd` 随之停止。`docker-up` 已经内置“守护进程不在就拉起来”的逻辑，直接敲即可
+- 容器端口通过 WSL2 localhost 转发暴露给 Windows，所以 Windows 侧的 `127.0.0.1:5432 / 6379` 依然可用
+- 若以后装了 Docker Desktop，把 `Makefile` 里的 `up/down` 用起来即可，`docker-*` 可以不用
+- WSL 磁盘文件在 `E:\wsl\Ubuntu\ext4.vhdx`，想回收空间可 `wsl --shutdown` 后压缩
+
+## 4. 常用命令
 
 无 `make` 时用 `pwsh -File scripts/dev.ps1 <target>`，或直接照抄 Makefile。
 
@@ -49,25 +85,27 @@ pnpm dev
 | `make up` / `make down` | 起停中间件 |
 | `make api` | 起后端 |
 | `make web` | 起前端 |
-| `make fmt` | ruff + biome 格式化 |
-| `make lint` | ruff + mypy + biome |
+| `make fmt` | ruff + oxfmt 格式化 |
+| `make lint` | ruff + mypy + oxlint + `oxfmt --check` |
 | `make test` | pytest + vitest |
 | `make eval` | 跑评测出报告 |
 | `make seed` | 灌演示数据 |
 
-## 4. 项目约定
+## 5. 项目约定
 
 | 项 | 约定 |
 |---|---|
 | Python 包管理 | 只用 `uv`，不混用 pip/poetry |
 | Python 风格 | ruff format + ruff check，行宽 100 |
+| 前端样式 | 只用 Tailwind CSS utility class，颜色/字号走 `src/styles/global.css` 的 `@theme` 令牌，不写裸色值 |
+| 前端风格 | oxlint（规则见 `web/.oxlintrc.json`）+ oxfmt（`web/.oxfmtrc.json`），行宽 100，单引号 |
 | 类型 | 后端 mypy（至少 `app/agent`, `app/tools` 严格），前端 `strict: true` |
 | 命名 | 表名复数蛇形；事件类型 `domain.action` 点分 |
 | 提交信息 | `feat(agent): 增加 verify 节点重规划` / `fix(tools): 修正超时未取消协程` |
 | 分支 | 一人开发直接 main；多人用 `feat/xxx` |
 | 注释 | 只写"为什么"，不写"是什么" |
 
-## 5. 排错
+## 6. 排错
 
 ### Docker 起不来
 
@@ -105,7 +143,7 @@ uv sync
 - 所有文本文件 UTF-8（`.editorconfig` 已声明）
 - 文件名避免中文，减少跨平台问题
 
-## 6. 每天开工程序（建议）
+## 7. 每天开工程序（建议）
 
 ```powershell
 docker compose up -d      # 中间件常在，可跳过
@@ -114,7 +152,7 @@ uv run alembic upgrade head
 uv run uvicorn app.main:app --reload
 ```
 
-## 7. 提交前检查
+## 8. 提交前检查
 
 - [ ] `make fmt` 已跑
 - [ ] `make lint` 无错

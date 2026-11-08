@@ -1,7 +1,7 @@
 {
   "name": "oncall-web",
-  "private": true,
   "version": "0.1.0",
+  "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,29 +9,46 @@
     "preview": "vite preview --port 4173",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "biome check .",
-    "format": "biome format --write .",
+    "lint": "oxlint",
+    "lint:fix": "oxlint --fix",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check",
     "gen:api": "openapi-typescript http://127.0.0.1:8000/openapi.json -o src/api/generated.ts"
   },
   "dependencies": {
-    "@tanstack/react-query": "^5.62.0",
-    "antd": "^5.22.2",
-    "dayjs": "^1.11.13",
-    "echarts": "^5.5.1",
-    "echarts-for-react": "^3.0.2",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "react-router-dom": "^6.28.0",
-    "zustand": "^5.0.1"
+    "@tanstack/react-query": "^5.107.1",
+    "class-variance-authority": "^0.7.1",
+    "cn": "^0.5.2",
+    "dayjs": "^1.11.23",
+    "echarts": "^6.1.0",
+    "echarts-for-react": "^3.0.6",
+    "lucide-react": "^1.70.0",
+    "radix-ui": "^1.8.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-router": "^8.5.1",
+    "zustand": "^5.1.0"
   },
   "devDependencies": {
-    "@biomejs/biome": "^1.9.4",
-    "@types/react": "^19.0.1",
-    "@types/react-dom": "^19.0.1",
-    "@vitejs/plugin-react": "^4.3.4",
-    "openapi-typescript": "^7.4.4",
-    "typescript": "^5.7.2",
-    "vite": "^6.0.3",
-    "vitest": "^2.1.8"
+    "@tailwindcss/vite": "^4.3.5",
+    "@types/node": "^24.19.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.2.1",
+    "openapi-typescript": "^7.13.0",
+    "oxfmt": "^0.77.0",
+    "oxlint": "^1.92.0",
+    "tailwindcss": "^4.3.5",
+    "typescript": "^6.0.3",
+    "vite": "^8.3.6",
+    "vitest": "^5.1.0"
+  },
+  "packageManager": "pnpm@10.34.3",
+  "pnpm": {
+    "peerDependencyRules": {
+      "allowedVersions": {
+        "openapi-typescript>typescript": "6"
+      }
+    }
   }
 }

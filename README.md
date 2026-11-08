@@ -35,7 +35,7 @@
 企业微信 / Web 门户
         │  SSE
 ┌───────▼────────────────────────────────────┐
-│  Web 前端（React 19 + TS + Ant Design）       │
+│  Web 前端（React 19 + TS + Tailwind CSS）     │
 │  对话流 / 工具卡片 / 工单卡 / 审批 / 成本看板   │
 └───────┬────────────────────────────────────┘
         │  HTTP + SSE
@@ -100,7 +100,7 @@ pnpm dev
 oncall/
 ├─ docs/          # 设计文档（先读 00-index.md）
 ├─ server/        # FastAPI + LangGraph
-└─ web/           # React 19 + Vite + Ant Design
+└─ web/           # React 19 + Vite + Tailwind CSS
 ```
 
 ## 文档

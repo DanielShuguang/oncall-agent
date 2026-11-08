@@ -7,14 +7,7 @@
  * - 事件是唯一输入，重放历史事件即可重建界面
  */
 
-import type {
-  ApprovalRequest,
-  ChatMessage,
-  Citation,
-  RunEvent,
-  StepItem,
-  ToolCard,
-} from './types';
+import type { ApprovalRequest, ChatMessage, Citation, RunEvent, StepItem, ToolCard } from './types';
 
 export type ChatPhase =
   | 'idle'

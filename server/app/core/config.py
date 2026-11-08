@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -22,6 +23,8 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+asyncpg://oncall:oncall@127.0.0.1:5432/oncall"
     redis_url: str = "redis://127.0.0.1:6379/0"
+    # memory 仅供测试/无库演示；生产默认 postgres，不做静默降级
+    store_backend: Literal["postgres", "memory"] = "postgres"
 
     # 模型网关
     model_providers: str = "cloud,local"

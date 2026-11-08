@@ -61,6 +61,8 @@ export async function streamChat(opts: StreamOptions): Promise<void> {
 
   try {
     for (;;) {
+      // SSE 是一帧接一帧的流，必须顺序读；并发读会把帧序打乱。
+      // oxlint-disable-next-line no-await-in-loop
       const { value, done } = await reader.read();
       if (done) break;
       buffer += value;

@@ -93,6 +93,8 @@ ChatPage
 └─ ConnectionBanner        断线提示 + "正在恢复…"
 ```
 
+通用样式原语（Button / Tag / Card / Alert / Tabs）在 `src/components/ui.tsx`，页面只做组合，不重复写按钮/标签样式（见 §11）。
+
 管理后台：
 
 ```
@@ -152,3 +154,64 @@ Pydantic 模型 ──► OpenAPI ──► openapi-typescript ──► src/api
 - [ ] 未知事件类型不崩溃
 - [ ] 1000 条消息的会话滚动流畅
 - [ ] 引用角标能跳到正确原文位置
+
+## 11. 样式系统与代码约束
+
+### 11.1 Tailwind CSS 4
+
+- 接入方式：`@tailwindcss/vite` 插件（`vite.config.ts`），**不用** PostCSS 配置
+- 唯一入口：`src/styles/global.css` 里 `@import 'tailwindcss'`
+- 设计令牌：全部写在 `@theme` 里，Tailwind 会生成对应 utility
+  （`--color-panel` → `bg-panel`，`--color-muted` → `text-muted`）
+
+| 令牌 | utility | 用途 |
+|---|---|---|
+| `--color-canvas` | `bg-canvas` | 页面底色 |
+| `--color-panel` | `bg-panel` | 卡片 / 输入框底色 |
+| `--color-line` | `border-line` | 分隔线与边框 |
+| `--color-ink` | `text-ink` | 正文 |
+| `--color-muted` | `text-muted` | 次要信息 |
+| `--color-brand` | `text-brand` / `bg-brand` | 主色 |
+| `--color-ok` / `--color-warn` / `--color-danger` | `text-ok` … | 状态语义 |
+
+约定：
+
+- 组件里**只有** utility class，不写内联 `style`、不新增 `.oncall-xxx` 全局类
+- 条件样式用 `cn()`（shadcn 官方的 `cn` 包，即编译版 clsx + tailwind-merge）拼接
+- 通用组件用 shadcn（见 §11.3），业务组件不重复实现按钮 / 标签 / 卡片
+
+> 为什么不用运行时组件库：antd 的 CSS-in-JS 与 Tailwind 的 preflight 会互相覆盖，样式优先级要靠加载顺序
+> 去赌，排障成本远高于「复制源码 + 令牌映射」。取舍记录见 [decisions/0006](decisions/0006-tailwind-and-oxc.md)。
+
+### 11.3 组件层：shadcn/ui（源码复制）
+
+- 配置：`web/components.json`（`style: new-york`、`baseColor: neutral`、`css: src/styles/global.css`、`rsc: false`）
+- 添加组件：`pnpm dlx shadcn@latest add <name>`，输出到 `src/components/ui/`
+- **只加用得到的组件**，不要 `add --all`；当前已加：button / badge / card / alert / tabs / textarea / input / label / separator / table / dialog / dropdown-menu / select / tooltip（后八个为 W5 后台预置，未 import 不进产物）
+- 交互与 a11y 由 `radix-ui` 提供（Dialog 焦点陷阱、Select 键盘导航、Table 语义），样式仍由 Tailwind 决定
+- `TooltipProvider` 只在 `src/main.tsx` 挂一次
+
+颜色映射（**只此一处**，组件里不写色值）：
+
+| shadcn 令牌 | 映射到 |
+|---|---|
+| `--background` / `--card` / `--popover` | `--color-panel` |
+| `--foreground` | `--color-ink` |
+| `--primary` / `--ring` | `--color-brand` |
+| `--muted-foreground` | `--color-muted` |
+| `--destructive` | `--color-danger` |
+| `--border` / `--input` | `--color-line` |
+
+页面底色仍是 `--color-canvas`（`bg-canvas`，body 设置），`--background` 指「面板白」，不要混用。
+
+### 11.4 代码约束（oxc）
+
+| 工具 | 命令 | 配置 |
+|---|---|---|
+| `oxlint` | `pnpm lint` / `pnpm lint:fix` | `web/.oxlintrc.json` |
+| `oxfmt` | `pnpm format` / `pnpm format:check` | `web/.oxfmtrc.json` |
+
+- 规则集：`correctness` 报错、`suspicious` 与 `perf` 告警；插件开 react / jsx-a11y / typescript / unicorn / import / promise / vitest
+- 行宽 100、单引号，与 `.editorconfig` 一致
+- 与后端的分工不变：oxc 只管 JS/TS/JSON/Markdown 的格式与静态检查，类型仍由 `tsc --noEmit` 把关
+- **Biome 已移除**，不要混用两套格式化器（会让 diff 来回震荡）

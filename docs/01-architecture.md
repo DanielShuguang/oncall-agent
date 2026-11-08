@@ -16,7 +16,7 @@ OnCall 是一个**可私有化部署的企业服务台 Agent**。它不是聊天
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│ web/  React 19 + Vite + Ant Design                        │
+│ web/  React 19 + Vite + Tailwind CSS                      │
 │  features/chat    对话、事件时间线、审批卡、断线续传          │
 │  features/console 知识库、工具注册、权限矩阵、成本看板        │
 └───────────────┬──────────────────────────────────────────┘
@@ -118,7 +118,7 @@ agent 决定 create_ticket
 
 | 层 | 选型 |
 |---|---|
-| 前端 | React 19 + TS + Vite + Zustand + Ant Design 5 + ECharts |
+| 前端 | React 19 + TS + Vite + Zustand + Tailwind CSS 4 + ECharts |
 | 流式 | SSE（`fetch` + `ReadableStream`，非 EventSource） |
 | 后端 | Python 3.12 + FastAPI + Pydantic v2 + SQLAlchemy 2 + Alembic |
 | 编排 | LangGraph（8 节点，2 个调 LLM） |

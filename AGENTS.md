@@ -6,7 +6,7 @@
 ## 0. 30 秒上下文
 
 **OnCall** = 可私有化部署的企业服务台 Agent：查资产 → 验权限 → 调工具 → 开单 → 审批 → 回填。
-技术栈：Python 3.12 + FastAPI + LangGraph ｜ React 19 + Vite + Ant Design ｜ PostgreSQL + pgvector ｜ SSE。
+技术栈：Python 3.12 + FastAPI + LangGraph ｜ React 19 + Vite + Tailwind CSS ｜ PostgreSQL + pgvector ｜ SSE。
 
 当前状态：**骨架与文档完成，RAG / LangGraph 图 / 模型网关 / 评测尚未实现**。
 写代码前先确认你要做的是路线图里的哪一天（`docs/10-roadmap-6weeks.md`）。
@@ -34,6 +34,8 @@
 | `server/app/eval/` | 评测集与执行器 | 静默剔除失败用例 |
 | `web/src/features/chat/` | 状态机、SSE 客户端、对话 UI | 用 boolean 拼状态 |
 | `web/src/features/console/` | 管理后台 | 绕过治理直接调工具 |
+| `web/src/components/ui/` | shadcn/ui 组件（源码复制，见 ADR-0008） | 手改样式时绕开设计令牌 |
+| `web/src/styles/global.css` | Tailwind 入口与 `@theme` 设计令牌 | 写具体组件的样式 |
 | `docs/` | 设计契约 | 与代码不一致却不更新 |
 
 ## 3. 命令（不要自己造脚本）
@@ -46,8 +48,8 @@ Windows 用 `pwsh -File scripts/dev.ps1 <target>`，其余用 `make <target>`，
 | `install` | `uv sync --all-extras` + `pnpm install` |
 | `api` | `uvicorn app.main:app --reload --port 8000` |
 | `web` | `vite`（5173，`/api` 已代理到 8000） |
-| `fmt` | `ruff format` + `biome format` |
-| `lint` | `ruff check` + `mypy app` + `biome check` |
+| `fmt` | `ruff format` + `oxfmt` |
+| `lint` | `ruff check` + `mypy app` + `oxlint` + `oxfmt --check` |
 | `test` | `pytest` + `vitest` |
 | `eval` / `seed` | 评测 / 造数据（当前为占位） |
 
@@ -56,7 +58,7 @@ Windows 用 `pwsh -File scripts/dev.ps1 <target>`，其余用 `make <target>`，
 ```bash
 cd server && uv run pytest -q
 cd server && uv run ruff check . && uv run mypy app
-cd web && pnpm exec tsc --noEmit && pnpm test && pnpm lint
+cd web && pnpm exec tsc --noEmit && pnpm test && pnpm lint && pnpm format:check
 ```
 
 ## 4. 硬规则（R1–R13，review 时按编号提）
@@ -118,6 +120,9 @@ cd web && pnpm exec tsc --noEmit && pnpm test && pnpm lint
 
 **Python**：ruff（line 100）+ mypy；`app/agent`、`app/tools` 开严格模式；异常在工具边界必须兜住；注释只写「为什么」。
 **TypeScript**：`strict: true`；禁 `any`，用 `unknown` + 收窄；状态逻辑写成纯函数以便测试。
+**样式**：一律 Tailwind CSS utility class；色值/字号只从 `web/src/styles/global.css` 的 `@theme` 令牌取（`bg-panel`/`text-muted`），不写内联 `style`、不新增 `.oncall-xxx` 全局类。
+**组件**：通用组件用 shadcn（`pnpm dlx shadcn@latest add <name>` → `src/components/ui/`），不手写 Dialog/Select/Table；改外观走令牌映射，不改组件主色（ADR-0008）。
+**代码约束**：oxc 系（`oxlint` 查问题 + `oxfmt` 格式化），不再使用 Biome；新增 lint 规则改 `web/.oxlintrc.json` 并说明理由。
 **提交信息**：`feat(agent): …` / `fix(tools): …` / `docs: …` / `chore: …`。
 
 ## 7. 反模式（明确不要做）
@@ -132,12 +137,15 @@ cd web && pnpm exec tsc --noEmit && pnpm test && pnpm lint
 | 引入 Milvus / 独立向量集群 | 私有化组件翻倍，5 万 chunk 用不上 | pgvector（见 ADR-0004） |
 | 搞 pnpm workspace + turborepo | 6 周项目里边际收益极低 | 两目录各自管依赖，compose 编排 |
 | 为了好看加动画/炫技组件 | 时间预算会崩 | 先保三条剧本能演示 |
+| 重新拉回 antd / 组件库自带样式 | 与 Tailwind 抢样式优先级，改一处要翻两套文档 | shadcn 组件 + `@theme` 令牌（ADR-0008） |
+| 跑 `shadcn add --all`，或改生成组件的硬编码主色 | 一次全加会把用不上的依赖和新 API 带进来；改主色等于长出第二套色板 | 只加需要的组件；颜色改 `global.css` 的令牌映射 |
+| 用 CSS Modules / styled-components 写组件样式 | 与 utility 体系并存会产生第二套设计令牌 | Tailwind + `@theme`，见 ADR-0006 |
 | 静默跳过失败用例 | 评测失去意义 | 原样展示，写进失败归因 |
 | 在简历/README 写测不出的数字 | 被追问就穿 | 口径三件套，测不出就删 |
 
 ## 8. 完成标准（DoD）
 
-- [ ] `make lint` 通过（ruff + mypy + biome）
+- [ ] `make lint` 通过（ruff + mypy + oxlint + oxfmt --check）
 - [ ] `make test` 通过（pytest + vitest）
 - [ ] 涉及接口/事件 → `docs/03-api-contract.md` 已更新
 - [ ] 涉及表 → alembic 迁移已生成并人工审过 + `docs/02` 已更新

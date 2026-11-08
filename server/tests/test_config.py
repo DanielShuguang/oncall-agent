@@ -52,3 +52,21 @@ def test_embedding_dim_must_match_vector_column() -> None:
 def test_admin_roles_are_parsed_from_csv() -> None:
     settings = Settings(admin_roles="admin, kb_admin")
     assert settings.admin_role_list == ["admin", "kb_admin"]
+
+
+def test_rag_params_are_validated() -> None:
+    with pytest.raises(ValidationError, match="ONCALL_RAG_RRF_K"):
+        Settings(rag_rrf_k=0)
+    with pytest.raises(ValidationError, match="ONCALL_RAG_CANDIDATES"):
+        Settings(rag_top_k=10, rag_candidates=5)
+    with pytest.raises(ValidationError, match="ONCALL_RAG_MIN_SCORE"):
+        Settings(rag_min_score=1.5)
+    with pytest.raises(ValidationError, match="ONCALL_RAG_BACKEND"):
+        Settings(store_backend="memory", rag_backend="postgres")
+
+
+def test_http_embedding_requires_base_url() -> None:
+    with pytest.raises(ValidationError, match="ONCALL_EMBEDDING_BASE_URL"):
+        Settings(embedding_provider="http", embedding_base_url="")
+    settings = Settings(embedding_provider="http", embedding_base_url="http://127.0.0.1:11434/v1")
+    assert settings.embedding_provider == "http"

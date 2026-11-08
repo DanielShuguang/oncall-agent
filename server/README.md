@@ -25,7 +25,7 @@ migrations/           Alembic
 ## 启动
 
 ```bash
-uv sync --extra dev --extra rag   # rag = pypdf + python-docx；只跑单测可不装
+uv sync --extra dev --extra rag   # rag = pypdf + python-docx；未装时解析相关用例自动 skip
 uv run alembic upgrade head
 uv run python -m app.seed.generate --db
 uv run uvicorn app.main:app --reload --port 8000

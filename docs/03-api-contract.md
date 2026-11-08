@@ -235,7 +235,20 @@ file=@vpn-guide.pdf
 - 同一 `source` 再次上传会覆盖旧文档（先删后插，`document_id` 会变化）
 - `413 FILE_TOO_LARGE`：超过 `ONCALL_KB_MAX_UPLOAD_MB`（默认 10MB）
 - `503 EMBEDDING_FAILED` / `DATABASE_UNAVAILABLE`：向量化或写库失败，可重试
+- 上传响应里的 `chunks` 最多返回前 50 条（看全量用 `document.chunk_count` 判断）
 - `POST /api/admin/kb/reindex` 返回 `{"chunks": 156}`：用当前 embedder 重算所有切片的向量与分词，**不重新切分源文件**
+
+`GET /api/admin/kb/documents/{id}?preview=20` 返回文档字段（与上传响应一致）+ 切片预览：
+
+```json
+{
+  "document": { "id": "9d0f...", "title": "VPN 连接失败排查指南", "chunk_count": 5 },
+  "chunks": [{ "ord": 1, "heading": "VPN 连接失败排查指南 > 快速判断", "content": "VPN 连不上时……", "page": null }]
+}
+```
+
+> 预览不返回 `is_table`：该标记只来自本次上传的切分结果，没有落库（docs/02 §2.6），
+> 返回恒为 `false` 会误导调用方。
 
 W5 D21 再做知识库管理页；当前接口返回的 `chunks` 已经能直接看到 `heading_path` 与切片内容。
 

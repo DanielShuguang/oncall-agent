@@ -1,10 +1,10 @@
 """RAG 的传输对象与存储协议。
 
-拆成 types / store / retrieve 三层，是为了让「换向量库只换 store」成立：
+拆成 types / repository / retrieve 三层，是为了让「换向量库只换 store」成立：
 
-    retrieve.py  融合、重排、阈值、引用（业务无关的检索策略）
-    store.py     持久化（pgvector 或内存），不允许业务代码直接写向量 SQL
-    index.py     解析 -> 切分 -> 向量化 -> 入库
+    retrieve.py    融合、重排、阈值、引用（业务无关的检索策略）
+    repository.py  pgvector 持久化；memory.py 是同一协议的内存实现
+    types.py       ParsedDoc/Chunk 之外，跨层传递的 DTO 与 `KnowledgeStore` 协议
 
 `pgvector -> Qdrant/Milvus` 的替换点只在 `KnowledgeStore`（ADR-0004）。
 """
@@ -27,7 +27,6 @@ class DocumentInfo:
     status: str
     created_at: datetime
     version: str | None = None
-    page_count: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,7 +98,6 @@ class KnowledgeStore(Protocol):
         checksum: str,
         chunks: Sequence[StoredChunk],
         version: str | None = None,
-        page_count: int | None = None,
     ) -> DocumentInfo: ...
 
     async def delete_by_source(self, source: str) -> None: ...

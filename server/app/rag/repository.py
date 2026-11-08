@@ -31,7 +31,6 @@ class PgKnowledgeStore:
         checksum: str,
         chunks: Sequence[StoredChunk],
         version: str | None = None,
-        page_count: int | None = None,
     ) -> DocumentInfo:
         document_id = uuid.uuid4()
         now = datetime.now(UTC)
@@ -70,7 +69,6 @@ class PgKnowledgeStore:
             status="indexed",
             created_at=now,
             version=version,
-            page_count=page_count,
         )
 
     async def delete_by_source(self, source: str) -> None:

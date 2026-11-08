@@ -52,7 +52,7 @@
 | D10 评测 v0 | ✅ | `eval/runner.py` 20 条出 markdown 报告；基线 [eval/baseline-v0.md](eval/baseline-v0.md) |
 
 W2 指标：`recall@5 100%` / `cite_acc 91.7%` / `refusal_correct 100%` /
-`injection_blocked 100%` / `p95 69ms`（20 条小样本，内存检索，口径见基线文档）。
+`injection_blocked 100%` / `p95 71ms`（20 条小样本，内存检索，口径见基线文档）。
 与计划的差异：PDF 默认用 `pypdf` 而不是 PyMuPDF（体积与依赖原因，ADR-0011）；
 重排是确定性规则，bge-reranker 留到 W4 有模型服务后再评估。
 

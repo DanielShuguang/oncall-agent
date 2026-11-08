@@ -31,7 +31,6 @@ class MemoryKnowledgeStore:
         checksum: str,
         chunks: Sequence[StoredChunk],
         version: str | None = None,
-        page_count: int | None = None,
     ) -> DocumentInfo:
         document_id = str(uuid.uuid4())
         info = DocumentInfo(
@@ -43,7 +42,6 @@ class MemoryKnowledgeStore:
             status="indexed",
             created_at=datetime.now(UTC),
             version=version,
-            page_count=page_count,
         )
         self._docs[document_id] = info
         self._by_source[source] = document_id

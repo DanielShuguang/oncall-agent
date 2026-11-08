@@ -46,6 +46,7 @@ def chunk_parsed(
     chunks: list[Chunk] = []
     buffer: list[str] = []
     buffer_heading: str | None = None
+    buffer_page: int | None = None
 
     def flush() -> None:
         nonlocal buffer
@@ -54,7 +55,15 @@ def chunk_parsed(
         text = "\n".join(buffer).strip()
         buffer = []
         if text:
-            chunks.append(Chunk(ord=len(chunks) + 1, text=text, heading=buffer_heading))
+            chunks.append(
+                Chunk(
+                    ord=len(chunks) + 1,
+                    text=text,
+                    # 没有标题层级的文档（比如纯文本）用文档标题兜底，引用里不至于空着
+                    heading=buffer_heading or parsed.title,
+                    page=buffer_page,
+                )
+            )
 
     for block in parsed.blocks:
         if block.is_table:
@@ -70,9 +79,10 @@ def chunk_parsed(
             )
             continue
 
-        if buffer_heading != block.heading_path:
+        if buffer_heading != block.heading_path or buffer_page != block.page:
             flush()
             buffer_heading = block.heading_path
+            buffer_page = block.page
 
         for piece in _split_long(block.text, target_chars, overlap_chars):
             if len(piece.strip()) < MIN_CHUNK_CHARS and buffer:

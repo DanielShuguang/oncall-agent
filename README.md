@@ -147,7 +147,7 @@ oncall/
 |---|---|---|
 | 文档（12 篇 + 11 篇 ADR + 评测基线） | ✅ 完成 | — |
 | 前端骨架（状态机 / SSE 客户端 / 页面） | ✅ 可用 | `tsc --noEmit`、`oxlint`、`oxfmt --check` 通过；`vitest` 22/22；`pnpm build` 成功 |
-| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` 95 passed + 4 skipped；设 `ONCALL_TEST_DATABASE_URL` 后 99 passed（含 Postgres 契约、并发 seq、pgvector 检索） |
+| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` 101 passed + 4 skipped；设 `ONCALL_TEST_DATABASE_URL` 后 105 passed（含 Postgres 契约、并发 seq、pgvector 检索） |
 | 本地 JWT（W1 D2） | ✅ 已完成 | `tests/test_auth.py` 20 条：签发/验签、过期、alg=none、401 JSON、OpenAPI Bearer、run 归属隔离 |
 | 事件落库 + 断线续传（D4） | ✅ 已完成 | `alembic upgrade head` + `alembic check` 无漂移；`tests/test_store_contract.py`（内存 + Postgres 契约）、`tests/test_chat_stream.py`（落库、幂等回放、503 语义） |
 | 最小 Agent 运行时（W1 D5） | ✅ 已完成 | `tests/test_agent_runtime.py` 9 条：工具真实执行、检索引用、写操作挂起审批、工具失败降级、步数/时长上限 |
@@ -155,7 +155,8 @@ oncall/
 | 工具治理五道闸门 + 超时重试 | ✅ 已实现 | `tests/test_tools_guard.py` 随 `make test` 通过 |
 | LangGraph 8 节点 / 模型网关 / 成本看板 | 🚧 W3–W4 | 见 [路线图](docs/10-roadmap-6weeks.md) |
 
-> 首次拉仓库先执行 `uv sync --extra rag`（后端）与 `pnpm install`（前端）；跑测试再加 `--extra dev`。
+> 首次拉仓库执行 `uv sync --all-extras`（后端）与 `pnpm install`（前端）；
+> `--all-extras` 同时装 rag（pypdf / python-docx）与 dev 依赖，漏装 rag 时解析相关用例会 skip。
 
 ## 已知局限
 

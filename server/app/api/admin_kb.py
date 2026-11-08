@@ -28,6 +28,7 @@ from app.rag.service import get_knowledge_base
 from app.rag.types import DocumentInfo
 from app.schemas.kb import (
     KbChunkOut,
+    KbChunkPreviewOut,
     KbDocumentDetailResponse,
     KbDocumentListResponse,
     KbDocumentOut,
@@ -127,14 +128,18 @@ async def get_document(
     _admin: Annotated[Identity, Depends(require_admin)],
     preview: Annotated[int, Query(ge=1, le=200)] = 20,
 ) -> KbDocumentDetailResponse:
-    result = await kb.get_document(document_id)
+    try:
+        result = await kb.get_document(document_id)
+    except SQLAlchemyError as exc:
+        log.error("kb_document_failed", document_id=document_id, error=str(exc))
+        raise ApiError(503, "DATABASE_UNAVAILABLE", "知识库暂不可用") from exc
     if result is None:
         raise ApiError(404, "NOT_FOUND", "文档不存在")
     info, rows = result
     return KbDocumentDetailResponse(
         document=_document_out(info),
         chunks=[
-            KbChunkOut(
+            KbChunkPreviewOut(
                 ord=row.ord,
                 heading=row.heading,
                 content=row.content,

@@ -80,6 +80,28 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
+    def _validate_rag(self) -> Self:
+        """检索参数直接决定打分与 SQL；非法值要在启动期拒绝，不能等到第一次请求。"""
+        if self.rag_top_k < 1:
+            raise ValueError("ONCALL_RAG_TOP_K 必须 >= 1")
+        if self.rag_candidates < self.rag_top_k:
+            raise ValueError("ONCALL_RAG_CANDIDATES 不能小于 ONCALL_RAG_TOP_K")
+        if not 0.0 <= self.rag_min_score <= 1.0:
+            raise ValueError("ONCALL_RAG_MIN_SCORE 必须在 [0, 1] 内")
+        if self.rag_rrf_k < 1:
+            raise ValueError("ONCALL_RAG_RRF_K 必须 >= 1（公式里有 k+1 作分母）")
+        if self.kb_max_upload_mb < 1:
+            raise ValueError("ONCALL_KB_MAX_UPLOAD_MB 必须 >= 1")
+        if self.rag_backend == "postgres" and self.store_backend != "postgres":
+            raise ValueError(
+                "ONCALL_RAG_BACKEND=postgres 需要 ONCALL_STORE_BACKEND=postgres："
+                "pgvector 与事件存储在同一个库"
+            )
+        if self.embedding_provider == "http" and not self.embedding_base_url.strip():
+            raise ValueError("ONCALL_EMBEDDING_PROVIDER=http 时必须配置 ONCALL_EMBEDDING_BASE_URL")
+        return self
+
+    @model_validator(mode="after")
     def _validate_session_secret(self) -> Self:
         """生产用弱密钥签发 token 等于没有鉴权，启动即拒绝（ADR-0010）。"""
         if self.env == "dev":

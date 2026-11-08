@@ -20,6 +20,8 @@ from app.rag.text import tokenize
 
 MAX_CITATIONS = 3
 MAX_SENTENCE_CHARS = 180
+#: Markdown 列表标记：回答自己会加 "1. "，正文里原有的编号要去掉，否则出现 "1. 2. …"
+_LIST_MARKER = re.compile(r"^(?:\d+[.)]|[-*+•])\s+")
 
 REFUSAL = (
     "知识库里没有检索到可直接引用的处理方法。"
@@ -40,7 +42,8 @@ def _sentences(text: str) -> list[str]:
     normalized = re.sub(r"\n(?![ \t]*(?:[-*+]|\d+\.)\s)", "", text.replace("\r", ""))
     for separator in ("。", "！", "？", "!", "?", "；", ";"):
         normalized = normalized.replace(separator, "\n")
-    return [line.strip(" -•\t") for line in normalized.splitlines() if line.strip()]
+    lines = (_LIST_MARKER.sub("", line.strip()).strip() for line in normalized.splitlines())
+    return [line for line in lines if line]
 
 
 def _best_sentence(content: str, query_tokens: set[str]) -> str:

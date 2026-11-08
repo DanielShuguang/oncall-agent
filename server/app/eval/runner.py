@@ -19,7 +19,7 @@ import json
 import math
 import statistics
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from time import perf_counter
@@ -32,7 +32,7 @@ from app.agent.nodes.finalize import REFUSAL
 from app.agent.runtime import stream
 from app.rag.embed import HashingEmbedder
 from app.rag.memory import MemoryKnowledgeStore
-from app.rag.retrieve import KnowledgeBase
+from app.rag.retrieve import KnowledgeBase, Retriever
 from app.rag.types import Hit
 from app.schemas.event import EventType
 from app.tools.builtin import build_registry
@@ -93,8 +93,24 @@ def load_cases(selector: str = "all") -> list[EvalCase]:
     return cases
 
 
+class RecordingRetriever:
+    """包一层记录「本次 run 实际用到的召回结果」。
+
+    runtime 的 retrieve 节点会自己检索一次；评测若再调一次 `kb.search`，
+    既浪费时间，也可能在语料变化时让判定用的 hits 与回答用的 hits 不一致。
+    """
+
+    def __init__(self, inner: Retriever) -> None:
+        self._inner = inner
+        self.hits: list[Hit] = []
+
+    async def search(self, query: str, top_k: int | None = None) -> list[Hit]:
+        self.hits = await self._inner.search(query, top_k=top_k)
+        return self.hits
+
+
 async def run_case(case: EvalCase, kb: KnowledgeBase, deps: AgentDeps) -> CaseResult:
-    retrieved = await kb.search(case.question, top_k=5)
+    recorder = RecordingRetriever(kb)
     run_id = str(uuid.uuid4())
     started = perf_counter()
     events: list[tuple[EventType, dict[str, Any]]] = [
@@ -104,7 +120,7 @@ async def run_case(case: EvalCase, kb: KnowledgeBase, deps: AgentDeps) -> CaseRe
             identity=EVAL_USER,
             query=case.question,
             model="rule-engine",
-            deps=deps,
+            deps=replace(deps, retriever=recorder),
         )
     ]
     latency_ms = int((perf_counter() - started) * 1000)
@@ -127,7 +143,7 @@ async def run_case(case: EvalCase, kb: KnowledgeBase, deps: AgentDeps) -> CaseRe
         case=case,
         answer=answer,
         citations=citations,
-        retrieved=retrieved,
+        retrieved=recorder.hits,
         tools=tools,
         steps=steps,
         cost_cents=cost_cents,

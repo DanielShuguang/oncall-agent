@@ -57,15 +57,16 @@ class KnowledgeBase:
         async with self._seed_lock:
             if self._seeded:
                 return
-            if await self.store.chunk_count() == 0:
-                from app.seed.corpus import build_documents
+            # 不能只在「库为空」时灌 seed：内存模式下先上传再提问会让 50 篇演示语料
+            # 永远缺失。index_text 按 source 覆盖，重复执行是幂等的，失败后下次还能补。
+            from app.seed.corpus import build_documents
 
-                for document in build_documents():
-                    await self.index_text(
-                        title=document.title,
-                        text=document.text,
-                        source=f"seed:{document.filename}",
-                    )
+            for document in build_documents():
+                await self.index_text(
+                    title=document.title,
+                    text=document.text,
+                    source=f"seed:{document.filename}",
+                )
             self._seeded = True
 
     async def index_parsed(
@@ -100,7 +101,6 @@ class KnowledgeBase:
             checksum=checksum,
             chunks=stored,
             version=version,
-            page_count=parsed.page_count,
         )
         return info, chunks
 
@@ -111,7 +111,9 @@ class KnowledgeBase:
         *,
         version: str | None = None,
     ) -> tuple[DocumentInfo, list[Chunk]]:
-        parsed = parse_bytes(filename, data)
+        # PDF/DOCX 解析是 CPU 密集的同步代码；上传接口在事件循环里，直接跑会卡住
+        # 其他请求（包括 SSE）。放线程池，10MB 扫描件也不会把 API 拖死。
+        parsed = await asyncio.to_thread(parse_bytes, filename, data)
         return await self.index_parsed(parsed, source=filename, version=version)
 
     async def index_text(

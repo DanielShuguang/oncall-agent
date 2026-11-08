@@ -4,6 +4,7 @@
 
     run.started
       → intake   step.started / step.completed（规则：规范化输入）
+      → retrieve step.started / step.completed（规则：RAG 混合检索 + 阈值）
       → plan     step.started / step.completed（规则：产出工具计划）
       → act      tool.call → ToolGuard 执行 → tool.result（写操作 → approval.required）
       → finalize message.delta… → message.completed → run.completed

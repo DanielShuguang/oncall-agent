@@ -6,6 +6,8 @@ from app.agent.deps import AgentDeps
 from app.agent.nodes.finalize import compose_answer
 from app.agent.nodes.retrieve import retrieve_node
 from app.agent.state import initial_state
+from app.rag.embed import HashingEmbedder
+from app.rag.memory import MemoryKnowledgeStore
 from app.rag.retrieve import KnowledgeBase
 from app.tools.builtin import build_registry
 from app.tools.registry import ToolGuard
@@ -44,3 +46,26 @@ async def test_citation_contains_locator_fields(memory_kb: KnowledgeBase) -> Non
     assert citation["ord"] >= 0
     assert citation["snippet"]
     assert citation["title"] == "打印机离线排查指南"
+
+
+async def test_numbered_list_is_not_numbered_twice() -> None:
+    """正文里的 "1. " 编号要去掉，回答模板自己会加序号。"""
+    kb = KnowledgeBase(MemoryKnowledgeStore(), HashingEmbedder(), auto_seed=False)
+    await kb.index_text(
+        title="远程办公接入说明",
+        text=(
+            "# 远程办公接入说明\n\n## 客户端安装\n\n"
+            "1. 打开设置页面，进入网络中心。\n"
+            "2. 下载并安装远程办公客户端。\n"
+            "3. 用企业邮箱登录后重试。\n"
+        ),
+        source="upload:remote.md",
+    )
+    deps = AgentDeps(guard=ToolGuard(build_registry()), retriever=kb)
+    state = initial_state(run_id="run", user={"id": "u_102"}, query="远程办公客户端怎么安装")
+    state = {**state, **await retrieve_node(state, deps)}
+
+    answer, citations = compose_answer(state)
+    assert citations
+    assert "1. 1." not in answer
+    assert "1. 2." not in answer

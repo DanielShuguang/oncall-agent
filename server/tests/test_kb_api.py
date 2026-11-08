@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import io
 
-from docx import Document
+import pytest
 from httpx import AsyncClient
-from pypdf import PdfWriter
 
 from tests.support import auth_headers
 
@@ -42,7 +41,8 @@ async def test_upload_markdown_returns_chunks_with_heading_path(client: AsyncCli
 
 
 async def test_upload_docx_keeps_heading_and_table(client: AsyncClient) -> None:
-    document = Document()
+    docx = pytest.importorskip("docx")
+    document = docx.Document()
     document.add_heading("打印服务说明", level=1)
     document.add_heading("队列清理", level=2)
     document.add_paragraph("清空 Print Spooler 队列后重启服务。")
@@ -83,7 +83,8 @@ async def test_upload_requires_admin_role(client: AsyncClient) -> None:
 
 
 async def test_upload_scanned_pdf_returns_422(client: AsyncClient) -> None:
-    writer = PdfWriter()
+    pypdf = pytest.importorskip("pypdf")
+    writer = pypdf.PdfWriter()
     writer.add_blank_page(width=200, height=200)
     buffer = io.BytesIO()
     writer.write(buffer)
@@ -112,6 +113,19 @@ async def test_list_documents_includes_seed_corpus(client: AsyncClient) -> None:
     payload = response.json()
     assert payload["total"] == 50
     assert payload["chunk_count"] > 50
+
+
+async def test_seed_corpus_loads_even_after_upload(client: AsyncClient) -> None:
+    """内存模式的 seed 不能因为「先上传了一篇」就整体不加载。"""
+    upload = await client.post(
+        "/api/admin/kb/documents",
+        headers=ADMIN,
+        files={"file": ("first.md", "# 先上传的文档\n\n正文在这里。".encode(), "text/markdown")},
+    )
+    assert upload.status_code == 201
+
+    listing = await client.get("/api/admin/kb/documents", headers=ADMIN)
+    assert listing.json()["total"] == 51
 
 
 async def test_reindex_recomputes_vectors(client: AsyncClient) -> None:

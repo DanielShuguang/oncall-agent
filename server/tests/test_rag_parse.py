@@ -5,9 +5,13 @@ from __future__ import annotations
 import io
 
 import pytest
-from docx import Document
-from pypdf import PdfWriter
-from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
+
+try:
+    from docx import Document
+    from pypdf import PdfWriter
+    from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
+except ImportError:  # pragma: no cover - 解析器是 rag extra，未安装时整组跳过
+    pytest.skip("需要 rag extra：uv sync --extra rag", allow_module_level=True)
 
 from app.rag.chunk import chunk_parsed
 from app.rag.parse import ParseError, parse_bytes
@@ -80,29 +84,46 @@ def test_pdf_without_text_layer_is_rejected() -> None:
         parse_bytes("scan.pdf", buffer.getvalue())
 
 
-def test_text_pdf_keeps_page_number() -> None:
+def _text_pdf(*page_texts: str) -> bytes:
     writer = PdfWriter()
-    page = writer.add_blank_page(width=300, height=300)
-    font = DictionaryObject(
-        {
-            NameObject("/Type"): NameObject("/Font"),
-            NameObject("/Subtype"): NameObject("/Type1"),
-            NameObject("/BaseFont"): NameObject("/Helvetica"),
-        }
-    )
-    content = DecodedStreamObject()
-    content.set_data(b"BT /F1 12 Tf 72 200 Td (VPN troubleshooting guide) Tj ET")
-    page[NameObject("/Contents")] = writer._add_object(content)
-    page[NameObject("/Resources")] = DictionaryObject(
-        {NameObject("/Font"): DictionaryObject({NameObject("/F1"): writer._add_object(font)})}
-    )
+    for text in page_texts:
+        page = writer.add_blank_page(width=300, height=300)
+        font = DictionaryObject(
+            {
+                NameObject("/Type"): NameObject("/Font"),
+                NameObject("/Subtype"): NameObject("/Type1"),
+                NameObject("/BaseFont"): NameObject("/Helvetica"),
+            }
+        )
+        content = DecodedStreamObject()
+        content.set_data(b"BT /F1 12 Tf 72 200 Td (" + text.encode("ascii") + b") Tj ET")
+        page[NameObject("/Contents")] = writer._add_object(content)
+        page[NameObject("/Resources")] = DictionaryObject(
+            {NameObject("/Font"): DictionaryObject({NameObject("/F1"): writer._add_object(font)})}
+        )
     buffer = io.BytesIO()
     writer.write(buffer)
+    return buffer.getvalue()
 
-    parsed = parse_bytes("vpn.pdf", buffer.getvalue())
-    assert parsed.page_count == 1
+
+def test_text_pdf_keeps_page_number_on_chunks() -> None:
+    data = _text_pdf("VPN troubleshooting guide", "VPN client download steps")
+    parsed = parse_bytes("vpn.pdf", data)
+    assert parsed.page_count == 2
     assert any(block.page == 1 and "VPN troubleshooting" in block.text for block in parsed.blocks)
     assert any("第 1 页" in block.heading_path for block in parsed.blocks)
+
+    # 页码必须跟着切片走：前端引用弹窗与 "跳到原文第几页" 都依赖它
+    chunks = chunk_parsed(parsed)
+    assert [chunk.page for chunk in chunks] == [1, 2]
+    assert all(chunk.heading for chunk in chunks)
+
+
+def test_chunk_heading_falls_back_to_title() -> None:
+    """纯文本没有标题层级时，引用 heading 不能是空串。"""
+    parsed = parse_bytes("plain.txt", "第一行正文。\n\n第二行正文。".encode())
+    chunks = chunk_parsed(parsed)
+    assert chunks and all(chunk.heading == "plain" for chunk in chunks)
 
 
 def test_unsupported_suffix_is_rejected() -> None:

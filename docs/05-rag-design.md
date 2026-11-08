@@ -61,6 +61,7 @@ class ParsedDoc:
 - 每个 chunk 带 `heading_path`（如 `打印机 > 离线排查 > 步骤 3`），这是引用可读性的关键
 - **表格单独成 chunk 并保留表头**（表格被切碎是 RAG 最常见的翻车点）
 - 切片序号 `ord` 从 1 开始，与 `document_id` 一起用于前端定位
+- PDF 切片保留页码；跨页时换页即切，引用弹窗里的 `page` 才不会与正文错位
 
 ## 5. 检索
 
@@ -179,7 +180,7 @@ W2 D10 先落 20 条（`server/app/eval/cases/v0.yaml`），W6 D26 扩到 50 条
 `injection_blocked`、`avg_steps`、`avg_tool_calls`、`p95_latency_ms`、`avg_cost_cents`。
 
 W2 基线（20 条，2026-11-09）：`recall@5 100%`、`cite_acc 91.7%`、`answer_acc 100%`、
-`refusal_correct 100%`、`injection_blocked 100%`、`avg_steps 5`、`p95 69ms`。
+`refusal_correct 100%`、`injection_blocked 100%`、`avg_steps 5`、`p95 71ms`。
 口径见 [docs/eval/baseline-v0.md](eval/baseline-v0.md)。
 
 ## 9. 已知局限（写进 README，别藏）

@@ -3,18 +3,24 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal, Self
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_SESSION_SECRET = "dev-change-me"
+MIN_SESSION_SECRET_LEN = 32
+
+#: 仓库根目录的 .env。`make api` / README 都在 server/ 下启动 uvicorn，
+#: 相对 cwd 的 ".env" 会读不到根配置（DB URL、JWT 密钥等），这里用绝对路径。
+ENV_FILE = Path(__file__).resolve().parents[3] / ".env"
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="ONCALL_",
-        env_file=".env",
+        env_file=ENV_FILE,
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -48,10 +54,14 @@ class Settings(BaseSettings):
     event_retention_days: int = 30
 
     @model_validator(mode="after")
-    def _reject_default_secret_outside_dev(self) -> Self:
-        """生产用默认密钥签发 token 等于没有鉴权，启动即拒绝（ADR-0010）。"""
-        if self.env != "dev" and self.session_secret == DEFAULT_SESSION_SECRET:
+    def _validate_session_secret(self) -> Self:
+        """生产用弱密钥签发 token 等于没有鉴权，启动即拒绝（ADR-0010）。"""
+        if self.env == "dev":
+            return self
+        if self.session_secret == DEFAULT_SESSION_SECRET:
             raise ValueError("ONCALL_SESSION_SECRET 仍是默认值，非 dev 环境拒绝启动")
+        if len(self.session_secret) < MIN_SESSION_SECRET_LEN:
+            raise ValueError(f"ONCALL_SESSION_SECRET 至少 {MIN_SESSION_SECRET_LEN} 个字符")
         return self
 
     @property

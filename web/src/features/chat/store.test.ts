@@ -150,7 +150,10 @@ describe('断线续传', () => {
     await useChat.getState().send('你好');
 
     expect(mockGetEvents).not.toHaveBeenCalled();
-    expect(useChat.getState().runtime.phase).toBe('failed');
+    const { runtime } = useChat.getState();
+    expect(runtime.phase).toBe('failed');
+    // 失败后不能留下“正在输入”的光标
+    expect(runtime.messages.every((m) => !m.streaming)).toBe(true);
   });
 
   it('补拉失败时保留已收到的部分并标失败', async () => {

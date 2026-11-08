@@ -20,7 +20,7 @@
 | 天 | 任务 | 产出文件 | 验收 |
 |---|---|---|---|
 | D1 | 仓库 + uv + FastAPI 骨架 + docker compose + 健康检查 | `server/app/main.py`, `core/config.py`, `api/health.py` | `GET /api/health` 返回 db/redis 状态 |
-| D2 | Pydantic 事件模型 + OpenAPI + `openapi-typescript` + 前端骨架 | `schemas/event.py`, `web/src/api/`, `web/src/App.tsx` | 前端能拿到生成的类型 |
+| D2 | Pydantic 事件模型 + OpenAPI + `openapi-typescript` + 前端骨架；本地 JWT 鉴权（ADR-0010） | `schemas/event.py`, `web/src/api/`, `web/src/App.tsx` | 前端能拿到生成的类型 |
 | D3 | SSE 通道（假事件）+ 前端 reducer 消费 | `core/sse.py`, `api/chat.py`, `features/chat/*` | 页面能看到流式输出与步骤条 |
 | D4 | 事件落库 + `Last-Event-ID` 续传 | `models/run.py`, `api/runs.py`, `core/store.py` | 断网重连不丢消息、顺序正确 |
 | D5 | 最小 Agent：单节点 + 假工具 `query_cmdb` + 工具卡片 | `agent/state.py`, `agent/graph.py`, `tools/registry.py` | Agent 能调一个工具并展示参数/结果 |

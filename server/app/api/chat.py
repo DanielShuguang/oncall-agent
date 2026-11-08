@@ -26,7 +26,6 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.agent.runtime import stream as agent_stream
 from app.api.deps import get_identity
-from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.core.sse import encode_comment, encode_frame
 from app.core.store import RunStore, get_store
@@ -121,7 +120,8 @@ async def chat_stream(
     identity: Annotated[Identity, Depends(get_identity)],
 ) -> StreamingResponse:
     run_id = str(uuid.uuid4())
-    model = req.options.model or get_settings().local_model
+    # W1 没有模型调用（规则节点），W4 网关接入后这里改成按 provider 选模型
+    model = req.options.model or "rule-engine"
 
     try:
         rec, created = await store.create(

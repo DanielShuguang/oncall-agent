@@ -83,10 +83,9 @@ uv run uvicorn app.main:app --reload --port 8000
 
 ### 3. 签发本地 token
 
-v1 不接 SSO，除 `/api/health` 外接口都要求 Bearer token（见 [docs/11](docs/11-dev-setup.md) §2.1）：
+v1 不接 SSO，除 `/api/health` 与 OpenAPI 文档外，业务接口都要求 Bearer token（见 [docs/11](docs/11-dev-setup.md) §2.1）。仍在 `server/` 目录执行：
 
 ```bash
-cd server
 uv run python -m app.cli token --user u_102 --roles employee
 # 复制输出，粘到前端右上角「设置 Token」
 ```
@@ -137,11 +136,11 @@ oncall/
 | 模块 | 状态 | 验证方式 |
 |---|---|---|
 | 文档（12 篇 + 10 篇 ADR） | ✅ 完成 | — |
-| 前端骨架（状态机 / SSE 客户端 / 页面） | ✅ 可用 | `tsc --noEmit`、`oxlint`、`oxfmt --check` 通过；`vitest` 21/21；`pnpm build` 成功 |
-| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` 61 passed + 1 skipped；设 `ONCALL_TEST_DATABASE_URL` 后 62 passed（含 Postgres 契约与并发 seq） |
-| 本地 JWT（W1 D2） | ✅ 已完成 | `tests/test_auth.py` 19 条：签发/验签、过期、alg=none、401 JSON、run 归属隔离 |
+| 前端骨架（状态机 / SSE 客户端 / 页面） | ✅ 可用 | `tsc --noEmit`、`oxlint`、`oxfmt --check` 通过；`vitest` 22/22；`pnpm build` 成功 |
+| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` 68 passed + 1 skipped；设 `ONCALL_TEST_DATABASE_URL` 后 69 passed（含 Postgres 契约与并发 seq） |
+| 本地 JWT（W1 D2） | ✅ 已完成 | `tests/test_auth.py` 20 条：签发/验签、过期、alg=none、401 JSON、OpenAPI Bearer、run 归属隔离 |
 | 事件落库 + 断线续传（D4） | ✅ 已完成 | `alembic upgrade head` + `alembic check` 无漂移；`tests/test_store_contract.py`（内存 + Postgres 契约）、`tests/test_chat_stream.py`（落库、幂等回放、503 语义） |
-| 最小 Agent 运行时（W1 D5） | ✅ 已完成 | `tests/test_agent_runtime.py` 6 条：工具真实执行、写操作挂起审批、工具失败降级、步数上限；e2e SSE 帧含 `tool.call` / `tool.result` |
+| 最小 Agent 运行时（W1 D5） | ✅ 已完成 | `tests/test_agent_runtime.py` 7 条：工具真实执行、写操作挂起审批、工具失败降级、步数/时长上限；e2e SSE 帧含 `tool.call` / `tool.result` |
 | 工具治理五道闸门 + 超时重试 | ✅ 已实现 | `tests/test_tools_guard.py` 随 `make test` 通过 |
 | RAG / LangGraph / 模型网关 / 评测 | 🚧 待实现 | 见 [路线图](docs/10-roadmap-6weeks.md) |
 

@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 
 class ChatOptions(BaseModel):
-    model: str | None = None
+    model: str | None = Field(default=None, max_length=100)
     max_steps: int = Field(default=12, ge=1, le=30)
 
 

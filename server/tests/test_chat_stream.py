@@ -225,6 +225,12 @@ async def test_invalid_request_does_not_create_run(client: AsyncClient) -> None:
     assert res.status_code == 422
     res = await client.post("/api/chat/stream", json={"message": "hi"})
     assert res.status_code == 422
+    # model 是用户可控字符串，必须有上限，不能随便写进 runs.model / 事件 payload
+    res = await client.post(
+        "/api/chat/stream",
+        json={"session_id": "s", "message": "hi", "options": {"model": "x" * 101}},
+    )
+    assert res.status_code == 422
 
 
 @pytest.mark.parametrize("last_event_id", ["0", "1"])

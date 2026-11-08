@@ -51,6 +51,22 @@ describe('事件归约', () => {
     expect(rt.tools[0].durationMs).toBe(120);
   });
 
+  it('approval.required 也会结束流式光标', () => {
+    let rt = running();
+    rt = runtimeReducer(rt, evt('message.delta', { text: '部分' }));
+    rt = runtimeReducer(
+      rt,
+      evt(
+        'approval.required',
+        { approval_id: 'apr_1', tool: 'create_ticket', args: {}, risk_level: 'medium' },
+        2,
+      ),
+    );
+
+    expect(rt.phase).toBe('awaiting_approval');
+    expect(rt.messages[0].streaming).toBe(false);
+  });
+
   it('未知事件被忽略且状态不变', () => {
     const next = runtimeReducer(running(), evt('some.future.event', { x: 1 }));
     expect(next.phase).toBe('running');
@@ -62,10 +78,15 @@ describe('事件归约', () => {
     expect(next.runId).toBe('r1');
   });
 
-  it('run.failed 记录错误信息', () => {
-    const next = runtimeReducer(running(), evt('run.failed', { message: '模型超时' }));
-    expect(next.phase).toBe('failed');
-    expect(next.error).toBe('模型超时');
+  it('run.failed 记录错误信息并结束流式光标', () => {
+    let rt = running();
+    rt = runtimeReducer(rt, evt('message.delta', { text: '部分' }));
+    expect(rt.messages[0].streaming).toBe(true);
+
+    rt = runtimeReducer(rt, evt('run.failed', { message: '模型超时' }, 2));
+    expect(rt.phase).toBe('failed');
+    expect(rt.error).toBe('模型超时');
+    expect(rt.messages[0].streaming).toBe(false);
   });
 });
 

@@ -89,7 +89,7 @@ def create_token(
 def _decode_json(segment: str, label: str) -> dict[str, Any]:
     try:
         data = json.loads(_b64decode(segment))
-    except (ValueError, UnicodeDecodeError) as exc:
+    except ValueError as exc:  # JSONDecodeError / binascii.Error 都是 ValueError
         raise InvalidTokenError(f"{label} 不是合法 JSON") from exc
     if not isinstance(data, dict):
         raise InvalidTokenError(f"{label} 必须是对象")

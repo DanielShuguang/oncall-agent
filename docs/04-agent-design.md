@@ -82,6 +82,9 @@ class AgentState(TypedDict, total=False):
 | approve | 人工 | pending_approval | 决议 | 超时 → 拒绝 + 转人工 |
 | finalize | 规则 | 全部状态 | 回答 + citations + 成本 | 兜底模板 |
 
+> W1 D5 的运行时把 `classify` 的关键词规则合并在 `plan` 节点里（`intent` 由 plan 产出），
+> 图上仍是 8 节点；W3 D13 拆成独立 `classify` 节点再换 LLM 兜底。
+
 ## 4. 为什么 plan 用 LLM 而 act 不用
 
 - **plan 需要跨领域关联**："打印机离线 + 最近换过 IP + 保修期内" → 该查资产还是查工单？这是判断，规则写不完
@@ -111,6 +114,8 @@ BUDGET_CENTS = 50         # 单 run 成本上限
 ```
 
 超限一律 `run.failed`，`error_code` 区分：`STEP_LIMIT` / `TOOL_LIMIT` / `TIMEOUT` / `BUDGET_EXCEEDED`。
+W1 已生效 `STEP_LIMIT` / `TOOL_LIMIT` / `TIMEOUT`（总时长在节点与工具边界检查）；
+`BUDGET_EXCEEDED` 随 W4 模型网关接入（没有计量就没有预算）。
 
 ## 7. LangGraph 落地
 
@@ -178,8 +183,9 @@ while state["step"] < MAX_STEPS and not terminal(state):
 | `run.completed` / `run.failed` | 正常结束 / 超限或内部异常 |
 
 护栏：`max_steps` 来自请求（默认 12），`MAX_TOOL_CALLS=6`；超限发 `run.failed`，
-`error_code` 为 `STEP_LIMIT` / `TOOL_LIMIT`，节点异常为 `INTERNAL_ERROR`。客户端断开
-由 `api/chat.py` 标 `interrupted`，运行时本身不吞 `CancelledError`。
+`error_code` 为 `STEP_LIMIT` / `TOOL_LIMIT`。总时长 `RUN_TIMEOUT_S` 在节点与工具边界
+检查，超限发 `TIMEOUT`；节点异常为 `INTERNAL_ERROR`。客户端断开由 `api/chat.py`
+标 `interrupted`，运行时本身不吞 `CancelledError`。
 
 W1 的 `plan` / `finalize` 是规则实现（关键词分类 + 模板回答）；W3 D13 把 plan 换成 LLM
 （JSON Schema 约束 + 失败降级），节点签名不变。W2 接 RAG 前 `citations` 恒为空。

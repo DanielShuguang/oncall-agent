@@ -15,4 +15,3 @@ from app.tools.registry import ToolGuard
 @dataclass(frozen=True, slots=True)
 class AgentDeps:
     guard: ToolGuard
-    model: str = ""

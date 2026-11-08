@@ -83,6 +83,23 @@ function withAssistant(
   return copy;
 }
 
+/**
+ * 结束“正在输出”的光标。
+ *
+ * run.failed / 断连 / 挂起审批时不会再有 message.completed，如果不主动收尾，
+ * 界面会一直显示闪烁光标，看起来像还在跑。
+ */
+export function stopAssistantStreaming(messages: ChatMessage[]): ChatMessage[] {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i].role === 'assistant' && messages[i].streaming) {
+      const next = [...messages];
+      next[i] = { ...messages[i], streaming: false };
+      return next;
+    }
+  }
+  return messages;
+}
+
 export function runtimeReducer(state: Runtime, event: RunEvent): Runtime {
   const target = nextPhase(state.phase, event.type);
   // 非法转移：丢弃并保留原状态（不 throw，避免整页崩掉）
@@ -160,6 +177,7 @@ export function runtimeReducer(state: Runtime, event: RunEvent): Runtime {
     case 'approval.required':
       return {
         ...base,
+        messages: stopAssistantStreaming(state.messages),
         approval: {
           approvalId: String(event.payload.approval_id ?? ''),
           tool: String(event.payload.tool ?? ''),
@@ -194,10 +212,18 @@ export function runtimeReducer(state: Runtime, event: RunEvent): Runtime {
       };
 
     case 'run.completed':
-      return { ...base, costCents: Number(event.payload.cost_cents ?? 0) || 0 };
+      return {
+        ...base,
+        costCents: Number(event.payload.cost_cents ?? 0) || 0,
+        messages: stopAssistantStreaming(state.messages),
+      };
 
     case 'run.failed':
-      return { ...base, error: String(event.payload.message ?? '运行失败') };
+      return {
+        ...base,
+        messages: stopAssistantStreaming(state.messages),
+        error: String(event.payload.message ?? '运行失败'),
+      };
 
     default:
       // 未知事件：忽略而不是崩溃（契约要求）

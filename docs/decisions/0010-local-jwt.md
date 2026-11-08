@@ -30,6 +30,8 @@ v1 是企业私有化交付，没有 IdP（SSO / OIDC）可接；但也不能没
 - claims：`sub`、`roles`、`iat`、`exp`；密钥 `ONCALL_SESSION_SECRET`
 - 校验：手写 HS256（`hmac` + `hashlib`），**只接受 `alg=HS256`**，签名用
   `hmac.compare_digest`，`exp` 过期即拒；错误统一 401，不告诉客户端哪一步失败
+- 非 dev 环境：默认密钥或长度 < 32 字符直接拒绝启动（弱密钥等于没有鉴权）
+- OpenAPI：用 `HTTPBearer(scheme_name="BearerAuth")` 声明安全方案，Swagger 可直接 Authorize
 - 前端：token 存 `localStorage`，右上角「设置 Token」粘贴；没有登录页
 - 归属：`GET /runs/*` 校验 `user_id`，别人的 run 返回 404
 

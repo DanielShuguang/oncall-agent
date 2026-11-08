@@ -20,7 +20,7 @@
 # 1. 进目录
 cd E:\workspace\github\oncall
 
-# 2. 环境变量
+# 2. 环境变量（后端读仓库根 .env：core/config.py 用绝对路径，从 server/ 启动也生效）
 Copy-Item .env.example .env
 
 # 3. 中间件
@@ -47,10 +47,10 @@ pnpm dev
 
 ### 2.1 签发本地 token
 
-v1 不接 SSO，除 `/api/health` 外所有接口都要 Bearer token（见 [docs/03](03-api-contract.md) §0）：
+v1 不接 SSO，除 `/api/health` 与 OpenAPI 文档外，业务接口都要 Bearer token（见 [docs/03](03-api-contract.md) §0）。
+在 `server/` 目录执行（若在仓库根，先 `cd server`）：
 
 ```powershell
-cd server
 uv run python -m app.cli token --user u_102 --roles employee
 # 输出一串 JWT，复制到前端右上角「设置 Token」，或 curl 里加 -H "Authorization: Bearer <token>"
 ```
@@ -118,8 +118,8 @@ Postgres 契约测试默认跳过；想跑真库测试，先建一个可清空�
 
 ```powershell
 # 用 compose 里的容器建库（一次性）
-# 注意：本机没有 docker CLI，改用 WSL 执行：
-wsl -d Ubuntu -u root -- bash -lc "docker exec oncall-postgres-1 psql -U oncall -d oncall -c 'CREATE DATABASE oncall_test'"
+# 注意：本机没有 docker CLI，改用 WSL 执行（compose 里 container_name 是 oncall-postgres）：
+wsl -d Ubuntu -u root -- bash -lc "docker exec oncall-postgres psql -U oncall -d oncall -c 'CREATE DATABASE oncall_test'"
 # 有 Docker Desktop 时：docker compose exec postgres psql -U oncall -d oncall -c "CREATE DATABASE oncall_test"
 
 cd server

@@ -55,10 +55,9 @@ def _run_summary(rec: RunRecord) -> dict[str, Any]:
 
 @router.get("/runs")
 async def list_runs(
-    identity: Annotated[Identity, Depends(get_identity)],
+    _identity: Annotated[Identity, Depends(get_identity)],
 ) -> dict[str, Any]:
     # TODO(W4 D19): 列表分页 + 筛选；D4 只保证单 run 可查、可回放
-    del identity
     return {"items": [], "next_cursor": None}
 
 

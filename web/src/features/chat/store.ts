@@ -13,7 +13,7 @@
 
 import { create } from 'zustand';
 import { getRunEvents, type RunEventsResponse } from '@/api/runs';
-import { initialRuntime, runtimeReducer, type Runtime } from './machine';
+import { initialRuntime, runtimeReducer, stopAssistantStreaming, type Runtime } from './machine';
 import { streamChat } from './stream';
 import type { RunEvent } from './types';
 
@@ -72,7 +72,13 @@ export const useChat = create<ChatStore>((set, get) => {
       if (res.events.length === RESUME_PAGE_SIZE) continue;
 
       if (res.run_status === 'interrupted') {
-        set((s) => ({ runtime: { ...s.runtime, phase: 'interrupted' } }));
+        set((s) => ({
+          runtime: {
+            ...s.runtime,
+            phase: 'interrupted',
+            messages: stopAssistantStreaming(s.runtime.messages),
+          },
+        }));
         return true;
       }
       if (res.run_status !== 'running') return true;
@@ -127,7 +133,12 @@ export const useChat = create<ChatStore>((set, get) => {
         const recovered = runId ? await catchUp(runId, controller.signal, gen) : false;
         if (!recovered && gen === generation) {
           set((s) => ({
-            runtime: { ...s.runtime, phase: 'failed', error: (err as Error).message },
+            runtime: {
+              ...s.runtime,
+              phase: 'failed',
+              error: (err as Error).message,
+              messages: stopAssistantStreaming(s.runtime.messages),
+            },
           }));
         }
       } finally {
@@ -141,7 +152,14 @@ export const useChat = create<ChatStore>((set, get) => {
       generation += 1;
       abortRef?.abort();
       abortRef = null;
-      set((s) => ({ runtime: { ...s.runtime, phase: 'interrupted' }, sending: false }));
+      set((s) => ({
+        runtime: {
+          ...s.runtime,
+          phase: 'interrupted',
+          messages: stopAssistantStreaming(s.runtime.messages),
+        },
+        sending: false,
+      }));
     },
 
     reset: () => {

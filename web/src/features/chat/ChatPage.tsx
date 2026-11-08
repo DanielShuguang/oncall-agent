@@ -74,9 +74,18 @@ export default function ChatPage() {
                   {tool.attempts && tool.attempts > 1 ? ` · 重试${tool.attempts - 1}次` : ''}
                 </span>
               </div>
-              <pre className="mt-2 max-h-64 overflow-auto rounded-md border bg-panel p-2 font-mono text-xs whitespace-pre-wrap">
-                {JSON.stringify(tool.result ?? tool.args, null, 2)}
+              <div className="mt-2 text-[11px] text-muted-foreground">参数</div>
+              <pre className="mt-1 max-h-48 overflow-auto rounded-md border bg-panel p-2 font-mono text-xs whitespace-pre-wrap">
+                {JSON.stringify(tool.args, null, 2)}
               </pre>
+              {tool.result !== undefined && (
+                <>
+                  <div className="mt-2 text-[11px] text-muted-foreground">结果</div>
+                  <pre className="mt-1 max-h-64 overflow-auto rounded-md border bg-panel p-2 font-mono text-xs whitespace-pre-wrap">
+                    {JSON.stringify(tool.result, null, 2)}
+                  </pre>
+                </>
+              )}
               {tool.error && <div className="mt-1 text-sm text-destructive">{tool.error}</div>}
             </CardContent>
           </Card>

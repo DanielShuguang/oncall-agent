@@ -86,7 +86,7 @@ def should_retry(err: ToolError, attempt: int, spec: ToolSpec) -> bool:
 
 | 工具 | 失败降级 |
 |---|---|
-| `query_cmdb` | 用会话缓存的资产信息，标注"数据可能过期" |
+| `query_cmdb` | 提示"数据可能过期"并按通用步骤继续；W3 接入会话资产缓存后改用缓存值 |
 | `search_kb` | 降级为只走 BM25（跳过向量），或直接兜底话术 + 转人工 |
 | `query_tickets` | 返回空，继续流程，提示"未查到历史工单" |
 | `run_diagnostic` | 跳过诊断，直接建议开单（人工排查） |

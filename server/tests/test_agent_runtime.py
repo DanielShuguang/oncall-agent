@@ -20,6 +20,7 @@ async def _run(
     *,
     identity: Identity = EMPLOYEE,
     max_steps: int = 12,
+    timeout_s: float = 120.0,
 ) -> list[tuple[EventType, dict[str, object]]]:
     run_id = str(uuid.uuid4())
     return [
@@ -30,6 +31,7 @@ async def _run(
             query=query,
             model="test-model",
             max_steps=max_steps,
+            timeout_s=timeout_s,
             deps=build_deps(),
         )
     ]
@@ -130,3 +132,13 @@ async def test_step_limit_fails_run_with_error_code() -> None:
     assert failed["error_code"] == "STEP_LIMIT"
     assert failed["at_step"] == 3
     assert EventType.RUN_COMPLETED not in types
+
+
+async def test_run_timeout_fails_before_first_step() -> None:
+    events = await _run("打印机离线", timeout_s=0)
+    types = [etype for etype, _ in events]
+
+    assert types == [EventType.RUN_STARTED, EventType.RUN_FAILED]
+    failed = _of(events, EventType.RUN_FAILED)[0]
+    assert failed["error_code"] == "TIMEOUT"
+    assert failed["at_step"] == 0

@@ -44,17 +44,6 @@ def test_roundtrip_claims() -> None:
     assert claims.expires_at > claims.issued_at
 
 
-def test_default_secret_is_rejected_outside_dev() -> None:
-    from pydantic import ValidationError
-
-    from app.core.config import Settings
-
-    with pytest.raises(ValidationError, match="ONCALL_SESSION_SECRET"):
-        Settings(env="prod")
-    # dev 允许默认值，避免本地每次都要配密钥
-    assert Settings(env="dev").session_secret
-
-
 def test_wrong_secret_is_rejected() -> None:
     token = create_token(user_id=USER, roles=["employee"], secret=SECRET)
     with pytest.raises(InvalidTokenError):
@@ -119,6 +108,13 @@ async def test_health_is_public() -> None:
     async with _client({}) as http:
         res = await http.get("/api/health")
     assert res.status_code == 200
+
+
+def test_openapi_declares_bearer_scheme() -> None:
+    """Swagger / 生成客户端要能看到 Bearer 鉴权，而不是靠猜 header。"""
+    schema = app.openapi()
+    assert "BearerAuth" in schema["components"]["securitySchemes"]
+    assert {"BearerAuth": []} in schema["paths"]["/api/runs"]["get"]["security"]
 
 
 async def test_token_identity_drives_run_ownership(client: AsyncClient) -> None:

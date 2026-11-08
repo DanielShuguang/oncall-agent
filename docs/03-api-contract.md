@@ -6,7 +6,8 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 
 ## 0. 鉴权
 
-除 `GET /health` 外，所有接口都要求 Bearer token（ADR-0010）。
+除 `GET /health` 与 OpenAPI 文档（`/openapi.json`、`/docs`、`/redoc`）外，
+所有**业务接口**都要求 Bearer token（ADR-0010）。
 
 - 签发（运维侧、不经过 HTTP）：
 
@@ -19,7 +20,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 - claims：`sub`（user_id）、`roles`、`iat`、`exp`；HS256，密钥 `ONCALL_SESSION_SECRET`
 - 失败：`401 {"code":"UNAUTHORIZED","message":"缺少或无效的 token"}` + `WWW-Authenticate: Bearer`，**不建 SSE**
 - 归属：只能访问自己的 run；别人的 run 返回 `404`（不用 403，避免泄露 run 是否存在）
-- 前端：没有登录页，token 存在 `localStorage.oncall.token`，对话框入口在右上角「设置 Token」；接 SSO 后只替换 `api/deps.get_identity`
+- 前端：没有登录页，token 存在 `localStorage.oncall.token`，对话框入口在右上角「设置 Token」；接 SSO 时替换 `api/deps.get_identity` 与前端 token 获取（`api/client.ts`）
 
 ## 1. 接口清单
 
@@ -94,6 +95,9 @@ data: {"seq":7,"run_id":"01J...","type":"tool.call","ts":"2026-11-09T02:11:03.12
 | `run.completed` | `{status, steps, token_in, token_out, cost_cents, duration_ms}` | 置 completed，显示成本 |
 | `run.failed` | `{error_code, message, at_step}` | 置 failed，显示重试 |
 | `heartbeat` | — | 忽略（或用于探测超时） |
+
+> W1 没有 LLM 调用：`run.started.model` 默认是 `rule-engine`，W4 网关接入后才是真实模型名。
+> OpenAPI 已声明 `BearerAuth` 安全方案（`fastapi.security.HTTPBearer`），Swagger 可直接 Authorize。
 
 ### 2.4 错误语义（三种，不要混）
 

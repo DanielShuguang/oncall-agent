@@ -32,6 +32,7 @@ from app.agent.nodes.plan import plan_node
 from app.agent.state import (
     MAX_STEPS,
     MAX_TOOL_CALLS,
+    RUN_TIMEOUT_S,
     AgentState,
     initial_state,
 )
@@ -50,8 +51,8 @@ CHUNK_DELAY_S = 0.005
 APPROVAL_TTL_MIN = 10
 
 
-def build_deps(model: str = "") -> AgentDeps:
-    return AgentDeps(guard=ToolGuard(default_registry()), model=model)
+def build_deps() -> AgentDeps:
+    return AgentDeps(guard=ToolGuard(default_registry()))
 
 
 async def stream(
@@ -61,14 +62,16 @@ async def stream(
     query: str,
     model: str,
     max_steps: int = MAX_STEPS,
+    timeout_s: float = RUN_TIMEOUT_S,
     deps: AgentDeps | None = None,
 ) -> AsyncIterator[Event]:
     """执行一次 run 并产出事件。
 
     调用方（`api/chat.py`）负责：建 run、append 事件、推 SSE、断开时标 interrupted。
     这里不碰存储，也不吞掉 `CancelledError`（客户端断开的信号要往上抛）。
+    总时长在节点/工具边界检查（不做硬中断：工具自身有超时，见 docs/06 §4）。
     """
-    resolved = deps or build_deps(model)
+    resolved = deps or build_deps()
     state = initial_state(
         run_id=run_id,
         user={"id": identity.user_id, "roles": sorted(identity.roles)},
@@ -84,11 +87,16 @@ async def stream(
     )
 
     started_at = perf_counter()
+    deadline = started_at + timeout_s
     step = 0
     tool_calls = 0
 
     try:
         # ---------- intake ----------
+        expired = _timeout_event(deadline, timeout_s, step)
+        if expired is not None:
+            yield expired
+            return
         step += 1
         if step > max_steps:
             yield _failed("STEP_LIMIT", f"超过最大步数 {max_steps}", step)
@@ -107,6 +115,10 @@ async def stream(
         )
 
         # ---------- plan ----------
+        expired = _timeout_event(deadline, timeout_s, step)
+        if expired is not None:
+            yield expired
+            return
         step += 1
         if step > max_steps:
             yield _failed("STEP_LIMIT", f"超过最大步数 {max_steps}", step)
@@ -130,6 +142,10 @@ async def stream(
         )
 
         # ---------- act（工具执行必须过治理层）----------
+        expired = _timeout_event(deadline, timeout_s, step)
+        if expired is not None:
+            yield expired
+            return
         step += 1
         if step > max_steps:
             yield _failed("STEP_LIMIT", f"超过最大步数 {max_steps}", step)
@@ -138,6 +154,10 @@ async def stream(
         node_started = perf_counter()
 
         for call in plan:
+            expired = _timeout_event(deadline, timeout_s, step)
+            if expired is not None:
+                yield expired
+                return
             tool = str(call.get("tool", ""))
             raw_args = call.get("args")
             args: dict[str, Any] = dict(raw_args) if isinstance(raw_args, Mapping) else {}
@@ -188,6 +208,10 @@ async def stream(
         )
 
         # ---------- finalize ----------
+        expired = _timeout_event(deadline, timeout_s, step)
+        if expired is not None:
+            yield expired
+            return
         step += 1
         if step > max_steps:
             yield _failed("STEP_LIMIT", f"超过最大步数 {max_steps}", step)
@@ -248,6 +272,12 @@ def _failed(error_code: str, message: str, at_step: int) -> Event:
         EventType.RUN_FAILED,
         {"error_code": error_code, "message": message, "at_step": at_step},
     )
+
+
+def _timeout_event(deadline: float, timeout_s: float, step: int) -> Event | None:
+    if perf_counter() < deadline:
+        return None
+    return _failed("TIMEOUT", f"超过单 run 时长上限 {timeout_s:g}s", step)
 
 
 def _approval_payload(

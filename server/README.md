@@ -5,8 +5,9 @@
 ```
 app/
 ├─ main.py            FastAPI 应用工厂
+├─ cli.py             本地签发 JWT（`python -m app.cli token`）
 ├─ api/               路由（薄层：校验、鉴权、调 service）
-├─ core/              配置、数据库引擎、SSE 编码、运行态存储、限流、预算
+├─ core/              配置、数据库引擎、JWT 校验、SSE 编码、运行态存储
 ├─ schemas/           Pydantic 模型（事件契约在此定义）
 ├─ models/            SQLAlchemy 模型
 ├─ agent/             状态机、规则节点、运行时（事件流）
@@ -33,12 +34,14 @@ uv run uvicorn app.main:app --reload --port 8000
 | 模块 | 状态 |
 |---|---|
 | `main.py` / `api/health.py` | ✅ 可用（探 db + redis） |
-| `api/chat.py` | ✅ 返回**假事件流**，事件逐条落库（W1 D3/D4） |
-| `api/runs.py` | ✅ Postgres + `after_seq` / `Last-Event-ID` 补拉 |
+| `api/chat.py` | ✅ 真实运行时驱动事件，逐条落库（W1 D5） |
+| `api/runs.py` | ✅ Postgres + `after_seq` / `Last-Event-ID` 补拉，只能读自己的 run |
 | `core/store.py` | ✅ `RunStore` Protocol + Postgres/内存两种实现 + 事件投影 |
 | `migrations/` | ✅ 0001 `runs` / `run_events`、0002 幂等键按 user 作用域，`alembic check` 无漂移 |
+| `api/deps.py` / `core/security.py` / `cli.py` | ✅ 本地 JWT（W1 D2）：签发、Bearer 校验、401 JSON、run 归属 |
 | `tools/registry.py` | ✅ 五道闸门、超时、重试、审批标记已实现 |
-| `agent/*` | 🚧 `state.py` 已定义；`graph.py` 为占位 |
+| `tools/builtin.py` | ✅ `query_cmdb` / `create_ticket` 假实现，走同一套治理（W3 换 MCP） |
+| `agent/*` | ✅ `runtime.py` + `nodes/*` 已接；`graph.py` 仍占位（W3） |
 | `rag/*` `gateway/*` `eval/*` | 🚧 待实现 |
 
 ## 约定

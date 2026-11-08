@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from collections.abc import AsyncIterator
 from typing import Annotated
@@ -107,7 +108,19 @@ async def chat_stream(
 
         log.info("run_finished", run_id=rec.run_id)
 
-    return StreamingResponse(gen(), media_type="text/event-stream; charset=utf-8", headers=SSE_HEADERS)
+    async def guarded() -> AsyncIterator[str]:
+        # 客户端硬断时 Starlette 会直接取消任务，不会走 is_disconnected 分支；
+        # shield 保证"标记 interrupted"这个收尾写入不被取消掉。
+        try:
+            async for frame in gen():
+                yield frame
+        except asyncio.CancelledError:
+            await asyncio.shield(_mark_interrupted(store, rec.run_id))
+            raise
+
+    return StreamingResponse(
+        guarded(), media_type="text/event-stream; charset=utf-8", headers=SSE_HEADERS
+    )
 
 
 async def _mark_interrupted(store: RunStore, run_id: str) -> None:

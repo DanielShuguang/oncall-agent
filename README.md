@@ -126,10 +126,11 @@ oncall/
 
 | 模块 | 状态 | 验证方式 |
 |---|---|---|
-| 文档（12 篇 + 5 篇 ADR） | ✅ 完成 | — |
-| 前端骨架（状态机 / SSE 客户端 / 页面） | ✅ 可用 | `tsc --noEmit` 通过；`vitest` 9/9 通过 |
-| 后端骨架（事件契约 / SSE / 健康检查） | 🟡 代码就绪 | `python -m compileall` 通过；**未做运行时验证**，需先 `uv sync` |
-| 工具治理五道闸门 + 超时重试 | ✅ 已实现 | 9 条回归测试已写好，待 `pytest` 跑通确认 |
+| 文档（12 篇 + 9 篇 ADR） | ✅ 完成 | — |
+| 前端骨架（状态机 / SSE 客户端 / 页面） | ✅ 可用 | `tsc --noEmit`、`oxlint`、`oxfmt --check` 通过；`vitest` 15/15 通过；`pnpm build` 成功 |
+| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | `pytest` 32 passed（含 Postgres 契约与并发 seq）；`/api/health` 实测 db/redis 均 up |
+| 事件落库 + 断线续传（D4） | ✅ 已完成 | `alembic upgrade head` + `alembic check` 无漂移；chat 落库 23 帧后重启服务仍可补拉；同一 `client_msg_id` 重放不新增事件 |
+| 工具治理五道闸门 + 超时重试 | ✅ 已实现 | `tests/test_tools_guard.py` 随 `make test` 通过 |
 | RAG / LangGraph / 模型网关 / 评测 | 🚧 待实现 | 见 [路线图](docs/10-roadmap-6weeks.md) |
 
 > 首次拉仓库先执行 `uv sync --all-extras`（后端）与 `pnpm install`（前端）。后端依赖在本次初始化机器上未安装完成，故运行时行为以你本地实际为准。

@@ -9,8 +9,8 @@
 param(
     [Parameter(Mandatory = $true)]
     [ValidateSet(
-        'up', 'down', 'logs', 'install', 'api', 'web', 'fmt', 'lint', 'test', 'eval', 'seed',
-        'clean', 'check',
+        'up', 'down', 'logs', 'migrate', 'install', 'api', 'web', 'fmt', 'lint', 'test', 'eval',
+        'seed', 'clean', 'check',
         'docker-up', 'docker-down', 'docker-ps', 'docker-logs'
     )]
     [string]$Target
@@ -42,6 +42,7 @@ switch ($Target) {
     'up' { Push-Location $root; docker compose up -d; Pop-Location }
     'down' { Push-Location $root; docker compose down; Pop-Location }
     'logs' { Push-Location $root; docker compose logs -f --tail=100; Pop-Location }
+    'migrate' { Push-Location "$root\server"; uv run alembic upgrade head; Pop-Location }
 
     'docker-up' { Invoke-Step 'wsl: docker compose up -d' { Invoke-WslDocker 'up -d' } }
     'docker-down' { Invoke-Step 'wsl: docker compose down' { Invoke-WslDocker 'down' } }
@@ -56,11 +57,11 @@ switch ($Target) {
     'web' { Push-Location "$root\web"; pnpm dev; Pop-Location }
     'fmt' {
         Push-Location "$root\server"; uv run ruff format .; uv run ruff check --fix .; Pop-Location
-        Push-Location "$root\web"; pnpm biome format --write .; Pop-Location
+        Push-Location "$root\web"; pnpm exec oxfmt; Pop-Location
     }
     'lint' {
         Push-Location "$root\server"; uv run ruff check .; uv run mypy app; Pop-Location
-        Push-Location "$root\web"; pnpm biome check .; Pop-Location
+        Push-Location "$root\web"; pnpm exec oxlint; pnpm exec oxfmt --check; Pop-Location
     }
     'test' {
         Push-Location "$root\server"; uv run pytest -q; Pop-Location

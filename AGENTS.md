@@ -158,7 +158,7 @@ cd web && pnpm exec tsc --noEmit && pnpm test && pnpm lint && pnpm format:check
 | 里程碑 | 事项 | 文件 |
 |---|---|---|
 | W1 D2 | JWT 鉴权替换 `user_id="u_102"` 占位 | `api/chat.py` |
-| W1 D4 | 内存 store → Postgres（runs / run_events） | `core/store.py` |
+| W1 D4 | ✅ 已完成：Postgres store + alembic 0001 + `Last-Event-ID` 续传 | `core/store.py`, `migrations/` |
 | W1 D5 | 假事件流 → 真实 Agent 运行时 | `agent/demo.py` → `agent/runtime.py` |
 | W2 | RAG 全链路 + 评测 v0 | `rag/*`, `eval/*`, `seed/*` |
 | W3 | 8 节点图 + 审批闭环 | `agent/graph.py`, `agent/nodes/*` |

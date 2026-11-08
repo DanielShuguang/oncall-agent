@@ -80,21 +80,19 @@ _TERMINAL_STATUSES = {
 }
 
 
-def build_run_patch(
-    event_type: EventType, payload: dict[str, Any], at: datetime
-) -> RunPatch:
+def build_run_patch(event_type: EventType, payload: dict[str, Any], at: datetime) -> RunPatch:
     """把事件翻译成 runs 的字段补丁。
 
     只做「事件 → 当前态」的机械投影，不判断业务对错；审批超时等语义由
     发事件的 runtime 决定（W3）。
     """
     if event_type is EventType.RUN_STARTED:
-        patch = RunPatch(status=RunStatus.RUNNING.value)
-        if isinstance(payload.get("model"), str):
-            patch = RunPatch(
-                status=patch.status, model=payload["model"], max_steps=_int_or_none(payload.get("max_steps"))
-            )
-        return patch
+        model = payload.get("model")
+        return RunPatch(
+            status=RunStatus.RUNNING.value,
+            model=model if isinstance(model, str) else None,
+            max_steps=_int_or_none(payload.get("max_steps")),
+        )
 
     if event_type is EventType.APPROVAL_REQUIRED:
         return RunPatch(status=RunStatus.AWAITING_APPROVAL.value)
@@ -262,9 +260,7 @@ class InMemoryRunStore:
             return []
         return [e for e in self._events.get(rid, []) if e.seq > after_seq][:limit]
 
-    async def set_status(
-        self, run_id: str, status: str, *, error_code: str | None = None
-    ) -> None:
+    async def set_status(self, run_id: str, status: str, *, error_code: str | None = None) -> None:
         rid = str(uuid.UUID(run_id))
         async with self._lock:
             record = self._runs.get(rid)
@@ -354,7 +350,13 @@ class PostgresRunStore:
             seq = int(last_seq or 0) + 1
             now = datetime.now(UTC)
             session.add(
-                RunEventRow(run_id=rid, seq=seq, type=event_type.value, payload=data, created_at=now)
+                RunEventRow(
+                    run_id=rid,
+                    seq=seq,
+                    type=event_type.value,
+                    payload=data,
+                    created_at=now,
+                )
             )
 
             patch = build_run_patch(event_type, data, now)
@@ -385,9 +387,7 @@ class PostgresRunStore:
             ).all()
         return [_event_from_row(row) for row in rows]
 
-    async def set_status(
-        self, run_id: str, status: str, *, error_code: str | None = None
-    ) -> None:
+    async def set_status(self, run_id: str, status: str, *, error_code: str | None = None) -> None:
         rid = uuid.UUID(run_id)
         async with self._sessionmaker() as session, session.begin():
             row = await session.get(Run, rid, with_for_update=True)
@@ -405,9 +405,7 @@ class PostgresRunStore:
             if row is None:
                 return None
             count = await session.scalar(
-                select(func.count())
-                .select_from(RunEventRow)
-                .where(RunEventRow.run_id == row.id)
+                select(func.count()).select_from(RunEventRow).where(RunEventRow.run_id == row.id)
             )
         return _record_from_row(row, event_count=int(count or 0))
 

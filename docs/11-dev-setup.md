@@ -37,6 +37,8 @@ pnpm install
 pnpm dev
 ```
 
+> 跑测试/迁移检查需要开发依赖：`uv sync --extra dev`（CI 还装 `--extra agent` 以通过 mypy）。
+
 访问：
 
 - 前端 http://127.0.0.1:5173
@@ -83,6 +85,7 @@ pwsh -File scripts/dev.ps1 docker-down
 | 命令 | 作用 |
 |---|---|
 | `make up` / `make down` | 起停中间件 |
+| `make migrate` | `alembic upgrade head`（DSN 取 `ONCALL_DATABASE_URL`） |
 | `make api` | 起后端 |
 | `make web` | 起前端 |
 | `make fmt` | ruff + oxfmt 格式化 |
@@ -90,6 +93,29 @@ pwsh -File scripts/dev.ps1 docker-down
 | `make test` | pytest + vitest |
 | `make eval` | 跑评测出报告 |
 | `make seed` | 灌演示数据 |
+
+### 4.1 数据库迁移与测试库
+
+首次拉起中间件后必须建表，否则 `POST /api/chat/stream` 会返回 `503`：
+
+```bash
+cd server
+uv run alembic upgrade head
+uv run alembic check          # 模型与迁移是否漂移
+```
+
+Postgres 契约测试默认跳过；想跑真库测试，先建一个可清空的测试库，再指定 DSN：
+
+```powershell
+# 用 compose 里的容器建库（一次性）
+docker compose exec postgres psql -U oncall -d oncall -c "CREATE DATABASE oncall_test"
+
+cd server
+$env:ONCALL_TEST_DATABASE_URL = "postgresql+asyncpg://oncall:oncall@127.0.0.1:5432/oncall_test"
+uv run pytest tests/test_store_contract.py -q
+```
+
+> 测试会 `drop_all` / `create_all`，**不要指向开发库**。
 
 ## 5. 项目约定
 

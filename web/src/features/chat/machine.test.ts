@@ -57,6 +57,11 @@ describe('事件归约', () => {
     expect(next.messages).toHaveLength(0);
   });
 
+  it('run.started 记录 run_id（断线补拉的唯一依据）', () => {
+    const next = runtimeReducer(running(), evt('run.started', { model: 'mock' }));
+    expect(next.runId).toBe('r1');
+  });
+
   it('run.failed 记录错误信息', () => {
     const next = runtimeReducer(running(), evt('run.failed', { message: '模型超时' }));
     expect(next.phase).toBe('failed');

@@ -29,12 +29,18 @@ class Run(Base):
     model: Mapped[str | None] = mapped_column(String(64))
     input: Mapped[str] = mapped_column(Text, nullable=False)
     output: Mapped[str | None] = mapped_column(Text)
-    step_count: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"), nullable=False)
+    step_count: Mapped[int] = mapped_column(
+        Integer, default=0, server_default=text("0"), nullable=False
+    )
     max_steps: Mapped[int] = mapped_column(
         Integer, default=12, server_default=text("12"), nullable=False
     )
-    token_in: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"), nullable=False)
-    token_out: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"), nullable=False)
+    token_in: Mapped[int] = mapped_column(
+        Integer, default=0, server_default=text("0"), nullable=False
+    )
+    token_out: Mapped[int] = mapped_column(
+        Integer, default=0, server_default=text("0"), nullable=False
+    )
     cost_cents: Mapped[int] = mapped_column(
         Integer, default=0, server_default=text("0"), nullable=False
     )
@@ -44,7 +50,7 @@ class Run(Base):
     )
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
-    events: Mapped[list["RunEvent"]] = relationship(back_populates="run", cascade="all, delete")
+    events: Mapped[list[RunEvent]] = relationship(back_populates="run", cascade="all, delete")
 
     __table_args__ = (
         Index("idx_runs_user_time", "user_id", text("started_at DESC")),

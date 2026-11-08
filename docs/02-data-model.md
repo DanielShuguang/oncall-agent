@@ -46,6 +46,9 @@ CREATE INDEX idx_runs_user_time ON runs (user_id, started_at DESC);
 CREATE INDEX idx_runs_status    ON runs (status) WHERE status IN ('running','awaiting_approval');
 ```
 
+> 实现：`server/app/models/run.py` + `server/migrations/versions/20261108_0001_runs_and_events.py`。
+> `runs` 没有 `created_at`，`started_at` 即创建时间；`status` 由事件投影写入，不接受 API 直接改。
+
 ### 2.2 run_events（事件，只追加）
 
 ```sql
@@ -61,6 +64,9 @@ CREATE INDEX idx_events_type ON run_events (run_id, type);
 ```
 
 `seq` 生成：`INSERT ... SELECT COALESCE(MAX(seq),0)+1 FROM run_events WHERE run_id=$1`（同事务内加行锁），或使用 `pg_sequence` + 每 run 一个序列。**不要用时间戳排序**。
+
+> 实现选择：`SELECT ... FROM runs WHERE id=$1 FOR UPDATE` 锁住 run 行，再 `MAX(seq)+1`，与插入同事务。
+> 一个 run 只有一条写入流，串行成本可忽略；不需要为每个 run 建序列（见 ADR-0009）。
 
 ### 2.3 approvals
 
@@ -216,6 +222,21 @@ CREATE TABLE eval_results (
 3. 事件只追加，不修改；纠错用新事件（`run.failed` + 重跑）
 4. 一个 run 结束后，`runs` 的汇总字段（token/cost/step）与 `model_calls` 聚合必须相等——**W4 写一个一致性校验测试**
 
+### 3.1 事件 → `runs` 投影
+
+投影只做机械映射（`server/app/core/store.py: build_run_patch`），业务判断留在 runtime：
+
+| 事件 | `runs` 变化 |
+|---|---|
+| `run.started` | `status=running`，写 `model` / `max_steps` |
+| `step.completed` | 不改汇总（`step_count` 以 `run.completed.payload.steps` 为准） |
+| `approval.required` | `status=awaiting_approval` |
+| `approval.resolved` | `approved → running`；`rejected/expired → failed` + `error_code`，写 `finished_at` |
+| `message.completed` | 写 `output` |
+| `run.completed` | `status=completed`，写 `finished_at` / `step_count` / `token_*` / `cost_cents` |
+| `run.failed` | `status=failed`，写 `error_code` / `finished_at` |
+| 其他（`heartbeat` 等） | 不改 `runs`，只追加事件 |
+
 ## 4. 保留与清理
 
 | 数据 | 保留 | 说明 |
@@ -230,3 +251,13 @@ CREATE TABLE eval_results (
 - 全部用 Alembic 管理，禁止手改线上表
 - `alembic revision --autogenerate -m "xxx"`，**生成后人工审一遍**（autogenerate 会漏索引与 CHECK）
 - 破坏性变更分两步：先加列/双写 → 再切读 → 最后删列
+
+```bash
+cd server
+uv run alembic upgrade head          # 应用迁移（DSN 取 ONCALL_DATABASE_URL）
+uv run alembic check                 # 模型与迁移是否漂移；CI 也跑
+uv run alembic upgrade head --sql    # 无库环境渲染 DDL，评审用
+```
+
+- 迁移文件在 `server/migrations/versions/`；`alembic.ini` 只放占位 DSN，真实 DSN 由 `migrations/env.py` 从环境变量读
+- 必须写 `downgrade`，并在空库上验证一次 `downgrade base && upgrade head`

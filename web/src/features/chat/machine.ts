@@ -91,7 +91,8 @@ export function runtimeReducer(state: Runtime, event: RunEvent): Runtime {
 
   switch (event.type) {
     case 'run.started':
-      return { ...base, runId: String(event.payload.model ?? '') || null };
+      // run_id 是补拉的唯一依据；早前误把 model 当 runId，D4 修掉
+      return { ...base, runId: event.run_id };
 
     case 'step.started':
       return {

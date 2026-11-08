@@ -68,8 +68,10 @@ pnpm gen:api      # 生成 src/api/generated.ts
 
 | 事项                                                      | 里程碑 |
 | --------------------------------------------------------- | ------ |
-| 接 `/runs/{id}/events` 补拉 + 断线重连                    | W1 D4  |
 | 审批卡接通 `/approvals/{id}/resolve`                      | W3 D14 |
 | 运行详情 / 回放页                                         | W4 D20 |
 | 知识库 / 工具 / 权限 / 成本 四个后台页（含自写表格/表单） | W5     |
 | 长会话虚拟滚动 + 流式 rAF 合并                            | W5 D24 |
+
+> 断线续传已在 W1 D4 接通：`features/chat/store.ts` 的 `catchUp` 按 `lastSeq`
+> 补拉 `/runs/{id}/events`，run 仍在 running 时轮询到终态。

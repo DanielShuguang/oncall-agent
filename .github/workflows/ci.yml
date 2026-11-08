@@ -11,15 +11,52 @@ jobs:
     defaults:
       run:
         working-directory: server
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: oncall
+          POSTGRES_PASSWORD: oncall
+          POSTGRES_DB: oncall
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U oncall -d oncall"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      ONCALL_DATABASE_URL: postgresql+asyncpg://oncall:oncall@127.0.0.1:5432/oncall
+      ONCALL_TEST_DATABASE_URL: postgresql+asyncpg://oncall:oncall@127.0.0.1:5432/oncall_test
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: '3.12'
       - name: Install
-        run: uv sync --extra dev
+        run: uv sync --extra dev --extra agent
+      - name: Migration
+        run: uv run alembic upgrade head
+      - name: Migration drift
+        run: uv run alembic check
+      - name: Create test database
+        run: |
+          uv run python - <<'EOF'
+          import asyncio
+
+          import asyncpg
+
+          async def main() -> None:
+              conn = await asyncpg.connect("postgresql://oncall:oncall@127.0.0.1:5432/oncall")
+              await conn.execute("CREATE DATABASE oncall_test")
+              await conn.close()
+
+          asyncio.run(main())
+          EOF
       - name: Lint
         run: uv run ruff check .
+      - name: Format check
+        run: uv run ruff format --check .
       - name: Type check
         run: uv run mypy app
       - name: Test

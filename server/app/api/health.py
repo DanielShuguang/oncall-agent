@@ -9,8 +9,10 @@ import asyncio
 from typing import Any
 
 from fastapi import APIRouter
+from sqlalchemy import text
 
 from app.core.config import get_settings
+from app.core.db import get_engine
 from app.core.logging import get_logger
 
 router = APIRouter(tags=["health"])
@@ -19,20 +21,17 @@ log = get_logger(__name__)
 PROBE_TIMEOUT_S = 0.8
 
 
-async def _probe_db(dsn: str) -> bool:
+async def _probe_db() -> bool:
     try:
-        import asyncpg
+        engine = get_engine()
 
-        conn = await asyncio.wait_for(
-            asyncpg.connect(dsn=dsn.replace("postgresql+asyncpg://", "postgresql://")),
-            timeout=PROBE_TIMEOUT_S,
-        )
-        try:
-            await conn.execute("SELECT 1")
-        finally:
-            await conn.close()
+        async def _query() -> None:
+            async with engine.connect() as conn:
+                await conn.execute(text("SELECT 1"))
+
+        await asyncio.wait_for(_query(), timeout=PROBE_TIMEOUT_S)
         return True
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.debug("db_probe_failed", error=str(exc))
         return False
 
@@ -47,7 +46,7 @@ async def _probe_redis(url: str) -> bool:
         finally:
             await client.aclose()
         return True
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.debug("redis_probe_failed", error=str(exc))
         return False
 
@@ -56,7 +55,7 @@ async def _probe_redis(url: str) -> bool:
 async def health() -> dict[str, Any]:
     settings = get_settings()
     db_ok, redis_ok = await asyncio.gather(
-        _probe_db(settings.database_url),
+        _probe_db(),
         _probe_redis(settings.redis_url),
     )
     healthy = db_ok and redis_ok

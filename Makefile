@@ -2,11 +2,12 @@
 # Windows 无 make 时执行：pwsh -File scripts/dev.ps1 <target>
 # 或直接照抄下方命令。
 
-.PHONY: help up down logs api web dev install fmt lint test eval seed clean
+.PHONY: help up down logs migrate api web dev install fmt lint test eval seed clean
 
 help:
 	@echo "up      起中间件 (postgres + redis)"
 	@echo "down    停中间件"
+	@echo "migrate 应用数据库迁移 (alembic upgrade head)"
 	@echo "install 安装前后端依赖"
 	@echo "api     起后端 (8000)"
 	@echo "web     起前端 (5173)"
@@ -25,6 +26,9 @@ down:
 
 logs:
 	docker compose logs -f --tail=100
+
+migrate:
+	cd server && uv run alembic upgrade head
 
 install:
 	cd server && uv sync

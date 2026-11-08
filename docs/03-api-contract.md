@@ -10,9 +10,9 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 |---|---|---|---|
 | GET | `/health` | 健康检查（含 db/redis 探活） | W1 D1 |
 | POST | `/chat/stream` | 发起一次对话，返回 SSE 流 | W1 D3 |
-| GET | `/runs` | 运行列表（分页） | W1 D4 |
+| GET | `/runs` | 运行列表（分页） | W4 D19 |
 | GET | `/runs/{run_id}` | 单次运行详情（含指标） | W1 D4 |
-| GET | `/runs/{run_id}/events?after_seq=` | 补拉事件（断线续传） | W1 D4 |
+| GET | `/runs/{run_id}/events?after_seq=` | 补拉事件（断线续传，兼容 `Last-Event-ID`） | W1 D4 |
 | GET | `/runs/{run_id}/stream` | 重连增量流（可选，v1 可用轮询替代） | W2 |
 | POST | `/approvals/{id}/resolve` | 审批通过/拒绝 | W3 D14 |
 | GET | `/approvals?status=pending` | 待办审批列表 | W3 D14 |
@@ -44,6 +44,7 @@ Accept: text/event-stream
 ```
 
 - `client_msg_id` 是**幂等键**：重复提交返回同一个 `run_id`，不重复执行
+- 幂等命中时服务端只**回放已落库事件**（可带 `Last-Event-ID` 从断点开始），不会再跑一遍 Agent；若该 run 仍在 `running`，客户端应改用 `/runs/{run_id}/events` 轮询补齐
 - 响应头：`Content-Type: text/event-stream; charset=utf-8`、`Cache-Control: no-cache`、`X-Accel-Buffering: no`（Nginx 不缓冲）
 
 ### 2.2 SSE 帧格式
@@ -82,6 +83,7 @@ data: {"seq":7,"run_id":"01J...","type":"tool.call","ts":"2026-11-09T02:11:03.12
 | 情况 | HTTP/事件 | 前端表现 |
 |---|---|---|
 | 请求本身不合法（未鉴权、字段缺失） | `4xx` JSON `{code,message}`，**不建 SSE** | 表单报错 |
+| 数据库不可用（建流前落库失败） | `503` JSON `{detail}` | 提示稍后重试，不要进入"假运行" |
 | 运行期失败（模型超时、工具全挂） | `200` + `run.failed` 事件 | 卡片显示失败 + 重试按钮 |
 | 连接断开 | 无 | 用 `lastEventId` 补拉 |
 
@@ -91,10 +93,43 @@ data: {"seq":7,"run_id":"01J...","type":"tool.call","ts":"2026-11-09T02:11:03.12
 
 ```http
 GET /api/runs/{run_id}/events?after_seq=7&limit=200
+Last-Event-ID: 7
 ```
 
 ```json
 { "events": [ ... ], "next_seq": 42, "run_status": "running" }
+```
+
+- `after_seq` 与 `Last-Event-ID` 都支持：**查询参数优先**；两者都没传按 0 处理；非法 header 也按 0（不因续传参数把主流程打成 422）
+- `limit` 默认 200、上限 500；`next_seq` 是本次返回的最后一个 `seq`（没有新事件时等于请求的起点）
+- run 不存在返回 `404`，不要用空数组掩盖
+
+### 3.1 单次运行详情
+
+```http
+GET /api/runs/{run_id}
+```
+
+```json
+{
+  "run_id": "9a17...",
+  "status": "completed",
+  "user_id": "u_102",
+  "session_id": "sess_01H...",
+  "intent": "hardware",
+  "model": "qwen2.5:7b",
+  "step_count": 6,
+  "max_steps": 12,
+  "token_in": 1820,
+  "token_out": 310,
+  "cost_cents": 3,
+  "error_code": null,
+  "event_count": 23,
+  "started_at": "2026-11-09T02:11:03.120Z",
+  "finished_at": "2026-11-09T02:11:04.400Z",
+  "input": "我电脑连不上打印机了",
+  "output": "你名下的笔记本…"
+}
 ```
 
 前端合并策略：

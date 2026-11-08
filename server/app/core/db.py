@@ -8,7 +8,12 @@
 
 from __future__ import annotations
 
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from app.core.config import get_settings
 
@@ -28,6 +33,13 @@ def configure(database_url: str | None = None) -> None:
         max_overflow=5,
     )
     _sessionmaker = async_sessionmaker(_engine, expire_on_commit=False)
+
+
+def get_engine() -> AsyncEngine:
+    if _engine is None:
+        configure()
+    assert _engine is not None
+    return _engine
 
 
 def get_sessionmaker() -> async_sessionmaker[AsyncSession]:

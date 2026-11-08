@@ -43,7 +43,7 @@ Accept: text/event-stream
 }
 ```
 
-- `client_msg_id` 是**幂等键**：重复提交返回同一个 `run_id`，不重复执行
+- `client_msg_id` 是**幂等键**：同一用户重复提交返回同一个 `run_id`，不重复执行；空字符串按“未提供”处理
 - 幂等命中时服务端只**回放已落库事件**（可带 `Last-Event-ID` 从断点开始），不会再跑一遍 Agent；若该 run 仍在 `running`，客户端应改用 `/runs/{run_id}/events` 轮询补齐
 - 响应头：`Content-Type: text/event-stream; charset=utf-8`、`Cache-Control: no-cache`、`X-Accel-Buffering: no`（Nginx 不缓冲）
 

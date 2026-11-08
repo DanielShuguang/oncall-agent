@@ -187,7 +187,7 @@ class InMemoryRunStore:
     def __init__(self) -> None:
         self._runs: dict[str, RunRecord] = {}
         self._events: dict[str, list[RunEvent]] = {}
-        self._client_index: dict[str, str] = {}
+        self._client_index: dict[tuple[str, str], str] = {}
         self._lock = asyncio.Lock()
 
     async def create(
@@ -202,9 +202,11 @@ class InMemoryRunStore:
         max_steps: int = 12,
     ) -> tuple[RunRecord, bool]:
         rid = str(uuid.UUID(run_id))
+        client_msg_id = client_msg_id or None
+        key = (user_id, client_msg_id) if client_msg_id else None
         async with self._lock:
-            if client_msg_id and client_msg_id in self._client_index:
-                existing = self._client_index[client_msg_id]
+            if key is not None and key in self._client_index:
+                existing = self._client_index[key]
                 return self._runs[existing], False
             record = RunRecord(
                 run_id=rid,
@@ -216,8 +218,8 @@ class InMemoryRunStore:
             )
             self._runs[rid] = record
             self._events[rid] = []
-            if client_msg_id:
-                self._client_index[client_msg_id] = rid
+            if key is not None:
+                self._client_index[key] = rid
             return record, True
 
     async def get(self, run_id: str) -> RunRecord | None:
@@ -266,6 +268,9 @@ class InMemoryRunStore:
             record = self._runs.get(rid)
             if record is None:
                 raise RunNotFoundError(run_id)
+            # 终态是事件流的结果，不能被断连收尾覆盖（run.completed 后断开很常见）
+            if record.status in _TERMINAL_STATUSES:
+                return
             record.status = status
             if error_code is not None:
                 record.error_code = error_code
@@ -289,8 +294,9 @@ class PostgresRunStore:
         max_steps: int = 12,
     ) -> tuple[RunRecord, bool]:
         rid = uuid.UUID(run_id)
+        client_msg_id = client_msg_id or None
         if client_msg_id:
-            existing = await self._find_by_client_msg_id(client_msg_id)
+            existing = await self._find_by_client_msg_id(user_id, client_msg_id)
             if existing is not None:
                 return existing, False
 
@@ -313,7 +319,7 @@ class PostgresRunStore:
                 # 并发重复提交：唯一约束兜底，回读先落库的那条
                 await session.rollback()
                 if client_msg_id:
-                    existing = await self._find_by_client_msg_id(client_msg_id)
+                    existing = await self._find_by_client_msg_id(user_id, client_msg_id)
                     if existing is not None:
                         return existing, False
                 raise
@@ -393,15 +399,23 @@ class PostgresRunStore:
             row = await session.get(Run, rid, with_for_update=True)
             if row is None:
                 raise RunNotFoundError(run_id)
+            # 不要用断连收尾覆盖已经落库的终态
+            if row.status in _TERMINAL_STATUSES:
+                return
             row.status = status
             if error_code is not None:
                 row.error_code = error_code
             if status in _TERMINAL_STATUSES:
                 row.finished_at = datetime.now(UTC)
 
-    async def _find_by_client_msg_id(self, client_msg_id: str) -> RunRecord | None:
+    async def _find_by_client_msg_id(self, user_id: str, client_msg_id: str) -> RunRecord | None:
         async with self._sessionmaker() as session:
-            row = await session.scalar(select(Run).where(Run.client_msg_id == client_msg_id))
+            row = await session.scalar(
+                select(Run).where(
+                    Run.user_id == user_id,
+                    Run.client_msg_id == client_msg_id,
+                )
+            )
             if row is None:
                 return None
             count = await session.scalar(

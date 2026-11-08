@@ -36,7 +36,7 @@ uv run uvicorn app.main:app --reload --port 8000
 | `api/chat.py` | ✅ 返回**假事件流**，事件逐条落库（W1 D3/D4） |
 | `api/runs.py` | ✅ Postgres + `after_seq` / `Last-Event-ID` 补拉 |
 | `core/store.py` | ✅ `RunStore` Protocol + Postgres/内存两种实现 + 事件投影 |
-| `migrations/` | ✅ 0001 `runs` / `run_events`，`alembic check` 无漂移 |
+| `migrations/` | ✅ 0001 `runs` / `run_events`、0002 幂等键按 user 作用域，`alembic check` 无漂移 |
 | `tools/registry.py` | ✅ 五道闸门、超时、重试、审批标记已实现 |
 | `agent/*` | 🚧 `state.py` 已定义；`graph.py` 为占位 |
 | `rag/*` `gateway/*` `eval/*` | 🚧 待实现 |

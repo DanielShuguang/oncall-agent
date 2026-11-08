@@ -46,6 +46,36 @@ async def _exercise(store: RunStore) -> None:
     assert created_again is False
     assert dup.run_id == run_id
 
+    # 幂等键按用户作用域：不同用户撞 key 不能互相回放
+    other_user, created_other = await store.create(
+        run_id=str(uuid.uuid4()),
+        user_id="u_201",
+        session_id="sess_1",
+        message="另一个用户",
+        client_msg_id="cmsg_1",
+    )
+    assert created_other is True
+    assert other_user.run_id != run_id
+
+    # 空串按“未提供”处理：不能变成共享的 "" 幂等键，也不能第二次提交时 500
+    blank_a, created_blank_a = await store.create(
+        run_id=str(uuid.uuid4()),
+        user_id="u_102",
+        session_id="sess_1",
+        message="空 key A",
+        client_msg_id="",
+    )
+    blank_b, created_blank_b = await store.create(
+        run_id=str(uuid.uuid4()),
+        user_id="u_102",
+        session_id="sess_1",
+        message="空 key B",
+        client_msg_id="",
+    )
+    assert created_blank_a is True
+    assert created_blank_b is True
+    assert blank_a.run_id != blank_b.run_id
+
     started = await store.append(
         run_id, EventType.RUN_STARTED, {"model": "mock-qwen2.5", "max_steps": 10}
     )
@@ -110,11 +140,22 @@ async def _exercise(store: RunStore) -> None:
     assert await store.get(str(uuid.uuid4())) is None
     assert await store.events_after(str(uuid.uuid4())) == []
 
-    # 断连标记
+    # 终态不能被断连收尾覆盖（run.completed 后客户端断开很常见）
     await store.set_status(run_id, RunStatus.INTERRUPTED.value)
     rec = await store.get(run_id)
     assert rec is not None
-    assert rec.status == RunStatus.INTERRUPTED.value
+    assert rec.status == RunStatus.COMPLETED.value
+    assert rec.finished_at is not None
+
+    # 非终态仍然可以被标记为 interrupted
+    interrupted_id = str(uuid.uuid4())
+    await store.create(run_id=interrupted_id, user_id="u_102", session_id="sess_2", message="断线")
+    await store.append(interrupted_id, EventType.RUN_STARTED, {})
+    await store.set_status(interrupted_id, RunStatus.INTERRUPTED.value)
+    interrupted = await store.get(interrupted_id)
+    assert interrupted is not None
+    assert interrupted.status == RunStatus.INTERRUPTED.value
+    assert interrupted.finished_at is not None
 
 
 async def _exercise_concurrent_seq(store: RunStore) -> None:

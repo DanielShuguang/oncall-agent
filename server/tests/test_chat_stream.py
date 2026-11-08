@@ -100,6 +100,18 @@ async def test_duplicate_client_msg_id_replays_without_rerun(
     assert rec.event_count == count_before
 
 
+async def test_blank_client_msg_id_is_treated_as_absent(
+    client: AsyncClient, mem_store: InMemoryRunStore
+) -> None:
+    first = _parse(
+        await _stream(client, {"session_id": "s", "client_msg_id": "", "message": "打印机"})
+    )
+    second = _parse(
+        await _stream(client, {"session_id": "s", "client_msg_id": "", "message": "打印机"})
+    )
+    assert first[0]["run_id"] != second[0]["run_id"]
+
+
 async def test_duplicate_with_last_event_id_resumes(
     client: AsyncClient, mem_store: InMemoryRunStore
 ) -> None:
@@ -130,6 +142,34 @@ async def test_store_failure_before_stream_returns_503() -> None:
         assert res.json()["detail"] == "database unavailable"
     finally:
         app.dependency_overrides.pop(get_store, None)
+
+
+async def test_append_failure_marks_run_failed(
+    client: AsyncClient,
+    mem_store: InMemoryRunStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original = mem_store.append
+    calls = {"n": 0}
+
+    async def flaky(
+        run_id: str, event_type: EventType, payload: dict[str, object] | None = None
+    ) -> object:
+        calls["n"] += 1
+        if calls["n"] == 3:
+            raise SQLAlchemyError("db down")
+        return await original(run_id, event_type, payload)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(mem_store, "append", flaky)
+
+    events = _parse(await _stream(client, {"session_id": "s", "message": "打印机"}))
+    assert len(events) == 2
+
+    run_id = str(events[0]["run_id"])
+    rec = await mem_store.get(run_id)
+    assert rec is not None
+    assert rec.status == RunStatus.FAILED.value
+    assert rec.error_code == "STORE_WRITE_FAILED"
 
 
 async def test_invalid_request_does_not_create_run(client: AsyncClient) -> None:

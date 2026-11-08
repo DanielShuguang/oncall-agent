@@ -13,6 +13,7 @@ export function getRunEvents(
   runId: string,
   afterSeq: number,
   limit = 200,
+  signal?: AbortSignal,
 ): Promise<RunEventsResponse> {
   const params = new URLSearchParams({
     after_seq: String(afterSeq),
@@ -20,5 +21,6 @@ export function getRunEvents(
   });
   return getJson<RunEventsResponse>(
     `/runs/${encodeURIComponent(runId)}/events?${params.toString()}`,
+    { signal },
   );
 }

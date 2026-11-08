@@ -25,7 +25,7 @@ eval_cases ──< eval_results
 ```sql
 CREATE TABLE runs (
   id              UUID PRIMARY KEY,
-  client_msg_id   TEXT UNIQUE,              -- 幂等键
+  client_msg_id   TEXT,                     -- 幂等键，与 user_id 联合唯一
   user_id         TEXT NOT NULL,
   session_id      TEXT NOT NULL,
   status          TEXT NOT NULL,            -- running|awaiting_approval|completed|failed|interrupted
@@ -40,14 +40,16 @@ CREATE TABLE runs (
   cost_cents      INT  NOT NULL DEFAULT 0,  -- 分为单位
   error_code      TEXT,
   started_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-  finished_at     TIMESTAMPTZ
+  finished_at     TIMESTAMPTZ,
+  CONSTRAINT uq_runs_user_client_msg UNIQUE (user_id, client_msg_id)
 );
 CREATE INDEX idx_runs_user_time ON runs (user_id, started_at DESC);
 CREATE INDEX idx_runs_status    ON runs (status) WHERE status IN ('running','awaiting_approval');
 ```
 
-> 实现：`server/app/models/run.py` + `server/migrations/versions/20261108_0001_runs_and_events.py`。
+> 实现：`server/app/models/run.py` + `server/migrations/versions/`。
 > `runs` 没有 `created_at`，`started_at` 即创建时间；`status` 由事件投影写入，不接受 API 直接改。
+> 幂等键按 **用户作用域**：不同用户撞 key 不会互相回放；空字符串视为未提供（迁移 0002）。
 
 ### 2.2 run_events（事件，只追加）
 

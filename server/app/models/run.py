@@ -10,7 +10,17 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Integer, String, Text, text
+from sqlalchemy import (
+    BigInteger,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -21,7 +31,7 @@ class Run(Base):
     __tablename__ = "runs"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    client_msg_id: Mapped[str | None] = mapped_column(String(64), unique=True)
+    client_msg_id: Mapped[str | None] = mapped_column(String(64))
     user_id: Mapped[str] = mapped_column(String(64), nullable=False)
     session_id: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -53,6 +63,8 @@ class Run(Base):
     events: Mapped[list[RunEvent]] = relationship(back_populates="run", cascade="all, delete")
 
     __table_args__ = (
+        # 幂等键按用户作用域：跨用户撞 key 不能互相回放（docs/02 §2.1）
+        UniqueConstraint("user_id", "client_msg_id", name="uq_runs_user_client_msg"),
         Index("idx_runs_user_time", "user_id", text("started_at DESC")),
         Index(
             "idx_runs_status",

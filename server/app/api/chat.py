@@ -96,8 +96,9 @@ async def chat_stream(
             try:
                 event = await store.append(rec.run_id, etype, payload)
             except SQLAlchemyError as exc:
-                # 已经 200 了，不能改成 HTTP 错误；记日志并截断，客户端靠补拉恢复
+                # 已经 200 了，不能改成 HTTP 错误；尽力标记失败，客户端靠补拉/重试
                 log.error("event_append_failed", run_id=rec.run_id, error=str(exc))
+                await _mark_failed(store, rec.run_id, "STORE_WRITE_FAILED")
                 return
 
             yield encode_frame(
@@ -117,6 +118,11 @@ async def chat_stream(
         except asyncio.CancelledError:
             await asyncio.shield(_mark_interrupted(store, rec.run_id))
             raise
+        except Exception:
+            # 运行期未预期异常：先尽力写失败态，再让连接结束；不能留下永久 running
+            log.exception("run_stream_failed", run_id=rec.run_id)
+            await asyncio.shield(_mark_failed(store, rec.run_id, "INTERNAL_ERROR"))
+            raise
 
     return StreamingResponse(
         guarded(), media_type="text/event-stream; charset=utf-8", headers=SSE_HEADERS
@@ -128,3 +134,10 @@ async def _mark_interrupted(store: RunStore, run_id: str) -> None:
         await store.set_status(run_id, RunStatus.INTERRUPTED.value)
     except (SQLAlchemyError, LookupError) as exc:
         log.warning("run_interrupt_mark_failed", run_id=run_id, error=str(exc))
+
+
+async def _mark_failed(store: RunStore, run_id: str, error_code: str) -> None:
+    try:
+        await store.set_status(run_id, RunStatus.FAILED.value, error_code=error_code)
+    except (SQLAlchemyError, LookupError) as exc:
+        log.warning("run_fail_mark_failed", run_id=run_id, error=str(exc))

@@ -9,7 +9,7 @@ app/
 ├─ core/              配置、数据库引擎、SSE 编码、运行态存储、限流、预算
 ├─ schemas/           Pydantic 模型（事件契约在此定义）
 ├─ models/            SQLAlchemy 模型
-├─ agent/             状态机、节点、运行时、demo 事件流
+├─ agent/             状态机、规则节点、运行时（事件流）
 ├─ tools/             MCP 工具 + 治理（ToolSpec / ToolGuard）
 ├─ gateway/           模型网关（多 provider、路由、计量）
 ├─ rag/               解析、切分、索引、检索、引用

@@ -4,6 +4,23 @@
 
 Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的 JWT，不接 SSO）
 
+## 0. 鉴权
+
+除 `GET /health` 外，所有接口都要求 Bearer token（ADR-0010）。
+
+- 签发（运维侧、不经过 HTTP）：
+
+  ```bash
+  cd server
+  uv run python -m app.cli token --user u_102 --roles employee
+  # --roles 逗号分隔；--ttl-minutes 默认 480（8 小时）
+  ```
+
+- claims：`sub`（user_id）、`roles`、`iat`、`exp`；HS256，密钥 `ONCALL_SESSION_SECRET`
+- 失败：`401 {"code":"UNAUTHORIZED","message":"缺少或无效的 token"}` + `WWW-Authenticate: Bearer`，**不建 SSE**
+- 归属：只能访问自己的 run；别人的 run 返回 `404`（不用 403，避免泄露 run 是否存在）
+- 前端：没有登录页，token 存在 `localStorage.oncall.token`，对话框入口在右上角「设置 Token」；接 SSO 后只替换 `api/deps.get_identity`
+
 ## 1. 接口清单
 
 | 方法 | 路径 | 说明 | 阶段 |
@@ -82,7 +99,7 @@ data: {"seq":7,"run_id":"01J...","type":"tool.call","ts":"2026-11-09T02:11:03.12
 
 | 情况 | HTTP/事件 | 前端表现 |
 |---|---|---|
-| 请求本身不合法（未鉴权、字段缺失） | `4xx` JSON `{code,message}`，**不建 SSE** | 表单报错 |
+| 请求本身不合法（未鉴权、字段缺失） | `4xx` JSON `{code,message}`（401 见 §0；422 是 FastAPI 校验格式），**不建 SSE** | 表单报错 / 提示设置 Token |
 | 数据库不可用（建流前落库失败） | `503` JSON `{detail}` | 提示稍后重试，不要进入"假运行" |
 | 运行期失败（模型超时、工具全挂） | `200` + `run.failed` 事件 | 卡片显示失败 + 重试按钮 |
 | 连接断开 | 无 | 用 `lastEventId` 补拉 |

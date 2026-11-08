@@ -17,7 +17,7 @@
 | 9 | [09-deploy-private](09-deploy-private.md) | 私有化、离线镜像、信创适配 | W6 D27 前 |
 | 10 | [10-roadmap-6weeks](10-roadmap-6weeks.md) | 30 天逐日任务与验收标准 | **每周一必看** |
 | 11 | [11-dev-setup](11-dev-setup.md) | 环境搭建、常用命令、排错 | 第一天 |
-| — | [decisions/](decisions/) | 9 篇 ADR：为什么 React / Python / LangGraph / pgvector / SSE / Tailwind+oxc / 依赖版本 / shadcn / Postgres 存储 | 面试前重读 |
+| — | [decisions/](decisions/) | 10 篇 ADR：为什么 React / Python / LangGraph / pgvector / SSE / Tailwind+oxc / 依赖版本 / shadcn / Postgres 存储 / 本地 JWT | 面试前重读 |
 
 ## ADR（Architecture Decision Record）
 
@@ -32,6 +32,7 @@
 | [0007](decisions/0007-dependency-versions.md) | 依赖版本 | 前端依赖跟最新（Vite 8 / Vitest 5 / React Router 8），TypeScript 用 6.0、7.0 暂缓 |
 | [0008](decisions/0008-shadcn-components.md) | 组件层 | shadcn/ui：源码复制 + radix-ui 行为，令牌映射到既有色板 |
 | [0009](decisions/0009-run-store-postgres.md) | 运行态存储 | Postgres + 事件投影；`seq` 行锁生成，内存实现只用于测试 |
+| [0010](decisions/0010-local-jwt.md) | 鉴权 | 本地签发 JWT（HS256），不接 SSO；身份只来自 token |
 
 > ADR 的写法：背景 → 方案对比 → 决策 → 后果。面试被问"为什么这么做"时，直接念 ADR。
 

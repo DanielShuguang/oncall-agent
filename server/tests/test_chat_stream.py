@@ -14,6 +14,7 @@ from app.api.chat import _with_heartbeat
 from app.core.store import InMemoryRunStore, get_store
 from app.main import app
 from app.schemas.event import EventType, RunStatus
+from tests.support import auth_headers
 
 
 def _parse(lines: list[str]) -> list[dict[str, object]]:
@@ -50,6 +51,12 @@ async def test_stream_persists_events_and_completes(
     assert events[0]["type"] == EventType.RUN_STARTED.value
     assert events[-1]["type"] == EventType.RUN_COMPLETED.value
     assert any(e["type"] == EventType.MESSAGE_COMPLETED.value for e in events)
+    # W1 D5：工具调用经治理层真实执行并落库（不是脚本化事件）
+    assert any(e["type"] == EventType.TOOL_CALL.value for e in events)
+    tool_results = [e for e in events if e["type"] == EventType.TOOL_RESULT.value]
+    assert tool_results[0]["payload"]["status"] == "ok"
+    completed = next(e for e in events if e["type"] == EventType.RUN_COMPLETED.value)
+    assert completed["payload"]["steps"] == 4
 
     # id 帧与 data.seq 一致
     ids = [int(line[4:]) for line in lines if line.startswith("id: ")]
@@ -172,7 +179,9 @@ async def test_store_failure_before_stream_returns_503() -> None:
     app.dependency_overrides[get_store] = lambda: BrokenStore()
     try:
         transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as http:
+        async with AsyncClient(
+            transport=transport, base_url="http://test", headers=auth_headers()
+        ) as http:
             res = await http.post(
                 "/api/chat/stream",
                 json={"session_id": "s", "message": "hi"},

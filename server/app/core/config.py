@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Literal
+from typing import Literal, Self
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+DEFAULT_SESSION_SECRET = "dev-change-me"
 
 
 class Settings(BaseSettings):
@@ -41,8 +44,15 @@ class Settings(BaseSettings):
     rate_limit_per_min: int = 30
 
     # 运行态
-    session_secret: str = "dev-change-me"
+    session_secret: str = DEFAULT_SESSION_SECRET
     event_retention_days: int = 30
+
+    @model_validator(mode="after")
+    def _reject_default_secret_outside_dev(self) -> Self:
+        """生产用默认密钥签发 token 等于没有鉴权，启动即拒绝（ADR-0010）。"""
+        if self.env != "dev" and self.session_secret == DEFAULT_SESSION_SECRET:
+            raise ValueError("ONCALL_SESSION_SECRET 仍是默认值，非 dev 环境拒绝启动")
+        return self
 
     @property
     def cors_origin_list(self) -> list[str]:

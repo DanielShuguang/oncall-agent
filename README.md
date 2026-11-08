@@ -81,7 +81,17 @@ uv run uvicorn app.main:app --reload --port 8000
 # 打开 http://127.0.0.1:8000/docs
 ```
 
-### 3. 起前端
+### 3. 签发本地 token
+
+v1 不接 SSO，除 `/api/health` 外接口都要求 Bearer token（见 [docs/11](docs/11-dev-setup.md) §2.1）：
+
+```bash
+cd server
+uv run python -m app.cli token --user u_102 --roles employee
+# 复制输出，粘到前端右上角「设置 Token」
+```
+
+### 4. 起前端
 
 ```bash
 cd web
@@ -92,7 +102,7 @@ pnpm dev
 
 前端已配置 `/api` 代理到 `http://127.0.0.1:8000`。
 
-> 当前后端 `/api/chat/stream` 返回的是**假事件流**，用于先把"流式 + 状态机 + 续传"骨架跑通（对应路线图 W1 D3）。接真实 Agent 在 W1 D5 之后。
+> `/api/chat/stream` 已由真实运行时驱动（W1 D5）：规则节点 → `query_cmdb`（走治理层）→ 模板回答；W2 接 RAG，W3 换 LangGraph。
 
 ## 目录
 
@@ -126,14 +136,16 @@ oncall/
 
 | 模块 | 状态 | 验证方式 |
 |---|---|---|
-| 文档（12 篇 + 9 篇 ADR） | ✅ 完成 | — |
-| 前端骨架（状态机 / SSE 客户端 / 页面） | ✅ 可用 | `tsc --noEmit`、`oxlint`、`oxfmt --check` 通过；`vitest` 18/18 通过；`pnpm build` 成功 |
-| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` 35 passed + 1 skipped；设 `ONCALL_TEST_DATABASE_URL` 后 36 passed（含 Postgres 契约与并发 seq） |
-| 事件落库 + 断线续传（D4） | ✅ 已完成 | `alembic upgrade head` + `alembic check` 无漂移；chat 落库 23 帧后重启服务仍可补拉；同一用户同一 `client_msg_id` 重放不新增事件 |
+| 文档（12 篇 + 10 篇 ADR） | ✅ 完成 | — |
+| 前端骨架（状态机 / SSE 客户端 / 页面） | ✅ 可用 | `tsc --noEmit`、`oxlint`、`oxfmt --check` 通过；`vitest` 21/21；`pnpm build` 成功 |
+| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` 61 passed + 1 skipped；设 `ONCALL_TEST_DATABASE_URL` 后 62 passed（含 Postgres 契约与并发 seq） |
+| 本地 JWT（W1 D2） | ✅ 已完成 | `tests/test_auth.py` 19 条：签发/验签、过期、alg=none、401 JSON、run 归属隔离 |
+| 事件落库 + 断线续传（D4） | ✅ 已完成 | `alembic upgrade head` + `alembic check` 无漂移；`tests/test_store_contract.py`（内存 + Postgres 契约）、`tests/test_chat_stream.py`（落库、幂等回放、503 语义） |
+| 最小 Agent 运行时（W1 D5） | ✅ 已完成 | `tests/test_agent_runtime.py` 6 条：工具真实执行、写操作挂起审批、工具失败降级、步数上限；e2e SSE 帧含 `tool.call` / `tool.result` |
 | 工具治理五道闸门 + 超时重试 | ✅ 已实现 | `tests/test_tools_guard.py` 随 `make test` 通过 |
 | RAG / LangGraph / 模型网关 / 评测 | 🚧 待实现 | 见 [路线图](docs/10-roadmap-6weeks.md) |
 
-> 首次拉仓库先执行 `uv sync --all-extras`（后端）与 `pnpm install`（前端）。后端依赖在本次初始化机器上未安装完成，故运行时行为以你本地实际为准。
+> 首次拉仓库先执行 `uv sync --all-extras`（后端）与 `pnpm install`（前端）。
 
 ## License
 

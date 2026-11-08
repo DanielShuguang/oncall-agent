@@ -168,6 +168,10 @@ class RunStore(Protocol):
 
     async def status(self, run_id: str) -> str | None: ...
 
+    async def owner(self, run_id: str) -> str | None:
+        """run 的 user_id；不存在返回 None。路由层做归属校验用，不要为此跑 COUNT。"""
+        ...
+
     async def append(
         self, run_id: str, event_type: EventType, payload: dict[str, Any] | None = None
     ) -> RunEvent:
@@ -241,6 +245,14 @@ class InMemoryRunStore:
             return None
         record = self._runs.get(rid)
         return record.status if record is not None else None
+
+    async def owner(self, run_id: str) -> str | None:
+        try:
+            rid = str(uuid.UUID(run_id))
+        except ValueError:
+            return None
+        record = self._runs.get(rid)
+        return record.user_id if record is not None else None
 
     async def append(
         self, run_id: str, event_type: EventType, payload: dict[str, Any] | None = None
@@ -359,6 +371,14 @@ class PostgresRunStore:
             return None
         async with self._sessionmaker() as session:
             return await session.scalar(select(Run.status).where(Run.id == rid))
+
+    async def owner(self, run_id: str) -> str | None:
+        try:
+            rid = uuid.UUID(run_id)
+        except ValueError:
+            return None
+        async with self._sessionmaker() as session:
+            return await session.scalar(select(Run.user_id).where(Run.id == rid))
 
     async def append(
         self, run_id: str, event_type: EventType, payload: dict[str, Any] | None = None

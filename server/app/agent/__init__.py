@@ -1,4 +1,4 @@
-"""Agent 编排：状态机、节点、运行时、演示流。"""
+"""Agent 编排：状态机、规则节点、运行时。"""
 
 from app.agent.state import AgentState, Budget, initial_state
 

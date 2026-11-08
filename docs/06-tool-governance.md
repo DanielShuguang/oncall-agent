@@ -152,6 +152,10 @@ app/tools/
 | `run_diagnostic` | 读 | 10000ms | it_support | 只读检测（ping/端口/驱动版本） |
 | `create_ticket` | **写** | 3000ms | 所有（需审批） | 创建工单 |
 
+> W1 D5 阶段 `query_cmdb` / `create_ticket` 是进程内假实现
+> （`server/app/tools/builtin.py`），治理链路与真实实现完全一致；接真实 CMDB 时只替换
+> handler 与 `input_schema`，`ToolGuard` 不改（R3）。
+
 ## 9. 审计与可观测
 
 每次工具调用写一条：

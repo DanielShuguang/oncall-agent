@@ -92,7 +92,7 @@ cd web && pnpm exec tsc --noEmit && pnpm test && pnpm lint && pnpm format:check
 
 ### 5.2 新增一个工具
 
-1. 在 `tools/registry.py` 的 `ToolSpec` 里注册（`input_schema` 必填，`timeout_ms` 按工具单独给）
+1. 在 `tools/builtin.py` 注册 `ToolSpec`（治理逻辑仍只在 `tools/registry.py`）
 2. 明确 `is_write` / `roles` / `retryable`
 3. 决定降级行为，写进 [docs/06-tool-governance.md](docs/06-tool-governance.md) 的降级表
 4. `server/tests/test_tools_guard.py` 至少覆盖：权限拒绝、保留字段、写操作挂起（+ 超时路径若适用）
@@ -157,9 +157,9 @@ cd web && pnpm exec tsc --noEmit && pnpm test && pnpm lint && pnpm format:check
 
 | 里程碑 | 事项 | 文件 |
 |---|---|---|
-| W1 D2 | JWT 鉴权替换 `user_id="u_102"` 占位 | `api/chat.py` |
+| W1 D2 | ✅ 已完成：本地 JWT（CLI 签发 + Bearer 校验 + run 归属） | `core/security.py`, `api/deps.py`, `cli.py` |
 | W1 D4 | ✅ 已完成：Postgres store + alembic 0001 + `Last-Event-ID` 续传 | `core/store.py`, `migrations/` |
-| W1 D5 | 假事件流 → 真实 Agent 运行时 | `agent/demo.py` → `agent/runtime.py` |
+| W1 D5 | ✅ 已完成：手写运行时 + 规则节点 + `query_cmdb` 走治理层 | `agent/runtime.py`, `agent/nodes/*`, `tools/builtin.py` |
 | W2 | RAG 全链路 + 评测 v0 | `rag/*`, `eval/*`, `seed/*` |
 | W3 | 8 节点图 + 审批闭环 | `agent/graph.py`, `agent/nodes/*` |
 | W4 | 模型网关 + 成本看板 | `gateway/*` |

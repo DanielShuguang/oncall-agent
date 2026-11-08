@@ -28,7 +28,7 @@ Agent 编排有三条路：全手写、LangChain 的 `AgentExecutor`、LangGraph
 ## 实现约束
 
 - 节点函数与调度器解耦：`nodes/*.py` 是纯函数（state → state_delta），LangGraph 与手写调度器共用
-- 手写调度器保留在 `agent/simple_runner.py`，作为 LangGraph 卡住时的 fallback
+- 手写调度器当前在 `agent/runtime.py`（W1 D5）；W3 拆出 `agent/simple_runner.py`，作为 LangGraph 卡住时的 fallback，与 LangGraph 共用节点
 - 节点只做业务，不发事件；事件由 `agent/runtime.py` 统一发出（避免节点里到处 `yield`）
 
 ## 后果

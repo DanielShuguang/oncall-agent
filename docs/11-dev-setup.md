@@ -45,6 +45,16 @@ pnpm dev
 - 后端文档 http://127.0.0.1:8000/docs
 - 健康检查 http://127.0.0.1:8000/api/health
 
+### 2.1 签发本地 token
+
+v1 不接 SSO，除 `/api/health` 外所有接口都要 Bearer token（见 [docs/03](03-api-contract.md) §0）：
+
+```powershell
+cd server
+uv run python -m app.cli token --user u_102 --roles employee
+# 输出一串 JWT，复制到前端右上角「设置 Token」，或 curl 里加 -H "Authorization: Bearer <token>"
+```
+
 ## 3. 本机 Docker 方案（WSL + docker.io，无 Docker Desktop）
 
 本机情况：**没有装 Docker Desktop**（它需要管理员权限，且 2025-06 已被卸载），但 WSL 2.3.26 可用。因此用「导入 Ubuntu 根文件系统 + 在 WSL 内装 docker.io」的方案，**全程不需要管理员权限**。
@@ -108,7 +118,9 @@ Postgres 契约测试默认跳过；想跑真库测试，先建一个可清空�
 
 ```powershell
 # 用 compose 里的容器建库（一次性）
-docker compose exec postgres psql -U oncall -d oncall -c "CREATE DATABASE oncall_test"
+# 注意：本机没有 docker CLI，改用 WSL 执行：
+wsl -d Ubuntu -u root -- bash -lc "docker exec oncall-postgres-1 psql -U oncall -d oncall -c 'CREATE DATABASE oncall_test'"
+# 有 Docker Desktop 时：docker compose exec postgres psql -U oncall -d oncall -c "CREATE DATABASE oncall_test"
 
 cd server
 $env:ONCALL_TEST_DATABASE_URL = "postgresql+asyncpg://oncall:oncall@127.0.0.1:5432/oncall_test"

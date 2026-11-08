@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import uuid
 
-from httpx import AsyncClient
+from httpx import ASGITransport, AsyncClient
 
 from app.core.store import InMemoryRunStore
+from app.main import app
 from app.schemas.event import EventType, RunStatus
+from tests.support import auth_headers
 
 
 async def _seed_run(store: InMemoryRunStore) -> str:
@@ -113,3 +115,17 @@ async def test_events_limit_and_next_seq(client: AsyncClient, mem_store: InMemor
 async def test_events_unknown_run_returns_404(client: AsyncClient) -> None:
     res = await client.get(f"/api/runs/{uuid.uuid4()}/events")
     assert res.status_code == 404
+
+
+async def test_run_of_another_user_is_404(client: AsyncClient, mem_store: InMemoryRunStore) -> None:
+    """不能读别人的 run，也不能用 403 暴露"它存在"。"""
+    run_id = await _seed_run(mem_store)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        headers=auth_headers("u_205"),
+    ) as other:
+        assert (await other.get(f"/api/runs/{run_id}")).status_code == 404
+        assert (await other.get(f"/api/runs/{run_id}/events")).status_code == 404

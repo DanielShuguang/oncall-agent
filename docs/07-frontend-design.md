@@ -73,6 +73,9 @@ const reader = res.body!.pipeThrough(new TextDecoderStream()).getReader();
 3. `: heartbeat` 注释行忽略，但可用于探测"连接是否还活着"
 4. 缓冲区要处理"半帧"（上一次读到的最后一段可能不完整）
 
+token 来源：v1 没有登录页，token 存在 `localStorage.oncall.token`，右上角「设置 Token」粘贴
+（签发见 docs/11 §2.1）；`api/client.ts` 的 `authHeaders()` 统一注入，换 SSO 时只改这里。
+
 ## 5. 组件树
 
 ```

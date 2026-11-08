@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.errors import ApiError, api_error_handler
 from app.api.router import api_router
 from app.core.config import get_settings
 from app.core.db import configure as configure_db
@@ -57,6 +58,8 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # 请求级错误统一 {code, message}（docs/03 §2.4），未鉴权也走这里
+    app.add_exception_handler(ApiError, api_error_handler)
     app.include_router(api_router)
     return app
 

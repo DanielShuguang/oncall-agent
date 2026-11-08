@@ -161,3 +161,26 @@ while state["step"] < MAX_STEPS and not terminal(state):
 ## 9. 评测挂钩
 
 每个节点记录 `duration_ms` 与 `model_calls`，写入 `model_calls` 表。评测报告按节点聚合延迟与成本，便于回答"慢在哪一步、贵在哪一步"。
+
+## 10. 运行时（W1 D5）
+
+`server/app/agent/runtime.py` 是手写调度器（ADR-0003）：按 `intake → plan → act → finalize`
+线性推进，**节点是纯函数，事件由 runtime 统一发**（R5）。
+
+| 事件 | 发出时机 |
+|---|---|
+| `run.started` | 进入运行时，带 `run_id/model/max_steps` |
+| `step.started` / `step.completed` | 每个节点前后，带 `step/node/title`、`duration_ms/summary` |
+| `tool.call` | 计划里的每个工具调用前，带 `call_id/tool/args/write` |
+| `tool.result` | 工具执行后（含 denied / timeout / requires_approval），payload 来自 `ToolCallResult` |
+| `approval.required` | 写操作被挂起，run 停在 `awaiting_approval` |
+| `message.delta` / `message.completed` | finalize 拼装回答并流式发出 |
+| `run.completed` / `run.failed` | 正常结束 / 超限或内部异常 |
+
+护栏：`max_steps` 来自请求（默认 12），`MAX_TOOL_CALLS=6`；超限发 `run.failed`，
+`error_code` 为 `STEP_LIMIT` / `TOOL_LIMIT`，节点异常为 `INTERNAL_ERROR`。客户端断开
+由 `api/chat.py` 标 `interrupted`，运行时本身不吞 `CancelledError`。
+
+W1 的 `plan` / `finalize` 是规则实现（关键词分类 + 模板回答）；W3 D13 把 plan 换成 LLM
+（JSON Schema 约束 + 失败降级），节点签名不变。W2 接 RAG 前 `citations` 恒为空。
+

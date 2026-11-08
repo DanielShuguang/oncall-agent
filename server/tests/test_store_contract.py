@@ -175,6 +175,8 @@ async def _exercise(store: RunStore) -> None:
 
     assert await store.status(run_id) == RunStatus.COMPLETED.value
     assert await store.status(str(uuid.uuid4())) is None
+    assert await store.owner(run_id) == "u_102"
+    assert await store.owner(str(uuid.uuid4())) is None
 
 
 async def _exercise_concurrent_seq(store: RunStore) -> None:

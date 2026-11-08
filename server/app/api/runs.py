@@ -3,6 +3,8 @@
 事件补拉是"可回放"的基础：客户端记住 lastEventId，重连后按 `after_seq`
 （或 SSE 标准头 `Last-Event-ID`）补齐，再决定是否挂增量流。
 见 docs/03-api-contract.md 第 3 节。
+
+归属校验：只能读自己的 run。别人的 run 统一 404 —— 用 403 会泄露 run 是否存在。
 """
 
 from __future__ import annotations
@@ -11,9 +13,15 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 
+from app.api.deps import get_identity
 from app.core.store import RunRecord, RunStore, get_store
+from app.tools.registry import Identity
 
 router = APIRouter(tags=["runs"])
+
+
+def _not_found() -> HTTPException:
+    return HTTPException(status_code=404, detail="run not found")
 
 
 def _parse_last_event_id(raw: str | None) -> int:
@@ -46,8 +54,11 @@ def _run_summary(rec: RunRecord) -> dict[str, Any]:
 
 
 @router.get("/runs")
-async def list_runs() -> dict[str, Any]:
+async def list_runs(
+    identity: Annotated[Identity, Depends(get_identity)],
+) -> dict[str, Any]:
     # TODO(W4 D19): 列表分页 + 筛选；D4 只保证单 run 可查、可回放
+    del identity
     return {"items": [], "next_cursor": None}
 
 
@@ -55,10 +66,11 @@ async def list_runs() -> dict[str, Any]:
 async def get_run(
     run_id: str,
     store: Annotated[RunStore, Depends(get_store)],
+    identity: Annotated[Identity, Depends(get_identity)],
 ) -> dict[str, Any]:
     rec = await store.get(run_id)
-    if rec is None:
-        raise HTTPException(status_code=404, detail="run not found")
+    if rec is None or rec.user_id != identity.user_id:
+        raise _not_found()
     return {**_run_summary(rec), "input": rec.input, "output": rec.output}
 
 
@@ -66,14 +78,19 @@ async def get_run(
 async def get_events(
     run_id: str,
     store: Annotated[RunStore, Depends(get_store)],
+    identity: Annotated[Identity, Depends(get_identity)],
     after_seq: Annotated[int | None, Query(ge=0)] = None,
     limit: Annotated[int, Query(ge=1, le=500)] = 200,
     last_event_id: Annotated[str | None, Header(alias="Last-Event-ID")] = None,
 ) -> dict[str, Any]:
-    # 只取状态：不要再走 get() 的 COUNT(*)，补拉会每秒轮询
+    # 归属用 owner()，状态用 status()：都不要跑 COUNT(*)，补拉会每秒轮询
+    owner = await store.owner(run_id)
+    if owner is None or owner != identity.user_id:
+        raise _not_found()
+
     run_status = await store.status(run_id)
     if run_status is None:
-        raise HTTPException(status_code=404, detail="run not found")
+        raise _not_found()
 
     # 查询参数优先：显式传 0 表示"从头补"，不会被旧 header 覆盖
     effective_after = after_seq if after_seq is not None else _parse_last_event_id(last_event_id)

@@ -5,6 +5,7 @@
  * 分帧规则见 docs/03-api-contract.md：以空行分隔，data 可能多行。
  */
 
+import { authHeaders } from '@/api/client';
 import type { RunEvent } from './types';
 
 export interface StreamOptions {
@@ -43,6 +44,7 @@ export async function streamChat(opts: StreamOptions): Promise<void> {
     headers: {
       'Content-Type': 'application/json',
       Accept: 'text/event-stream',
+      ...authHeaders(),
     },
     body: JSON.stringify({
       session_id: opts.sessionId,
@@ -53,7 +55,11 @@ export async function streamChat(opts: StreamOptions): Promise<void> {
   });
 
   if (!res.ok || !res.body) {
-    throw new Error(`建流失败: HTTP ${res.status}`);
+    throw new Error(
+      res.status === 401
+        ? '未登录或 token 过期：点右上角「设置 Token」'
+        : `建流失败: HTTP ${res.status}`,
+    );
   }
 
   const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();

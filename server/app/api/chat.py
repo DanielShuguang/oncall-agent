@@ -1,7 +1,7 @@
 """对话流接口。
 
-当前返回 `agent.demo` 的脚本化事件（W1 D3 骨架）；W1 D5 之后
-换成 `agent.runtime.stream()`，接口与事件格式不变。
+事件由 `agent.runtime.stream()` 产出（W1 D5 起是真实运行时：
+规则节点 + 工具治理 + 事件流），本层只负责落库、推送与收尾。
 
 关键语义（见 docs/03-api-contract.md）：
 - 能建流就返回 200，运行期失败用 run.failed 事件表达
@@ -24,12 +24,15 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.agent.demo import demo_stream
+from app.agent.runtime import stream as agent_stream
+from app.api.deps import get_identity
+from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.core.sse import encode_comment, encode_frame
 from app.core.store import RunStore, get_store
 from app.schemas.chat import ChatRequest
 from app.schemas.event import RunStatus
+from app.tools.registry import Identity
 
 router = APIRouter(tags=["chat"])
 log = get_logger(__name__)
@@ -115,18 +118,19 @@ async def chat_stream(
     req: ChatRequest,
     request: Request,
     store: Annotated[RunStore, Depends(get_store)],
+    identity: Annotated[Identity, Depends(get_identity)],
 ) -> StreamingResponse:
     run_id = str(uuid.uuid4())
+    model = req.options.model or get_settings().local_model
 
-    # TODO(W1 D2): 从 JWT 取真实身份；当前为单用户演示
     try:
         rec, created = await store.create(
             run_id=run_id,
-            user_id="u_102",
+            user_id=identity.user_id,
             session_id=req.session_id,
             message=req.message,
             client_msg_id=req.client_msg_id,
-            model=req.options.model,
+            model=model,
             max_steps=req.options.max_steps,
         )
     except SQLAlchemyError as exc:
@@ -137,7 +141,13 @@ async def chat_stream(
     resumed_after = _resume_after(request)
 
     async def gen() -> AsyncIterator[str]:
-        async for etype, payload in demo_stream(req.message):
+        async for etype, payload in agent_stream(
+            run_id=rec.run_id,
+            identity=identity,
+            query=req.message,
+            model=model,
+            max_steps=req.options.max_steps,
+        ):
             if await request.is_disconnected():
                 log.info("client_disconnected", run_id=rec.run_id)
                 await _mark_interrupted(store, rec.run_id)

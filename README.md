@@ -120,6 +120,8 @@ oncall/
 | [10-roadmap-6weeks](docs/10-roadmap-6weeks.md) | 30 天逐日计划与验收 |
 | [11-dev-setup](docs/11-dev-setup.md) | 环境搭建与排错 |
 
+> 用 AI 编码助手改这个仓库时，先让它读 [AGENTS.md](AGENTS.md)——那是约束清单（硬规则、recipe、反模式），不是背景介绍。
+
 ## 状态
 
 | 模块 | 状态 | 验证方式 |

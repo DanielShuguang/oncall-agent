@@ -138,6 +138,12 @@ $env:UV_DEFAULT_INDEX="https://pypi.tuna.tsinghua.edu.cn/simple"
 uv sync
 ```
 
+### alembic 报 `UnicodeDecodeError: 'gbk' codec can't decode`
+
+- 原因：`alembic.ini` 里有 UTF-8 中文注释，而 alembic 用 **locale 编码**（中文 Windows = cp936）读取该文件
+- 解决：`alembic.ini` 保持**纯 ASCII**（当前已是）；`PYTHONUTF8=1` 对它无效，别白试
+- 同理：任何 `.ini` / `.cfg` 配置都不要写中文
+
 ### Windows 路径 / 编码
 
 - 所有文本文件 UTF-8（`.editorconfig` 已声明）

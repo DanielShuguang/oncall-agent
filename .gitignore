@@ -1,0 +1,43 @@
+# ---- OS / Editor ----
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+
+# ---- Node ----
+node_modules/
+dist/
+dist-ssr/
+.vite/
+coverage/
+playwright-report/
+test-results/
+
+# ---- Env / secrets ----
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# ---- Runtime artifacts ----
+data/
+logs/
+*.log
+*.sqlite
+*.sqlite3
+tmp/
+out/

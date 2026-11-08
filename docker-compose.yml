@@ -1,0 +1,49 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: oncall-postgres
+    environment:
+      POSTGRES_USER: oncall
+      POSTGRES_PASSWORD: oncall
+      POSTGRES_DB: oncall
+    ports:
+      - "5432:5432"
+    volumes:
+      - oncall-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U oncall -d oncall"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: oncall-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - oncall-redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ---- 以下为可选：整栈容器化（W6 交付阶段启用）----
+  # api:
+  #   build: ./server
+  #   env_file: .env
+  #   ports: ["8000:8000"]
+  #   depends_on:
+  #     postgres: { condition: service_healthy }
+  #     redis: { condition: service_healthy }
+  #
+  # web:
+  #   build: ./web
+  #   ports: ["8080:80"]
+  #   depends_on: [api]
+
+volumes:
+  oncall-pgdata:
+  oncall-redisdata:

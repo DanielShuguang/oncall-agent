@@ -1,0 +1,37 @@
+{
+  "name": "oncall-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview --port 4173",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "gen:api": "openapi-typescript http://127.0.0.1:8000/openapi.json -o src/api/generated.ts"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.62.0",
+    "antd": "^5.22.2",
+    "dayjs": "^1.11.13",
+    "echarts": "^5.5.1",
+    "echarts-for-react": "^3.0.2",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-router-dom": "^6.28.0",
+    "zustand": "^5.0.1"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@types/react": "^19.0.1",
+    "@types/react-dom": "^19.0.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "openapi-typescript": "^7.4.4",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.3",
+    "vitest": "^2.1.8"
+  }
+}

@@ -23,10 +23,14 @@ class ToolSpec:
     inject_identity: bool = False  # handler 需要服务端身份时由治理层注入
 ```
 
-**身份注入**：`create_ticket` 的 `requester` 不能来自模型参数（`user_id`/`identity`
-都在保留字段黑名单里）。`ToolGuard` 在调用 handler 时用
-`spec.handler(**args, identity=identity)` 注入会话身份 —— 模型只能决定"开什么单"，
-决定不了"以谁的名义开"。
+**身份注入**：`create_ticket` 的 `requester` 不能来自模型参数（`user_id`/`identity`/
+`requester`/`requested_by`/`resolved_by` 都在保留字段黑名单里）。`ToolGuard` 在调用
+handler 时用 `spec.handler(**args, identity=identity)` 注入会话身份 —— 模型只能决定
+"开什么单"，决定不了"以谁的名义开"。
+
+**入参白名单**：`validate_args` 会拒绝 `input_schema.properties` 之外的字段，并校验
+`enum`。模型多塞一个 `foo` 不会被静默忽略，也不会带进 handler —— 记 `invalid_args`
+让模型改参数，而不是让它绕过 schema。
 
 **为什么超时按工具配**：查 CMDB 是 200ms 的内网调用，检索是 800ms，远程诊断可能 10s。用一个全局 5s 会让慢工具被误杀、快工具的故障被掩盖。
 
@@ -107,11 +111,15 @@ Agent 层面：单个工具失败不中断整个 run，`tool.result` 记 `status
 | 触发 | `is_write == true`，或风险等级 ≥ medium |
 | 展示 | 工具名 + 参数预览（人类可读）+ 风险说明 + 影响范围 |
 | 审批人 | 角色 ∈ `ONCALL_APPROVER_ROLES`（默认 `approver`），且 **≠ 发起人** |
-| 范围 | `once` / `session`（本会话同类不再问，落 `approval_grants`，默认 8 小时过期） |
+| 范围 | `once` / `session`（本会话同类不再问，落 `approval_grants`，按 `user_id + session_id + tool` 隔离，默认 8 小时过期） |
 | 过期 | 默认 10 分钟（`ONCALL_APPROVAL_TTL_MIN`），超时 → `expired` → run 失败并转人工 |
 | 幂等 | 重复 resolve 返回首次结果，不重复执行工具（存储层 `WHERE status='pending'` 原子迁移） |
 | 恢复 | 通过后从 `approvals.state` 快照恢复 `act`，只执行挂起的那一次调用 |
 | 审计 | 谁、何时、批了什么、理由、参数快照与上下文，全部落 `approvals` 表 |
+
+**一致性边界**：审批状态迁移（`approvals`）与恢复执行的事件写入（`run_events`）不在同一事务。
+进程在 approve 之后崩溃，run 可能停在 `running` 且没有终态事件。当前不自动重试写工具
+（重试 = 可能重复开单），由运维按 run_id 对账/重放；W4 的观测页需要把这个窗口暴露出来。
 
 **反模式**（面试会问"这样设计有什么问题"）：
 - 让模型自己判断"这个操作安全"→ 模型可被提示词注入影响

@@ -154,13 +154,13 @@ oncall/
 |---|---|---|
 | 文档（12 篇 + 12 篇 ADR + 评测基线） | ✅ 完成 | — |
 | 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡） | ✅ 可用 | `tsc --noEmit`、`oxlint`、`oxfmt --check` 通过；`vitest` 25/25；`pnpm build` 成功 |
-| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` 120 passed + 7 skipped；设 `ONCALL_TEST_DATABASE_URL` 后 127 passed（含 Postgres 契约、并发 seq、pgvector 检索、审批并发） |
+| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` 129 passed + 8 skipped；设 `ONCALL_TEST_DATABASE_URL` 后 137 passed（含 Postgres 契约、并发 seq、pgvector 检索、审批并发与授权隔离） |
 | 本地 JWT（W1 D2） | ✅ 已完成 | `tests/test_auth.py` 20 条：签发/验签、过期、alg=none、401 JSON、OpenAPI Bearer、run 归属隔离 |
 | 事件落库 + 断线续传（D4） | ✅ 已完成 | `alembic upgrade head` + `alembic check` 无漂移；`tests/test_store_contract.py`（内存 + Postgres 契约）、`tests/test_chat_stream.py`（落库、幂等回放、503 语义） |
 | 最小 Agent 运行时（W1 D5） | ✅ 已完成 | `tests/test_agent_runtime.py` 9 条：工具真实执行、检索引用、写操作挂起审批、工具失败降级、步数/时长上限 |
 | RAG 全链路（W2 D6–D10） | ✅ 已完成 | 50 篇 seed 知识库（含过期版本/冲突/噪声）；解析→切分→pgvector+tsvector→RRF→阈值→引用；`tests/test_rag_parse.py`、`test_rag_retrieve.py`、`test_rag_pg.py`、`test_kb_api.py`；评测基线 [docs/eval/baseline-v0](docs/eval/baseline-v0.md)（20 条，recall@5 100%、cite_acc 91.7%） |
 | 工具治理五道闸门 + 超时重试 | ✅ 已实现 | `tests/test_tools_guard.py` 14 条：权限/保留字段/超时重试/身份注入/伪造身份 |
-| 8 节点图 + 审批闭环（W3 D11–D15） | ✅ 已完成 | `tests/test_agent_graph.py`、`test_approvals.py`（8 条）、`test_approvals_pg.py`（3 条）、`test_playbooks.py`；审批通过后工单真正落库 |
+| 8 节点图 + 审批闭环（W3 D11–D15） | ✅ 已完成 | `tests/test_agent_graph.py`、`test_approvals.py`（审批/越权/幂等/超时/503）、`test_approvals_pg.py`（含并发与授权隔离）、`test_playbooks.py`；审批通过后工单真正落库 |
 | 模型网关 / 成本看板 | 🚧 W4 | 见 [路线图](docs/10-roadmap-6weeks.md) |
 
 > 首次拉仓库执行 `uv sync --all-extras`（后端）与 `pnpm install`（前端）；

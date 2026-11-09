@@ -198,3 +198,58 @@ async def test_model_cannot_forge_identity_field(mem_tickets: InMemoryTicketRepo
     assert res.decision is Decision.DENIED
     assert res.error_kind == ToolErrorKind.PERMISSION.value
     assert mem_tickets.count() == 0
+
+
+async def test_unknown_arg_is_rejected(mem_tickets: InMemoryTicketRepository) -> None:
+    guard = ToolGuard(default_registry())
+    res = await guard.execute(
+        "create_ticket",
+        {
+            "title": "打印机离线",
+            "category": "hardware",
+            "priority": "P2",
+            "foo": "忽略我",
+        },
+        EMPLOYEE,
+        call_id="c13",
+        allow_write=True,
+    )
+    assert res.status is ToolStatus.ERROR
+    assert res.error_kind == ToolErrorKind.INVALID_ARGS.value
+    assert mem_tickets.count() == 0
+
+
+async def test_enum_arg_is_rejected(mem_tickets: InMemoryTicketRepository) -> None:
+    guard = ToolGuard(default_registry())
+    res = await guard.execute(
+        "create_ticket",
+        {"title": "打印机离线", "category": "hardware", "priority": "URGENT"},
+        EMPLOYEE,
+        call_id="c14",
+        allow_write=True,
+    )
+    assert res.status is ToolStatus.ERROR
+    assert res.error_kind == ToolErrorKind.INVALID_ARGS.value
+    assert mem_tickets.count() == 0
+
+
+@pytest.mark.parametrize("field", ["requester", "requested_by", "resolved_by", "approver"])
+async def test_reserved_approval_fields_are_rejected(
+    field: str, mem_tickets: InMemoryTicketRepository
+) -> None:
+    guard = ToolGuard(default_registry())
+    res = await guard.execute(
+        "create_ticket",
+        {
+            "title": "打印机离线",
+            "category": "hardware",
+            "priority": "P2",
+            field: "u_900",
+        },
+        EMPLOYEE,
+        call_id="c15",
+        allow_write=True,
+    )
+    assert res.decision is Decision.DENIED
+    assert res.error_kind == ToolErrorKind.PERMISSION.value
+    assert mem_tickets.count() == 0

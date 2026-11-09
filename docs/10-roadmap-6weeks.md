@@ -53,7 +53,7 @@
 
 W2 指标：`recall@5 100%` / `cite_acc 91.7%` / `refusal_correct 100%` /
 `injection_blocked 100%` / `p95 71ms`（20 条小样本，内存检索，口径见基线文档）。
-W3 拆出 `classify` / `verify` 后同一命令为 `avg_steps 7` / `p95 84ms`，基线文档已同步。
+W3 拆出 `classify` / `verify` 后同一命令为 `avg_steps 7` / `p95 83ms`，基线文档已同步。
 与计划的差异：PDF 默认用 `pypdf` 而不是 PyMuPDF（体积与依赖原因，ADR-0011）；
 重排是确定性规则，bge-reranker 留到 W4 有模型服务后再评估。
 
@@ -79,16 +79,17 @@ W3 拆出 `classify` / `verify` 后同一命令为 `avg_steps 7` / `p95 84ms`，
 
 | 天 | 状态 | 落地 |
 |---|---|---|
-| D11 意图识别 | ✅（规则） | `agent/nodes/classify.py`：`ticket_create` / `asset_check` / `knowledge` + 工单分类；LLM 兜底随 W4 网关接入 |
+| D11 意图识别 | ◐（规则，未做标注集） | `agent/nodes/classify.py`：`ticket_create` / `asset_check` / `knowledge` + 工单分类；**50 条标注准确率未测**，LLM 兜底随 W4 网关接入 |
 | D12 注册表/角色矩阵 | ✅（代码） | `tools/registry.py` 已有 `ToolSpec.roles` / `enabled`；管理页矩阵留 W5 D23 |
-| D13 五道闸门 + 重试 | ✅ | 五道闸门、按工具超时、分类重试、`verify` 重规划一次、降级话术；`tests/test_tools_guard.py` 14 条 |
+| D13 五道闸门 + 重试 | ✅ | 五道闸门、入参白名单/enum、按工具超时、分类重试、`verify` 重规划一次、降级话术；`tests/test_tools_guard.py` 20 条 |
 | D14 create_ticket + 审批 | ✅ | `approvals` 表 + `/api/approvals` + 审批卡；通过后从快照恢复 `act`，工单真正落 `tickets` |
 | D15 三条剧本 | ✅ | `tests/test_playbooks.py` 连续跑三条剧本；审批/越权/幂等/超时见 `tests/test_approvals.py` |
 
-W3 指标（本地）：后端 120 passed + 7 skipped；带 Postgres 127 passed；
+W3 指标（本地）：后端 129 passed + 8 skipped；带 Postgres 137 passed；
 `ruff`/`mypy`/`alembic check` 全绿；越权/自批/非审批人/重复决议/超时全部有测试。
 与计划的差异：LangGraph 未启用，改用显式转移表（ADR-0012），理由与迁移路径见
-[docs/04 §7](04-agent-design.md)；审批 `scope=session` 已落库（默认 8 小时）。
+[docs/04 §7](04-agent-design.md)；审批 `scope=session` 已落库（按 user + session + tool
+隔离，默认 8 小时）；D11 的分类准确率验收项未完成，记入 W4。
 
 ---
 

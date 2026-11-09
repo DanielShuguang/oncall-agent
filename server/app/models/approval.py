@@ -66,11 +66,14 @@ class Approval(Base):
 class ApprovalGrant(Base):
     """会话级授权：resolve 时选 scope=session，本会话再调同类工具不再询问。
 
+    `user_id` 必须在主键里：session_id 由客户端传入，只按 (session, tool) 授权
+    会让别人复用同一个 session_id 继承授权（越权开单）。
     只存"已授权"，不存业务参数；授权过期后自然回到逐次审批。
     """
 
     __tablename__ = "approval_grants"
 
+    user_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     session_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     tool_name: Mapped[str] = mapped_column(String(64), primary_key=True)
     granted_by: Mapped[str] = mapped_column(String(64), nullable=False)

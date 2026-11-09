@@ -104,7 +104,7 @@ uv run python -m app.eval.runner --baseline eval-reports/<batch>.json
 ```
 
 W2 基线见 [eval/baseline-v0.md](eval/baseline-v0.md)：20 条、`recall@5 100%`、
-`cite_acc 91.7%`、`refusal_correct 100%`、`injection_blocked 100%`、`avg_steps 7`、`p95 84ms`。
+`cite_acc 91.7%`、`refusal_correct 100%`、`injection_blocked 100%`、`avg_steps 7`、`p95 83ms`。
 
 执行器伪代码：
 

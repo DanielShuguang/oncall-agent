@@ -160,3 +160,22 @@ async def test_pg_expired_approval_fails_run(
     assert mem_tickets.count() == 0
     rec = await runs.get(run_id)
     assert rec is not None and rec.error_code == "APPROVAL_TIMEOUT"
+
+
+async def test_pg_session_grant_is_user_scoped(
+    pg_approvals: tuple[PostgresRunStore, PostgresApprovalStore, ApprovalService, Any],
+    mem_tickets: InMemoryTicketRepository,
+) -> None:
+    runs, approvals, service, _ = pg_approvals
+    run_id = await _new_run(runs)
+    approval_id = await _request(runs, service, run_id)
+
+    await service.resolve(approval_id, APPROVER_A, decision="approved", scope="session")
+    now = datetime.now(UTC)
+    assert await approvals.is_granted(
+        user_id="u_102", session_id="sess_pg", tool_name="create_ticket", at=now
+    )
+    assert not await approvals.is_granted(
+        user_id="u_555", session_id="sess_pg", tool_name="create_ticket", at=now
+    )
+    assert mem_tickets.count() == 1

@@ -95,7 +95,7 @@ data: {"seq":7,"run_id":"01J...","type":"tool.call","ts":"2026-11-09T02:11:03.12
 | `approval.resolved` | `{approval_id, status:"approved"\|"rejected"\|"expired", resolved_by, reason, scope}` | 审批卡置终态；`rejected/expired` 后紧跟一条 `run.failed` |
 | `message.delta` | `{text}` | 追加到当前消息气泡 |
 | `message.completed` | `{text, citations:[{chunk_id,document_id,ord,title,heading,snippet,page}]}` | 收尾，渲染引用角标；点击打开原文片段 |
-| `run.completed` | `{status, steps, token_in, token_out, cost_cents, duration_ms}` | 置 completed，显示成本 |
+| `run.completed` | `{status, steps, token_in, token_out, cost_cents, duration_ms}` | 置 completed，显示成本；`duration_ms` 是本次执行段耗时，审批等待不计入 |
 | `run.failed` | `{error_code, message, at_step}` | 置 failed，显示重试 |
 | `heartbeat` | — | 忽略（或用于探测超时） |
 
@@ -220,6 +220,7 @@ POST /api/approvals/{approval_id}/resolve
 - 通过：追加 `approval.resolved`，从挂起快照恢复执行，再追加 `tool.result` / `message.*` / `run.completed`
 - 拒绝/过期：追加 `approval.resolved` + `run.failed`，run 转 `failed(error_code=APPROVAL_REJECTED|APPROVAL_TIMEOUT)`
 - 认证失败 `401`，审批不存在 `404 {"code":"APPROVAL_NOT_FOUND"}`
+- 数据库不可用：`503 {"code":"DATABASE_UNAVAILABLE","message":"database unavailable"}`
 - 竞态保护：`approval.required` 尚未落库时 run 仍是 `running`，此时 resolve 返回
   `409 {"code":"APPROVAL_NOT_READY"}`，避免 `resolved` 排在 `required` 前面导致 run 卡住
 

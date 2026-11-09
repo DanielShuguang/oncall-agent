@@ -52,7 +52,7 @@ from app.core.logging import get_logger
 from app.rag.service import get_knowledge_base
 from app.schemas.event import EventType
 from app.tools.builtin import default_registry
-from app.tools.registry import Decision, Identity, ToolGuard
+from app.tools.registry import Decision, Identity, ToolGuard, ToolStatus
 
 log = get_logger(__name__)
 
@@ -211,7 +211,9 @@ async def stream(
                         result.decision is Decision.REQUIRES_APPROVAL
                         and resolved.approvals is not None
                         and await resolved.approvals.is_granted(
-                            session_id=session_id, tool_name=tool
+                            user_id=identity.user_id,
+                            session_id=session_id,
+                            tool_name=tool,
                         )
                     ):
                         result = await resolved.guard.execute(
@@ -360,7 +362,7 @@ async def resume(
         )
         yield EventType.TOOL_RESULT, result.to_payload()
 
-        if result.status.value != "ok":
+        if result.status is not ToolStatus.OK:
             yield (
                 EventType.STEP_COMPLETED,
                 {
@@ -554,18 +556,6 @@ def _approval_payload(
         ),
         "expires_at": expires_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
-
-
-# 供测试断言：状态快照里不能丢的关键字段
-SNAPSHOT_KEYS = (
-    "run_id",
-    "user",
-    "query",
-    "retrieved",
-    "plan",
-    "tool_results",
-    "step",
-)
 
 
 __all__ = ["Event", "build_deps", "resume", "stream"]

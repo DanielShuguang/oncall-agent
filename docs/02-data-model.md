@@ -96,13 +96,16 @@ CREATE UNIQUE INDEX uq_approval_pending ON approvals (run_id, tool_name)
 CREATE INDEX idx_approvals_pending ON approvals (status, expires_at);
 
 -- scope=session 的授权；过期后自然回到逐次审批
+-- user_id 必须在主键里：session_id 由客户端传入，只按 (session, tool) 授权
+-- 会让别人复用同一 session_id 继承授权
 CREATE TABLE approval_grants (
+  user_id     TEXT NOT NULL,
   session_id  TEXT NOT NULL,
   tool_name   TEXT NOT NULL,
   granted_by  TEXT NOT NULL,
   expires_at  TIMESTAMPTZ NOT NULL,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-  PRIMARY KEY (session_id, tool_name)
+  PRIMARY KEY (user_id, session_id, tool_name)
 );
 ```
 
@@ -292,7 +295,7 @@ uv run alembic upgrade head --sql    # 无库环境渲染 DDL，评审用
 
 - 迁移文件在 `server/migrations/versions/`；`alembic.ini` 只放占位 DSN，真实 DSN 由 `migrations/env.py` 从环境变量读
 - 必须写 `downgrade`，并在空库上验证一次 `downgrade base && upgrade head`
-- 当前迁移链：`0001` runs/events → `0002` 幂等键按用户作用域 → `0003` kb（pgvector/tsvector）+ assets/tickets
+- 当前迁移链：`0001` runs/events → `0002` 幂等键按用户作用域 → `0003` kb（pgvector/tsvector）+ assets/tickets → `0004` approvals → `0005` 会话授权按用户隔离
 
 > `0003` 先 `CREATE EXTENSION IF NOT EXISTS vector`，否则 vector 类型与 HNSW 索引会失败；
 > 测试库由 fixture 建扩展后再 `create_all`（扩展是库级对象，`drop_all` 不会删）。

@@ -20,7 +20,7 @@ app/
 
 migrations/           Alembic
 ├─ env.py             DSN 取 ONCALL_DATABASE_URL
-└─ versions/          0001 runs/events · 0002 幂等键 · 0003 kb + assets/tickets · 0004 approvals
+└─ versions/          0001 runs/events · 0002 幂等键 · 0003 kb + assets/tickets · 0004 approvals · 0005 授权按用户隔离
 ```
 
 ## 启动
@@ -47,7 +47,7 @@ uv run python -m app.eval.runner
 | `api/runs.py` | ✅ Postgres + `after_seq` / `Last-Event-ID` 补拉，只能读自己的 run |
 | `api/admin_kb.py` | ✅ 上传/列表/详情/重建索引；要求 admin 角色 |
 | `core/store.py` | ✅ `RunStore` Protocol + Postgres/内存两种实现 + 事件投影 |
-| `migrations/` | ✅ 0001–0004，`alembic check` 无漂移 |
+| `migrations/` | ✅ 0001–0005，`alembic check` 无漂移 |
 | `api/deps.py` / `core/security.py` / `cli.py` | ✅ 本地 JWT（W1 D2）：签发、Bearer 校验、401 JSON、run 归属 |
 | `tools/registry.py` | ✅ 五道闸门、超时、重试、身份注入（`inject_identity`） |
 | `tools/builtin.py` | ✅ `create_ticket` 审批后真写 `tickets`；`query_cmdb` 仍是假 CMDB（W4 换真实系统） |

@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.deps import get_approval_service, get_identity
 from app.api.errors import ApiError
@@ -21,6 +22,7 @@ from app.approvals.types import (
     ApprovalNotReady,
     ApprovalScopeUnsupported,
 )
+from app.core.logging import get_logger
 from app.core.store import RunStore, get_store
 from app.schemas.approval import (
     ApprovalListResponse,
@@ -31,6 +33,7 @@ from app.schemas.approval import (
 from app.tools.registry import Identity
 
 router = APIRouter(tags=["approvals"])
+log = get_logger(__name__)
 
 
 @router.get("/approvals", response_model=ApprovalListResponse)
@@ -40,7 +43,11 @@ async def list_approvals(
     status: Annotated[str, Query(pattern="^(pending|approved|rejected|expired)$")] = "pending",
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> ApprovalListResponse:
-    records = await service.list_for(identity, status=status, limit=limit)
+    try:
+        records = await service.list_for(identity, status=status, limit=limit)
+    except SQLAlchemyError as exc:
+        log.error("approval_list_failed", error=str(exc))
+        raise ApiError(503, "DATABASE_UNAVAILABLE", "database unavailable") from exc
     return ApprovalListResponse(items=[ApprovalOut(**approval_payload(r)) for r in records])
 
 
@@ -68,6 +75,9 @@ async def resolve_approval(
         raise ApiError(409, "APPROVAL_NOT_READY", str(exc)) from None
     except ApprovalScopeUnsupported as exc:
         raise ApiError(400, "INVALID_ARGS", str(exc)) from None
+    except SQLAlchemyError as exc:
+        log.error("approval_resolve_failed", error=str(exc))
+        raise ApiError(503, "DATABASE_UNAVAILABLE", "database unavailable") from exc
 
     return ApprovalResolveResponse(
         approval=ApprovalOut(**approval_payload(record)),

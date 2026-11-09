@@ -92,11 +92,14 @@ class ApprovalService:
             return ApprovalRequestInfo(existing.id, existing.expires_at)
         return ApprovalRequestInfo(record.id, record.expires_at)
 
-    async def is_granted(self, *, session_id: str | None, tool_name: str) -> bool:
+    async def is_granted(self, *, user_id: str, session_id: str | None, tool_name: str) -> bool:
         if not session_id:
             return False
         return await self._approvals.is_granted(
-            session_id=session_id, tool_name=tool_name, at=datetime.now(UTC)
+            user_id=user_id,
+            session_id=session_id,
+            tool_name=tool_name,
+            at=datetime.now(UTC),
         )
 
     # ---------- 查询 ----------

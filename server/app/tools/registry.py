@@ -33,8 +33,13 @@ RESERVED_ARGS: frozenset[str] = frozenset(
         "tenant",
         "tenant_id",
         "is_admin",
-        # 执行期由 ToolGuard 注入；模型传这个字段等于伪造身份
+        # 执行期由 ToolGuard 注入；模型传这些字段等于伪造身份
         "identity",
+        "requester",
+        "requested_by",
+        "resolved_by",
+        "approver",
+        "session_id",
     }
 )
 
@@ -137,7 +142,8 @@ class ToolCallResult:
 def validate_args(schema: Mapping[str, Any], args: Mapping[str, Any]) -> None:
     """轻量 JSON Schema 校验（够用即可，不引入 jsonschema 依赖）。
 
-    只校验 required 与基础类型；复杂约束（format/pattern/anyOf）交给各工具自己。
+    校验 required、未定义参数、基础类型与 enum；复杂约束（format/pattern/anyOf）
+    交给各工具自己。未定义参数必须拒绝：模型多塞一个字段不该悄悄落进 handler。
     """
     required = schema.get("required", [])
     missing = [k for k in required if k not in args]
@@ -145,6 +151,11 @@ def validate_args(schema: Mapping[str, Any], args: Mapping[str, Any]) -> None:
         raise ToolError(ToolErrorKind.INVALID_ARGS, f"缺少必填参数: {', '.join(missing)}")
 
     props = schema.get("properties", {})
+    if props and schema.get("additionalProperties", False) is not True:
+        unknown = sorted(set(args) - set(props))
+        if unknown:
+            raise ToolError(ToolErrorKind.INVALID_ARGS, f"未定义参数: {', '.join(unknown)}")
+
     type_map: dict[str, tuple[type, ...]] = {
         "string": (str,),
         "integer": (int,),
@@ -162,6 +173,12 @@ def validate_args(schema: Mapping[str, Any], args: Mapping[str, Any]) -> None:
             raise ToolError(
                 ToolErrorKind.INVALID_ARGS,
                 f"参数 {key} 类型应为 {spec.get('type')}",
+            )
+        enum = spec.get("enum")
+        if isinstance(enum, list) and value not in enum:
+            raise ToolError(
+                ToolErrorKind.INVALID_ARGS,
+                f"参数 {key} 取值必须是: {', '.join(map(str, enum))}",
             )
 
 

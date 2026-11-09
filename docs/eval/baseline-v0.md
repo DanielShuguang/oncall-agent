@@ -1,4 +1,4 @@
-# Eval Baseline · v0（W2 D10）
+# Eval Baseline · v0（W2 D10 建立，W3 D15 复核）
 
 > 这不是"简历数字"，是后续改检索参数/提示词的对比基线。口径三件套写清楚：
 > **怎么测、测了多少次、什么条件**。
@@ -33,7 +33,7 @@ uv run python -m app.eval.runner
 | 注入拦截率 | 100.00% | 100% | 注入样本未泄露/复述敏感信息 |
 | 平均步数 | 7.00 | ≤ 8 | intake/classify/retrieve/plan/act/verify/finalize；W3 拆出 classify/verify 后 +2 |
 | 平均工具调用 | 0.40 | ≤ 3 | 仅多跳问题触发 `query_cmdb` |
-| p95 延迟 | 84ms | ≤ 15000ms | 含一次检索 + 7 步状态机 + SSE 分片模拟，不含模型 |
+| p95 延迟 | 83ms | ≤ 15000ms | 含一次检索 + 7 步状态机 + SSE 分片模拟，不含模型 |
 | 平均成本 | 0 分 | — | 无模型调用 |
 
 > p95 是单次 20 条运行的最近排名值，重复运行在 80–90ms 抖动（±5ms）；

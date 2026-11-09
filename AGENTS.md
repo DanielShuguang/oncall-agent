@@ -165,7 +165,7 @@ cd web && pnpm exec tsc --noEmit && pnpm test && pnpm lint && pnpm format:check
 | W4 | 模型网关 + 成本看板 | `gateway/*` |
 | W5–W6 | 后台四页 + 私有化交付 | `web/src/features/console/*` |
 
-> 迁移现在到 0004（kb + assets/tickets + approvals）；改检索参数/语料必须跑 `make eval` 并对比
+> 迁移现在到 0005（kb + assets/tickets + approvals + 授权按用户隔离）；改检索参数/语料必须跑 `make eval` 并对比
 > `docs/eval/baseline-v0.md`（回归超过 -3pp 不合并）。
 
 ## 10. 不确定时

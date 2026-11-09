@@ -12,6 +12,7 @@ from typing import Any
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.approvals.service import ApprovalService
 from app.approvals.store import InMemoryApprovalStore
@@ -290,3 +291,60 @@ async def test_resolve_before_approval_required_is_rejected(
             Identity(user_id="u_900", roles=frozenset({"approver"})),
             decision="approved",
         )
+
+
+async def test_session_grant_does_not_leak_across_users(
+    client: AsyncClient,
+    mem_tickets: InMemoryTicketRepository,
+) -> None:
+    session = "sess_shared"
+    events = await _stream(client, "帮我开一张报修工单", session_id=session)
+    approval_id = _of(events, EventType.APPROVAL_REQUIRED)[0]["payload"]["approval_id"]
+    approved = await client.post(
+        f"/api/approvals/{approval_id}/resolve",
+        json={"decision": "approved", "scope": "session"},
+        headers=APPROVER,
+    )
+    assert approved.status_code == 200
+    assert mem_tickets.count() == 1
+
+    # 另一个员工复用同一个 session_id：授权是按 (user_id, session, tool) 的，不能继承
+    other = auth_headers("u_555", ("employee",))
+    second = await _stream(client, "帮我开一张报修工单", session_id=session, headers=other)
+    assert _of(second, EventType.APPROVAL_REQUIRED)
+    assert mem_tickets.count() == 1
+
+
+async def test_list_maps_db_error_to_503(
+    client: AsyncClient,
+    mem_approvals: InMemoryApprovalStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def boom(**_: object) -> list[object]:
+        raise SQLAlchemyError("db down")
+
+    monkeypatch.setattr(mem_approvals, "list", boom)
+    res = await client.get("/api/approvals", headers=APPROVER)
+    assert res.status_code == 503
+    assert res.json()["code"] == "DATABASE_UNAVAILABLE"
+
+
+async def test_resolve_maps_db_error_to_503(
+    client: AsyncClient,
+    mem_approvals: InMemoryApprovalStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events = await _stream(client, "帮我开一张报修工单")
+    approval_id = _of(events, EventType.APPROVAL_REQUIRED)[0]["payload"]["approval_id"]
+
+    async def boom(_: str) -> None:
+        raise SQLAlchemyError("db down")
+
+    monkeypatch.setattr(mem_approvals, "get", boom)
+    res = await client.post(
+        f"/api/approvals/{approval_id}/resolve",
+        json={"decision": "approved"},
+        headers=APPROVER,
+    )
+    assert res.status_code == 503
+    assert res.json()["code"] == "DATABASE_UNAVAILABLE"

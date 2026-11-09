@@ -57,13 +57,15 @@ class ApprovalStore(Protocol):
         """
         ...
 
-    async def is_granted(self, *, session_id: str, tool_name: str, at: datetime) -> bool: ...
+    async def is_granted(
+        self, *, user_id: str, session_id: str, tool_name: str, at: datetime
+    ) -> bool: ...
 
 
 class InMemoryApprovalStore:
     def __init__(self) -> None:
         self._records: dict[str, ApprovalRecord] = {}
-        self._grants: dict[tuple[str, str], datetime] = {}
+        self._grants: dict[tuple[str, str, str], datetime] = {}
         self._lock = asyncio.Lock()
 
     async def create(self, record: ApprovalRecord) -> ApprovalRecord:
@@ -128,11 +130,15 @@ class InMemoryApprovalStore:
                 and updated.session_id
                 and grant_until is not None
             ):
-                self._grants[(updated.session_id, updated.tool_name)] = grant_until
+                self._grants[(updated.requested_by, updated.session_id, updated.tool_name)] = (
+                    grant_until
+                )
             return updated, True
 
-    async def is_granted(self, *, session_id: str, tool_name: str, at: datetime) -> bool:
-        expires = self._grants.get((session_id, tool_name))
+    async def is_granted(
+        self, *, user_id: str, session_id: str, tool_name: str, at: datetime
+    ) -> bool:
+        expires = self._grants.get((user_id, session_id, tool_name))
         return expires is not None and expires > at
 
 
@@ -236,23 +242,27 @@ class PostgresApprovalStore:
                 and grant_until is not None
             ):
                 stmt = pg_insert(ApprovalGrant).values(
+                    user_id=row.requested_by,
                     session_id=row.session_id,
                     tool_name=row.tool_name,
                     granted_by=resolved_by,
                     expires_at=grant_until,
                 )
                 stmt = stmt.on_conflict_do_update(
-                    index_elements=["session_id", "tool_name"],
+                    index_elements=["user_id", "session_id", "tool_name"],
                     set_={"granted_by": resolved_by, "expires_at": grant_until},
                 )
                 await session.execute(stmt)
             await session.flush()
             return _record_from_row(row), True
 
-    async def is_granted(self, *, session_id: str, tool_name: str, at: datetime) -> bool:
+    async def is_granted(
+        self, *, user_id: str, session_id: str, tool_name: str, at: datetime
+    ) -> bool:
         async with self._sessionmaker() as session:
             expires = await session.scalar(
                 select(ApprovalGrant.expires_at).where(
+                    ApprovalGrant.user_id == user_id,
                     ApprovalGrant.session_id == session_id,
                     ApprovalGrant.tool_name == tool_name,
                 )

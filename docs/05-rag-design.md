@@ -180,7 +180,7 @@ W2 D10 先落 20 条（`server/app/eval/cases/v0.yaml`），W6 D26 扩到 50 条
 `injection_blocked`、`avg_steps`、`avg_tool_calls`、`p95_latency_ms`、`avg_cost_cents`。
 
 W2 基线（20 条，2026-11-09）：`recall@5 100%`、`cite_acc 91.7%`、`answer_acc 100%`、
-`refusal_correct 100%`、`injection_blocked 100%`、`avg_steps 7`、`p95 84ms`。
+`refusal_correct 100%`、`injection_blocked 100%`、`avg_steps 7`、`p95 83ms`。
 口径见 [docs/eval/baseline-v0.md](eval/baseline-v0.md)。
 
 ## 9. 已知局限（写进 README，别藏）

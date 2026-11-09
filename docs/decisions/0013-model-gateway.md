@@ -75,6 +75,9 @@ W1–W3 的 8 节点里只有 plan 需要模型（classify 是规则兜底），
 - 预扣取**所有候选路由里最贵的一档**：classify 首选 local，但 local 失败会切到
   cloud，只按首选路由预扣会让预算在 failover 后被突破；非 `ProviderError` 的
   异常也会在 `finally` 里归还预扣，避免预算泄漏
+- 预扣返回 reservation 凭证（Redis token / 内存对象），结算必须回到**同一后端**：
+  Redis 预扣失败退到内存后，即使 Redis 恢复也不能去减 Redis 的账；Redis 结算失败
+  时宁可让预扣留在账上（当天偏保守，日切清零），也不跨后端二次记账
 - Redis 不可用时退化为进程内实现并打 warning：限流/预算只在单实例生效，
   但聊天接口不能因此 500
 

@@ -68,7 +68,8 @@ Accept: text/event-stream
 - `options.model` 为空时由网关规则选模型（mock 模式是 `rule-engine`）；非空时只在**已配置的模型**
   之间路由，未知模型名忽略（避免客户端指定任意模型）
 - 限流：`ONCALL_RATE_LIMIT_PER_MIN`（默认 30 次/分钟/用户，0 关闭）。超限在**建 run 之前**
-  返回 `429 {"code":"RATE_LIMITED"}` + `Retry-After: 60`，不建 SSE、不产生 run
+  返回 `429 {"code":"RATE_LIMITED"}` + `Retry-After: 60`，不建 SSE、不产生 run；
+  同一 `client_msg_id` 的幂等重放即使额度耗尽也走回放，不会因为一次网络重试被 429 挡住
 - 幂等命中时服务端只**回放已落库事件**（可带 `Last-Event-ID` 从断点开始），不会再跑一遍 Agent；若该 run 仍在 `running`，服务端继续跟到终态并用心跳保活（上限 5 分钟），客户端也可改用 `/runs/{run_id}/events` 轮询补齐
 - 响应头：`Content-Type: text/event-stream; charset=utf-8`、`Cache-Control: no-cache`、`X-Accel-Buffering: no`（Nginx 不缓冲）
 

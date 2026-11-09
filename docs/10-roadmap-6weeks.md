@@ -115,7 +115,7 @@ W3 指标（本地）：后端 129 passed + 8 skipped；带 Postgres 137 passed�
 | D19 成本看板 | ✅ | `GET /runs`、`GET /admin/cost/summary`；前端 `/runs`、`/console/cost` |
 | D20 回放 + 归因 | ✅ | `/runs/:id` 用事件 reducer 重建；`run.failed.category` + `runs.failure_category` |
 
-W4 指标（本地）：后端 **183 passed**（含 Postgres，1 warning）；默认无库 **171 passed + 12 skipped**；
+W4 指标（本地）：后端 **192 passed**（含 Postgres，2 warnings）；默认无库 **180 passed + 12 skipped**；
 前端 **28 tests** 且 `tsc`/`oxlint 0`/`oxfmt --check`/`pnpm build` 全绿；`alembic check` 无漂移。
 评测仍是 mock/规则模式：20/20、recall@5 100%、cite_acc 91.67%、p95 87ms、avg_cost 0
 （真实模型效果与成本需要配置 provider 后另跑，见 docs/08 §6）。

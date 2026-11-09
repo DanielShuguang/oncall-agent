@@ -15,8 +15,9 @@ import asyncio
 import time
 import uuid
 from collections import defaultdict, deque
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 
 from app.core.config import Settings
 from app.core.logging import get_logger
@@ -28,6 +29,8 @@ log = get_logger(__name__)
 
 RATE_LIMIT_WINDOW_S = 60.0
 
+BudgetBackend = Literal["redis", "memory"]
+
 
 class RateLimiter(Protocol):
     async def allow(self, key: str) -> bool: ...
@@ -35,10 +38,26 @@ class RateLimiter(Protocol):
     async def close(self) -> None: ...
 
 
-class BudgetLedger(Protocol):
-    async def reserve(self, cents: int) -> bool: ...
+@dataclass(frozen=True, slots=True)
+class BudgetReservation:
+    """一次预算预扣的凭证；必须回到预扣时的同一个后端结算。
 
-    async def settle(self, reserved: int, actual: int) -> None: ...
+    `backend` 不是诊断信息：Redis 预扣失败退到内存后，结算若又走 Redis，
+    会把从未在 Redis 记过的 `reserved` 减掉，造成日预算负数或串账。
+    """
+
+    cents: int
+    backend: BudgetBackend
+    #: 预扣所属的 UTC 日；跨日结算仍写回预扣当天，避免把 23:59 的成本记到次日
+    day: str | None = None
+    #: Redis 预扣在 reservations hash 里的键；内存预扣为 None
+    token: str | None = None
+
+
+class BudgetLedger(Protocol):
+    async def reserve(self, cents: int) -> BudgetReservation | None: ...
+
+    async def settle(self, reservation: BudgetReservation, actual: int) -> None: ...
 
     async def spent(self) -> int: ...
 
@@ -131,20 +150,20 @@ class InMemoryBudgetLedger:
         self._day = _utc_day()
         self._lock = asyncio.Lock()
 
-    async def reserve(self, cents: int) -> bool:
+    async def reserve(self, cents: int) -> BudgetReservation | None:
         if cents <= 0:
-            return True
+            return BudgetReservation(cents=0, backend="memory", day=_utc_day())
         async with self._lock:
             self._rollover()
             if self._spent + cents > self._limit:
-                return False
+                return None
             self._spent += cents
-            return True
+            return BudgetReservation(cents=cents, backend="memory", day=_utc_day())
 
-    async def settle(self, reserved: int, actual: int) -> None:
+    async def settle(self, reservation: BudgetReservation, actual: int) -> None:
         async with self._lock:
             self._rollover()
-            self._spent = max(0, self._spent + actual - reserved)
+            self._spent = max(0, self._spent + actual - reservation.cents)
 
     async def spent(self) -> int:
         async with self._lock:
@@ -167,9 +186,28 @@ local current = tonumber(redis.call('GET', KEYS[1]) or '0')
 local limit = tonumber(ARGV[1])
 local amount = tonumber(ARGV[2])
 local ttl = tonumber(ARGV[3])
+local token = ARGV[4]
 if current + amount > limit then return 0 end
 redis.call('INCRBY', KEYS[1], amount)
+redis.call('HSET', KEYS[2], token, amount)
 redis.call('EXPIRE', KEYS[1], ttl)
+redis.call('EXPIRE', KEYS[2], ttl)
+return 1
+"""
+
+    #: 结算必须按凭证里的 reserved 金额回冲；凭证过期/Redis 重启时按 0 处理，
+    #: 只把实际花费加回去，避免把别人的预扣减成负数。
+    _SETTLE_SCRIPT = """
+local reserved = tonumber(redis.call('HGET', KEYS[2], ARGV[1]) or '0')
+local actual = tonumber(ARGV[2])
+local ttl = tonumber(ARGV[3])
+if reserved > 0 then redis.call('HDEL', KEYS[2], ARGV[1]) end
+local delta = actual - reserved
+if delta ~= 0 then redis.call('INCRBY', KEYS[1], delta) end
+local current = tonumber(redis.call('GET', KEYS[1]) or '0')
+if current < 0 then redis.call('SET', KEYS[1], 0) end
+redis.call('EXPIRE', KEYS[1], ttl)
+redis.call('EXPIRE', KEYS[2], ttl)
 return 1
 """
 
@@ -186,41 +224,74 @@ return 1
             self._client = Redis.from_url(self._url, decode_responses=True)
         return self._client
 
-    def _key(self) -> str:
-        return f"oncall:budget:{_utc_day()}"
+    def _key(self, day: str | None = None) -> str:
+        return f"oncall:budget:{day or _utc_day()}"
+
+    def _reservations_key(self, day: str | None = None) -> str:
+        return f"oncall:budget:reservations:{day or _utc_day()}"
 
     def _ttl(self) -> int:
         now = datetime.now(UTC)
         tomorrow = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
         return max(60, int((tomorrow - now).total_seconds()) + 3600)
 
-    async def reserve(self, cents: int) -> bool:
+    async def reserve(self, cents: int) -> BudgetReservation | None:
+        day = _utc_day()
         if cents <= 0:
-            return True
+            return BudgetReservation(cents=0, backend="redis", day=day)
+        token = uuid.uuid4().hex
         try:
             result = await self._redis().eval(
                 self._RESERVE_SCRIPT,
-                1,
-                self._key(),
+                2,
+                self._key(day),
+                self._reservations_key(day),
                 self._limit,
                 cents,
                 self._ttl(),
+                token,
             )
-            return bool(int(result))
+            if not int(result):
+                return None
+            return BudgetReservation(cents=cents, backend="redis", day=day, token=token)
         except Exception as exc:
             log.warning("budget_redis_failed", error=str(exc))
+            # 内存预扣返回的凭证 backend=memory；结算不会再去碰 Redis
             return await self._fallback.reserve(cents)
 
-    async def settle(self, reserved: int, actual: int) -> None:
-        delta = actual - reserved
-        if delta == 0:
+    async def settle(self, reservation: BudgetReservation, actual: int) -> None:
+        if reservation.backend == "memory":
+            await self._fallback.settle(reservation, actual)
+            return
+        day = reservation.day or _utc_day()
+        if reservation.token is None:
+            # 0 预扣不需要凭证；只有实际花费时才补记一笔
+            if actual <= 0:
+                return
+            try:
+                await self._redis().incrby(self._key(day), actual)
+                await self._redis().expire(self._key(day), self._ttl())
+            except Exception as exc:
+                log.warning("budget_settle_failed", error=str(exc))
             return
         try:
-            await self._redis().incrby(self._key(), delta)
-            await self._redis().expire(self._key(), self._ttl())
+            await self._redis().eval(
+                self._SETTLE_SCRIPT,
+                2,
+                self._key(day),
+                self._reservations_key(day),
+                reservation.token,
+                actual,
+                self._ttl(),
+            )
         except Exception as exc:
-            log.warning("budget_settle_failed", error=str(exc))
-            await self._fallback.settle(reserved, actual)
+            # 不降级到内存：那会把 Redis 里的预扣留在账上，同时再记一次内存账。
+            # 保留预扣最多让当天预算偏保守，日切后自然清零。
+            log.warning(
+                "budget_settle_failed_left_reserved",
+                error=str(exc),
+                reserved=reservation.cents,
+            )
 
     async def spent(self) -> int:
         try:

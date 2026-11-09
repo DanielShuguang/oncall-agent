@@ -90,7 +90,8 @@ class ModelGateway:
                 f"单 run 成本超过 {self._settings.run_budget_cents} 分"
                 f"（已用 {spent_cents}，预计 {reserved}）"
             )
-        if not await self._budget.reserve(reserved):
+        reservation = await self._budget.reserve(reserved)
+        if reservation is None:
             raise BudgetExceeded("当日模型预算已用尽")
 
         temperature = 0.0 if purpose is not Purpose.ANSWER else self._settings.model_temperature
@@ -135,7 +136,7 @@ class ModelGateway:
                     raw.token_out if raw.token_out is not None else estimate_tokens(raw.text)
                 )
                 cost_cents = estimate_cost_cents(route, token_in, token_out)
-                await self._budget.settle(reserved, cost_cents)
+                await self._budget.settle(reservation, cost_cents)
                 settled = True
 
                 completion = Completion(
@@ -187,7 +188,7 @@ class ModelGateway:
         finally:
             if not settled:
                 # provider 抛非 ProviderError 时也要归还预扣，避免预算泄漏
-                await self._budget.settle(reserved, 0)
+                await self._budget.settle(reservation, 0)
 
         raise ModelUnavailable(f"所有模型 provider 均失败: {last_error}")
 

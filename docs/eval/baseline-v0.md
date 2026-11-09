@@ -40,8 +40,8 @@ uv run python -m app.eval.runner
 > 延迟口径包含检索与 7 步状态机（mock 模式仍没有模型调用）。
 > W2 的 5 节点版本测得 71ms / 5 步；W3 多了 classify 与 verify 两个规则节点，
 > 单节点成本 <1ms，主要是步骤事件与 SSE 分片次数增加。
-> W4 的网关/计量路径由 `tests/test_gateway.py`、`tests/test_agent_llm.py`、
-> `tests/test_metrics_pg.py` 覆盖；真实模型效果与成本需要在
+> W4 的网关/计量路径由 `tests/test_gateway.py`、`tests/test_gateway_providers.py`、
+> `tests/test_agent_llm.py`、`tests/test_metrics_pg.py` 覆盖；真实模型效果与成本需要在
 > `ONCALL_MOCK_MODE=false` 下另跑一轮，**不能把本表当成模型效果**。
 
 ## 失败归因

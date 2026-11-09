@@ -1,7 +1,11 @@
 /** 成本看板（W4 D19）：按天 / 模型 / 用户聚合，数据源是 model_calls。 */
 
 import { useEffect, useState } from 'react';
-import ReactECharts from 'echarts-for-react';
+import { BarChart } from 'echarts/charts';
+import { GridComponent } from 'echarts/components';
+import * as echarts from 'echarts/core';
+import { CanvasRenderer } from 'echarts/renderers';
+import ReactEChartsCore from 'echarts-for-react/lib/core';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -29,6 +33,10 @@ const GROUP_OPTIONS: { value: CostGroupBy; label: string }[] = [
   { value: 'model', label: '按模型' },
   { value: 'user', label: '按用户' },
 ];
+
+// 只注册成本页用到的图表与组件：整包 import 会让懒加载 chunk 超过 1 MB。
+// 不用 TooltipComponent（会给每个柱子留 hover 值），精确值在下方表格可查。
+echarts.use([BarChart, GridComponent, CanvasRenderer]);
 
 function utcDay(offsetDays = 0): string {
   // API 的 from/to 是 UTC 自然日；用本地日期在 00:00–08:00 会偏一天（R6）
@@ -84,7 +92,6 @@ export default function CostPage() {
   const brand = tokenColor('--color-brand');
 
   const option = {
-    tooltip: { trigger: 'axis' },
     grid: { left: 48, right: 16, top: 24, bottom: 32 },
     xAxis: {
       type: 'category',
@@ -104,6 +111,12 @@ export default function CostPage() {
         data: items.map((item) => item.cost_cents),
         itemStyle: { color: brand, borderRadius: [4, 4, 0, 0] },
         barMaxWidth: 28,
+        label: {
+          show: items.length <= 12,
+          position: 'top',
+          fontSize: 10,
+          color: muted,
+        },
       },
     ],
   };
@@ -200,7 +213,7 @@ export default function CostPage() {
               该时间段没有模型调用。mock 模式走规则节点，成本恒为 0。
             </div>
           ) : (
-            <ReactECharts option={option} className="h-64 w-full" notMerge />
+            <ReactEChartsCore echarts={echarts} option={option} className="h-64 w-full" notMerge />
           )}
         </CardContent>
       </Card>

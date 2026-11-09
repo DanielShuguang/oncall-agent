@@ -257,3 +257,21 @@ async def test_rate_limit_rejects_before_creating_run(client: AsyncClient) -> No
     assert res.status_code == 429
     assert res.json()["code"] == "RATE_LIMITED"
     assert res.headers["retry-after"] == "60"
+
+
+async def test_rate_limit_allows_idempotent_replay(client: AsyncClient) -> None:
+    """额度耗尽后，同一 client_msg_id 的重试应回放已有 run，而不是 429。"""
+    from app.core.limits import InMemoryRateLimiter, set_rate_limiter
+
+    set_rate_limiter(InMemoryRateLimiter(limit=1))
+    payload = {
+        "session_id": "s",
+        "client_msg_id": "cmsg_replay",
+        "message": "打印机离线",
+    }
+    first = _parse(await _stream(client, payload))
+    replay = _parse(await _stream(client, payload))
+
+    assert replay[0]["run_id"] == first[0]["run_id"]
+    assert replay[0]["seq"] == 1
+    assert replay[-1]["type"] == EventType.RUN_COMPLETED.value

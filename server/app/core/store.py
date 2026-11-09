@@ -181,6 +181,10 @@ class RunStore(Protocol):
 
     async def get(self, run_id: str) -> RunRecord | None: ...
 
+    async def find_by_client_msg_id(self, user_id: str, client_msg_id: str) -> RunRecord | None:
+        """幂等命中查询；限流拒绝前用它判断是否只是重放已有 run。"""
+        ...
+
     async def status(self, run_id: str) -> str | None: ...
 
     async def owner(self, run_id: str) -> str | None:
@@ -259,6 +263,15 @@ class InMemoryRunStore:
         try:
             rid = str(uuid.UUID(run_id))
         except ValueError:
+            return None
+        record = self._runs.get(rid)
+        if record is not None:
+            record.event_count = len(self._events[rid])
+        return record
+
+    async def find_by_client_msg_id(self, user_id: str, client_msg_id: str) -> RunRecord | None:
+        rid = self._client_index.get((user_id, client_msg_id))
+        if rid is None:
             return None
         record = self._runs.get(rid)
         if record is not None:
@@ -370,7 +383,7 @@ class PostgresRunStore:
         rid = uuid.UUID(run_id)
         client_msg_id = client_msg_id or None
         if client_msg_id:
-            existing = await self._find_by_client_msg_id(user_id, client_msg_id)
+            existing = await self.find_by_client_msg_id(user_id, client_msg_id)
             if existing is not None:
                 return existing, False
 
@@ -393,7 +406,7 @@ class PostgresRunStore:
                 # 并发重复提交：唯一约束兜底，回读先落库的那条
                 await session.rollback()
                 if client_msg_id:
-                    existing = await self._find_by_client_msg_id(user_id, client_msg_id)
+                    existing = await self.find_by_client_msg_id(user_id, client_msg_id)
                     if existing is not None:
                         return existing, False
                 raise
@@ -532,7 +545,7 @@ class PostgresRunStore:
             rows = (await session.scalars(stmt)).all()
         return [_record_from_row(row, event_count=0) for row in rows]
 
-    async def _find_by_client_msg_id(self, user_id: str, client_msg_id: str) -> RunRecord | None:
+    async def find_by_client_msg_id(self, user_id: str, client_msg_id: str) -> RunRecord | None:
         async with self._sessionmaker() as session:
             row = await session.scalar(
                 select(Run).where(

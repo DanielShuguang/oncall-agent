@@ -131,13 +131,23 @@ async def chat_stream(
 
     allowed = await get_rate_limiter().allow(identity.user_id)
     if not allowed:
-        # 限流是请求级拒绝，不建 run、不建 SSE（docs/03 §2.4）
-        raise ApiError(
-            429,
-            "RATE_LIMITED",
-            "请求过于频繁，请稍后再试",
-            headers={"Retry-After": "60"},
-        )
+        # 幂等重放不是新请求：同一 client_msg_id 的重试即使额度耗尽也应回放，
+        # 否则客户端会因为一次网络重试拿 429、看不到已完成的 run（docs/03 §2）。
+        existing = None
+        if req.client_msg_id:
+            try:
+                existing = await store.find_by_client_msg_id(identity.user_id, req.client_msg_id)
+            except SQLAlchemyError as exc:
+                log.error("run_lookup_failed", error=str(exc))
+                raise HTTPException(status_code=503, detail="database unavailable") from exc
+        if existing is None:
+            # 限流是请求级拒绝，不建 run、不建 SSE（docs/03 §2.4）
+            raise ApiError(
+                429,
+                "RATE_LIMITED",
+                "请求过于频繁，请稍后再试",
+                headers={"Retry-After": "60"},
+            )
 
     try:
         rec, created = await store.create(

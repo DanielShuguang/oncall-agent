@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 
 from app.core.config import Settings
-from app.core.limits import InMemoryBudgetLedger, InMemoryRateLimiter
+from app.core.limits import InMemoryBudgetLedger, InMemoryRateLimiter, RedisBudgetLedger
 from app.gateway.gateway import ModelGateway
 from app.gateway.meter import InMemoryModelCallStore, ModelCallRecord
 from app.gateway.pricing import estimate_cost_cents, estimate_tokens
@@ -319,11 +319,57 @@ async def test_rate_limiter_sliding_window() -> None:
 
 async def test_budget_ledger_reserves_and_settles() -> None:
     ledger = InMemoryBudgetLedger(limit_cents=10)
-    assert await ledger.reserve(6)
-    assert not await ledger.reserve(6)
-    await ledger.settle(6, 2)
+    first = await ledger.reserve(6)
+    assert first is not None
+    assert first.cents == 6
+    assert first.backend == "memory"
+    assert await ledger.reserve(6) is None
+    await ledger.settle(first, 2)
     assert await ledger.spent() == 2
-    assert await ledger.reserve(8)
+    assert await ledger.reserve(8) is not None
+
+
+async def test_redis_budget_fallback_settles_in_memory_not_redis() -> None:
+    """Redis 预扣失败退到内存后，即使 Redis 恢复，结算也不能去减 Redis 的账。"""
+
+    class BrokenRedis:
+        async def eval(self, *args: Any, **kwargs: Any) -> int:
+            raise RuntimeError("redis down")
+
+        async def aclose(self) -> None:
+            return None
+
+    class RecordingRedis:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def eval(self, *args: Any, **kwargs: Any) -> int:
+            self.calls += 1
+            return 1
+
+        async def incrby(self, *args: Any, **kwargs: Any) -> int:
+            self.calls += 1
+            return 1
+
+        async def expire(self, *args: Any, **kwargs: Any) -> bool:
+            self.calls += 1
+            return True
+
+        async def get(self, *args: Any, **kwargs: Any) -> str:
+            self.calls += 1
+            return "0"
+
+    ledger = RedisBudgetLedger("redis://unused", limit_cents=1000)
+    ledger._redis = lambda: BrokenRedis()  # type: ignore[method-assign]
+    reservation = await ledger.reserve(5)
+    assert reservation is not None
+    assert reservation.backend == "memory"
+
+    healthy = RecordingRedis()
+    ledger._redis = lambda: healthy  # type: ignore[method-assign]
+    await ledger.settle(reservation, 2)
+    assert healthy.calls == 0
+    assert await ledger._fallback.spent() == 2
 
 
 def test_completion_shape() -> None:

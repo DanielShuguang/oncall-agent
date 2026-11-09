@@ -38,7 +38,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { accessLabel, isRestricted, parseRoleInput, type Visibility } from './access';
+import { accessLabel, draftOf, isRestricted, parseRoleInput, type Visibility } from './access';
 import { formatTime } from '@/lib/format';
 
 const STATUS_TONES: Record<string, string> = {
@@ -147,16 +147,11 @@ export default function KbPage() {
   };
 
   const openAccessDialog = (document: KbDocument) => {
+    const draft = draftOf(document);
     setAccessDialog({
       document,
-      // 未知可见性按「有没有角色」归一，避免把历史脏数据静默改成公开
-      visibility:
-        document.visibility === 'public'
-          ? 'public'
-          : document.allowed_roles.length
-            ? 'roles'
-            : 'public',
-      rolesText: document.allowed_roles.join(','),
+      visibility: draft.visibility,
+      rolesText: draft.rolesText,
       saving: false,
       error: null,
     });

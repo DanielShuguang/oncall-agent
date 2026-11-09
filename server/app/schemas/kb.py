@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 if TYPE_CHECKING:
     from app.rag.types import DocumentInfo
@@ -38,9 +38,10 @@ class KbDocumentOut(BaseModel):
     checksum: str
     chunk_count: int
     status: str
-    #: public（所有登录用户）/ roles（下列角色的交集），见 ADR-0019
-    visibility: str = "public"
-    allowed_roles: list[str] = Field(default_factory=list)
+    #: public（所有登录用户）/ roles（下列角色的交集），见 ADR-0019。
+    #: 故意不给默认值：手工构造响应时漏掉可见性会直接报错，而不是静默显示成 public
+    visibility: str
+    allowed_roles: list[str]
     created_at: datetime
 
     @classmethod
@@ -61,10 +62,14 @@ class KbDocumentOut(BaseModel):
 
 
 class KbAccessUpdateRequest(BaseModel):
-    """`PATCH /admin/kb/documents/{id}/access`：只改可见范围，不重切、不改 chunk_id。"""
+    """`PATCH /admin/kb/documents/{id}/access`：整体替换可见范围。
 
-    visibility: str = "public"
-    allowed_roles: list[str] = Field(default_factory=list)
+    两项都必须显式给出：PATCH 是「把范围改成这样」，空 body / 只传一项
+    都不应该被解释成某个默认值——尤其是不能把文档静默改成公开。
+    """
+
+    visibility: str
+    allowed_roles: list[str]
 
 
 class KbUploadResponse(BaseModel):

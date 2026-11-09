@@ -249,8 +249,9 @@ D24 把引用补成可跳全文之后，知识库对任何登录员工都可读�
 | 前端 | `/console/kb` 上传前选「公开 / 指定角色」，列表显示可见范围标签，行内「范围」按钮弹 Dialog 修改；角色解析与文案在 `features/console/access.ts`（纯函数，6 条 vitest） |
 | 演示与评测 | seed 的 50 篇里把一篇噪声文档换成 `hr` 受限的薪酬文档（总数不变），`neg-bonus`（「年终奖什么时候发」必须拒答）因此同时验证 ACL：语料里真有这篇，员工身份仍检索不到，ACL 失效会让 50/50 立刻掉下来 |
 
-验证：默认 **265 passed + 22 skipped**；带 Postgres **287 passed**（2026-11-09 本机
-WSL2 + Docker 复跑，含 4×6 可见性矩阵与 CHECK 约束用例）；前端 **52 tests / 11 files**；
+验证：默认 **267 passed + 22 skipped**；带 Postgres **289 passed**（2026-11-09 本机
+WSL2 + Docker 复跑，含 4×6 可见性矩阵、CHECK 约束与「对话链路按身份过滤」用例）；
+前端 **54 tests / 11 files**；
 `ruff` / `ruff format --check` / `mypy`（92 files）/ `tsc --noEmit` / `oxlint` /
 `oxfmt --check` 全绿；迁移 0008 已 `downgrade → upgrade` 往返并 `alembic check` 无漂移。
 重跑 RAG 评测：**50/50**、`cite_acc 97.09%`、`avg_steps 7`、`avg_tool_calls 0.36`，

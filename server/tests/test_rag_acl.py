@@ -135,11 +135,10 @@ async def test_search_hides_restricted_document_from_employee() -> None:
     )
     await _index(kb, title="VPN 连接失败排查指南", text=PUBLIC_DOC, source="vpn.md")
 
-    employee = await kb.search("年终奖什么时候发放")
+    assert await kb.search("年终奖什么时候发放") == []
     hr = await kb.search("年终奖什么时候发放", viewer=Viewer(roles=frozenset({"hr"})))
     owner = await kb.search("年终奖什么时候发放", viewer=Viewer(unrestricted=True))
 
-    assert all("年终奖" not in hit.title for hit in employee)
     assert [hit.title for hit in hr] and "薪酬" in hr[0].title
     assert [hit.title for hit in owner] and "薪酬" in owner[0].title
 
@@ -160,29 +159,34 @@ async def test_restricted_chunks_never_reach_the_citation_payload() -> None:
     assert all("绩效系数" not in hit.citation()["snippet"] for hit in hits)
 
 
-async def test_employee_candidates_are_filled_with_visible_documents() -> None:
-    """过滤发生在取候选之前：不可见文档不能占掉名额把公开文档挤出去。"""
-    kb = _kb()
-    for index in range(3):
-        await _index(
-            kb,
-            title=f"HR 政策 {index}",
-            text=f"# HR 政策 {index}\n\n## 薪酬\n\n年终奖与绩效系数说明 {index}。\n",
-            source=f"hr-{index}.md",
-            visibility=ROLES,
-            allowed_roles=("hr",),
-        )
-    for index in range(2):
-        await _index(
-            kb,
-            title=f"入职指南 {index}",
-            text=f"# 入职指南 {index}\n\n## 账号\n\n入职当天开通账号，绩效系数以 HR 通知为准。\n",
-            source=f"onboarding-{index}.md",
-        )
+async def test_restricted_document_does_not_take_candidate_slots() -> None:
+    """过滤必须在取候选之前：受限文档不能占掉名额把公开文档挤出去。
 
-    employee = await kb.search("绩效系数", top_k=5)
-    assert len(employee) == 2
-    assert {hit.title for hit in employee} == {"入职指南 0", "入职指南 1"}
+    两篇文档内容完全相同（同分），受限那篇先索引（chunk_id 更小，同分排前）。
+    `candidates=1` 时，「先取候选再过滤」会一条都返回不了；只有在 SQL / 内存
+    查询里先过滤，才能拿到公开那一篇。
+    """
+    kb = _kb()
+    kb.candidates = 1
+    text = "# 打印机离线排查指南\n\n## 步骤\n\n先确认打印机与电脑在同一网段，再重启 Print Spooler。"
+    restricted_id = await _index(
+        kb,
+        title="打印机离线排查指南",
+        text=text,
+        source="seed:printer-restricted.md",
+        visibility=ROLES,
+        allowed_roles=("hr",),
+    )
+    public_id = await _index(
+        kb,
+        title="打印机离线排查指南",
+        text=text,
+        source="seed:printer.md",
+    )
+
+    hits = await kb.search("打印机离线")
+    assert hits and hits[0].document_id == public_id
+    assert all(hit.document_id != restricted_id for hit in hits)
 
 
 async def test_get_document_applies_the_same_rule() -> None:

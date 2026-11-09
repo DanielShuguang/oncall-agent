@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_ROLES, accessLabel, isRestricted, parseRoleInput } from './access';
+import { MAX_ROLES, accessLabel, draftOf, isRestricted, parseRoleInput } from './access';
 
 describe('parseRoleInput', () => {
   it('去空格、去空项、按原顺序去重', () => {
@@ -38,5 +38,25 @@ describe('accessLabel', () => {
 
   it('未知可见性不假装成公开', () => {
     expect(accessLabel({ visibility: 'team', allowed_roles: [] })).toBe('未知（team）');
+  });
+});
+
+describe('draftOf', () => {
+  it('公开文档打开为公开，角色文档带回原有角色', () => {
+    expect(draftOf({ visibility: 'public', allowed_roles: [] })).toEqual({
+      visibility: 'public',
+      rolesText: '',
+    });
+    expect(draftOf({ visibility: 'roles', allowed_roles: ['hr', 'finance'] })).toEqual({
+      visibility: 'roles',
+      rolesText: 'hr,finance',
+    });
+  });
+
+  it('未知可见性按 roles 打开，保存时必须重新填角色（不能静默变公开）', () => {
+    expect(draftOf({ visibility: 'team', allowed_roles: [] })).toEqual({
+      visibility: 'roles',
+      rolesText: '',
+    });
   });
 });

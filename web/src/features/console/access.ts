@@ -47,3 +47,15 @@ export function accessLabel(access: KbAccessLike): string {
 export function isRestricted(access: KbAccessLike): boolean {
   return access.visibility !== 'public';
 }
+
+/**
+ * 编辑弹窗的初始状态。
+ * 除 `public` 外一律按 `roles` 打开：roles 至少一个角色，保存时会被校验，
+ * 这样未知值/脏数据不会被静默改写成「公开」。
+ */
+export function draftOf(access: KbAccessLike): { visibility: Visibility; rolesText: string } {
+  return {
+    visibility: access.visibility === 'public' ? 'public' : 'roles',
+    rolesText: (access.allowed_roles ?? []).join(','),
+  };
+}

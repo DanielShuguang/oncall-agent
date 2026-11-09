@@ -210,6 +210,8 @@ async def test_patch_access_switch_without_reindexing(client: AsyncClient) -> No
     document_id = await _upload_compensation(client)
     before = await client.get(f"/api/admin/kb/documents/{document_id}", headers=ADMIN)
     chunks_before = [chunk["ord"] for chunk in before.json()["chunks"]]
+    preview_before = await client.get(f"/api/kb/documents/{document_id}/preview", headers=EMPLOYEE)
+    chunk_ids_before = [chunk["chunk_id"] for chunk in preview_before.json()["chunks"]]
 
     response = await client.patch(
         f"/api/admin/kb/documents/{document_id}/access",
@@ -228,11 +230,13 @@ async def test_patch_access_switch_without_reindexing(client: AsyncClient) -> No
     hr = await client.get(f"/api/kb/documents/{document_id}/preview", headers=HR)
     assert employee.status_code == 404
     assert hr.status_code == 200
+    # 关键承诺：chunk_id 不变，收紧后旧引用仍然能定位
+    assert [chunk["chunk_id"] for chunk in hr.json()["chunks"]] == chunk_ids_before
 
     reopened = await client.patch(
         f"/api/admin/kb/documents/{document_id}/access",
         headers=ADMIN,
-        json={"visibility": "public"},
+        json={"visibility": "public", "allowed_roles": []},
     )
     assert reopened.status_code == 200
     assert reopened.json()["visibility"] == "public"
@@ -250,10 +254,18 @@ async def test_patch_access_rejects_bad_input_and_unknown_document(client: Async
     assert bad.status_code == 422
     assert bad.json()["code"] == "INVALID_ARGS"
 
+    # PATCH 是整体替换：只给一半字段不能被解释成默认值（尤其不能静默改成公开）
+    partial = await client.patch(
+        f"/api/admin/kb/documents/{document_id}/access",
+        headers=ADMIN,
+        json={"visibility": "public"},
+    )
+    assert partial.status_code == 422
+
     missing = await client.patch(
         "/api/admin/kb/documents/not-a-uuid/access",
         headers=ADMIN,
-        json={"visibility": "public"},
+        json={"visibility": "public", "allowed_roles": []},
     )
     assert missing.status_code == 404
 

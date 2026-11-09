@@ -10,6 +10,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.agent.nodes.finalize import REFUSAL
 from app.api.chat import _with_heartbeat
 from app.core.store import InMemoryRunStore, get_store
 from app.main import app
@@ -275,3 +276,49 @@ async def test_rate_limit_allows_idempotent_replay(client: AsyncClient) -> None:
     assert replay[0]["run_id"] == first[0]["run_id"]
     assert replay[0]["seq"] == 1
     assert replay[-1]["type"] == EventType.RUN_COMPLETED.value
+
+
+def _answer(events: list[dict[str, object]]) -> tuple[str, list[dict[str, object]]]:
+    completed = next(e for e in events if e["type"] == EventType.MESSAGE_COMPLETED.value)
+    payload = completed["payload"]
+    assert isinstance(payload, dict)
+    return str(payload["text"]), list(payload["citations"])
+
+
+async def test_chat_retrieval_hides_role_restricted_documents(client: AsyncClient) -> None:
+    """整条链路验证文档级可见性（ADR-0019）。
+
+    seed 里有一篇 `hr` 受限的薪酬文档；同一个问题，员工必须拒答且引用为空，
+    `hr` 与管理员必须能引用到它。这条用例同时锁住 identity → viewer → 检索的
+    传递链：只在 rag 层过滤而忘了把身份传进 runtime，这里会立刻失败。
+    """
+    question = "公司年终奖什么时候发"
+    employee = _parse(
+        await _stream(
+            client,
+            {"session_id": "sess_acl", "client_msg_id": "cmsg_acl_emp", "message": question},
+        )
+    )
+    employee_answer, employee_citations = _answer(employee)
+    assert employee_citations == []
+    assert employee_answer == REFUSAL
+
+    hr = _parse(
+        await _stream(
+            client,
+            {"session_id": "sess_acl", "client_msg_id": "cmsg_acl_hr", "message": question},
+            headers=auth_headers(user_id="u_301", roles=("employee", "hr")),
+        )
+    )
+    _hr_answer, hr_citations = _answer(hr)
+    assert any("HR 专用" in str(citation["title"]) for citation in hr_citations)
+
+    owner = _parse(
+        await _stream(
+            client,
+            {"session_id": "sess_acl", "client_msg_id": "cmsg_acl_admin", "message": question},
+            headers=auth_headers(user_id="admin_1", roles=("admin",)),
+        )
+    )
+    _owner_answer, owner_citations = _answer(owner)
+    assert any("HR 专用" in str(citation["title"]) for citation in owner_citations)

@@ -391,6 +391,8 @@ Content-Type: application/json
 
 返回与列表项相同的文档对象（含 `visibility` / `allowed_roles`）。
 
+- **整体替换**：`visibility` 与 `allowed_roles` 两项都要给出（缺字段是 FastAPI 的标准
+  422 校验错误），空 body 不会被解释成「改成公开」
 - **不重新切分**：`chunk_id` 保持不变，已有引用继续可点。为了改权限而重传文件会让
   `document_id` 变化，历史引用全部失效，所以单给一个只改权限的入口
 - `422 INVALID_ARGS`：可见性取值非法或角色清单与可见性矛盾；`404 NOT_FOUND`：文档不存在

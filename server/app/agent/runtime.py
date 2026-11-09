@@ -51,7 +51,7 @@ from app.approvals.types import ApprovalRecord, ApprovalRecorder, ApprovalReques
 from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.gateway.types import BudgetExceeded, MeteringError, ModelUsage
-from app.rag.access import Viewer, viewer_for
+from app.rag.access import viewer_for
 from app.rag.service import get_knowledge_base
 from app.schemas.event import EventType
 from app.schemas.failure import categorize
@@ -73,7 +73,6 @@ def build_deps(
     *,
     approvals: ApprovalRecorder | None = None,
     requested_model: str | None = None,
-    viewer: Viewer | None = None,
 ) -> AgentDeps:
     settings = get_settings()
     gateway = None
@@ -89,7 +88,6 @@ def build_deps(
         approvals=approvals,
         gateway=gateway,
         requested_model=requested_model,
-        viewer=viewer or Viewer(),
     )
 
 
@@ -335,12 +333,16 @@ async def resume(
     只执行挂起时那一个工具调用；不重跑 intake/retrieve/plan —— 审批人看到的是
     当时的参数与证据，执行也必须是同一份。
     """
-    resolved = deps or build_deps()
     state = cast(AgentState, dict(approval.state))
     state["run_id"] = approval.run_id
     state["node"] = "approve"
     roles = frozenset(str(role) for role in state.get("user", {}).get("roles", []))
     identity = Identity(user_id=approval.requested_by, roles=roles)
+    # 与 stream 同一约定：viewer 只从 run 的身份推导，不接受调用方传入
+    resolved = replace(
+        deps or build_deps(),
+        viewer=viewer_for(identity.roles, get_settings().admin_role_list),
+    )
     step = int(state.get("step", 0) or 0)
 
     started_at = perf_counter()

@@ -86,7 +86,8 @@ CHECK ((visibility = 'public' AND cardinality(allowed_roles) = 0)
 
 - 上传：`POST /admin/kb/documents` 增加 multipart 字段 `visibility`（默认 `public`）
   与 `allowed_roles`（逗号分隔）。校验失败返回 `422 INVALID_ARGS`。
-- 改范围：`PATCH /admin/kb/documents/{id}/access`。**不重新切分**，`chunk_id` 不变，
+- 改范围：`PATCH /admin/kb/documents/{id}/access`（整体替换，`visibility` 与
+  `allowed_roles` 两项必填，避免空 body 被解释成默认值）。**不重新切分**，`chunk_id` 不变，
   已有引用继续可点；如果为了改权限而重传文件，`document_id` 会变，历史引用全部失效。
 - 列表 / 详情 / 预览响应都带 `visibility` + `allowed_roles`；映射只在
   `KbDocumentOut.from_document` 一处，避免「列表显示公开、实际是 roles」。
@@ -105,10 +106,12 @@ seed 的 50 篇里把一篇噪声文档换成 `hr` 受限的「薪酬、年终�
 
 - 泄漏面收敛到「公开文档 + 本人角色能看的文档」。引用片段、跳全文、管理页详情
   共用同一判定，不存在「预览能看、检索不给」或反过来的缝隙。
-- 召回 SQL 多一次 `kb_documents` join。v1 规模（万级 chunk）下 HNSW 仍然先按距离
-  扫索引、再在 `WHERE` 里丢掉不可见行，`LIMIT` 拿到的就是「可见的前 N 条」；
-  **没有做延迟对比基准**，如果将来检索 p95 明显退化，先看执行计划再考虑
-  `(visibility, allowed_roles)` 索引或给检索建物化视图。
+- 召回 SQL 多一次 `kb_documents` join。**`LIMIT` 拿到的仍是「可见的前 N 条」**：
+  这是 SQL 语义（`WHERE` 先于 `LIMIT`），与执行计划无关，受限文档不会占候选名额
+  （`test_rag_pg.py` 的 limit 用例守住这一点）。但**物理计划没有验证**：数据量小时
+  planner 会走全表扫描 + 排序，万级 chunk 下 HNSW 是否仍被选中、join 过滤的代价多大，
+  既没有 EXPLAIN 记录也没有延迟对比基准。真上量时先看执行计划，再决定
+  `(visibility, allowed_roles)` 索引或物化视图——不要拿这段文字当性能结论。
 - 角色名不做白名单校验（没有 roles 表），只校验语法。拼错角色名不会报错，
   而是让这篇文档除管理员外谁都看不到——控制台列表里能看到实际角色，用
   `PATCH` 改回来即可；这条写进了 docs/03 与前端提示。

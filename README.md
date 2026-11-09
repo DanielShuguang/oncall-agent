@@ -169,8 +169,8 @@ oncall/
 | 模块 | 状态 | 验证方式 |
 |---|---|---|
 | 文档（12 篇 + 19 篇 ADR + 评测基线） | ✅ 完成 | — |
-| 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡 / 运行回放 / 成本页） | ✅ 可用 | `tsc --noEmit`、`oxlint 0`、`oxfmt --check` 通过；`vitest` 52/52；`pnpm build` 成功 |
-| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **265 passed + 22 skipped**；设 `ONCALL_TEST_DATABASE_URL` 后 **287 passed**（含并发 seq、pgvector 检索、可见性矩阵、审批并发与事务回滚、孤儿回收并发、计量一致性） |
+| 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡 / 运行回放 / 成本页） | ✅ 可用 | `tsc --noEmit`、`oxlint 0`、`oxfmt --check` 通过；`vitest` 54/54；`pnpm build` 成功 |
+| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **267 passed + 22 skipped**；设 `ONCALL_TEST_DATABASE_URL` 后 **289 passed**（含并发 seq、pgvector 检索、可见性矩阵、审批并发与事务回滚、孤儿回收并发、计量一致性） |
 | 本地 JWT（W1 D2） | ✅ 已完成 | `tests/test_auth.py` 20 条：签发/验签、过期、alg=none、401 JSON、OpenAPI Bearer、run 归属隔离 |
 | 事件落库 + 断线续传（D4） | ✅ 已完成 | `alembic upgrade head` + `alembic check` 无漂移；`tests/test_store_contract.py`（内存 + Postgres 契约）、`tests/test_chat_stream.py`（落库、幂等回放、503 语义） |
 | 最小 Agent 运行时（W1 D5） | ✅ 已完成 | `tests/test_agent_runtime.py` 9 条：工具真实执行、检索引用、写操作挂起审批、工具失败降级、步数/时长上限 |
@@ -247,7 +247,8 @@ W6 基线（3 轮均值，mock 规则路径，口径见 [baseline-v1](docs/eval/
 - 文档级可见性只有 `public` / `roles` 两档：没有按用户授权、部门继承、临时授权与密级；
   `admin` 是知识库所有者、可读全部正文（合规要求「管理员也不能看内容」时需要在部署层拆角色）；
   角色名不做白名单，拼错会让文档除管理员外谁都看不到（控制台可见并可改）。召回多一次
-  `kb_documents` join，v1 规模下未做延迟对比基准（[ADR-0019](docs/decisions/0019-document-level-access.md)）
+  `kb_documents` join，v1 规模下既没验证执行计划、也没做延迟对比基准
+  （[ADR-0019](docs/decisions/0019-document-level-access.md)）
 - iframe + postMessage 嵌入形态（W5 D25）暂缓，需要来源白名单与 CSP 部署决策
 
 ## License

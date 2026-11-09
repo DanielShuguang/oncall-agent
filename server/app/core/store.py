@@ -13,7 +13,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Protocol
 
 from sqlalchemy import and_, func, or_, select
@@ -71,6 +71,18 @@ class StaleRun:
     user_id: str
     started_at: datetime
     last_event_at: datetime
+
+
+@dataclass(frozen=True)
+class RunTurn:
+    """已结束的一轮问答（ADR-0020 多轮上下文用）。
+
+    只取用户输入与最终回答这两段投影，不读事件流：多轮上下文是「上一轮说了什么」，
+    不是「上一轮调了哪些工具」。工具结果、审批载荷不进上下文，避免跨轮的旧证据混进答案。
+    """
+
+    query: str
+    answer: str
 
 
 @dataclass(frozen=True)
@@ -245,6 +257,22 @@ class RunStore(Protocol):
         """按 started_at 倒序；`(before_started_at, before_run_id)` 是上一页游标。"""
         ...
 
+    async def recent_turns(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        limit: int = 3,
+        exclude_run_id: str | None = None,
+    ) -> list[RunTurn]:
+        """同一用户同一会话里**已经有回答**的最近 `limit` 轮，按时间正序返回。
+
+        只认 `runs.output` 非空：拒答也是回答（"知识库里没有"本身要进上下文），
+        但还没走完的 run（挂起审批 / 正在跑 / 中断）没有 output，不能当成历史，
+        否则用户会看到模型"记得"一句它从未说过的话。
+        """
+        ...
+
 
 class InMemoryRunStore:
     """测试与 demo 用。事件只在进程内，重启即丢。"""
@@ -254,6 +282,20 @@ class InMemoryRunStore:
         self._events: dict[str, list[RunEvent]] = {}
         self._client_index: dict[tuple[str, str], str] = {}
         self._lock = asyncio.Lock()
+        self._started_at: datetime | None = None
+
+    def _next_started_at(self) -> datetime:
+        """单调递增的创建时间。
+
+        Windows 的 `datetime.now()` 分辨率约 1ms：连续创建的两个 run 会拿到相同时间，
+        而排序/分页的次序化依赖 `started_at`（R7 的时间口径）。内存实现里补一个微秒，
+        让「先创建的排在前面」成为确定行为，而不是靠 uuid 随机序当第二排序键。
+        """
+        now = datetime.now(UTC)
+        if self._started_at is not None and now <= self._started_at:
+            now = self._started_at + timedelta(microseconds=1)
+        self._started_at = now
+        return now
 
     async def create(
         self,
@@ -280,6 +322,7 @@ class InMemoryRunStore:
                 input=message,
                 model=model,
                 max_steps=max_steps,
+                started_at=self._next_started_at(),
             )
             self._runs[rid] = record
             self._events[rid] = []
@@ -436,6 +479,27 @@ class InMemoryRunStore:
                 if (record.started_at, record.run_id) < (before_started_at, before_run_id)
             ]
         return rows[:limit]
+
+    async def recent_turns(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        limit: int = 3,
+        exclude_run_id: str | None = None,
+    ) -> list[RunTurn]:
+        rows = [
+            record
+            for record in self._runs.values()
+            if record.user_id == user_id
+            and record.session_id == session_id
+            and record.run_id != exclude_run_id
+            and (record.output or "").strip()
+        ]
+        rows.sort(key=lambda record: (record.started_at, record.run_id), reverse=True)
+        newest = rows[:limit]
+        newest.reverse()
+        return [RunTurn(query=record.input, answer=record.output or "") for record in newest]
 
 
 async def append_event_in_session(
@@ -677,6 +741,38 @@ class PostgresRunStore:
         async with self._sessionmaker() as session:
             rows = (await session.scalars(stmt)).all()
         return [_record_from_row(row, event_count=0) for row in rows]
+
+    async def recent_turns(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        limit: int = 3,
+        exclude_run_id: str | None = None,
+    ) -> list[RunTurn]:
+        stmt = (
+            select(Run.input, Run.output)
+            .where(
+                Run.user_id == user_id,
+                Run.session_id == session_id,
+                Run.output.is_not(None),
+            )
+            # 空串等价于没有回答（历史数据里可能有 message.completed 的空文本）
+            .where(func.length(func.coalesce(Run.output, "")) > 0)
+            .order_by(Run.started_at.desc(), Run.id.desc())
+            .limit(limit)
+        )
+        if exclude_run_id:
+            try:
+                exclude_id: uuid.UUID | None = uuid.UUID(exclude_run_id)
+            except ValueError:
+                # 非法 id 不可能命中任何一行，忽略即可（不能让历史读取把本轮打挂）
+                exclude_id = None
+            if exclude_id is not None:
+                stmt = stmt.where(Run.id != exclude_id)
+        async with self._sessionmaker() as session:
+            rows = (await session.execute(stmt)).all()
+        return [RunTurn(query=query, answer=answer or "") for query, answer in reversed(rows)]
 
     async def find_by_client_msg_id(self, user_id: str, client_msg_id: str) -> RunRecord | None:
         async with self._sessionmaker() as session:

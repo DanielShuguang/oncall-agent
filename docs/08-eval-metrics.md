@@ -115,6 +115,19 @@ make eval-classify
   等 4 条多跳用例也降级成 knowledge，导致 RAG 评测丢失 `query_cmdb`、通过率跌到
   92%；现在「保修」分支只在没有个人指代/故障症状时降级，RAG 评测恢复 50/50
 
+### 3.2 多轮（不在评测集里）
+
+50 条 RAG 用例与 50 条分类用例都是**单轮**：`POST /chat/stream` 每轮独立、评测直接调检索器。
+多轮上下文（[ADR-0020](decisions/0020-multi-turn-context.md)）没有对应的指标，覆盖方式是：
+
+- 纯函数用例 `tests/test_history.py`：预算截断、追问判定、`context_query` 拼装
+- 端到端 `tests/test_chat_stream.py::test_follow_up_inherits_previous_turn_context`：
+  同会话「那怎么办？」引用到 VPN 文档；换 `session_id` 的同样追问必须拒答
+
+**为什么先不进评测集**：现有用例的判定是「预期文档标题出现在 Top-5 / 引用命中关键词」，
+追问用例还要额外定义"指代解对"的口径（是引用同一篇文档，还是引用同一段落？）。口径没定
+之前加进去只会得到一组不可解释的通过率。这是明确缺口，不假装已经量化。
+
 ## 4. 执行方式
 
 ```bash

@@ -131,6 +131,7 @@ ConsolePage（Tabs，路径 /console/:panel）
 | 断线 | 顶部条"连接已断开，正在恢复"，自动重连 + 补拉 |
 | 引用 | 角标 hover 显示片段；点击打开 Dialog：按切片顺序展示全文、引用段高亮并滚到视野中央（`chunk_id` 优先、`ord` 兜底），加载失败退回片段并说明「不是全文」；只有登录要求，与检索同一可见性（[ADR-0018](decisions/0018-citation-fulltext-preview.md)）。受限文档返回 404，前端走同一个「文档不存在或已更新」兜底，不区分「无权限」与「没这篇」（[ADR-0019](decisions/0019-document-level-access.md)） |
 | 长会话 | 消息虚拟滚动；事件时间线按需折叠（默认收起中间步骤） |
+| 多轮 | `session_id` 是一段对话的上下文作用域：`reset()`（清空对话）生成新的 ID，否则新会话的第一句会带着上一段的上下文（[ADR-0020](decisions/0020-multi-turn-context.md)）。刷新页面等于新会话；后端按「用户 + session」取最近 3 轮，客户端不传历史 |
 
 ### 6.1 断线续传的实现（W1 D4）
 

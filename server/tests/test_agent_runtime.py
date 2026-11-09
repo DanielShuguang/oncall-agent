@@ -7,12 +7,29 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
+from typing import Any, cast
 
+from app.agent.history import HistoryTurn
 from app.agent.runtime import build_deps, stream
 from app.schemas.event import EventType
 from app.tools.registry import Identity
 
 EMPLOYEE = Identity(user_id="u_102", roles=frozenset({"employee"}))
+
+
+class _RecordingRetriever:
+    """只记录检索用的查询，不返回结果：这里验证的是"上下文有没有进检索"。"""
+
+    def __init__(self) -> None:
+        self.queries: list[str] = []
+
+    async def search(
+        self, query: str, top_k: int | None = None, *, viewer: object = None
+    ) -> list[object]:
+        del top_k, viewer
+        self.queries.append(query)
+        return []
 
 
 async def _run(
@@ -176,3 +193,43 @@ async def test_run_timeout_fails_before_first_step() -> None:
     failed = _of(events, EventType.RUN_FAILED)[0]
     assert failed["error_code"] == "TIMEOUT"
     assert failed["at_step"] == 0
+
+
+async def test_follow_up_merges_previous_question_into_retrieval() -> None:
+    """追问只带"那怎么办"时，检索要把上一轮的问题拼进来（ADR-0020）。"""
+    recorder = _RecordingRetriever()
+    deps = replace(build_deps(), retriever=cast(Any, recorder))
+
+    run_id = str(uuid.uuid4())
+    events = [
+        event
+        async for event in stream(
+            run_id=run_id,
+            identity=EMPLOYEE,
+            query="那怎么办？",
+            model="test-model",
+            deps=deps,
+            history=[HistoryTurn("VPN 连不上怎么办", "先检查网络，再换节点。")],
+        )
+    ]
+    assert recorder.queries == ["VPN 连不上怎么办 那怎么办？"]
+    assert events[-1][0] is EventType.RUN_COMPLETED
+
+
+async def test_standalone_question_is_not_merged_with_history() -> None:
+    """独立问题不受历史影响：上下文只在判定为追问时启用。"""
+    recorder = _RecordingRetriever()
+    deps = replace(build_deps(), retriever=cast(Any, recorder))
+
+    [
+        event
+        async for event in stream(
+            run_id=str(uuid.uuid4()),
+            identity=EMPLOYEE,
+            query="打印机离线怎么排查",
+            model="test-model",
+            deps=deps,
+            history=[HistoryTurn("VPN 连不上怎么办", "先检查网络，再换节点。")],
+        )
+    ]
+    assert recorder.queries == ["打印机离线怎么排查"]

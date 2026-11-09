@@ -20,6 +20,8 @@ class AgentState(TypedDict, total=False):
     user: dict[str, Any]  # {id, roles[], session_id}
     messages: list[dict[str, Any]]
     query: str
+    #: 检索/抽取实际用的查询；追问时是「上一轮问题 + 本轮」，单轮时等于 query
+    context_query: str
     intent: str
     incident_type: str  # hardware|network|software|account|other
     #: rule | llm —— classify 是否用了模型兜底（日志/步骤摘要可见）
@@ -57,12 +59,15 @@ def initial_state(
     user: dict[str, Any],
     query: str,
     budget_cents: int = BUDGET_CENTS,
+    messages: list[dict[str, Any]] | None = None,
 ) -> AgentState:
     return AgentState(
         run_id=run_id,
         user=user,
-        messages=[],
+        # 历史由服务端会话注入（ADR-0020）；节点只读，不自己拼
+        messages=list(messages or []),
         query=query,
+        context_query=query,
         intent="",
         incident_type="other",
         classified_by="rule",

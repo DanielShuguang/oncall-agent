@@ -204,3 +204,26 @@ describe('失败重试', () => {
     expect(clientIds[0]).not.toBe(clientIds[1]);
   });
 });
+
+describe('多轮上下文', () => {
+  it('同一会话的追问沿用 session，清空对话后换新 session', async () => {
+    const sessionIds: string[] = [];
+    mockStream.mockImplementation(async (opts) => {
+      sessionIds.push(opts.sessionId);
+      opts.onEvent(evt(1, 'run.started'));
+      opts.onEvent(evt(2, 'message.completed', { text: '好的' }));
+      opts.onEvent(evt(3, 'run.completed', {}));
+    });
+
+    await useChat.getState().send('VPN 连不上怎么办');
+    await useChat.getState().send('那怎么办？');
+    // 服务端按 user + session 取历史：追问必须落在同一个会话里
+    expect(sessionIds[0]).toBe(sessionIds[1]);
+
+    useChat.getState().reset();
+    await useChat.getState().send('新的问题');
+    expect(sessionIds).toHaveLength(3);
+    // "清空对话"之后再发，不能再续上一段的上下文
+    expect(sessionIds[2]).not.toBe(sessionIds[0]);
+  });
+});

@@ -165,7 +165,9 @@ def compose_answer(state: AgentState) -> tuple[str, list[dict[str, Any]]]:
         for citation in state.get("citations", [])
         if isinstance(citation, dict) and "chunk_id" in citation
     }
-    query_tokens = set(tokenize(state.get("query", "")))
+    # 追问的上下文查询（上一轮问题 + 本轮）用来挑句子：只说"那怎么办"时，
+    # 单靠本轮 token 选出来的句子和问题毫无关系（ADR-0020）
+    query_tokens = set(tokenize(state.get("context_query") or state.get("query", "")))
 
     if not retrieved:
         parts.append(REFUSAL)

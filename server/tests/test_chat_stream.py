@@ -322,3 +322,38 @@ async def test_chat_retrieval_hides_role_restricted_documents(client: AsyncClien
     )
     _owner_answer, owner_citations = _answer(owner)
     assert any("HR 专用" in str(citation["title"]) for citation in owner_citations)
+
+
+async def test_follow_up_inherits_previous_turn_context(client: AsyncClient) -> None:
+    """多轮上下文（ADR-0020）：追问只在同一会话里借上一轮的话题。"""
+    first = _parse(
+        await _stream(
+            client,
+            {"session_id": "sess_multi", "client_msg_id": "m1", "message": "VPN 连不上怎么办"},
+        )
+    )
+    _first_answer, first_citations = _answer(first)
+    assert "VPN 连接失败排查指南" in {str(c["title"]) for c in first_citations}
+
+    # 同一会话的追问：正文里没有任何可检索的词，全靠历史把话题接回来
+    follow_up = _parse(
+        await _stream(
+            client,
+            {"session_id": "sess_multi", "client_msg_id": "m2", "message": "那怎么办？"},
+        )
+    )
+    follow_answer, follow_citations = _answer(follow_up)
+    assert follow_answer != REFUSAL
+    assert "VPN" in follow_answer  # 不只是"没拒答"，答案本身要还在讲上一轮的话题
+    assert "VPN 连接失败排查指南" in {str(c["title"]) for c in follow_citations}
+
+    # 换一个会话：同样的追问没有上文，必须按"知识库外"拒答
+    fresh = _parse(
+        await _stream(
+            client,
+            {"session_id": "sess_fresh", "client_msg_id": "m3", "message": "那怎么办？"},
+        )
+    )
+    fresh_answer, fresh_citations = _answer(fresh)
+    assert fresh_citations == []
+    assert fresh_answer == REFUSAL

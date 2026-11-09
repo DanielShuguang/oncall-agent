@@ -191,6 +191,55 @@ async def _exercise(store: RunStore) -> None:
     assert await store.owner(run_id) == "u_102"
     assert await store.owner(str(uuid.uuid4())) is None
 
+    # 多轮上下文（ADR-0020）：只取「有回答」的轮次，按时间正序，按用户 + 会话隔离
+    second_id = str(uuid.uuid4())
+    await store.create(run_id=second_id, user_id="u_102", session_id="sess_1", message="那怎么办？")
+    await store.append(second_id, EventType.RUN_STARTED, {})
+    await store.append(second_id, EventType.MESSAGE_COMPLETED, {"text": "先看重启后的日志"})
+    await store.append(second_id, EventType.RUN_COMPLETED, {"status": "completed"})
+
+    # 挂起审批的 run 没有 output：不能冒充"上一轮回答"
+    pending_id = str(uuid.uuid4())
+    await store.create(run_id=pending_id, user_id="u_102", session_id="sess_1", message="帮我开单")
+    await store.append(pending_id, EventType.RUN_STARTED, {})
+    await store.append(pending_id, EventType.APPROVAL_REQUIRED, {"approval_id": "apr_x"})
+
+    # 同会话但别的用户：不能串到 u_102 的历史里
+    other_user_run = str(uuid.uuid4())
+    await store.create(
+        run_id=other_user_run, user_id="u_999", session_id="sess_1", message="别人的问题"
+    )
+    await store.append(other_user_run, EventType.MESSAGE_COMPLETED, {"text": "别人的回答"})
+    await store.append(other_user_run, EventType.RUN_COMPLETED, {})
+
+    # 同用户但别的会话
+    other_session_run = str(uuid.uuid4())
+    await store.create(
+        run_id=other_session_run, user_id="u_102", session_id="sess_other", message="别的会话"
+    )
+    await store.append(other_session_run, EventType.MESSAGE_COMPLETED, {"text": "别的回答"})
+    await store.append(other_session_run, EventType.RUN_COMPLETED, {})
+
+    turns = await store.recent_turns(user_id="u_102", session_id="sess_1")
+    assert [(turn.query, turn.answer) for turn in turns] == [
+        ("我电脑连不上打印机了", "先重启 Print Spooler"),
+        ("那怎么办？", "先看重启后的日志"),
+    ]
+    latest = await store.recent_turns(user_id="u_102", session_id="sess_1", limit=1)
+    assert [turn.query for turn in latest] == ["那怎么办？"]
+    assert [
+        turn.query
+        for turn in await store.recent_turns(
+            user_id="u_102", session_id="sess_1", exclude_run_id=second_id
+        )
+    ] == ["我电脑连不上打印机了"]
+    assert [
+        turn.query for turn in await store.recent_turns(user_id="u_102", session_id="sess_other")
+    ] == ["别的会话"]
+    assert [
+        turn.query for turn in await store.recent_turns(user_id="u_999", session_id="sess_1")
+    ] == ["别人的问题"]
+
 
 async def _exercise_concurrent_seq(store: RunStore) -> None:
     run_id = str(uuid.uuid4())

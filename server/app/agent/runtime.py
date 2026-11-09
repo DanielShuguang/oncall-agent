@@ -17,6 +17,7 @@
 - 节点是纯函数 `(state, deps) -> dict`，**不发事件**；事件统一由这里发（R5）
 - 工具只能经 `ToolGuard.execute()` 执行，runtime 不做权限判断（R3）
 - 事件先由调用方落库、再推送（R2）；runtime 只负责「产出事件」
+- 多轮历史由调用方按「用户 + 会话」注入（ADR-0020），runtime 不碰存储
 
 `act` 是唯一需要逐次发 tool.call 的节点，所以执行循环留在这里：
 它的「计划」由 plan 节点产出，「能不能执行」由 ToolGuard 决定，runtime 只做调度。
@@ -26,7 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from time import perf_counter
@@ -34,6 +35,7 @@ from typing import Any, cast
 
 from app.agent.deps import AgentDeps
 from app.agent.graph import NODE_TITLES, next_node
+from app.agent.history import TurnLike, build_messages
 from app.agent.nodes.classify import classify_node
 from app.agent.nodes.finalize import finalize_node
 from app.agent.nodes.intake import intake_node
@@ -141,6 +143,7 @@ async def stream(
     timeout_s: float = RUN_TIMEOUT_S,
     deps: AgentDeps | None = None,
     session_id: str | None = None,
+    history: Sequence[TurnLike] = (),
 ) -> AsyncIterator[Event]:
     """执行一次 run 并产出事件。
 
@@ -163,6 +166,8 @@ async def stream(
         user=user,
         query=query,
         budget_cents=settings.run_budget_cents,
+        # 历史只由调用方（API 层按用户+会话）注入，runtime 不碰存储（ADR-0020）
+        messages=build_messages(history),
     )
     yield (
         EventType.RUN_STARTED,

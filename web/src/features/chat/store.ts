@@ -9,6 +9,9 @@
  *
  * 每次 send 有一个 generation token：abort/新消息会推进 generation，
  * 旧的补拉或旧流回来的事件一律丢弃，避免把上一个 run 的事件写进新 run。
+ *
+ * 会话 ID 是**多轮上下文的作用域**（服务端按 user + session 取最近几轮，ADR-0020）：
+ * 清空对话必须换一个新 ID，否则"新会话"的第一句话会带着上一段的上下文。
  */
 
 import { create } from 'zustand';
@@ -18,7 +21,8 @@ import { initialRuntime, runtimeReducer, stopAssistantStreaming, type Runtime } 
 import { streamChat } from './stream';
 import type { RunEvent } from './types';
 
-const SESSION_ID = `sess_${Math.random().toString(36).slice(2, 10)}`;
+const newSessionId = () => `sess_${Math.random().toString(36).slice(2, 10)}`;
+let sessionId = newSessionId();
 const RESUME_WINDOW_MS = 120_000;
 const RESUME_INTERVAL_MS = 1000;
 const RESUME_PAGE_SIZE = 200;
@@ -128,7 +132,7 @@ export const useChat = create<ChatStore>((set, get) => {
       try {
         await streamChat({
           message: text,
-          sessionId: SESSION_ID,
+          sessionId,
           clientMsgId,
           signal: controller.signal,
           onEvent: (event) => applyEvent(event, gen),
@@ -233,6 +237,8 @@ export const useChat = create<ChatStore>((set, get) => {
       generation += 1;
       abortRef?.abort();
       abortRef = null;
+      // 换会话 ID：服务端按它取历史，"清空对话"之后不能再续上一段的上下文
+      sessionId = newSessionId();
       set({ runtime: initialRuntime, lastSeq: 0, sending: false, lastUserText: null });
     },
   };

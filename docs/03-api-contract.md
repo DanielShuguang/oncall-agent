@@ -69,6 +69,10 @@ Accept: text/event-stream
 ```
 
 - `client_msg_id` 是**幂等键**：同一用户重复提交返回同一个 `run_id`，不重复执行；空字符串按“未提供”处理
+- `session_id` 是**多轮上下文的作用域**：服务端按「当前用户 + `session_id`」取最近 3 轮已结束且有回答的
+  run（`runs.input/output`），把问答对作为 `messages` 注入本轮状态（[ADR-0020](decisions/0020-multi-turn-context.md)）。
+  历史只用于理解指代（「那怎么办」「它需要审批吗」），**不是证据**：`citations` 仍只能来自本轮检索。
+  客户端不传历史、也不能改历史；前端「清空对话」必须换一个新的 `session_id`，否则新会话会带着上一段上下文
 - `options.model` 为空时由网关规则选模型（mock 模式是 `rule-engine`）；非空时只在**已配置的模型**
   之间路由，未知模型名忽略（避免客户端指定任意模型）
 - 限流：`ONCALL_RATE_LIMIT_PER_MIN`（默认 30 次/分钟/用户，0 关闭）。超限在**建 run 之前**

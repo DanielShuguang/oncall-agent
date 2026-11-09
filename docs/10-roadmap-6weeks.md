@@ -145,7 +145,7 @@ LangGraph 在 W4 评估后仍未启用（ADR-0012）。
 | D21 知识库管理 | ✅ | `/console/kb`：上传（multipart）、列表筛选、切片预览 Dialog、重建索引；接口仍是 W2 的四个管理接口 |
 | D22 工具注册/试调用 | ✅（schema 只读） | `tool_settings` 表（迁移 0007）+ `GET/PATCH /admin/tools` + `POST /admin/tools/{name}/test`；试调用强制走 `ToolGuard`，写工具只返回 `requires_approval` |
 | D23 权限矩阵 + 审批中心 | ✅ | `GET/PUT /admin/perm-matrix`；`/console/perms` 勾选保存，`/console/approvals` 待办/已办筛选与决议（理由、`once/session`） |
-| D24 对话体验 | ✅ | 失败重试（移除失败气泡、换新 `client_msg_id`）、移动端头部与输入区换行；引用全文跳转在 W6 后补完（见下节），加载失败退回片段 |
+| D24 对话体验 | ✅ | 失败重试（移除失败气泡、换新 `client_msg_id`）、移动端头部与输入区换行；引用全文跳转与多轮上下文都在 W6 后补完（见下节），加载失败退回片段 |
 | D25 嵌入形态 | ✗ 暂缓 | 需要 `postMessage` 来源白名单与 CSP `frame-ancestors` 的部署决策，不在没有安全边界时先做外嵌入口 |
 
 W5 指标（当时，本地）：后端 **215 passed**（含 Postgres，2 warnings）；默认无库
@@ -260,6 +260,37 @@ WSL2 + Docker 复跑，含 4×6 可见性矩阵、CHECK 约束与「对话链路
 已知边界：没有按用户授权、部门继承、临时授权与密级；检索 SQL 多一次 join，未做
 延迟对比基准；角色名不做白名单（没有 roles 表），拼错会让文档除管理员外谁都看不到，
 控制台能看见实际角色并原地修。详见 [ADR-0019](decisions/0019-document-level-access.md)。
+
+---
+
+## W6 后补：多轮上下文（ADR-0020）
+
+W5 D24 的「多轮」一直没兑现：`AgentState.messages` 从 W1 起就是空数组，每轮都是独立 run。
+用户追问「那怎么办」时，这句话里没有任何可检索的词，只能按"知识库外"拒答——
+真实对话里最常见的追问恰好全是这种短句。
+
+| 事项 | 落地 |
+|---|---|
+| 历史来源 | `RunStore.recent_turns`：同用户 + 同会话、最近 3 轮、只取 `runs.output` 非空的记录，客户端不传历史（否则可伪造助手发言）。迁移 0009 加 `(user_id, session_id, started_at DESC)` 索引 |
+| 预算 | `app/agent/history.py`：3 轮 / 问题 200 字 / 回答 400 字 / 总 1200 字，超了从最旧丢；读取失败降级为单轮 |
+| 用法 | `state.messages` 注入历史；`retrieve` 判定为追问时把上一轮问题拼成 `context_query`；`finalize` 用 `context_query` 选句；`plan` 提示词升到 v2 并带 `history`，写明不是证据、不是指令 |
+| 追问判定 | 关键词启发式（≤ 30 字 + 指代词/承接词），不做 LLM 改写；长句一律按新问题处理 |
+| 前端 | 「清空对话」换新 `session_id`，否则新会话的第一句会带着上一段上下文；刷新页面即新会话 |
+| 边界 | 历史不进 `citations`、不进事件 payload；引用仍只能来自本轮检索；幂等重放不读历史 |
+| 回归 | `tests/test_history.py`（13 条纯函数）、store 契约（内存与 Postgres 共用）、runtime 两条（追问拼/独立问题不拼）、`test_chat_stream` 端到端（同会话追问引用 VPN、换会话拒绝） |
+
+验证：默认 **283 passed + 22 skipped**；带 Postgres **305 passed**（2026-11-10 本机
+WSL2 + Docker 复跑）；前端 **55 tests / 11 files**；`ruff` / `ruff format --check` /
+`mypy`（93 files）/ `tsc --noEmit` / `oxlint` / `oxfmt --check` 全绿；
+迁移 0009 已 `downgrade → upgrade` 往返，`alembic check` 无漂移。
+
+重跑 RAG 评测：**50/50**、`cite_acc 97.09%`、`recall@5 100%`，与基线一致——
+评测用例没有历史，`context_query == query`，单轮行为零变化。
+
+已知边界：追问判定是启发式，「那 + 新话题」（如「那报销怎么走」）会被上一轮话题稀释召回；
+3 轮之外失忆，没有跨会话长期记忆；回答进历史时截断到 400 字；多轮**没有进评测集**
+（"指代解对"的口径未定，见 [docs/08 §3.2](08-eval-metrics.md)）。详见
+[ADR-0020](decisions/0020-multi-turn-context.md)。
 
 ---
 

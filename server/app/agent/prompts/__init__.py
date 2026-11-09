@@ -13,7 +13,7 @@ PROMPT_DIR = Path(__file__).resolve().parent
 
 PROMPT_VERSIONS = {
     "classify": "v1",
-    "plan": "v1",
+    "plan": "v2",
 }
 
 

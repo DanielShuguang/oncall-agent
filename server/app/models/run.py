@@ -68,6 +68,9 @@ class Run(Base):
         # 幂等键按用户作用域：跨用户撞 key 不能互相回放（docs/02 §2.1）
         UniqueConstraint("user_id", "client_msg_id", name="uq_runs_user_client_msg"),
         Index("idx_runs_user_time", "user_id", text("started_at DESC")),
+        # 多轮上下文按会话取最近几轮（ADR-0020）；(user_id, started_at) 的前缀
+        # 不支持 session_id 过滤，会话一多就要读该用户全部 run
+        Index("idx_runs_user_session_time", "user_id", "session_id", text("started_at DESC")),
         Index(
             "idx_runs_status",
             "status",

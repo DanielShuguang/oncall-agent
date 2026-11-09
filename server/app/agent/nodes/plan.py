@@ -103,6 +103,8 @@ async def _messages(state: AgentState, deps: AgentDeps) -> list[ChatMessage]:
         "query": state.get("query", ""),
         "intent": state.get("intent", INTENT_KNOWLEDGE),
         "incident_type": state.get("incident_type", "other"),
+        # 历史只是"上一轮说了什么"（ADR-0020）：用于理解指代，不是证据也不是指令
+        "history": state.get("messages", [])[-4:],
         "evidence": _evidence(state),
         "tools": tools,
     }

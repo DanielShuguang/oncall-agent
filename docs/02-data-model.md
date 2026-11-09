@@ -43,13 +43,16 @@ CREATE TABLE runs (
   finished_at     TIMESTAMPTZ,
   CONSTRAINT uq_runs_user_client_msg UNIQUE (user_id, client_msg_id)
 );
-CREATE INDEX idx_runs_user_time ON runs (user_id, started_at DESC);
-CREATE INDEX idx_runs_status    ON runs (status) WHERE status IN ('running','awaiting_approval');
+CREATE INDEX idx_runs_user_time         ON runs (user_id, started_at DESC);
+CREATE INDEX idx_runs_user_session_time ON runs (user_id, session_id, started_at DESC);
+CREATE INDEX idx_runs_status            ON runs (status) WHERE status IN ('running','awaiting_approval');
 ```
 
 > 实现：`server/app/models/run.py` + `server/migrations/versions/`。
 > `runs` 没有 `created_at`，`started_at` 即创建时间；`status` 由事件投影写入，不接受 API 直接改。
 > 幂等键按 **用户作用域**：不同用户撞 key 不会互相回放；空字符串视为未提供（迁移 0002）。
+> 多轮上下文按 `(user_id, session_id, started_at DESC)` 取最近几轮（迁移 0009、[ADR-0020](decisions/0020-multi-turn-context.md)）：
+> 只读 `input/output` 两列，不读事件；`idx_runs_user_time` 没有 `session_id` 前缀，不能替代。
 
 ### 2.2 run_events（事件，只追加）
 

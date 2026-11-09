@@ -24,6 +24,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.agent.history import MAX_TURNS
 from app.agent.runtime import build_deps
 from app.agent.runtime import stream as agent_stream
 from app.api.deps import get_approval_service, get_identity
@@ -32,7 +33,7 @@ from app.approvals.service import ApprovalService
 from app.core.limits import get_rate_limiter
 from app.core.logging import get_logger
 from app.core.sse import encode_comment, encode_frame
-from app.core.store import RunStore, get_store
+from app.core.store import RunStore, RunTurn, get_store
 from app.gateway import default_model_name
 from app.schemas.chat import ChatRequest
 from app.schemas.event import RunStatus
@@ -167,6 +168,20 @@ async def chat_stream(
     resumed_after = _resume_after(request)
 
     async def gen() -> AsyncIterator[str]:
+        # 多轮上下文：只在新建 run 时读，重放路径不读（重放只回放已落库事件）。
+        # 读失败按单轮跑——历史是锦上添花，不能因为它把这一轮也打挂（ADR-0020）
+        history: list[RunTurn] = []
+        if created:
+            try:
+                history = await store.recent_turns(
+                    user_id=identity.user_id,
+                    session_id=req.session_id,
+                    limit=MAX_TURNS,
+                    exclude_run_id=rec.run_id,
+                )
+            except SQLAlchemyError as exc:
+                log.warning("history_load_failed", run_id=rec.run_id, error=str(exc))
+
         async for etype, payload in agent_stream(
             run_id=rec.run_id,
             identity=identity,
@@ -174,6 +189,7 @@ async def chat_stream(
             model=model,
             max_steps=req.options.max_steps,
             session_id=req.session_id,
+            history=history,
             deps=build_deps(
                 approvals=approval_service,
                 requested_model=req.options.model,

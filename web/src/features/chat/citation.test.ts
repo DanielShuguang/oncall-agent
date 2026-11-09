@@ -47,7 +47,17 @@ describe('引用预览定位说明', () => {
     );
   });
 
-  it('超长截断要标出来，否则读者以为看到了全文', () => {
-    expect(describePreview(preview({ truncated: true }), CITATION)).toContain('超长已截断');
+  it('截断时写出实际显示范围，避免把中间窗口当成文档开头', () => {
+    const truncated = preview({
+      truncated: true,
+      total_chunks: 5,
+      chunks: [
+        { chunk_id: 11, ord: 2, heading: null, content: '第一段', page: null },
+        { chunk_id: 12, ord: 3, heading: null, content: '第二段', page: null },
+      ],
+    });
+
+    expect(describePreview(truncated, CITATION)).toContain('仅显示第 2–3 段（共 5 段）');
+    expect(describePreview(truncated, CITATION)).not.toContain('共 5 段 ·');
   });
 });

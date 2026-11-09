@@ -221,13 +221,13 @@ D24 只剩「引用只能看片段」。卡点是可见性：知识库预览接�
 
 | 事项 | 落地 |
 |---|---|
-| 可见性 | 预览与检索**共用同一可见性边界**：登录即可读引用文档全文；刻意不提供列表/浏览，只能凭答案里的 `document_id` 打开；`/admin/kb/*` 仍要管理员。[ADR-0018](decisions/0018-citation-fulltext-preview.md) |
-| 接口 | `GET /api/kb/documents/{id}/preview?chunk_id=&ord=`：返回文档字段 + 按 `ord` 重组的切片 + `focused_chunk_id` + `total_chunks` + `truncated` |
-| 窗口选择 | `app/rag/preview.py`：`chunk_id` 优先、`ord` 兜底、都对不上**不猜段落**；上限 200 切片 / 20 万字符；焦点落在窗口外时窗口前移，保证引用段一定在返回结果里 |
-| 前端 | `CitationPreviewDialog`：按切片顺序渲染全文、引用段高亮并 `scrollIntoView`；加载失败退回引用片段并注明「不是全文」；底部写明定位结果与「按切片重组」 |
+| 可见性 | 预览与检索**共用同一可见性边界**：登录即可读引用文档全文；刻意不提供列表/浏览，只能凭已知的 `document_id` 打开（不校验引用关系，靠无列表 + UUID 收敛）；`/admin/kb/*` 仍要管理员。[ADR-0018](decisions/0018-citation-fulltext-preview.md) |
+| 接口 | `GET /api/kb/documents/{id}/preview?chunk_id=&ord=`：返回文档字段 + 按 `ord` 重组的切片 + `focused_chunk_id` + `total_chunks` + `truncated`；展示路径只查正文列（不读向量/分词） |
+| 窗口选择 | `app/rag/preview.py`：`chunk_id` 优先、`ord` 兜底、都对不上**不猜段落**；上限 200 切片 / 20 万字符；切片数或字符预算在引用段前用尽时前移/从引用段重新开窗，保证引用段一定在返回结果里 |
+| 前端 | `CitationPreviewDialog`：按切片顺序渲染全文、引用段高亮并 `scrollIntoView`；加载失败退回引用片段并注明「不是全文」；底部写明实际显示范围、定位结果与「按切片重组」 |
 | 边界 | 文档重新上传后 `document_id` 变化 → 旧引用 404；同文档重切后 `chunk_id` 变化 → `ord` 兜底；将来做文档级 ACL 必须先在检索侧过滤 |
 
-验证：默认 **233 passed + 17 skipped**；带 Postgres **250 passed**（2026-11-09 本机
+验证：默认 **237 passed + 18 skipped**；带 Postgres **255 passed**（2026-11-09 本机
 WSL2 + Docker 复跑）；前端 **44 tests**；`ruff` / `ruff format --check` / `mypy` /
 `tsc --noEmit` / `oxlint` / `oxfmt --check` 全绿；迁移无变化（`alembic check` 无漂移）。
 

@@ -113,3 +113,23 @@ async def test_pg_upload_replaces_same_source(pg_kb: KnowledgeBase) -> None:
     assert len(documents) == 1
     assert documents[0].title == "新标题"
     assert await pg_kb.search("重启 Print Spooler") == []
+
+
+async def test_pg_get_document_reads_display_columns_only(pg_kb: KnowledgeBase) -> None:
+    """详情/引用全文是展示路径：不读 embedding/tsv/tokens（200 段会白读 ~1MB）。"""
+    info, _chunks = await pg_kb.index_text(
+        title="访客网络",
+        text=(
+            "# 访客网络\n\n## 登记\n\n访客由接待人提前一天登记。\n\n## 连接\n\n用手机号验证码登录。"
+        ),
+        source="seed:guest.md",
+    )
+
+    result = await pg_kb.get_document(info.id)
+
+    assert result is not None
+    _, rows = result
+    assert [row.ord for row in rows] == sorted(row.ord for row in rows)
+    assert rows and "接待人" in rows[0].content
+    assert all(row.content for row in rows)
+    assert all(row.tokens == "" for row in rows)

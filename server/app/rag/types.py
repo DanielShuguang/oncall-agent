@@ -104,9 +104,13 @@ class KnowledgeStore(Protocol):
 
     async def list_documents(self) -> list[DocumentInfo]: ...
 
-    async def get_document(
-        self, document_id: str
-    ) -> tuple[DocumentInfo, list[ChunkRow]] | None: ...
+    async def get_document(self, document_id: str) -> tuple[DocumentInfo, list[ChunkRow]] | None:
+        """展示用途（管理页详情 / 引用跳全文）：按 ord 返回正文。
+
+        不保证 `tokens` 有值——Postgres 实现只查展示列，不为一次预览读取
+        每段 1024 维向量；需要向量或分词时走 `all_chunks` / `fetch_chunks`。
+        """
+        ...
 
     async def chunk_count(self) -> int: ...
 

@@ -91,3 +91,24 @@ def test_empty_document_returns_empty_preview() -> None:
     assert preview.total_chunks == 0
     assert preview.focused_chunk_id is None
     assert preview.truncated is False
+
+
+def test_exactly_cap_is_not_truncated() -> None:
+    rows = [_row(index, index) for index in range(1, MAX_PREVIEW_CHUNKS + 1)]
+
+    preview = build_preview(rows)
+
+    assert len(preview.chunks) == MAX_PREVIEW_CHUNKS
+    assert preview.truncated is False
+    assert preview.focused_chunk_id is None
+
+
+def test_long_document_without_focus_returns_head_window() -> None:
+    rows = [_row(index, index) for index in range(1, MAX_PREVIEW_CHUNKS + 51)]
+
+    preview = build_preview(rows)
+
+    assert [chunk.ord for chunk in preview.chunks[:1]] == [1]
+    assert len(preview.chunks) == MAX_PREVIEW_CHUNKS
+    assert preview.total_chunks == MAX_PREVIEW_CHUNKS + 50
+    assert preview.truncated is True

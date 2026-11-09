@@ -107,3 +107,49 @@ async def test_preview_requires_login(client: AsyncClient) -> None:
 
     assert response.status_code == 401
     assert response.json()["code"] == "UNAUTHORIZED"
+
+
+async def test_preview_caps_long_document_and_keeps_far_focus(client: AsyncClient) -> None:
+    """超过 200 段时只回窗口，但引用段在第 250 段也要能看到（窗口前移）。"""
+    sections = "\n\n".join(
+        f"## 第 {index} 节\n\n这是第 {index} 节的正文，用来验证超长文档的预览窗口与焦点。"
+        for index in range(1, 251)
+    )
+    upload = await client.post(
+        "/api/admin/kb/documents",
+        headers=ADMIN,
+        files={
+            "file": (
+                "long.md",
+                f"# 超长文档\n\n{sections}\n".encode(),
+                "text/markdown",
+            )
+        },
+    )
+    assert upload.status_code == 201
+    document_id = upload.json()["document"]["id"]
+
+    head = await client.get(f"/api/kb/documents/{document_id}/preview", headers=EMPLOYEE)
+    payload = head.json()
+    total = payload["total_chunks"]
+    assert total >= 240
+    assert len(payload["chunks"]) == 200
+    assert payload["truncated"] is True
+    assert payload["chunks"][0]["ord"] == 1
+
+    tail = await client.get(
+        f"/api/kb/documents/{document_id}/preview",
+        params={"ord": total},
+        headers=EMPLOYEE,
+    )
+    tail_payload = tail.json()
+    assert tail_payload["focused_chunk_id"] is not None
+    assert tail_payload["chunks"][0]["ord"] == total - 199
+    assert tail_payload["chunks"][-1]["ord"] == total
+
+
+async def test_admin_kb_list_still_requires_admin(client: AsyncClient) -> None:
+    """预览开放给登录用户，不能顺带把管理面的列表也放开。"""
+    response = await client.get("/api/admin/kb/documents", headers=EMPLOYEE)
+    assert response.status_code == 403
+    assert response.json()["code"] == "FORBIDDEN"

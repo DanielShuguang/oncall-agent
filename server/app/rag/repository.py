@@ -93,13 +93,36 @@ class PgKnowledgeStore:
             document = await session.get(KbDocumentRow, rid)
             if document is None:
                 return None
+            # 只选展示列：详情与引用全文都不需要 embedding/tsv/tokens，
+            # 而一段 1024 维向量约 4KB，200 段的文档会白读 ~1MB 以上
             rows = (
-                await session.scalars(
-                    select(KbChunkRow).where(KbChunkRow.document_id == rid).order_by(KbChunkRow.ord)
+                await session.execute(
+                    select(
+                        KbChunkRow.id,
+                        KbChunkRow.ord,
+                        KbChunkRow.heading,
+                        KbChunkRow.content,
+                        KbChunkRow.page,
+                    )
+                    .where(KbChunkRow.document_id == rid)
+                    .order_by(KbChunkRow.ord)
                 )
             ).all()
             info = _info(document)
-        return info, [_chunk(row, info) for row in rows]
+        return info, [
+            ChunkRow(
+                chunk_id=row.id,
+                document_id=str(rid),
+                ord=row.ord,
+                title=info.title,
+                source=info.source,
+                heading=row.heading,
+                content=row.content,
+                page=row.page,
+                tokens="",
+            )
+            for row in rows
+        ]
 
     async def chunk_count(self) -> int:
         async with self._sessionmaker() as session:

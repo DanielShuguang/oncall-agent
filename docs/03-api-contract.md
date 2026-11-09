@@ -22,6 +22,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 - 归属：只能访问自己的 run；别人的 run 返回 `404`（不用 403，避免泄露 run 是否存在）
 - 前端：没有登录页，token 存在 `localStorage.oncall.token`，对话框入口在右上角「设置 Token」；接 SSO 时替换 `api/deps.get_identity` 与前端 token 获取（`api/client.ts`）
 - 管理接口（`/api/admin/kb/*` 与 `/api/admin/tools/*`、`/api/admin/perm-matrix`、`/api/admin/cost/*`）额外要求 `ONCALL_ADMIN_ROLES` 中的任一角色（默认 `admin`）；不满足返回 `403 {"code":"FORBIDDEN","message":"需要管理员角色"}`。工具/角色矩阵的覆盖存 `tool_settings`（ADR-0014）。
+- 例外是引用跳全文 `GET /api/kb/documents/{id}/preview`：它属于对话链路而不是管理面，只要求登录（与检索同一可见性，ADR-0018）。
 
 ## 1. 接口清单
 
@@ -38,6 +39,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | POST | `/admin/kb/documents` | 上传知识文档（multipart，≤10MB） | W2 D7 |
 | GET | `/admin/kb/documents` | 知识库文档列表 + chunk 总数 | W2 D7 |
 | GET | `/admin/kb/documents/{id}?preview=20` | 文档详情与切片预览（含 heading_path） | W2 D7 |
+| GET | `/kb/documents/{id}/preview?chunk_id=&ord=` | 引用跳全文（登录即可；与检索同一可见性） | W5 D24 |
 | POST | `/admin/kb/reindex` | 重建索引（用当前 embedder 重算向量） | W2 D8 |
 | GET | `/admin/tools` | 工具注册表（含生效角色/启用状态） | W3 D12 / W5 D22 |
 | PATCH | `/admin/tools/{name}` | 启用/禁用工具（`enabled: null` 恢复默认） | W5 D22 |
@@ -289,7 +291,10 @@ POST /api/approvals/{approval_id}/resolve
 - 竞态保护：`approval.required` 尚未落库时 run 仍是 `running`，此时 resolve 返回
   `409 {"code":"APPROVAL_NOT_READY"}`，避免 `resolved` 排在 `required` 前面导致 run 卡住
 
-## 5. 管理接口示例
+## 5. 管理接口与知识库读取示例
+
+> 本节除「引用跳全文」外都是管理接口（要求 `ONCALL_ADMIN_ROLES`）；
+> 引用全文只要求登录，例外原因见 [ADR-0018](decisions/0018-citation-fulltext-preview.md)。
 
 ### 成本汇总
 
@@ -365,6 +370,50 @@ file=@vpn-guide.pdf
 
 > 预览不返回 `is_table`：该标记只来自本次上传的切分结果，没有落库（docs/02 §2.6），
 > 返回恒为 `false` 会误导调用方。
+
+### 引用跳全文（W5 D24）
+
+```http
+GET /api/kb/documents/9d0f.../preview?chunk_id=10231&ord=4
+Authorization: Bearer <任意登录用户>
+```
+
+```json
+{
+  "document": {
+    "id": "9d0f...",
+    "title": "VPN 连接失败排查指南",
+    "source": "vpn-guide.pdf",
+    "version": null,
+    "checksum": "6f1c...",
+    "chunk_count": 5,
+    "status": "indexed",
+    "created_at": "2026-11-09T01:00:00Z"
+  },
+  "chunks": [
+    {
+      "chunk_id": 10231,
+      "ord": 1,
+      "heading": "VPN 连接失败排查指南 > 快速判断",
+      "content": "VPN 连不上时先确认三件事……",
+      "page": null
+    }
+  ],
+  "focused_chunk_id": 10231,
+  "total_chunks": 5,
+  "truncated": false
+}
+```
+
+- **只要求登录，不要求管理员**：预览与检索共用同一可见性边界（[ADR-0018](decisions/0018-citation-fulltext-preview.md)）。
+  刻意没有列表/浏览接口，员工只能打开答案里出现过的 `document_id`；管理操作仍走 `/admin/kb/*`
+- `chunk_id` 优先（引用自带）、`ord` 兜底（重切后 chunk_id 会变）；都对不上时
+  `focused_chunk_id: null`，前端只展示全文并提示「引用位置未找到」，**不猜段落**
+- 单次上限 200 个切片 / 20 万字符；引用落在上限之后时窗口会前移，保证焦点在返回结果里；
+  超出返回 `truncated: true`
+- `404 NOT_FOUND`：文档不存在、已重新上传（`document_id` 变化）或 id 不是 UUID
+- `503 DATABASE_UNAVAILABLE`：知识库暂不可用
+- 响应是**按切片重组**的正文，不是原始文件渲染：PDF 排版与表格样式会丢，前端需写明
 
 W5 D21 再做知识库管理页；当前接口返回的 `chunks` 已经能直接看到 `heading_path` 与切片内容。
 

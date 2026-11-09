@@ -53,5 +53,26 @@ class KbDocumentDetailResponse(BaseModel):
     chunks: list[KbChunkPreviewOut]
 
 
+class KbPreviewChunkOut(BaseModel):
+    """引用跳全文返回的切片；带 `chunk_id` 才能在前端精确高亮引用段。"""
+
+    chunk_id: int
+    ord: int
+    heading: str | None = None
+    content: str
+    page: int | None = None
+
+
+class KbPreviewResponse(BaseModel):
+    """`GET /kb/documents/{id}/preview`：全文按切片重组，`focused_chunk_id` 为空表示
+    引用位置在当前窗口里找不到（文档已更新或引用过旧），前端只展示全文不滚动。"""
+
+    document: KbDocumentOut
+    chunks: list[KbPreviewChunkOut]
+    focused_chunk_id: int | None = None
+    total_chunks: int
+    truncated: bool
+
+
 class KbReindexResponse(BaseModel):
     chunks: int

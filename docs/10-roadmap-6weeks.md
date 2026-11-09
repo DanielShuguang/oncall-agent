@@ -145,7 +145,7 @@ LangGraph 在 W4 评估后仍未启用（ADR-0012）。
 | D21 知识库管理 | ✅ | `/console/kb`：上传（multipart）、列表筛选、切片预览 Dialog、重建索引；接口仍是 W2 的四个管理接口 |
 | D22 工具注册/试调用 | ✅（schema 只读） | `tool_settings` 表（迁移 0007）+ `GET/PATCH /admin/tools` + `POST /admin/tools/{name}/test`；试调用强制走 `ToolGuard`，写工具只返回 `requires_approval` |
 | D23 权限矩阵 + 审批中心 | ✅ | `GET/PUT /admin/perm-matrix`；`/console/perms` 勾选保存，`/console/approvals` 待办/已办筛选与决议（理由、`once/session`） |
-| D24 对话体验 | ◐ | 失败重试（移除失败气泡、换新 `client_msg_id`）、移动端头部与输入区换行；引用仍只打开片段 Dialog，全文跳转等文档预览权限方案 |
+| D24 对话体验 | ✅ | 失败重试（移除失败气泡、换新 `client_msg_id`）、移动端头部与输入区换行；引用全文跳转在 W6 后补完（见下节），加载失败退回片段 |
 | D25 嵌入形态 | ✗ 暂缓 | 需要 `postMessage` 来源白名单与 CSP `frame-ancestors` 的部署决策，不在没有安全边界时先做外嵌入口 |
 
 W5 指标（当时，本地）：后端 **215 passed**（含 Postgres，2 warnings）；默认无库
@@ -211,6 +211,25 @@ WSL2 + Docker 复跑，含新增分类评测、审批事务回滚与孤儿回收
 `ruff` / `ruff format --check` / `mypy` 通过。
 改 classify 规则后重跑 RAG 评测：**50/50**、`cite_acc 97.09%`、`avg_tool_calls 0.36`，
 未回退（单轮确定性运行，基线仍是 3 轮均值）。
+
+---
+
+## W6 后补：D24 引用跳全文（2026-11-09）
+
+D24 只剩「引用只能看片段」。卡点是可见性：知识库预览接口一直是管理员的，
+之前记的理由是「跨用户读原文需要单独授权」。这次把边界定清楚再实现。
+
+| 事项 | 落地 |
+|---|---|
+| 可见性 | 预览与检索**共用同一可见性边界**：登录即可读引用文档全文；刻意不提供列表/浏览，只能凭答案里的 `document_id` 打开；`/admin/kb/*` 仍要管理员。[ADR-0018](decisions/0018-citation-fulltext-preview.md) |
+| 接口 | `GET /api/kb/documents/{id}/preview?chunk_id=&ord=`：返回文档字段 + 按 `ord` 重组的切片 + `focused_chunk_id` + `total_chunks` + `truncated` |
+| 窗口选择 | `app/rag/preview.py`：`chunk_id` 优先、`ord` 兜底、都对不上**不猜段落**；上限 200 切片 / 20 万字符；焦点落在窗口外时窗口前移，保证引用段一定在返回结果里 |
+| 前端 | `CitationPreviewDialog`：按切片顺序渲染全文、引用段高亮并 `scrollIntoView`；加载失败退回引用片段并注明「不是全文」；底部写明定位结果与「按切片重组」 |
+| 边界 | 文档重新上传后 `document_id` 变化 → 旧引用 404；同文档重切后 `chunk_id` 变化 → `ord` 兜底；将来做文档级 ACL 必须先在检索侧过滤 |
+
+验证：默认 **233 passed + 17 skipped**；带 Postgres **250 passed**（2026-11-09 本机
+WSL2 + Docker 复跑）；前端 **44 tests**；`ruff` / `ruff format --check` / `mypy` /
+`tsc --noEmit` / `oxlint` / `oxfmt --check` 全绿；迁移无变化（`alembic check` 无漂移）。
 
 ---
 

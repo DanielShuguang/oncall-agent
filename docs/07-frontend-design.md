@@ -95,6 +95,7 @@ ChatPage
 │  ├─ AssistantMessage
 │  │  ├─ MarkdownText      流式中渲染，代码块/表格
 │  │  └─ CitationList      角标 [1][2]，点击跳原文
+│  │     └─ CitationPreviewDialog 全文按切片重组 + 引用段高亮（ADR-0018）
 │  ├─ StepTimeline         step.started/completed
 │  ├─ ToolCard             tool.call/result：参数、状态、耗时、错误
 │  └─ ApprovalCard         approval.required
@@ -128,7 +129,7 @@ ConsolePage（Tabs，路径 /console/:panel）
 | 中断 | 发送按钮变"停止"，点击后 abort + 发 `ABORT`，保留已收到内容 |
 | 失败 | 显示 `error_code` 对应的人话 + "重试"按钮；重试会移除失败气泡、用**新的** `client_msg_id` 重发（原 id 会命中幂等回放，拿回同一条失败 run） |
 | 断线 | 顶部条"连接已断开，正在恢复"，自动重连 + 补拉 |
-| 引用 | 角标 hover 显示片段；点击打开 Dialog（标题 + heading_path + 页码 + 片段 + document_id/ord）；全文跳转未做：知识库预览仅 admin，跨用户读原文需要单独授权 |
+| 引用 | 角标 hover 显示片段；点击打开 Dialog：按切片顺序展示全文、引用段高亮并滚到视野中央（`chunk_id` 优先、`ord` 兜底），加载失败退回片段并说明「不是全文」；只有登录要求，与检索同一可见性（[ADR-0018](decisions/0018-citation-fulltext-preview.md)） |
 | 长会话 | 消息虚拟滚动；事件时间线按需折叠（默认收起中间步骤） |
 
 ### 6.1 断线续传的实现（W1 D4）
@@ -183,7 +184,7 @@ Pydantic 模型 ──► OpenAPI ──► openapi-typescript ──► src/api
 - [ ] iframe + postMessage 嵌入形态（W5 D25，暂缓，见 §2 说明）
 - [ ] 运行列表在 10 万条 run 下的分页体验（当前游标分页，未压测）
 - [ ] 1000 条消息的会话滚动流畅
-- [ ] 引用角标能跳到正确原文位置
+- [x] 引用角标能跳到正确原文位置（W5 D24 收尾）：引用段高亮并自动滚动，失效引用不假装定位
 
 ## 11. 样式系统与代码约束
 

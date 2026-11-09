@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getKbDocument, listKbDocuments, reindexKb, uploadKbDocument, validateKbFile } from './kb';
+import {
+  getKbDocument,
+  getKbPreview,
+  listKbDocuments,
+  reindexKb,
+  uploadKbDocument,
+  validateKbFile,
+} from './kb';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -49,6 +56,16 @@ describe('kb api', () => {
     expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/admin/kb/documents');
     expect(fetchMock.mock.calls[1]?.[0]).toBe('/api/admin/kb/reindex');
     expect(fetchMock.mock.calls[1]?.[1]?.method).toBe('POST');
+  });
+
+  it('全文预览带 chunk_id 与 ord，且走非管理路由（ADR-0018）', async () => {
+    const fetchMock = stubFetch({ document: { id: 'doc_1' }, chunks: [] });
+
+    await getKbPreview('doc_1', { chunkId: 12, ord: 3 });
+    await getKbPreview('doc_1');
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/kb/documents/doc_1/preview?chunk_id=12&ord=3');
+    expect(fetchMock.mock.calls[1]?.[0]).toBe('/api/kb/documents/doc_1/preview');
   });
 
   it('只在前端挡扩展名，大小交给服务端配置', () => {

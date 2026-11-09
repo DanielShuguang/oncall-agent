@@ -3,15 +3,9 @@ import { cn } from 'cn';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { CitationPreviewDialog } from './CitationPreviewDialog';
 import { useChat } from './store';
 import type { Citation } from './types';
 
@@ -176,28 +170,7 @@ export default function ChatPage() {
         )}
       </div>
 
-      <Dialog
-        open={activeCitation !== null}
-        onOpenChange={(open) => {
-          if (!open) setActiveCitation(null);
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{activeCitation?.title}</DialogTitle>
-            <DialogDescription>
-              {activeCitation?.heading ?? '知识库原文'}
-              {activeCitation?.page ? ` · 第 ${activeCitation.page} 页` : ''}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="max-h-80 overflow-auto rounded-md border bg-panel p-3 text-sm whitespace-pre-wrap">
-            {activeCitation?.snippet}
-          </div>
-          <p className="text-xs text-muted-foreground">
-            原文位置：{activeCitation?.document_id} · 第 {activeCitation?.ord} 段
-          </p>
-        </DialogContent>
-      </Dialog>
+      <CitationPreviewDialog citation={activeCitation} onClose={() => setActiveCitation(null)} />
 
       <div className="border-t px-3 py-3 sm:px-4">
         <div className="flex flex-wrap items-end gap-2">

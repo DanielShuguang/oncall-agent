@@ -26,7 +26,7 @@ from app.approvals.types import (
 )
 from app.core.config import Settings, get_settings
 from app.core.logging import get_logger
-from app.core.store import RunStore
+from app.core.store import RunStore, append_event_in_session
 from app.schemas.event import EventType
 from app.tools.registry import Identity
 
@@ -34,6 +34,36 @@ log = get_logger(__name__)
 
 DECISIONS = ("approved", "rejected")
 SCOPES = ("once", "session")
+
+
+def _resolved_events(
+    record: ApprovalRecord,
+    *,
+    status: str,
+    resolved_by: str,
+    reason: str | None,
+    scope: str,
+) -> list[tuple[EventType, dict[str, Any]]]:
+    """决议要落的事件。拒绝/超时必须同时有 run.failed，前端才能确定终态（R1/R2）。"""
+    events: list[tuple[EventType, dict[str, Any]]] = [
+        (
+            EventType.APPROVAL_RESOLVED,
+            {
+                "approval_id": record.id,
+                "status": status,
+                "resolved_by": resolved_by,
+                "reason": reason,
+                "scope": scope,
+            },
+        )
+    ]
+    if status in ("rejected", "expired"):
+        code = "APPROVAL_REJECTED" if status == "rejected" else "APPROVAL_TIMEOUT"
+        message = "审批被拒绝，未执行写操作" if status == "rejected" else "审批超时，已转人工处理"
+        events.append(
+            (EventType.RUN_FAILED, {"error_code": code, "message": message, "at_step": 0})
+        )
+    return events
 
 
 class ApprovalService:
@@ -112,16 +142,20 @@ class ApprovalService:
         for record in pending:
             if record.expires_at > now:
                 continue
+            reason = "审批超时，已转人工"
+            events = _resolved_events(
+                record, status="expired", resolved_by="system", reason=reason, scope="once"
+            )
             updated, changed = await self._approvals.resolve(
                 record.id,
                 status="expired",
                 resolved_by="system",
-                reason="审批超时，已转人工",
+                reason=reason,
                 scope="once",
                 at=now,
+                on_resolved=self._event_writer(record.run_id, events),
             )
             if changed and updated is not None:
-                await self._append_resolved(updated)
                 expired.append(updated)
         return expired
 
@@ -174,22 +208,32 @@ class ApprovalService:
 
         now = datetime.now(UTC)
         if record.is_pending and record.expires_at <= now:
-            updated, changed = await self._approvals.resolve(
+            reason = "审批超时，已转人工"
+            expired_events = _resolved_events(
+                record, status="expired", resolved_by="system", reason=reason, scope="once"
+            )
+            updated, _ = await self._approvals.resolve(
                 approval_id,
                 status="expired",
                 resolved_by="system",
-                reason="审批超时，已转人工",
+                reason=reason,
                 scope="once",
                 at=now,
+                on_resolved=self._event_writer(record.run_id, expired_events),
             )
-            if changed and updated is not None:
-                await self._append_resolved(updated)
             return updated or record
 
         grant_until = (
             now + timedelta(hours=self._settings.approval_grant_hours)
             if decision == "approved" and scope == "session"
             else None
+        )
+        events = _resolved_events(
+            record,
+            status=decision,
+            resolved_by=identity.user_id,
+            reason=reason,
+            scope=scope,
         )
         updated, changed = await self._approvals.resolve(
             approval_id,
@@ -199,6 +243,7 @@ class ApprovalService:
             scope=scope,
             at=now,
             grant_until=grant_until,
+            on_resolved=self._event_writer(record.run_id, events),
         )
         if updated is None:
             raise ApprovalNotFound(approval_id)
@@ -206,7 +251,6 @@ class ApprovalService:
             # 幂等：重复 resolve 返回首次结果，不重复执行工具（docs/06 §7）
             return updated
 
-        await self._append_resolved(updated)
         if decision == "approved":
             await self._resume(updated)
         return await self._approvals.get(approval_id) or updated
@@ -216,32 +260,17 @@ class ApprovalService:
     def _is_approver(self, identity: Identity) -> bool:
         return bool(set(self._settings.approver_role_list).intersection(identity.roles))
 
-    async def _append_resolved(self, record: ApprovalRecord) -> None:
-        await self._store.append(
-            record.run_id,
-            EventType.APPROVAL_RESOLVED,
-            {
-                "approval_id": record.id,
-                "status": record.status,
-                "resolved_by": record.resolved_by,
-                "reason": record.reason,
-                "scope": record.scope,
-            },
-        )
-        if record.status in ("rejected", "expired"):
-            # 事件是客户端的唯一真相：拒绝/超时也要有 run.failed，
-            # 否则前端只能靠轮询 run_status 猜终态（R1/R2）
-            code = "APPROVAL_REJECTED" if record.status == "rejected" else "APPROVAL_TIMEOUT"
-            message = (
-                "审批被拒绝，未执行写操作"
-                if record.status == "rejected"
-                else "审批超时，已转人工处理"
-            )
-            await self._store.append(
-                record.run_id,
-                EventType.RUN_FAILED,
-                {"error_code": code, "message": message, "at_step": 0},
-            )
+    def _event_writer(self, run_id: str, events: list[tuple[EventType, dict[str, Any]]]) -> Any:
+        """把决议事件写进存储层给的同一个事务；内存实现传 None，退回逐条 append。"""
+
+        async def write(session: Any) -> None:
+            for event_type, payload in events:
+                if session is not None:
+                    await append_event_in_session(session, run_id, event_type, payload)
+                else:
+                    await self._store.append(run_id, event_type, payload)
+
+        return write
 
     async def _resume(self, record: ApprovalRecord) -> None:
         # 延迟导入：runtime 依赖 ApprovalRecorder 协议，这里不能形成循环导入

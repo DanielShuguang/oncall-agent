@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from datetime import datetime
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -22,6 +23,10 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
     from app.core.config import Settings
+
+#: 决议状态迁移成功后的回调；参数是当前事务的 session（内存实现传 None）。
+#: 审批服务用它把 `approval.resolved` / `run.failed` 写进同一个事务（ADR-0016）。
+OnResolved = Callable[[Any], Awaitable[None]]
 
 
 class ApprovalStore(Protocol):
@@ -49,11 +54,16 @@ class ApprovalStore(Protocol):
         scope: str,
         at: datetime,
         grant_until: datetime | None = None,
+        on_resolved: OnResolved | None = None,
     ) -> tuple[ApprovalRecord | None, bool]:
         """原子迁移 pending→status。
 
         返回 `(迁移后的记录, 本次是否真的迁移)`；并发点击时只有一方拿到 True，
         另一方拿到已有决议且不会重复执行工具。
+
+        `on_resolved` 只在本次真的迁移后调用：Postgres 实现在同一事务内、
+        提交前调用（回调收到 `AsyncSession`），回调抛异常则决议一起回滚；
+        内存实现没有事务，回调收到 `None`，由服务层直接写事件。
         """
         ...
 
@@ -108,6 +118,7 @@ class InMemoryApprovalStore:
         scope: str,
         at: datetime,
         grant_until: datetime | None = None,
+        on_resolved: OnResolved | None = None,
     ) -> tuple[ApprovalRecord | None, bool]:
         async with self._lock:
             record = self._records.get(approval_id)
@@ -133,6 +144,8 @@ class InMemoryApprovalStore:
                 self._grants[(updated.requested_by, updated.session_id, updated.tool_name)] = (
                     grant_until
                 )
+            if on_resolved is not None:
+                await on_resolved(None)
             return updated, True
 
     async def is_granted(
@@ -216,6 +229,7 @@ class PostgresApprovalStore:
         scope: str,
         at: datetime,
         grant_until: datetime | None = None,
+        on_resolved: OnResolved | None = None,
     ) -> tuple[ApprovalRecord | None, bool]:
         try:
             aid = uuid.UUID(approval_id)
@@ -254,7 +268,12 @@ class PostgresApprovalStore:
                 )
                 await session.execute(stmt)
             await session.flush()
-            return _record_from_row(row), True
+            record = _record_from_row(row)
+            if on_resolved is not None:
+                # 与状态迁移同一事务：事件写失败则决议回滚，不会留下
+                # “已通过但没有 approval.resolved”的半截状态（ADR-0016）
+                await on_resolved(session)
+            return record, True
 
     async def is_granted(
         self, *, user_id: str, session_id: str, tool_name: str, at: datetime

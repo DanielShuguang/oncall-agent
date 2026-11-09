@@ -132,10 +132,12 @@ async def test_approve_resumes_run_and_persists_ticket(
 
 async def test_resolve_is_idempotent(
     client: AsyncClient,
+    mem_store: InMemoryRunStore,
     mem_tickets: InMemoryTicketRepository,
 ) -> None:
     events = await _stream(client, "帮我开一张报修工单")
     approval_id = _of(events, EventType.APPROVAL_REQUIRED)[0]["payload"]["approval_id"]
+    run_id = next(e["run_id"] for e in events if e["type"] == EventType.RUN_STARTED.value)
 
     first = await client.post(
         f"/api/approvals/{approval_id}/resolve",
@@ -149,8 +151,14 @@ async def test_resolve_is_idempotent(
     )
     assert first.status_code == second.status_code == 200
     assert second.json()["approval"]["status"] == "approved"
-    # 重复决议不能重复执行写工具
+    # 重复决议不能重复执行写工具，也不能重复写 approval.resolved
     assert mem_tickets.count() == 1
+    resolved = [
+        event
+        for event in await mem_store.events_after(run_id)
+        if event.type is EventType.APPROVAL_RESOLVED
+    ]
+    assert len(resolved) == 1
 
 
 async def test_reject_does_not_execute_write(

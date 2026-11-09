@@ -170,7 +170,7 @@ oncall/
 |---|---|---|
 | 文档（12 篇 + 15 篇 ADR + 评测基线） | ✅ 完成 | — |
 | 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡 / 运行回放 / 成本页） | ✅ 可用 | `tsc --noEmit`、`oxlint 0`、`oxfmt --check` 通过；`vitest` 40/40；`pnpm build` 成功 |
-| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **205 passed + 14 skipped**；设 `ONCALL_TEST_DATABASE_URL` 后 **219 passed**（含 Postgres 契约、并发 seq、pgvector 检索、审批并发、计量一致性） |
+| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **205 passed + 15 skipped**；设 `ONCALL_TEST_DATABASE_URL` 后 **220 passed**（含并发 seq、pgvector 检索、审批并发与事务回滚、计量一致性） |
 | 本地 JWT（W1 D2） | ✅ 已完成 | `tests/test_auth.py` 20 条：签发/验签、过期、alg=none、401 JSON、OpenAPI Bearer、run 归属隔离 |
 | 事件落库 + 断线续传（D4） | ✅ 已完成 | `alembic upgrade head` + `alembic check` 无漂移；`tests/test_store_contract.py`（内存 + Postgres 契约）、`tests/test_chat_stream.py`（落库、幂等回放、503 语义） |
 | 最小 Agent 运行时（W1 D5） | ✅ 已完成 | `tests/test_agent_runtime.py` 9 条：工具真实执行、检索引用、写操作挂起审批、工具失败降级、步数/时长上限 |
@@ -228,7 +228,8 @@ W6 基线（3 轮均值，mock 规则路径，口径见 [baseline-v1](docs/eval/
 - 答案仍是指令抽取 + 模板，不是生成；W4 的模型只用于 classify 兜底与 plan
 - 8 节点图用手写转移表而不是 LangGraph（[ADR-0012](docs/decisions/0012-explicit-agent-scheduler.md)），W4 评估后仍未启用
 - `query_cmdb` 仍是内置假数据，接真实 CMDB 留到后续
-- 审批决议与 run 事件写入不在同一事务：进程在 approve 后崩溃可能留下 `running`，
+- 审批决议、`approval.resolved` 与拒绝/超时的 `run.failed` 已同事务（[ADR-0016](docs/decisions/0016-approval-decision-transaction.md)）；
+  但通过后的恢复执行仍在事务外，进程在工具执行后、事件落库前崩溃仍可能停在非终态，
   当前不自动重试写工具（避免重复开单），需按 run_id 对账（docs/06 §7）
 - 工具 schema 在管理页只读；配置覆盖只到「启用/角色」，且多副本部署最长 2s 生效（[ADR-0014](docs/decisions/0014-tool-policy-overrides.md)）
 - iframe + postMessage 嵌入形态（W5 D25）暂缓，需要来源白名单与 CSP 部署决策

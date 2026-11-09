@@ -191,6 +191,21 @@ W6 指标：评测 **50/50**（`cite_acc 97.09%`、`p95 81ms`、3 轮）；
 
 ---
 
+## W6 后加固（2026-11-09）
+
+W6 交付完成后先补一条会直接影响审批可信度的边界，不新增产品功能。
+
+| 事项 | 落地 |
+|---|---|
+| 审批决议原子性 | `ApprovalStore.resolve` 增加 `on_resolved` 回调；Postgres 在同一事务内写 `approvals.status` + `approval.resolved` + 拒绝/超时的 `run.failed`，事件失败则决议回滚；事件写入复用 `core/store.py: append_event_in_session`，seq/投影只有一份。[ADR-0016](decisions/0016-approval-decision-transaction.md) |
+| 回归覆盖 | 新增 `tests/test_approvals_pg.py::test_pg_event_failure_rolls_back_decision`（默认跳过）；内存路径沿用原有审批/超时用例 |
+| 文档 | docs/02 投影表、docs/06 §7 一致性边界、README 已知局限同步；恢复执行仍在事务外，明确不自动重试写工具 |
+
+验证：默认 **205 passed + 15 skipped**；带 Postgres **220 passed**（2026-11-09 本机
+WSL2 + Docker 复跑，含新增事务回滚用例）；`ruff` / `ruff format --check` / `mypy` 通过。
+
+---
+
 ## 每周固定动作
 
 | 时点 | 动作 |

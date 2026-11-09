@@ -128,9 +128,12 @@ Agent 层面：单个工具失败不中断整个 run，`tool.result` 记 `status
 | 恢复 | 通过后从 `approvals.state` 快照恢复 `act`，只执行挂起的那一次调用 |
 | 审计 | 谁、何时、批了什么、理由、参数快照与上下文，全部落 `approvals` 表 |
 
-**一致性边界**：审批状态迁移（`approvals`）与恢复执行的事件写入（`run_events`）不在同一事务。
-进程在 approve 之后崩溃，run 可能停在 `running` 且没有终态事件。当前不自动重试写工具
-（重试 = 可能重复开单），由运维按 run_id 对账/重放；W4 的观测页需要把这个窗口暴露出来。
+**一致性边界**：决议状态（`approvals`）、`approval.resolved`、拒绝/超时的
+`run.failed` 现在写在**同一事务**里（存储层 `resolve(on_resolved=...)` 回调，
+[ADR-0016](decisions/0016-approval-decision-transaction.md)），不会再出现
+「审批已完成但没有终态事件」。审批通过后的**恢复执行**仍在决议提交之后逐条追加
+`act → verify → finalize` 事件：进程若在工具执行后、事件落库前崩溃，run 仍可能停在
+非终态。当前不自动重试写工具（重试 = 可能重复开单），由运维按 run_id 对账/重放。
 
 **反模式**（面试会问"这样设计有什么问题"）：
 - 让模型自己判断"这个操作安全"→ 模型可被提示词注入影响

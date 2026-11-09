@@ -289,6 +289,10 @@ CREATE TABLE eval_results (
 | `run.failed` | `status=failed`，写 `error_code` / `failure_category` / `finished_at` |
 | 其他（`heartbeat` 等） | 不改 `runs`，只追加事件 |
 
+> `approval.resolved` 与拒绝/超时的 `run.failed` 由审批存储层在决议事务内写入
+> （[ADR-0016](decisions/0016-approval-decision-transaction.md)）：`approvals.status`
+> 迁移和这两条事件要么一起提交，要么一起回滚。
+
 ## 4. 保留与清理
 
 | 数据 | 保留 | 说明 |

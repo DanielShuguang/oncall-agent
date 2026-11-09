@@ -365,6 +365,53 @@ class InMemoryRunStore:
         return rows[:limit]
 
 
+async def append_event_in_session(
+    session: AsyncSession,
+    run_id: str,
+    event_type: EventType,
+    payload: dict[str, Any] | None = None,
+) -> RunEvent:
+    """在调用方的事务里追加一条事件。
+
+    审批决议要把 `approvals.status`、`approval.resolved` 和拒绝/超时的
+    `run.failed` 写成一次提交（ADR-0016），所以事件写入必须能挂到外层事务上，
+    不能像 `PostgresRunStore.append` 那样自己开事务。
+    """
+    rid = uuid.UUID(run_id)
+    data = payload or {}
+    # 行锁保证同一 run 的 seq 分配串行，避免 MAX(seq)+1 并发撞主键
+    row = await session.scalar(select(Run).where(Run.id == rid).with_for_update())
+    if row is None:
+        raise RunNotFoundError(run_id)
+
+    last_seq = await session.scalar(
+        select(func.max(RunEventRow.seq)).where(RunEventRow.run_id == rid)
+    )
+    seq = int(last_seq or 0) + 1
+    now = datetime.now(UTC)
+    session.add(
+        RunEventRow(
+            run_id=rid,
+            seq=seq,
+            type=event_type.value,
+            payload=data,
+            created_at=now,
+        )
+    )
+
+    patch = build_run_patch(event_type, data, now)
+    for name in patch.__dataclass_fields__:
+        value = getattr(patch, name)
+        if value is not None:
+            setattr(row, name, value)
+    if event_type is EventType.STEP_COMPLETED:
+        # 失败 run 也需要“跑了几步”的口径；run.completed 会覆盖为准确值
+        row.step_count += 1
+
+    await session.flush()
+    return RunEvent(seq=seq, run_id=str(rid), type=event_type, ts=now, payload=data)
+
+
 class PostgresRunStore:
     def __init__(self, sessionmaker: async_sessionmaker[AsyncSession]) -> None:
         self._sessionmaker = sessionmaker
@@ -445,41 +492,8 @@ class PostgresRunStore:
     async def append(
         self, run_id: str, event_type: EventType, payload: dict[str, Any] | None = None
     ) -> RunEvent:
-        rid = uuid.UUID(run_id)
-        data = payload or {}
         async with self._sessionmaker() as session, session.begin():
-            # 行锁保证同一 run 的 seq 分配串行，避免 MAX(seq)+1 并发撞主键
-            row = await session.scalar(select(Run).where(Run.id == rid).with_for_update())
-            if row is None:
-                raise RunNotFoundError(run_id)
-
-            last_seq = await session.scalar(
-                select(func.max(RunEventRow.seq)).where(RunEventRow.run_id == rid)
-            )
-            seq = int(last_seq or 0) + 1
-            now = datetime.now(UTC)
-            session.add(
-                RunEventRow(
-                    run_id=rid,
-                    seq=seq,
-                    type=event_type.value,
-                    payload=data,
-                    created_at=now,
-                )
-            )
-
-            patch = build_run_patch(event_type, data, now)
-            for name in patch.__dataclass_fields__:
-                value = getattr(patch, name)
-                if value is not None:
-                    setattr(row, name, value)
-            if event_type is EventType.STEP_COMPLETED:
-                # 失败 run 也需要“跑了几步”的口径；run.completed 会覆盖为准确值
-                row.step_count += 1
-
-            await session.flush()
-
-        return RunEvent(seq=seq, run_id=str(rid), type=event_type, ts=now, payload=data)
+            return await append_event_in_session(session, run_id, event_type, payload)
 
     async def events_after(
         self, run_id: str, after_seq: int = 0, limit: int = 200

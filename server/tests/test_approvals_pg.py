@@ -102,6 +102,34 @@ async def _request(runs: PostgresRunStore, service: ApprovalService, run_id: str
     return info.approval_id
 
 
+async def test_pg_event_failure_rolls_back_decision(
+    pg_approvals: tuple[PostgresRunStore, PostgresApprovalStore, ApprovalService, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """决议与事件同一事务：事件写失败时审批必须仍是 pending。
+
+    否则会留下「已通过、没有 approval.resolved、run 停在 awaiting_approval」
+    的半截状态，客户端永远等不到终态（ADR-0016）。
+    """
+    runs, approvals, service, _ = pg_approvals
+    run_id = await _new_run(runs)
+    approval_id = await _request(runs, service, run_id)
+
+    async def boom(*args: Any, **kwargs: Any) -> None:
+        raise RuntimeError("event write failed")
+
+    monkeypatch.setattr("app.approvals.service.append_event_in_session", boom)
+
+    with pytest.raises(RuntimeError):
+        await service.resolve(approval_id, APPROVER_A, decision="approved")
+
+    record = await approvals.get(approval_id)
+    assert record is not None and record.status == "pending"
+    assert (await runs.status(run_id)) == "awaiting_approval"
+    types = [event.type.value for event in await runs.events_after(run_id)]
+    assert "approval.resolved" not in types
+
+
 async def test_pg_approval_resume_executes_once(
     pg_approvals: tuple[PostgresRunStore, PostgresApprovalStore, ApprovalService, Any],
     mem_tickets: InMemoryTicketRepository,

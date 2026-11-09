@@ -79,7 +79,7 @@ W3 拆出 `classify` / `verify` 后同一命令为 `avg_steps 7` / `p95 83ms`，
 
 | 天 | 状态 | 落地 |
 |---|---|---|
-| D11 意图识别 | ◐（规则 + 模型兜底，未做标注集） | `agent/nodes/classify.py`：规则优先，模糊输入走小模型；`ticket_create` / `asset_check` / `knowledge` + 工单分类；**50 条标注准确率仍未测** |
+| D11 意图识别 | ✅（50 条标注 50/50，样本内） | `agent/nodes/classify.py`：规则优先，模糊输入走小模型；`ticket_create` / `asset_check` / `knowledge` + 工单分类；`app/eval/classify.py` + `classify_cases.yaml` 出混淆矩阵，见 [docs/08 §3.1](08-eval-metrics.md) |
 | D12 注册表/角色矩阵 | ✅（代码） | `tools/registry.py` 已有 `ToolSpec.roles` / `enabled`；管理页矩阵留 W5 D23 |
 | D13 五道闸门 + 重试 | ✅ | 五道闸门、入参白名单/enum、按工具超时、分类重试、`verify` 重规划一次、降级话术；`tests/test_tools_guard.py` 20 条 |
 | D14 create_ticket + 审批 | ✅ | `approvals` 表 + `/api/approvals` + 审批卡；通过后从快照恢复 `act`，工单真正落 `tickets` |
@@ -89,7 +89,8 @@ W3 指标（本地）：后端 129 passed + 8 skipped；带 Postgres 137 passed�
 `ruff`/`mypy`/`alembic check` 全绿；越权/自批/非审批人/重复决议/超时全部有测试。
 与计划的差异：LangGraph 未启用，改用显式转移表（ADR-0012），理由与迁移路径见
 [docs/04 §7](04-agent-design.md)；审批 `scope=session` 已落库（按 user + session + tool
-隔离，默认 8 小时）；D11 的分类准确率验收项仍未完成（W4 只接了模型兜底，标注集留待补测）。
+隔离，默认 8 小时）；D11 的分类准确率在 W3 时未测，W6 后补了 50 条标注集
+（规则路径 50/50，样本内；模型兜底路径仍需真实 provider 才可量化）。
 
 ---
 
@@ -119,7 +120,8 @@ W4 指标（本地）：后端 **192 passed**（含 Postgres，2 warnings）；�
 前端 **28 tests** 且 `tsc`/`oxlint 0`/`oxfmt --check`/`pnpm build` 全绿；`alembic check` 无漂移。
 评测仍是 mock/规则模式：20/20、recall@5 100%、cite_acc 91.67%、p95 87ms、avg_cost 0
 （真实模型效果与成本需要配置 provider 后另跑，见 docs/08 §6）。
-与计划的差异：D11 的 50 条标注分类准确率仍未测；`query_cmdb` 仍是内置假数据；
+与计划的差异：D11 的 50 条标注分类准确率在 W4 时仍未测（W6 后已补，见上）；
+`query_cmdb` 仍是内置假数据；
 LangGraph 在 W4 评估后仍未启用（ADR-0012）。
 
 ---
@@ -193,16 +195,20 @@ W6 指标：评测 **50/50**（`cite_acc 97.09%`、`p95 81ms`、3 轮）；
 
 ## W6 后加固（2026-11-09）
 
-W6 交付完成后先补一条会直接影响审批可信度的边界，不新增产品功能。
+W6 交付完成后补两个遗留项：D11 的意图分类验收，以及会直接影响审批可信度的
+事务边界；不新增产品功能。
 
 | 事项 | 落地 |
 |---|---|
+| 意图分类评测（D11 收口） | `app/eval/classify_cases.yaml` 50 条人工标注 + `app/eval/classify.py`（混淆矩阵、失败用例、模型兜底覆盖）；规则路径 **50/50**，`make eval-classify` 可复跑，基线见 [eval/classify-v1.md](eval/classify-v1.md)。结果属样本内，模型兜底路径未量化 |
 | 审批决议原子性 | `ApprovalStore.resolve` 增加 `on_resolved` 回调；Postgres 在同一事务内写 `approvals.status` + `approval.resolved` + 拒绝/超时的 `run.failed`，事件失败则决议回滚；事件写入复用 `core/store.py: append_event_in_session`，seq/投影只有一份。[ADR-0016](decisions/0016-approval-decision-transaction.md) |
-| 回归覆盖 | 新增 `tests/test_approvals_pg.py::test_pg_event_failure_rolls_back_decision`（默认跳过）；内存路径沿用原有审批/超时用例 |
+| 回归覆盖 | 新增 `tests/test_classify_eval.py`（50 条标注、验收线与报告口径）与 `tests/test_approvals_pg.py::test_pg_event_failure_rolls_back_decision`（默认跳过）；内存路径沿用原有审批/超时用例 |
 | 文档 | docs/02 投影表、docs/06 §7 一致性边界、README 已知局限同步；恢复执行仍在事务外，明确不自动重试写工具 |
 
-验证：默认 **205 passed + 15 skipped**；带 Postgres **220 passed**（2026-11-09 本机
-WSL2 + Docker 复跑，含新增事务回滚用例）；`ruff` / `ruff format --check` / `mypy` 通过。
+验证：默认 **211 passed + 15 skipped**；带 Postgres **226 passed**（2026-11-09 本机
+WSL2 + Docker 复跑，含新增分类评测与审批事务回滚用例）；`ruff` / `ruff format --check` / `mypy` 通过。
+改 classify 规则后重跑 RAG 评测：**50/50**、`cite_acc 97.09%`、`avg_tool_calls 0.36`，
+未回退（单轮确定性运行，基线仍是 3 轮均值）。
 
 ---
 

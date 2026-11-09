@@ -1,0 +1,222 @@
+# 50 条意图分类标注（W3 D11）
+#
+# 字段：query / intent / incident / note
+# - intent ∈ knowledge | asset_check | ticket_create
+# - incident ∈ hardware | network | account | software | other
+# - note 只用于解释边界，不参与判定
+#
+# 标注口径：
+# 1. 只有明确说「开单 / 报修 / 帮我申请 / 提交申请 / 申请开通」才算写操作；
+#    只说「申请」「怎么办」的按知识问答处理（R10：写操作必须明确表达）。
+# 2. 报修/咨询的是**具体设备**且没有开单意图 → asset_check；
+#    问保修、政策、流程、时长 → knowledge，即使句子里出现设备名。
+# 3. incident 按用户描述的主领域标注；一句话跨两个域时取先出现的领域。
+- id: cls-k-vpn-down
+  query: VPN 连不上怎么办
+  intent: knowledge
+  incident: network
+  note: 纯方法咨询，不查资产
+- id: cls-k-wifi-auth
+  query: 公司 WiFi 怎么认证
+  intent: knowledge
+  incident: network
+- id: cls-k-password-expiry
+  query: 密码多少天需要更换一次
+  intent: knowledge
+  incident: account
+- id: cls-k-password-forgot
+  query: 忘记登录密码了怎么办
+  intent: knowledge
+  incident: account
+- id: cls-k-email-size
+  query: 邮箱附件最大可以发多大
+  intent: knowledge
+  incident: other
+- id: cls-k-mfa
+  query: 双因素认证怎么绑定
+  intent: knowledge
+  incident: account
+- id: cls-k-proxy
+  query: 公司统一代理地址是多少
+  intent: knowledge
+  incident: network
+- id: cls-k-dns
+  query: DNS 解析失败怎么排查
+  intent: knowledge
+  incident: network
+- id: cls-k-office
+  query: Office 激活失败怎么办
+  intent: knowledge
+  incident: software
+- id: cls-k-software-approval
+  query: 软件安装需要审批吗
+  intent: knowledge
+  incident: software
+- id: cls-k-desktop-warranty
+  query: 公司电脑保修几年
+  intent: knowledge
+  incident: hardware
+  note: 出现设备名但在问政策，不能路由到资产查询
+- id: cls-k-onboarding
+  query: 新员工账号多久开通
+  intent: knowledge
+  incident: account
+- id: cls-k-ticket-p0
+  query: P0 工单多久响应
+  intent: knowledge
+  incident: other
+- id: cls-k-reimburse
+  query: 报销系统怎么申请权限
+  intent: knowledge
+  incident: account
+  note: 有「申请」但没有开单关键词，按政策咨询
+- id: cls-k-projector
+  query: 会议室投影仪怎么连接
+  intent: knowledge
+  incident: other
+  note: 投影仪不在资产关键词里，问连接方法属知识
+- id: cls-k-wecom-login
+  query: 企业微信登录不上
+  intent: knowledge
+  incident: account
+- id: cls-k-battery-warranty
+  query: 笔记本电池保修多久
+  intent: knowledge
+  incident: hardware
+  note: 同 cls-k-desktop-warranty
+- id: cls-k-shared-drive
+  query: 共享盘怎么访问
+  intent: knowledge
+  incident: other
+
+- id: cls-a-printer-jam
+  query: 打印机卡纸了
+  intent: asset_check
+  incident: hardware
+- id: cls-a-printer-offline
+  query: 打印机显示脱机
+  intent: asset_check
+  incident: hardware
+- id: cls-a-printer-toner
+  query: 办公室打印机没墨了
+  intent: asset_check
+  incident: hardware
+- id: cls-a-laptop-bsod
+  query: 笔记本蓝屏
+  intent: asset_check
+  incident: hardware
+- id: cls-a-desktop-boot
+  query: 电脑开不了机
+  intent: asset_check
+  incident: hardware
+- id: cls-a-monitor-flicker
+  query: 显示器一直闪
+  intent: asset_check
+  incident: hardware
+- id: cls-a-keyboard
+  query: 键盘有几个键失灵
+  intent: asset_check
+  incident: hardware
+- id: cls-a-mouse
+  query: 鼠标双击没反应
+  intent: asset_check
+  incident: hardware
+- id: cls-a-fan
+  query: 台式机风扇很响
+  intent: asset_check
+  incident: hardware
+- id: cls-a-tablet-wifi
+  query: 平板连不上 WiFi
+  intent: asset_check
+  incident: network
+  note: 平板是资产，网络是症状
+- id: cls-a-device-network
+  query: 我的设备连不上网
+  intent: asset_check
+  incident: network
+- id: cls-a-laptop-slow
+  query: 笔记本很卡
+  intent: asset_check
+  incident: hardware
+- id: cls-a-printer-driver
+  query: 打印机驱动装不上
+  intent: asset_check
+  incident: hardware
+- id: cls-a-monitor-res
+  query: 显示器分辨率不对
+  intent: asset_check
+  incident: hardware
+- id: cls-a-no-sound
+  query: 电脑没声音
+  intent: asset_check
+  incident: hardware
+- id: cls-a-battery-swell
+  query: 笔记本电池鼓包
+  intent: asset_check
+  incident: hardware
+
+- id: cls-t-generic
+  query: 帮我开一张报修工单
+  intent: ticket_create
+  incident: other
+- id: cls-t-printer-repair
+  query: 打印机坏了帮我报修
+  intent: ticket_create
+  incident: hardware
+- id: cls-t-vpn-access
+  query: 帮我申请 VPN 权限
+  intent: ticket_create
+  incident: network
+- id: cls-t-share-access
+  query: 提交申请开通共享盘权限
+  intent: ticket_create
+  incident: account
+- id: cls-t-laptop
+  query: 我要开单：电脑蓝屏
+  intent: ticket_create
+  incident: hardware
+- id: cls-t-office
+  query: 帮我申请安装 Office
+  intent: ticket_create
+  incident: software
+- id: cls-t-water
+  query: 笔记本进水了，帮我报修
+  intent: ticket_create
+  incident: hardware
+- id: cls-t-email
+  query: 申请开通邮箱账号
+  intent: ticket_create
+  incident: account
+- id: cls-t-monitor
+  query: 帮我提交申请，显示器坏了
+  intent: ticket_create
+  incident: hardware
+- id: cls-t-projector
+  query: 报修：会议室投影仪不亮
+  intent: ticket_create
+  incident: other
+  note: 投影仪无硬件关键词，但「报修」已足够确定写意图
+- id: cls-t-vpn-drop
+  query: 帮我开单，VPN 一直断
+  intent: ticket_create
+  incident: network
+- id: cls-t-finance
+  query: 申请开通财务系统权限
+  intent: ticket_create
+  incident: account
+- id: cls-t-keyboard
+  query: 键盘坏了，帮我报修
+  intent: ticket_create
+  incident: hardware
+- id: cls-t-new-pc
+  query: 提交申请：新员工电脑配置
+  intent: ticket_create
+  incident: hardware
+- id: cls-t-software
+  query: 帮我申请软件安装权限
+  intent: ticket_create
+  incident: software
+- id: cls-t-printer-toner
+  query: 打印机漏粉，开单
+  intent: ticket_create
+  incident: hardware

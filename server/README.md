@@ -35,7 +35,8 @@ uv run uvicorn app.main:app --reload --port 8000
 评测（不依赖数据库，内存知识库）：
 
 ```bash
-uv run python -m app.eval.runner          # 50 条分类评测
+uv run python -m app.eval.runner          # 50 条 RAG 评测
+uv run python -m app.eval.classify        # 50 条意图分类评测（D11）
 uv run python -m app.eval.loadtest        # 对运行中的 API 打 SSE 压测
 uv run python -m app.eval.demo            # 三条剧本（含审批）
 ```

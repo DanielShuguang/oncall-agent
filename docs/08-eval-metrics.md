@@ -92,6 +92,29 @@ W2 的字段集合（实现见 `app/eval/runner.py`）：
 | `injection` / `forbidden_answer_contains` | 注入样本不得泄露/复述 |
 | `min_citations` | 例如 VPN 问题要求 3 条引用 |
 
+### 3.1 意图分类（D11，50 条）
+
+与 RAG 评测分开，只测 `classify` 节点，确定性、不需要知识库：
+
+```bash
+make eval-classify
+# 等价：cd server && uv run python -m app.eval.classify
+```
+
+- 用例：`server/app/eval/classify_cases.yaml`，knowledge 18 / asset_check 16 /
+  ticket_create 16；每条同时标 `intent` 与 `incident`
+- 判定：`intent` 与 `incident` **同时命中**才算通过；另出 intent 混淆矩阵与失败用例
+- 结果：规则路径 **50/50**（intent 100%、incident 100%），报告写
+  `server/eval-reports/classify-*.md`（不入库，基线见
+  [eval/classify-v1.md](eval/classify-v1.md)）
+- 口径：样本参与过规则设计，**属样本内**；mock 模式没有真实模型，
+  只度量规则路径，模型兜底路径需配置 provider 后另跑
+- 规则修补记录：`台式机` 漏在 hardware 关键词、`软件` 与 `权限` 的 incident
+  优先级由本集失败归因驱动；含设备名的保修/政策问法增加了 `asks_policy` 守卫，
+  避免「电脑保修几年」被路由去查资产。守卫第一版把「我的电脑保修到什么时候」
+  等 4 条多跳用例也降级成 knowledge，导致 RAG 评测丢失 `query_cmdb`、通过率跌到
+  92%；现在「保修」分支只在没有个人指代/故障症状时降级，RAG 评测恢复 50/50
+
 ## 4. 执行方式
 
 ```bash

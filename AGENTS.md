@@ -8,7 +8,7 @@
 **OnCall** = 可私有化部署的企业服务台 Agent：查资产 → 验权限 → 调工具 → 开单 → 审批 → 回填。
 技术栈：Python 3.12 + FastAPI + 显式 8 节点状态机（LangGraph 可选，ADR-0012） ｜ React 19 + Vite + Tailwind CSS ｜ PostgreSQL + pgvector ｜ SSE。
 
-当前状态：**W6 私有化交付代码完成（D26 评测 50 条 / D27 compose+压测 / D28 demo；D29 文档收尾；8C16G 与 ARM64 未验收；D25 嵌入形态暂缓）；W6 后已补审批决议事务原子性（ADR-0016）**。
+当前状态：**W6 私有化交付代码完成（D26 评测 50 条 / D27 compose+压测 / D28 demo；D29 文档收尾；8C16G 与 ARM64 未验收；D25 嵌入形态暂缓）；W6 后补了 D11 分类评测（50 条）与审批决议事务原子性（ADR-0016）**。
 写代码前先确认你要做的是路线图里的哪一天（`docs/10-roadmap-6weeks.md`）。
 
 ## 1. 开始前必读（按顺序，别跳）
@@ -51,7 +51,7 @@ Windows 用 `pwsh -File scripts/dev.ps1 <target>`，其余用 `make <target>`，
 | `fmt` | `ruff format` + `oxfmt` |
 | `lint` | `ruff check` + `mypy app` + `oxlint` + `oxfmt --check` |
 | `test` | `pytest` + `vitest` |
-| `eval` / `seed` | 评测基线 / 演示数据（W2 已实现，见 docs/05、docs/08） |
+| `eval` / `eval-classify` / `seed` | RAG 评测基线 / 意图分类评测（D11）/ 演示数据（W2 已实现，见 docs/05、docs/08） |
 | `stack` / `stack-down` | 整栈容器化（api + web + 中间件，8080） |
 | `images` | 导出离线镜像 tar |
 | `loadtest` / `demo` | SSE 压测 / 三条演示剧本 |
@@ -167,7 +167,7 @@ cd web && pnpm exec tsc --noEmit && pnpm test && pnpm lint && pnpm format:check
 | W3 | ✅ 已完成：8 节点图 + 审批闭环（显式转移表，ADR-0012） | `agent/graph.py`, `agent/nodes/*`, `approvals/*` |
 | W4 | ✅ 已完成：模型网关 + 成本看板 + 运行回放（ADR-0013） | `gateway/*`, `core/limits.py`, `api/cost.py` |
 | W5 | ✅ 已完成：后台四页 + 工具配置覆盖（ADR-0014）；D25 iframe 暂缓 | `web/src/features/console/*`, `tools/policy.py` |
-| W6 | ✅ 代码完成：50 条评测、整栈 compose/离线镜像、压测、demo（D29 文档收尾；8C16G/ARM64 未验收）；W6 后补审批事务 [ADR-0016](docs/decisions/0016-approval-decision-transaction.md) | `server/Dockerfile`, `web/Dockerfile`, `docker-compose*.yml`, `app/eval/loadtest.py`, `app/approvals/store.py` |
+| W6 | ✅ 代码完成：50 条评测、整栈 compose/离线镜像、压测、demo（D29 文档收尾；8C16G/ARM64 未验收）；W6 后补 D11 分类评测与审批事务 [ADR-0016](docs/decisions/0016-approval-decision-transaction.md) | `server/Dockerfile`, `web/Dockerfile`, `docker-compose*.yml`, `app/eval/classify.py`, `app/approvals/store.py` |
 
 > 迁移现在到 0007（kb + assets/tickets + approvals + 授权按用户隔离 + model_calls + tool_settings）；改检索参数/语料必须跑 `make eval` 并对比
 > `docs/eval/baseline-v1.md`（回归超过 -3pp 不合并）。

@@ -18,6 +18,7 @@
 | 10 | [10-roadmap-6weeks](10-roadmap-6weeks.md) | 30 天逐日任务与验收标准 | **每周一必看** |
 | 11 | [11-dev-setup](11-dev-setup.md) | 环境搭建、常用命令、排错 | 第一天 |
 | — | [eval/baseline-v1](eval/baseline-v1.md) | W6 评测基线（50 条、口径、复现命令） | 改检索/提示词前 |
+| — | [eval/classify-v1](eval/classify-v1.md) | D11 意图分类基线（50 条标注，规则路径） | 改 classify 规则前 |
 | — | [eval/baseline-v0](eval/baseline-v0.md) | W2 历史基线（20 条） | 只看历史对比 |
 | — | [decisions/](decisions/) | 16 篇 ADR：为什么 React / Python / LangGraph / pgvector / SSE / Tailwind+oxc / 依赖版本 / shadcn / Postgres 存储 / 本地 JWT / 离线 RAG 向量化 / 显式调度 / 自研模型网关 / 工具覆盖存库 / 私有化交付 / 审批事务 | 面试前重读 |
 

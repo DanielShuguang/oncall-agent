@@ -10,7 +10,7 @@ param(
     [Parameter(Mandatory = $true)]
     [ValidateSet(
         'up', 'down', 'logs', 'migrate', 'install', 'api', 'web', 'fmt', 'lint', 'test', 'eval',
-        'seed', 'clean', 'check', 'stack', 'stack-down', 'images', 'loadtest', 'demo',
+        'eval-classify', 'seed', 'clean', 'check', 'stack', 'stack-down', 'images', 'loadtest', 'demo',
         'docker-up', 'docker-down', 'docker-ps', 'docker-logs'
     )]
     [string]$Target
@@ -75,6 +75,7 @@ switch ($Target) {
         Push-Location "$root\web"; pnpm test; Pop-Location
     }
     'eval' { Push-Location "$root\server"; uv run python -m app.eval.runner; Pop-Location }
+    'eval-classify' { Push-Location "$root\server"; uv run python -m app.eval.classify; Pop-Location }
     'loadtest' {
         Push-Location "$root\server"
         uv run python -m app.eval.loadtest --requests 100 --concurrency 20 --users 20

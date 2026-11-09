@@ -61,6 +61,33 @@ def test_classify_splits_intent_from_incident() -> None:
     assert classify_intent("VPN 连不上怎么办", "network") == "knowledge"
 
 
+def test_classify_policy_question_is_not_asset_check() -> None:
+    # 出现设备名但在问保修/时长 → 知识问答，不能去查资产
+    assert classify_intent("公司电脑保修几年", "hardware") == "knowledge"
+    assert classify_intent("笔记本电池保修多久", "hardware") == "knowledge"
+    # 明确报修仍然是资产查询
+    assert classify_intent("打印机卡纸了", "hardware") == "asset_check"
+
+
+def test_classify_personal_warranty_stays_asset_check() -> None:
+    # 多跳保修问题带个人指代/故障症状，必须查资产，不能被政策守卫误伤
+    assert classify_intent("我的电脑保修到什么时候", "hardware") == "asset_check"
+    assert classify_intent("笔记本电池不耐用，保修多久", "hardware") == "asset_check"
+    assert classify_intent("显示器接扩展坞闪烁，算保修范围吗", "hardware") == "asset_check"
+
+
+def test_classify_incident_keyword_coverage() -> None:
+    assert classify_incident("台式机风扇很响") == "hardware"
+    assert classify_incident("公司统一代理地址是多少") == "network"
+    assert classify_incident("我的设备连不上网") == "network"
+    # software 优先于 account：「软件安装权限」主领域是软件
+    assert classify_incident("帮我申请软件安装权限") == "software"
+    # 平板是资产，但症状仍然是网络
+    assert classify_intent("平板连不上 WiFi", classify_incident("平板连不上 WiFi")) == (
+        "asset_check"
+    )
+
+
 async def test_classify_node_returns_delta() -> None:
     state = initial_state(
         run_id="r1", user={"id": "u_102", "roles": ["employee"]}, query=" 打印机 离线 "

@@ -47,18 +47,65 @@ ASSET_KEYWORDS = (
     "显示器",
     "键盘",
     "鼠标",
+    "平板",
     "设备",
     "资产",
     "蓝屏",
     "离线",
 )
 
-#: 分类规则，命中顺序即优先级（docs/04 §3 classify 的规则部分）
+#: 政策/流程类问法：句子里出现设备名也可能是在问知识（"公司电脑保修几年"），
+#: 不能路由到资产查询。写操作关键词优先级更高，先判断。
+POLICY_MARKERS = (
+    "政策",
+    "流程",
+    "规定",
+    "一般",
+    "通常",
+    "新员工",
+    "需要审批",
+    "怎么申请",
+    "怎么开通",
+    "在哪",
+)
+
+#: 「保修」本身既可能是政策问题，也可能是查我这台设备的保修状态；
+#: 出现个人指代或故障症状时按资产处理（多跳用例需要 query_cmdb）。
+PERSONAL_OR_PROBLEM_MARKERS = (
+    "我的",
+    "我这",
+    "本人",
+    "坏",
+    "不耐用",
+    "闪",
+    "卡",
+    "蓝屏",
+    "进水",
+    "开不了机",
+    "没声音",
+    "失灵",
+    "鼓包",
+    "脱机",
+    "没墨",
+    "漏粉",
+    "装不上",
+    "连不上",
+    "断",
+)
+
+#: 分类规则，命中顺序即优先级（docs/04 §3 classify 的规则部分）。
+#: software 放在 account 前：「软件安装权限」主领域是软件，不是账号。
 INCIDENT_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("hardware", ("打印机", "电脑", "笔记本", "显示器", "键盘", "鼠标", "蓝屏", "开机")),
-    ("network", ("vpn", "VPN", "断网", "网络", "wifi", "WiFi", "无线", "dns")),
-    ("account", ("密码", "账号", "登录", "权限", "认证")),
+    (
+        "hardware",
+        ("打印机", "电脑", "笔记本", "台式机", "显示器", "键盘", "鼠标", "蓝屏", "开机"),
+    ),
+    (
+        "network",
+        ("vpn", "VPN", "断网", "网络", "wifi", "WiFi", "无线", "dns", "代理", "上网"),
+    ),
     ("software", ("软件", "安装", "office", "Office", "驱动", "崩溃", "闪退")),
+    ("account", ("密码", "账号", "登录", "权限", "认证")),
 )
 
 #: 模糊输入至少这么长才值得花一次模型调用；"你好" 之类直接按规则走
@@ -81,9 +128,20 @@ def wants_asset(query: str, incident: str) -> bool:
     return incident == "hardware" or any(keyword in query for keyword in ASSET_KEYWORDS)
 
 
+def asks_policy(query: str) -> bool:
+    """问政策/流程，而不是报修或查我这台设备的保修状态。"""
+    if any(marker in query for marker in POLICY_MARKERS):
+        return True
+    # 只问「保修多久」但没有任何个人指代/故障症状 → 政策问题
+    return "保修" in query and not any(marker in query for marker in PERSONAL_OR_PROBLEM_MARKERS)
+
+
 def classify_intent(query: str, incident: str) -> str:
     if wants_write(query):
         return INTENT_TICKET
+    # 先排除政策问法：「公司电脑保修几年」虽含设备名，但应走 RAG
+    if asks_policy(query):
+        return INTENT_KNOWLEDGE
     if wants_asset(query, incident):
         return INTENT_ASSET
     return INTENT_KNOWLEDGE

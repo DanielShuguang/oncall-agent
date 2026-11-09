@@ -45,8 +45,8 @@ class AgentState(TypedDict, total=False):
         └────┬────┘
              ▼
       ┌──────────────┐
-      │ classify     │ 规则命中 80%（关键词/工单分类/历史意图）
-      └────┬─────────┘ 未命中 → LLM 兜底（小模型即可）
+      │ classify     │ 规则优先（关键词/工单分类）；模糊输入走 LLM 兜底
+      └────┬─────────┘ D11 标注集 50/50（样本内，见 [docs/08](08-eval-metrics.md) §3.1）
            ▼
       ┌──────────────┐
       │ retrieve     │ 规则：RAG 检索（混合 + rerank）

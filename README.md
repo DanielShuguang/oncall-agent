@@ -168,23 +168,24 @@ oncall/
 
 | 模块 | 状态 | 验证方式 |
 |---|---|---|
-| 文档（12 篇 + 15 篇 ADR + 评测基线） | ✅ 完成 | — |
+| 文档（12 篇 + 16 篇 ADR + 评测基线） | ✅ 完成 | — |
 | 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡 / 运行回放 / 成本页） | ✅ 可用 | `tsc --noEmit`、`oxlint 0`、`oxfmt --check` 通过；`vitest` 40/40；`pnpm build` 成功 |
-| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **205 passed + 15 skipped**；设 `ONCALL_TEST_DATABASE_URL` 后 **220 passed**（含并发 seq、pgvector 检索、审批并发与事务回滚、计量一致性） |
+| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **211 passed + 15 skipped**；设 `ONCALL_TEST_DATABASE_URL` 后 **226 passed**（含并发 seq、pgvector 检索、审批并发与事务回滚、计量一致性） |
 | 本地 JWT（W1 D2） | ✅ 已完成 | `tests/test_auth.py` 20 条：签发/验签、过期、alg=none、401 JSON、OpenAPI Bearer、run 归属隔离 |
 | 事件落库 + 断线续传（D4） | ✅ 已完成 | `alembic upgrade head` + `alembic check` 无漂移；`tests/test_store_contract.py`（内存 + Postgres 契约）、`tests/test_chat_stream.py`（落库、幂等回放、503 语义） |
 | 最小 Agent 运行时（W1 D5） | ✅ 已完成 | `tests/test_agent_runtime.py` 9 条：工具真实执行、检索引用、写操作挂起审批、工具失败降级、步数/时长上限 |
 | RAG 全链路（W2 D6–D10） | ✅ 已完成 | 50 篇 seed 知识库（含过期版本/冲突/噪声）；解析→切分→pgvector+tsvector→RRF→阈值→引用；`tests/test_rag_parse.py`、`test_rag_retrieve.py`、`test_rag_pg.py`、`test_kb_api.py`；评测基线 [docs/eval/baseline-v1](docs/eval/baseline-v1.md)（50 条，recall@5 100%、cite_acc 97.1%） |
 | 工具治理五道闸门 + 超时重试 | ✅ 已实现 | `tests/test_tools_guard.py` 20 条：权限/保留字段/入参白名单/enum/超时重试/身份注入/伪造身份 |
-| 8 节点图 + 审批闭环（W3 D11–D15） | ✅ 已完成 | `tests/test_agent_graph.py`、`test_approvals.py`（审批/越权/幂等/超时/503）、`test_approvals_pg.py`（含并发与授权隔离）、`test_playbooks.py`；审批通过后工单真正落库 |
+| 8 节点图 + 审批闭环（W3 D11–D15） | ✅ 已完成 | `tests/test_agent_graph.py`、`test_approvals.py`（审批/越权/幂等/超时/503）、`test_approvals_pg.py`（含并发与授权隔离）、`test_playbooks.py`、`test_classify_eval.py`（50 条意图分类，规则路径 50/50，样本内）；审批通过后工单真正落库 |
 | 模型网关 + 成本看板 + 回放（W4 D16–D20） | ✅ 已完成 | `gateway/` 规则路由 / OpenAI 兼容 + Ollama / failover；`model_calls` 与 `runs` 同事务计量；`tests/test_gateway.py`、`test_agent_llm.py`、`test_metrics_pg.py`；前端 `/runs`、`/runs/:id`、`/console/cost` |
 | 管理后台（W5 D21–D24） | ✅ 已完成 | 知识库上传/切片/重建索引；工具启用/试调用；角色矩阵；审批中心；`tool_settings`（迁移 0007）与 `tools/policy.py`；`tests/test_admin_tools.py`、`test_tools_policy_pg.py` |
-| 私有化交付（W6 D26–D28） | ✅ 已完成 | 50 条分类评测 + 归因报告；api/web Dockerfile + compose `full` profile + 离线 compose；SSE 压测脚本；三条剧本 demo 脚本；D29 文档收尾中 |
+| 私有化交付（W6 D26–D28） | ✅ 已完成 | 50 条 RAG 评测 + 50 条意图分类评测与归因报告；api/web Dockerfile + compose `full` profile + 离线 compose；SSE 压测脚本；三条剧本 demo 脚本；D29 文档收尾中 |
 
 ### 评测与压测
 
 ```bash
 make eval        # 50 条：事实 15 / 排查 15 / 多跳 10 / 负样本 5 / 注入 5
+make eval-classify  # 50 条意图分类（knowledge 18 / asset 16 / ticket 16）
 make loadtest    # 100 请求 / 20 并发 / 20 用户，打完整 SSE run
 make demo        # 三条剧本（第二条含审批）打到本机 API
 ```
@@ -193,6 +194,10 @@ W6 基线（3 轮均值，mock 规则路径，口径见 [baseline-v1](docs/eval/
 `recall@5 100%`、`cite_acc 97.09%`、`answer_acc 100%`、`refusal_correct 100%`、
 `injection_blocked 100%`、`tool_success_rate 100%`、`avg_steps 7`、`p95 81ms`。
 **这是样本内结果**：50 条全部参与过调参，不能当泛化效果或模型效果。
+
+意图分类（D11，[classify-v1](docs/eval/classify-v1.md)）：50 条人工标注，
+规则路径 `intent` / `incident` 联合 **50/50**；同样属样本内，且只覆盖规则路径，
+模型兜底路径需要真实 provider 才能量化。
 
 压测（2026-11-09，Windows 11 + WSL2 **16 vCPU / 15GiB**，Docker 29.1.3，
 单 API 容器 + Postgres/Redis 容器，mock 模式，100 请求 / 20 并发 / 20 用户）：

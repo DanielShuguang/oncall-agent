@@ -23,7 +23,7 @@ async def retrieve_node(state: AgentState, deps: AgentDeps) -> dict[str, Any]:
     if not query or deps.retriever is None:
         return {"retrieved": [], "citations": []}
     try:
-        hits = await deps.retriever.search(query, top_k=deps.top_k)
+        hits = await deps.retriever.search(query, top_k=deps.top_k, viewer=deps.viewer)
     except Exception:
         log.exception("retrieval_failed", run_id=state.get("run_id"))
         return {"retrieved": [], "citations": []}

@@ -1,9 +1,11 @@
-"""演示知识库语料：50 篇文档，含过期版本、冲突说法与无关噪声。
+"""演示知识库语料：50 篇文档，含过期版本、冲突说法、无关噪声与角色受限文档。
 
 设计目标（docs/10-roadmap-6weeks.md W2 D6）：
 - 14 篇核心文档覆盖三条剧本与 20 条评测用例
 - 8 篇「已归档/旧版」文档与核心文档冲突，用来验证检索排序与引用判断
-- 28 篇办公噪声，用来验证「知识库外的问题必须拒答」
+- 27 篇办公噪声，用来验证「知识库外的问题必须拒答」
+- 1 篇 `hr` 角色受限文档（ADR-0019），用来验证「召回前过滤」：
+  员工检索不到它，`hr` token 能命中；评测的 `neg-bonus` 因此同时验证 ACL
 
 语料是手写的确定性内容，不调用模型；生成脚本只负责落盘（见 generate.py）。
 搜索质量靠标题与正文里的自然表述，而不是靠隐藏的 doc_id，评测才可解释。
@@ -13,6 +15,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from app.rag.access import ROLES
+
 
 @dataclass(frozen=True, slots=True)
 class SeedDocument:
@@ -20,6 +24,8 @@ class SeedDocument:
     filename: str
     text: str
     tags: tuple[str, ...] = ()
+    visibility: str = "public"
+    allowed_roles: tuple[str, ...] = ()
 
 
 CORE_DOCS: tuple[SeedDocument, ...] = (
@@ -600,7 +606,6 @@ _NOISE_TOPICS: tuple[tuple[str, str, str], ...] = (
     ("电梯使用规范", "电梯", "货梯需提前预约，火灾或地震时禁止使用电梯。"),
     ("邮件收发室服务", "邮件", "挂号信和合同原件在收发室签收，工作日 17:00 前领取。"),
     ("垃圾分类指引", "垃圾", "园区实行四分类，电池和灯管投放到有害垃圾箱。"),
-    ("工位空调报修", "报修", "出风口异常在行政系统报修，IT 不负责空调设备。"),
 )
 
 
@@ -632,8 +637,44 @@ def _noise_docs() -> list[SeedDocument]:
     return docs
 
 
+#: 角色受限文档（ADR-0019）。只给 `hr` 角色：员工问「年终奖什么时候发」
+#: 必须拒答（评测 neg-bonus 的既有预期），这同时是召回前过滤的线上金丝雀。
+RESTRICTED_DOCS: tuple[SeedDocument, ...] = (
+    SeedDocument(
+        title="薪酬、年终奖与工资条查询（HR 专用）",
+        filename="kb-hr-compensation.md",
+        tags=("hr", "restricted"),
+        visibility=ROLES,
+        allowed_roles=("hr",),
+        text="""# 薪酬、年终奖与工资条查询（HR 专用）
+
+> 本文只对 `hr` 角色可见：普通员工检索不到它，引用预览也返回 404。
+
+## 工资条
+
+每月 15 日 10:00 前在 HR 系统「薪酬查询」页查看上月工资条；
+离职当月按实际出勤折算，多退少补在下月工资中处理。
+
+## 年终奖
+
+年终奖在次年 1 月随工资发放，金额按部门绩效系数与个人绩效档位计算。
+系数在 12 月绩效校准会上确定，发放前一周由 HRBP 单独通知本人。
+
+## 调薪窗口
+
+每年 4 月与 10 月两个调薪窗口，直属主管在 HR 系统提交申请；
+年薪涨幅超过 5 万元需要 HRVP 审批，审批记录只保留在 HR 系统。
+
+## 联系人与权限
+
+薪酬问题联系 HRBP，不要在 IT 工单里写工资金额或个人敏感信息。
+""",
+    ),
+)
+
+
 def build_documents() -> list[SeedDocument]:
-    """返回固定顺序的 50 篇文档（14 核心 + 8 归档 + 28 噪声）。"""
-    documents = [*CORE_DOCS, *ARCHIVED_DOCS, *_noise_docs()]
+    """返回固定顺序的 50 篇文档（14 核心 + 8 归档 + 27 噪声 + 1 角色受限）。"""
+    documents = [*CORE_DOCS, *ARCHIVED_DOCS, *_noise_docs(), *RESTRICTED_DOCS]
     assert len(documents) == 50, f"seed 文档数应为 50，实际 {len(documents)}"
     return documents

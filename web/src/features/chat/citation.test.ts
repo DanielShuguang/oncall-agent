@@ -23,6 +23,8 @@ function preview(overrides: Partial<KbPreview> = {}): KbPreview {
       checksum: 'abc',
       chunk_count: 2,
       status: 'indexed',
+      visibility: 'public',
+      allowed_roles: [],
       created_at: '2026-11-09T00:00:00Z',
     },
     chunks: [

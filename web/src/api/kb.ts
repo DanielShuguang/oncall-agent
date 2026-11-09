@@ -10,7 +10,16 @@ export interface KbDocument {
   checksum: string;
   chunk_count: number;
   status: string;
+  /** `public`（所有登录用户）/ `roles`（下列角色交集）；见 ADR-0019 */
+  visibility: string;
+  allowed_roles: string[];
   created_at: string;
+}
+
+/** 提交给后端的可见范围；`roles` 为空时后端会拒绝，前端先给出可读文案。 */
+export interface KbAccessInput {
+  visibility: 'public' | 'roles';
+  roles: string[];
 }
 
 export interface KbChunk {
@@ -86,10 +95,22 @@ export function getKbPreview(
   );
 }
 
-export function uploadKbDocument(file: File): Promise<KbUploadResult> {
+export function uploadKbDocument(file: File, access?: KbAccessInput): Promise<KbUploadResult> {
   const form = new FormData();
   form.append('file', file);
+  if (access) {
+    form.append('visibility', access.visibility);
+    form.append('allowed_roles', access.roles.join(','));
+  }
   return postForm<KbUploadResult>('/admin/kb/documents', form);
+}
+
+/** 只改可见范围：不重新切分，`chunk_id` 保持不变，已有引用继续可用（ADR-0019）。 */
+export function updateKbAccess(documentId: string, access: KbAccessInput): Promise<KbDocument> {
+  return getJson<KbDocument>(`/admin/kb/documents/${encodeURIComponent(documentId)}/access`, {
+    method: 'PATCH',
+    body: JSON.stringify({ visibility: access.visibility, allowed_roles: access.roles }),
+  });
 }
 
 export function reindexKb(): Promise<KbReindexResult> {

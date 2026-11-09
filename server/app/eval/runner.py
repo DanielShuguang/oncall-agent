@@ -30,6 +30,7 @@ import yaml
 from app.agent.deps import AgentDeps
 from app.agent.nodes.finalize import REFUSAL
 from app.agent.runtime import stream
+from app.rag.access import Viewer
 from app.rag.embed import HashingEmbedder
 from app.rag.memory import MemoryKnowledgeStore
 from app.rag.retrieve import KnowledgeBase, Retriever
@@ -135,8 +136,10 @@ class RecordingRetriever:
         self._inner = inner
         self.hits: list[Hit] = []
 
-    async def search(self, query: str, top_k: int | None = None) -> list[Hit]:
-        self.hits = await self._inner.search(query, top_k=top_k)
+    async def search(
+        self, query: str, top_k: int | None = None, *, viewer: Viewer | None = None
+    ) -> list[Hit]:
+        self.hits = await self._inner.search(query, top_k=top_k, viewer=viewer)
         return self.hits
 
 

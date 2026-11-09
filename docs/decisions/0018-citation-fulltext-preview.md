@@ -2,6 +2,7 @@
 
 - 状态：已采纳
 - 日期：2026-11-09
+- 后续：[ADR-0019](0019-document-level-access.md) 把这里的「同一可见性」收紧成文档级（`public` / `roles`，召回前过滤）
 - 相关：[05-rag-design](../05-rag-design.md) §6、[03-api-contract](../03-api-contract.md) §5、[07-frontend-design](../07-frontend-design.md) §6
 
 ## 背景

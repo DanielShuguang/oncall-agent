@@ -6,6 +6,7 @@ import pytest
 
 from app.agent.deps import AgentDeps
 from app.eval.runner import aggregate, load_cases, render_report, run_case, run_eval
+from app.rag.access import Viewer
 from app.rag.embed import HashingEmbedder
 from app.rag.memory import MemoryKnowledgeStore
 from app.rag.retrieve import KnowledgeBase
@@ -58,9 +59,15 @@ async def test_eval_retrieves_once_per_case(monkeypatch: pytest.MonkeyPatch) -> 
     calls: list[str] = []
     original = KnowledgeBase.search
 
-    async def counted(self: KnowledgeBase, query: str, top_k: int | None = None) -> list[Hit]:
+    async def counted(
+        self: KnowledgeBase,
+        query: str,
+        top_k: int | None = None,
+        *,
+        viewer: Viewer | None = None,
+    ) -> list[Hit]:
         calls.append(query)
-        return await original(self, query, top_k=top_k)
+        return await original(self, query, top_k=top_k, viewer=viewer)
 
     monkeypatch.setattr(KnowledgeBase, "search", counted)
     result = await run_case(load_cases("fact")[0], kb, deps)

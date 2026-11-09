@@ -4,6 +4,7 @@ import {
   getKbPreview,
   listKbDocuments,
   reindexKb,
+  updateKbAccess,
   uploadKbDocument,
   validateKbFile,
 } from './kb';
@@ -37,6 +38,35 @@ describe('kb api', () => {
     const headers = (init?.headers ?? {}) as Record<string, string>;
     expect(headers.Authorization).toBeUndefined();
     expect(init?.headers).not.toHaveProperty('Content-Type');
+  });
+
+  it('上传时把可见范围作为表单字段提交（ADR-0019）', async () => {
+    const fetchMock = stubFetch({ document: { id: 'doc_1' }, chunks: [] });
+
+    const file = new File(['# 薪酬'], 'hr.md', { type: 'text/markdown' });
+    await uploadKbDocument(file, { visibility: 'roles', roles: ['hr', 'finance'] });
+    await uploadKbDocument(file, { visibility: 'public', roles: [] });
+
+    const restricted = fetchMock.mock.calls[0]?.[1]?.body as FormData;
+    expect(restricted.get('visibility')).toBe('roles');
+    expect(restricted.get('allowed_roles')).toBe('hr,finance');
+    const open = fetchMock.mock.calls[1]?.[1]?.body as FormData;
+    expect(open.get('visibility')).toBe('public');
+    expect(open.get('allowed_roles')).toBe('');
+  });
+
+  it('改可见范围走 PATCH，只动 access 不动切片', async () => {
+    const fetchMock = stubFetch({ id: 'doc_1', visibility: 'roles', allowed_roles: ['hr'] });
+
+    await updateKbAccess('doc_1', { visibility: 'roles', roles: ['hr'] });
+
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(url).toBe('/api/admin/kb/documents/doc_1/access');
+    expect(init?.method).toBe('PATCH');
+    expect(JSON.parse(String(init?.body))).toEqual({
+      visibility: 'roles',
+      allowed_roles: ['hr'],
+    });
   });
 
   it('详情按 preview 条数请求并转义 id', async () => {

@@ -233,6 +233,35 @@ WSL2 + Docker 复跑）；前端 **44 tests**；`ruff` / `ruff format --check` /
 
 ---
 
+## W6 后补：文档级可见性（ADR-0019）
+
+D24 把引用补成可跳全文之后，知识库对任何登录员工都可读，README 的已知局限里
+一直挂着「暂不做文档级 ACL」。这次把它做掉，并且兑现 ADR-0018 留下的约束：
+**ACL 必须先在检索侧过滤**。
+
+| 事项 | 落地 |
+|---|---|
+| 数据 | `kb_documents.visibility`（`public`/`roles`）+ `allowed_roles varchar(32)[]` + CHECK 互斥；迁移 0008，存量文档落 `public`（升级不改变可见性） |
+| 规则 | `app/rag/access.py`：`public` 所有人可读，`roles` 要求角色交集，`admin` 是知识库所有者（上传/删除本来就能改内容，隐藏正文只会让管理页切片预览自相矛盾） |
+| 检索 | 两路召回的 SQL 在 `JOIN kb_documents` 后于 `LIMIT` 之前过滤；内存实现用同一规则。`tests/test_rag_pg.py` 用 (可见性 × 角色) 矩阵逐条比对 SQL 与 `is_visible()`，`tests/test_rag_acl.py` 覆盖内存实现与规则表 |
+| 预览 | `GET /kb/documents/{id}/preview` 用同一条规则；不可见与不存在都返回 `404 NOT_FOUND`（403 会泄露文档存在） |
+| 管理 | 上传带 `visibility`/`allowed_roles` 表单字段；新增 `PATCH /admin/kb/documents/{id}/access` 只改范围（不重切、`chunk_id` 不变，已有引用继续可点）；列表/详情回显可见范围 |
+| 前端 | `/console/kb` 上传前选「公开 / 指定角色」，列表显示可见范围标签，行内「范围」按钮弹 Dialog 修改；角色解析与文案在 `features/console/access.ts`（纯函数，6 条 vitest） |
+| 演示与评测 | seed 的 50 篇里把一篇噪声文档换成 `hr` 受限的薪酬文档（总数不变），`neg-bonus`（「年终奖什么时候发」必须拒答）因此同时验证 ACL：语料里真有这篇，员工身份仍检索不到，ACL 失效会让 50/50 立刻掉下来 |
+
+验证：默认 **265 passed + 22 skipped**；带 Postgres **287 passed**（2026-11-09 本机
+WSL2 + Docker 复跑，含 4×6 可见性矩阵与 CHECK 约束用例）；前端 **52 tests / 11 files**；
+`ruff` / `ruff format --check` / `mypy`（92 files）/ `tsc --noEmit` / `oxlint` /
+`oxfmt --check` 全绿；迁移 0008 已 `downgrade → upgrade` 往返并 `alembic check` 无漂移。
+重跑 RAG 评测：**50/50**、`cite_acc 97.09%`、`avg_steps 7`、`avg_tool_calls 0.36`，
+与基线一致（单轮确定性运行，基线仍是 3 轮均值）。
+
+已知边界：没有按用户授权、部门继承、临时授权与密级；检索 SQL 多一次 join，未做
+延迟对比基准；角色名不做白名单（没有 roles 表），拼错会让文档除管理员外谁都看不到，
+控制台能看见实际角色并原地修。详见 [ADR-0019](decisions/0019-document-level-access.md)。
+
+---
+
 ## 每周固定动作
 
 | 时点 | 动作 |

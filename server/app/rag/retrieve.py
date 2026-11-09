@@ -16,6 +16,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Protocol
 
+from app.rag.access import PUBLIC, Viewer, is_visible
 from app.rag.chunk import Chunk, chunk_parsed
 from app.rag.embed import Embedder
 from app.rag.parse import ParsedDoc, parse_bytes
@@ -35,7 +36,9 @@ WEIGHTS = (0.45, 0.10, 0.25, 0.15)  # 覆盖 / 标题路径 / RRF / 向量
 
 
 class Retriever(Protocol):
-    async def search(self, query: str, top_k: int | None = None) -> list[Hit]: ...
+    async def search(
+        self, query: str, top_k: int | None = None, *, viewer: Viewer | None = None
+    ) -> list[Hit]: ...
 
 
 @dataclass(slots=True)
@@ -66,6 +69,8 @@ class KnowledgeBase:
                     title=document.title,
                     text=document.text,
                     source=f"seed:{document.filename}",
+                    visibility=document.visibility,
+                    allowed_roles=document.allowed_roles,
                 )
             self._seeded = True
 
@@ -75,6 +80,8 @@ class KnowledgeBase:
         *,
         source: str,
         version: str | None = None,
+        visibility: str = PUBLIC,
+        allowed_roles: tuple[str, ...] = (),
     ) -> tuple[DocumentInfo, list[Chunk]]:
         chunks = chunk_parsed(parsed)
         if not chunks:
@@ -101,6 +108,8 @@ class KnowledgeBase:
             checksum=checksum,
             chunks=stored,
             version=version,
+            visibility=visibility,
+            allowed_roles=allowed_roles,
         )
         return info, chunks
 
@@ -110,11 +119,19 @@ class KnowledgeBase:
         data: bytes,
         *,
         version: str | None = None,
+        visibility: str = PUBLIC,
+        allowed_roles: tuple[str, ...] = (),
     ) -> tuple[DocumentInfo, list[Chunk]]:
         # PDF/DOCX 解析是 CPU 密集的同步代码；上传接口在事件循环里，直接跑会卡住
         # 其他请求（包括 SSE）。放线程池，10MB 扫描件也不会把 API 拖死。
         parsed = await asyncio.to_thread(parse_bytes, filename, data)
-        return await self.index_parsed(parsed, source=filename, version=version)
+        return await self.index_parsed(
+            parsed,
+            source=filename,
+            version=version,
+            visibility=visibility,
+            allowed_roles=allowed_roles,
+        )
 
     async def index_text(
         self,
@@ -122,13 +139,22 @@ class KnowledgeBase:
         title: str,
         text: str,
         source: str,
+        visibility: str = PUBLIC,
+        allowed_roles: tuple[str, ...] = (),
     ) -> tuple[DocumentInfo, list[Chunk]]:
         from app.rag.parse import parse_markdown_text
 
         parsed = parse_markdown_text(text, title=title)
-        return await self.index_parsed(parsed, source=source)
+        return await self.index_parsed(
+            parsed,
+            source=source,
+            visibility=visibility,
+            allowed_roles=allowed_roles,
+        )
 
-    async def search(self, query: str, top_k: int | None = None) -> list[Hit]:
+    async def search(
+        self, query: str, top_k: int | None = None, *, viewer: Viewer | None = None
+    ) -> list[Hit]:
         query = query.strip()
         if not query:
             return []
@@ -138,10 +164,12 @@ class KnowledgeBase:
             return []
         limit = top_k or self.top_k
         query_vector = (await self.embedder.embed([query]))[0]
+        # 默认只给公开文档：调用方忘了传 viewer 时，错的方向必须是「少给」
+        scope = viewer or Viewer()
 
         sparse, dense = await asyncio.gather(
-            self.store.sparse_search(tokens, self.candidates),
-            self.store.dense_search(query_vector, self.candidates),
+            self.store.sparse_search(tokens, self.candidates, viewer=scope),
+            self.store.dense_search(query_vector, self.candidates, viewer=scope),
         )
         fused, dense_scores = _fuse(sparse, dense, self.rrf_k)
         if not fused:
@@ -188,8 +216,28 @@ class KnowledgeBase:
         await self._ensure_seed()
         return await self.store.list_documents()
 
-    async def get_document(self, document_id: str) -> tuple[DocumentInfo, list[ChunkRow]] | None:
-        return await self.store.get_document(document_id)
+    async def get_document(
+        self, document_id: str, *, viewer: Viewer
+    ) -> tuple[DocumentInfo, list[ChunkRow]] | None:
+        """按已知 id 读全文；不可见与不存在都返回 None（接口层统一 404，不泄露存在性）。"""
+        result = await self.store.get_document(document_id)
+        if result is None:
+            return None
+        info, rows = result
+        if not is_visible(
+            visibility=info.visibility,
+            allowed_roles=info.allowed_roles,
+            viewer=viewer,
+        ):
+            return None
+        return info, rows
+
+    async def set_access(
+        self, document_id: str, *, visibility: str, allowed_roles: tuple[str, ...]
+    ) -> DocumentInfo | None:
+        return await self.store.set_access(
+            document_id, visibility=visibility, allowed_roles=allowed_roles
+        )
 
     async def chunk_count(self) -> int:
         await self._ensure_seed()

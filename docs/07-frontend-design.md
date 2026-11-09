@@ -112,7 +112,7 @@ ChatPage
 
 ```
 ConsolePage（Tabs，路径 /console/:panel）
-├─ KbPage         上传、列表、切片预览、重建索引
+├─ KbPage         上传（含可见范围）、列表、切片预览、改可见范围、重建索引
 ├─ ToolsPage      工具卡片、Schema 查看（只读）、启用开关、试调用
 ├─ PermsPage      角色 × 工具矩阵（勾选即保存）
 ├─ ApprovalsPage  待办/已办可筛，逐条决议（理由 + 授权范围）
@@ -129,7 +129,7 @@ ConsolePage（Tabs，路径 /console/:panel）
 | 中断 | 发送按钮变"停止"，点击后 abort + 发 `ABORT`，保留已收到内容 |
 | 失败 | 显示 `error_code` 对应的人话 + "重试"按钮；重试会移除失败气泡、用**新的** `client_msg_id` 重发（原 id 会命中幂等回放，拿回同一条失败 run） |
 | 断线 | 顶部条"连接已断开，正在恢复"，自动重连 + 补拉 |
-| 引用 | 角标 hover 显示片段；点击打开 Dialog：按切片顺序展示全文、引用段高亮并滚到视野中央（`chunk_id` 优先、`ord` 兜底），加载失败退回片段并说明「不是全文」；只有登录要求，与检索同一可见性（[ADR-0018](decisions/0018-citation-fulltext-preview.md)） |
+| 引用 | 角标 hover 显示片段；点击打开 Dialog：按切片顺序展示全文、引用段高亮并滚到视野中央（`chunk_id` 优先、`ord` 兜底），加载失败退回片段并说明「不是全文」；只有登录要求，与检索同一可见性（[ADR-0018](decisions/0018-citation-fulltext-preview.md)）。受限文档返回 404，前端走同一个「文档不存在或已更新」兜底，不区分「无权限」与「没这篇」（[ADR-0019](decisions/0019-document-level-access.md)） |
 | 长会话 | 消息虚拟滚动；事件时间线按需折叠（默认收起中间步骤） |
 
 ### 6.1 断线续传的实现（W1 D4）
@@ -178,6 +178,8 @@ Pydantic 模型 ──► OpenAPI ──► openapi-typescript ──► src/api
 - [x] 任意历史 run 可按 seq 回放（W4 D20）：`/runs/:id` 拉全量事件后走同一个 reducer
 - [x] 成本看板与 `model_calls` 对得上（W4 D19）：`/console/cost` 展示分/调用/token
 - [x] 不写代码能上传文档、看切片、重建索引（W5 D21）
+- [x] 不写代码能设「公开 / 指定角色」，列表显示可见范围且不重切就能改（W6 后补，ADR-0019）
+- [x] 受限文档在员工侧检索不到、引用跳全文 404，管理员仍可读（同一规则两处实现）
 - [x] 工具试调用走治理链路，写工具不会真的落单（W5 D22）
 - [x] 权限矩阵可编辑、审批中心待办/已办可筛（W5 D23）
 - [x] 失败后重试不重复用户气泡，且改用新的 `client_msg_id`（W5 D24）

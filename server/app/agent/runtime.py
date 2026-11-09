@@ -27,6 +27,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from collections.abc import AsyncIterator, Mapping
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from time import perf_counter
 from typing import Any, cast
@@ -50,6 +51,7 @@ from app.approvals.types import ApprovalRecord, ApprovalRecorder, ApprovalReques
 from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.gateway.types import BudgetExceeded, MeteringError, ModelUsage
+from app.rag.access import Viewer, viewer_for
 from app.rag.service import get_knowledge_base
 from app.schemas.event import EventType
 from app.schemas.failure import categorize
@@ -71,6 +73,7 @@ def build_deps(
     *,
     approvals: ApprovalRecorder | None = None,
     requested_model: str | None = None,
+    viewer: Viewer | None = None,
 ) -> AgentDeps:
     settings = get_settings()
     gateway = None
@@ -86,6 +89,7 @@ def build_deps(
         approvals=approvals,
         gateway=gateway,
         requested_model=requested_model,
+        viewer=viewer or Viewer(),
     )
 
 
@@ -146,7 +150,13 @@ async def stream(
     这里不碰存储，也不吞掉 `CancelledError`（客户端断开的信号要往上抛）。
     总时长在节点/工具边界检查（不做硬中断：工具自身有超时，见 docs/06 §4）。
     """
-    resolved = deps or build_deps()
+    settings = get_settings()
+    # 身份只在服务端会话里（R9）；检索可见性由这里的角色推导，调用方传进来的
+    # deps 不能自带 viewer，避免出现「同一个 deps 被不同用户复用」的串权。
+    resolved = replace(
+        deps or build_deps(),
+        viewer=viewer_for(identity.roles, settings.admin_role_list),
+    )
     user = {"id": identity.user_id, "roles": sorted(identity.roles)}
     if session_id:
         user["session_id"] = session_id
@@ -154,7 +164,7 @@ async def stream(
         run_id=run_id,
         user=user,
         query=query,
-        budget_cents=get_settings().run_budget_cents,
+        budget_cents=settings.run_budget_cents,
     )
     yield (
         EventType.RUN_STARTED,

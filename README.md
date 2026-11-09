@@ -20,7 +20,7 @@
 
 ## 核心能力
 
-1. **RAG 知识库**：混合检索（BM25 + 向量 + RRF）+ rerank + 引用溯源（可跳全文）+ 无命中兜底
+1. **RAG 知识库**：混合检索（BM25 + 向量 + RRF）+ rerank + 引用溯源（可跳全文）+ 文档级可见范围（公开 / 指定角色，召回前过滤）+ 无命中兜底
 2. **工具层**：统一 `ToolSpec` 注册 + 治理；传输可替换（当前进程内调用，MCP/HTTP 传输未接）
 3. **Agent 运行时**：显式 8 节点状态机（LangGraph 可选），只有 2 个节点调 LLM（规则优先）
 4. **工具治理**：白名单、会话级权限、单工具超时、错误分类重试、业务降级、保留字段拒绝
@@ -168,9 +168,9 @@ oncall/
 
 | 模块 | 状态 | 验证方式 |
 |---|---|---|
-| 文档（12 篇 + 18 篇 ADR + 评测基线） | ✅ 完成 | — |
-| 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡 / 运行回放 / 成本页） | ✅ 可用 | `tsc --noEmit`、`oxlint 0`、`oxfmt --check` 通过；`vitest` 44/44；`pnpm build` 成功 |
-| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **237 passed + 18 skipped**；设 `ONCALL_TEST_DATABASE_URL` 后 **255 passed**（含并发 seq、pgvector 检索、审批并发与事务回滚、孤儿回收并发、计量一致性） |
+| 文档（12 篇 + 19 篇 ADR + 评测基线） | ✅ 完成 | — |
+| 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡 / 运行回放 / 成本页） | ✅ 可用 | `tsc --noEmit`、`oxlint 0`、`oxfmt --check` 通过；`vitest` 52/52；`pnpm build` 成功 |
+| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **265 passed + 22 skipped**；设 `ONCALL_TEST_DATABASE_URL` 后 **287 passed**（含并发 seq、pgvector 检索、可见性矩阵、审批并发与事务回滚、孤儿回收并发、计量一致性） |
 | 本地 JWT（W1 D2） | ✅ 已完成 | `tests/test_auth.py` 20 条：签发/验签、过期、alg=none、401 JSON、OpenAPI Bearer、run 归属隔离 |
 | 事件落库 + 断线续传（D4） | ✅ 已完成 | `alembic upgrade head` + `alembic check` 无漂移；`tests/test_store_contract.py`（内存 + Postgres 契约）、`tests/test_chat_stream.py`（落库、幂等回放、503 语义） |
 | 最小 Agent 运行时（W1 D5） | ✅ 已完成 | `tests/test_agent_runtime.py` 9 条：工具真实执行、检索引用、写操作挂起审批、工具失败降级、步数/时长上限 |
@@ -182,6 +182,7 @@ oncall/
 | 私有化交付（W6 D26–D28） | ✅ 已完成 | 50 条 RAG 评测 + 50 条意图分类评测与归因报告；api/web Dockerfile + compose `full` profile + 离线 compose；SSE 压测脚本；三条剧本 demo 脚本；D29 文档收尾中 |
 | 孤儿 run 回收（W6 后加固） | ✅ 已完成 | 进程崩溃后停在 `running` 的 run，超过 `ONCALL_STALE_RUN_MIN`（默认 10 分钟）无事件即追加 `run.failed(RUN_INTERRUPTED)`；后台任务 + `make reap`；`tests/test_recovery.py`、`test_recovery_pg.py`（并发只写一条）；[ADR-0017](docs/decisions/0017-stale-run-recovery.md) |
 | 引用跳全文（W5 D24 收尾） | ✅ 已完成 | 引用角标打开全文：`GET /kb/documents/{id}/preview` 登录即可（与检索同一可见性），`chunk_id` 优先/`ord` 兜底定位并高亮；`tests/test_rag_preview.py`、`test_kb_preview.py`（员工可读/404/401）；[ADR-0018](docs/decisions/0018-citation-fulltext-preview.md) |
+| 文档级可见性（W6 后补） | ✅ 已完成 | `visibility=public / roles` + `allowed_roles`（迁移 0008）；召回 SQL 在 `LIMIT` 前过滤、预览同一规则、不可见 404；上传带范围、`PATCH .../access` 只改范围（`chunk_id` 不变）；`tests/test_rag_acl.py`、`test_rag_pg.py`（4×6 可见性矩阵）、`test_kb_api.py`、`test_kb_preview.py`；[ADR-0019](docs/decisions/0019-document-level-access.md) |
 
 ### 评测与压测
 
@@ -241,7 +242,12 @@ W6 基线（3 轮均值，mock 规则路径，口径见 [baseline-v1](docs/eval/
   `RUN_INTERRUPTED`（[ADR-0017](docs/decisions/0017-stale-run-recovery.md)），只收敛状态、
   不自动重试写工具；工单是否已创建仍需人工按 run_id 对账
 - 工具 schema 在管理页只读；配置覆盖只到「启用/角色」，且多副本部署最长 2s 生效（[ADR-0014](docs/decisions/0014-tool-policy-overrides.md)）
-- 引用全文预览是按切片重组的正文，不是原始文件渲染（PDF 排版/表格样式会丢）；暂不做文档级 ACL，整库对登录员工可读，但没有列表接口、只能凭引用打开（[ADR-0018](docs/decisions/0018-citation-fulltext-preview.md)）
+- 引用全文预览是按切片重组的正文，不是原始文件渲染（PDF 排版/表格样式会丢）；没有列表接口、只能凭已知
+  `document_id` 打开（[ADR-0018](docs/decisions/0018-citation-fulltext-preview.md)）
+- 文档级可见性只有 `public` / `roles` 两档：没有按用户授权、部门继承、临时授权与密级；
+  `admin` 是知识库所有者、可读全部正文（合规要求「管理员也不能看内容」时需要在部署层拆角色）；
+  角色名不做白名单，拼错会让文档除管理员外谁都看不到（控制台可见并可改）。召回多一次
+  `kb_documents` join，v1 规模下未做延迟对比基准（[ADR-0019](docs/decisions/0019-document-level-access.md)）
 - iframe + postMessage 嵌入形态（W5 D25）暂缓，需要来源白名单与 CSP 部署决策
 
 ## License

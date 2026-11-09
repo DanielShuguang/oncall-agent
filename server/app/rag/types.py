@@ -16,6 +16,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Protocol
 
+from app.rag.access import PUBLIC, Viewer
+
 
 @dataclass(frozen=True, slots=True)
 class DocumentInfo:
@@ -27,6 +29,9 @@ class DocumentInfo:
     status: str
     created_at: datetime
     version: str | None = None
+    #: `public`（默认，所有登录用户）或 `roles`（role 交集，见 app/rag/access.py）
+    visibility: str = PUBLIC
+    allowed_roles: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,7 +93,11 @@ class Hit:
 
 
 class KnowledgeStore(Protocol):
-    """向量库抽象。所有方法 async，换远程库时实现同一组方法即可。"""
+    """向量库抽象。所有方法 async，换远程库时实现同一组方法即可。
+
+    `viewer` 是调用者的可见范围（`app/rag/access.py`）：稀疏/稠密召回必须在
+    取 `limit` 之前过滤，否则受限文档会占掉候选名额（ADR-0019）。
+    """
 
     async def add_document(
         self,
@@ -98,7 +107,15 @@ class KnowledgeStore(Protocol):
         checksum: str,
         chunks: Sequence[StoredChunk],
         version: str | None = None,
+        visibility: str = PUBLIC,
+        allowed_roles: Sequence[str] = (),
     ) -> DocumentInfo: ...
+
+    async def set_access(
+        self, document_id: str, *, visibility: str, allowed_roles: Sequence[str]
+    ) -> DocumentInfo | None:
+        """改一篇文档的可见范围；文档不存在返回 None（不改切片，`chunk_id` 不变）。"""
+        ...
 
     async def delete_by_source(self, source: str) -> None: ...
 
@@ -109,16 +126,25 @@ class KnowledgeStore(Protocol):
 
         不保证 `tokens` 有值——Postgres 实现只查展示列，不为一次预览读取
         每段 1024 维向量；需要向量或分词时走 `all_chunks` / `fetch_chunks`。
+
+        这里**不**判断可见性：单文档读取要做的是规则判定而不是过滤查询，
+        调用方用 `access.is_visible` 或直接走 `KnowledgeBase.get_document`。
         """
         ...
 
     async def chunk_count(self) -> int: ...
 
-    async def sparse_search(self, query_tokens: Sequence[str], limit: int) -> list[Ranked]: ...
+    async def sparse_search(
+        self, query_tokens: Sequence[str], limit: int, *, viewer: Viewer
+    ) -> list[Ranked]: ...
 
-    async def dense_search(self, query_vector: Sequence[float], limit: int) -> list[Ranked]: ...
+    async def dense_search(
+        self, query_vector: Sequence[float], limit: int, *, viewer: Viewer
+    ) -> list[Ranked]: ...
 
-    async def fetch_chunks(self, chunk_ids: Sequence[int]) -> Mapping[int, ChunkRow]: ...
+    async def fetch_chunks(self, chunk_ids: Sequence[int]) -> Mapping[int, ChunkRow]:
+        """按 id 取正文；调用方负责只传已通过可见性过滤的 id（检索侧）。"""
+        ...
 
     async def all_chunks(self) -> list[ChunkRow]: ...
 

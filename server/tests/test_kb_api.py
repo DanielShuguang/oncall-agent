@@ -139,3 +139,131 @@ async def test_reindex_recomputes_vectors(client: AsyncClient) -> None:
     response = await client.post("/api/admin/kb/reindex", headers=ADMIN)
     assert response.status_code == 200
     assert response.json()["chunks"] >= 1
+
+
+HR = auth_headers(user_id="u_301", roles=("employee", "hr"))
+EMPLOYEE = auth_headers(user_id="u_204", roles=("employee",))
+
+COMPENSATION = """# 薪酬、年终奖与工资条查询
+
+## 年终奖
+
+年终奖在次年 1 月随工资发放，金额按绩效系数计算。
+""".encode()
+
+
+async def _upload_compensation(client: AsyncClient, data: dict[str, str] | None = None) -> str:
+    response = await client.post(
+        "/api/admin/kb/documents",
+        headers=ADMIN,
+        files={"file": ("compensation.md", COMPENSATION, "text/markdown")},
+        data=data or {},
+    )
+    assert response.status_code == 201
+    return str(response.json()["document"]["id"])
+
+
+async def test_upload_restricted_document_records_access(client: AsyncClient) -> None:
+    document_id = await _upload_compensation(
+        client, {"visibility": "roles", "allowed_roles": " hr , finance "}
+    )
+
+    listing = await client.get("/api/admin/kb/documents", headers=ADMIN)
+    row = next(doc for doc in listing.json()["documents"] if doc["id"] == document_id)
+    assert row["visibility"] == "roles"
+    assert row["allowed_roles"] == ["hr", "finance"]
+
+    detail = await client.get(f"/api/admin/kb/documents/{document_id}", headers=ADMIN)
+    assert detail.json()["document"]["allowed_roles"] == ["hr", "finance"]
+
+
+async def test_upload_defaults_to_public(client: AsyncClient) -> None:
+    response = await client.post(
+        "/api/admin/kb/documents",
+        headers=ADMIN,
+        files={"file": ("public.md", b"# Public\n\n## Body\n\nhello", "text/markdown")},
+    )
+    assert response.status_code == 201
+    document = response.json()["document"]
+    assert document["visibility"] == "public"
+    assert document["allowed_roles"] == []
+
+
+async def test_upload_rejects_ambiguous_access(client: AsyncClient) -> None:
+    for data in (
+        {"visibility": "public", "allowed_roles": "hr"},  # 公开文档不能带角色
+        {"visibility": "roles", "allowed_roles": ""},  # 指定角色至少一个
+        {"visibility": "roles", "allowed_roles": "人事"},  # 非法角色名
+        {"visibility": "team"},  # 未知可见性
+    ):
+        response = await client.post(
+            "/api/admin/kb/documents",
+            headers=ADMIN,
+            files={"file": ("ambiguous.md", COMPENSATION, "text/markdown")},
+            data=data,
+        )
+        assert response.status_code == 422, data
+        assert response.json()["code"] == "INVALID_ARGS", data
+
+
+async def test_patch_access_switch_without_reindexing(client: AsyncClient) -> None:
+    document_id = await _upload_compensation(client)
+    before = await client.get(f"/api/admin/kb/documents/{document_id}", headers=ADMIN)
+    chunks_before = [chunk["ord"] for chunk in before.json()["chunks"]]
+
+    response = await client.patch(
+        f"/api/admin/kb/documents/{document_id}/access",
+        headers=ADMIN,
+        json={"visibility": "roles", "allowed_roles": ["hr"]},
+    )
+    assert response.status_code == 200
+    assert response.json()["visibility"] == "roles"
+    assert response.json()["allowed_roles"] == ["hr"]
+
+    after = await client.get(f"/api/admin/kb/documents/{document_id}", headers=ADMIN)
+    assert [chunk["ord"] for chunk in after.json()["chunks"]] == chunks_before
+
+    # 员工立刻读不到，hr 立刻读得到：权限变化不需要等重建索引
+    employee = await client.get(f"/api/kb/documents/{document_id}/preview", headers=EMPLOYEE)
+    hr = await client.get(f"/api/kb/documents/{document_id}/preview", headers=HR)
+    assert employee.status_code == 404
+    assert hr.status_code == 200
+
+    reopened = await client.patch(
+        f"/api/admin/kb/documents/{document_id}/access",
+        headers=ADMIN,
+        json={"visibility": "public"},
+    )
+    assert reopened.status_code == 200
+    assert reopened.json()["visibility"] == "public"
+    assert reopened.json()["allowed_roles"] == []
+
+
+async def test_patch_access_rejects_bad_input_and_unknown_document(client: AsyncClient) -> None:
+    document_id = await _upload_compensation(client)
+
+    bad = await client.patch(
+        f"/api/admin/kb/documents/{document_id}/access",
+        headers=ADMIN,
+        json={"visibility": "roles", "allowed_roles": []},
+    )
+    assert bad.status_code == 422
+    assert bad.json()["code"] == "INVALID_ARGS"
+
+    missing = await client.patch(
+        "/api/admin/kb/documents/not-a-uuid/access",
+        headers=ADMIN,
+        json={"visibility": "public"},
+    )
+    assert missing.status_code == 404
+
+
+async def test_employee_cannot_change_document_access(client: AsyncClient) -> None:
+    document_id = await _upload_compensation(client)
+
+    response = await client.patch(
+        f"/api/admin/kb/documents/{document_id}/access",
+        headers=EMPLOYEE,
+        json={"visibility": "roles", "allowed_roles": ["employee"]},
+    )
+    assert response.status_code == 403

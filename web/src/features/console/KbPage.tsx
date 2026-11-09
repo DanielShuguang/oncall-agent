@@ -25,11 +25,20 @@ import {
   getKbDocument,
   listKbDocuments,
   reindexKb,
+  updateKbAccess,
   uploadKbDocument,
   validateKbFile,
   type KbDocument,
   type KbDocumentDetail,
 } from '@/api/kb';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { accessLabel, isRestricted, parseRoleInput, type Visibility } from './access';
 import { formatTime } from '@/lib/format';
 
 const STATUS_TONES: Record<string, string> = {
@@ -51,6 +60,14 @@ interface DetailState {
   error: string | null;
 }
 
+interface AccessDialogState {
+  document: KbDocument;
+  visibility: Visibility;
+  rolesText: string;
+  saving: boolean;
+  error: string | null;
+}
+
 export default function KbPage() {
   const [documents, setDocuments] = useState<KbDocument[]>([]);
   const [totalChunks, setTotalChunks] = useState(0);
@@ -61,6 +78,9 @@ export default function KbPage() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [reindexing, setReindexing] = useState(false);
+  const [visibility, setVisibility] = useState<Visibility>('public');
+  const [rolesText, setRolesText] = useState('');
+  const [accessDialog, setAccessDialog] = useState<AccessDialogState | null>(null);
   const [detail, setDetail] = useState<DetailState | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   // 关闭 Dialog 后，在途的详情请求不能把它重新打开
@@ -126,19 +146,77 @@ export default function KbPage() {
     setDetail(null);
   };
 
+  const openAccessDialog = (document: KbDocument) => {
+    setAccessDialog({
+      document,
+      // 未知可见性按「有没有角色」归一，避免把历史脏数据静默改成公开
+      visibility:
+        document.visibility === 'public'
+          ? 'public'
+          : document.allowed_roles.length
+            ? 'roles'
+            : 'public',
+      rolesText: document.allowed_roles.join(','),
+      saving: false,
+      error: null,
+    });
+  };
+
+  const onSaveAccess = async () => {
+    const draft = accessDialog;
+    if (!draft) return;
+    const parsed = parseRoleInput(draft.rolesText);
+    if (draft.visibility === 'roles' && (parsed.error || parsed.roles.length === 0)) {
+      setAccessDialog({
+        ...draft,
+        error: parsed.error ?? '指定角色可见时至少要填一个角色',
+      });
+      return;
+    }
+    setAccessDialog({ ...draft, saving: true, error: null });
+    try {
+      const updated = await updateKbAccess(draft.document.id, {
+        visibility: draft.visibility,
+        roles: draft.visibility === 'roles' ? parsed.roles : [],
+      });
+      setDocuments((previous) =>
+        previous.map((document) => (document.id === updated.id ? updated : document)),
+      );
+      setNotice(
+        `「${updated.title}」可见范围已改为${accessLabel(updated)}；不重新切分，已有引用仍然可用。`,
+      );
+      setAccessDialog(null);
+    } catch (exc) {
+      setAccessDialog({
+        ...draft,
+        saving: false,
+        error: exc instanceof Error ? exc.message : '可见范围保存失败',
+      });
+    }
+  };
+
   const onUpload = async (file: File) => {
     const invalid = validateKbFile(file);
     if (invalid) {
       setUploadError(invalid);
       return;
     }
+    const parsed = parseRoleInput(rolesText);
+    if (visibility === 'roles' && (parsed.error || parsed.roles.length === 0)) {
+      setUploadError(parsed.error ?? '指定角色可见时至少要填一个角色');
+      return;
+    }
     setUploading(true);
     setUploadError(null);
     setNotice(null);
     try {
-      const result = await uploadKbDocument(file);
+      const result = await uploadKbDocument(file, {
+        visibility,
+        roles: visibility === 'roles' ? parsed.roles : [],
+      });
       setNotice(
-        `已索引「${result.document.title}」，共 ${result.document.chunk_count} 个切片；同来源文件会覆盖旧版本。`,
+        `已索引「${result.document.title}」，共 ${result.document.chunk_count} 个切片` +
+          `（${accessLabel(result.document)}）；同来源文件会覆盖旧版本。`,
       );
       await loadDocuments();
       await openDocument(result.document.id);
@@ -185,8 +263,31 @@ export default function KbPage() {
               </div>
               <p className="mt-1 mb-0 text-xs text-muted-foreground">
                 支持 PDF / DOCX / MD / TXT；扫描 PDF 返回 PARSE_FAILED（v1 不做 OCR）。
-                同一来源再次上传会覆盖旧文档。
+                同一来源再次上传会覆盖旧文档。可见范围在点「选择文件」前生效。
               </p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <Select
+                  value={visibility}
+                  onValueChange={(value) => setVisibility(value as Visibility)}
+                >
+                  <SelectTrigger size="sm" className="text-xs" aria-label="文档可见范围">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="public">公开（所有登录用户）</SelectItem>
+                    <SelectItem value="roles">指定角色</SelectItem>
+                  </SelectContent>
+                </Select>
+                {visibility === 'roles' && (
+                  <Input
+                    value={rolesText}
+                    aria-label="可见角色"
+                    placeholder="hr,finance"
+                    className="h-8 w-44 text-xs"
+                    onChange={(event) => setRolesText(event.target.value)}
+                  />
+                )}
+              </div>
             </div>
             <input
               ref={fileInput}
@@ -278,6 +379,7 @@ export default function KbPage() {
                     <TableHead>文档</TableHead>
                     <TableHead>来源</TableHead>
                     <TableHead className="text-right">切片</TableHead>
+                    <TableHead>可见范围</TableHead>
                     <TableHead>状态</TableHead>
                     <TableHead>创建时间</TableHead>
                     <TableHead className="text-right">操作</TableHead>
@@ -303,6 +405,18 @@ export default function KbPage() {
                       <TableCell>
                         <Badge
                           variant="outline"
+                          className={
+                            isRestricted(doc)
+                              ? 'border-warn/20 bg-warn/10 text-warn'
+                              : 'text-muted-foreground'
+                          }
+                        >
+                          {accessLabel(doc)}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant="outline"
                           className={STATUS_TONES[doc.status] ?? 'text-muted-foreground'}
                         >
                           {STATUS_LABELS[doc.status] ?? doc.status}
@@ -312,14 +426,24 @@ export default function KbPage() {
                         {formatTime(doc.created_at)}
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-7 text-xs"
-                          onClick={() => void openDocument(doc.id)}
-                        >
-                          切片
-                        </Button>
+                        <div className="flex justify-end gap-1">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 text-xs"
+                            onClick={() => void openDocument(doc.id)}
+                          >
+                            切片
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 text-xs"
+                            onClick={() => openAccessDialog(doc)}
+                          >
+                            范围
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -333,6 +457,7 @@ export default function KbPage() {
       <p className="text-[11px] text-muted-foreground">
         口径：列表来自 <code>kb_documents</code>；切片预览按 <code>ord</code> 升序，最多 200 条，
         超出部分以 <code>chunk_count</code> 为准。上传响应只回前 50 条。
+        「指定角色」的文档在检索阶段就被过滤：员工看不到它，管理员（知识库所有者）始终可读。
       </p>
 
       <Dialog
@@ -385,6 +510,80 @@ export default function KbPage() {
                   该文档没有切片。
                 </div>
               )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={accessDialog !== null}
+        onOpenChange={(open) => {
+          if (!open) setAccessDialog(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>可见范围</DialogTitle>
+            <DialogDescription>
+              {accessDialog?.document.title ?? ''} · 只改可见性，不重新切分， 已有引用与{' '}
+              <code>chunk_id</code> 不变；保存后立即生效。
+            </DialogDescription>
+          </DialogHeader>
+          {accessDialog && (
+            <div className="space-y-3">
+              <Select
+                value={accessDialog.visibility}
+                onValueChange={(value) =>
+                  setAccessDialog({
+                    ...accessDialog,
+                    visibility: value as Visibility,
+                    error: null,
+                  })
+                }
+              >
+                <SelectTrigger className="w-full" aria-label="可见范围">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="public">公开（所有登录用户）</SelectItem>
+                  <SelectItem value="roles">指定角色</SelectItem>
+                </SelectContent>
+              </Select>
+              {accessDialog.visibility === 'roles' && (
+                <Input
+                  value={accessDialog.rolesText}
+                  aria-label="可见角色"
+                  placeholder="hr,finance"
+                  onChange={(event) =>
+                    setAccessDialog({
+                      ...accessDialog,
+                      rolesText: event.target.value,
+                      error: null,
+                    })
+                  }
+                />
+              )}
+              <p className="mb-0 text-[11px] text-muted-foreground">
+                角色是 JWT 里的字符串标签（签发 token 时由部署方决定，如{' '}
+                <code>--roles employee,hr</code>）； 拼错会让这篇文档除管理员外谁都看不到。
+              </p>
+              {accessDialog.error && (
+                <div className="rounded-md border border-danger/30 bg-danger/5 p-2 text-xs text-danger">
+                  {accessDialog.error}
+                </div>
+              )}
+              <div className="flex justify-end gap-2">
+                <Button variant="ghost" size="sm" onClick={() => setAccessDialog(null)}>
+                  取消
+                </Button>
+                <Button
+                  size="sm"
+                  disabled={accessDialog.saving}
+                  onClick={() => void onSaveAccess()}
+                >
+                  {accessDialog.saving ? '保存中…' : '保存'}
+                </Button>
+              </div>
             </div>
           )}
         </DialogContent>

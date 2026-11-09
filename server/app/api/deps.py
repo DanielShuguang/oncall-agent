@@ -20,6 +20,7 @@ from app.approvals.store import ApprovalStore, get_approval_store
 from app.core.config import get_settings
 from app.core.security import InvalidTokenError, decode_token
 from app.core.store import RunStore, get_store
+from app.rag.access import Viewer, viewer_for
 from app.tools.registry import Identity
 
 # auto_error=False：缺 token 时返回 None，由我们统一成 docs/03 约定的 401 JSON
@@ -52,6 +53,17 @@ def get_identity(
         raise _unauthorized() from None
 
     return Identity(user_id=claims.user_id, roles=frozenset(claims.roles))
+
+
+def get_viewer(
+    identity: Annotated[Identity, Depends(get_identity)],
+) -> Viewer:
+    """检索与引用预览的可见范围（ADR-0019）。
+
+    `admin` 是知识库所有者：上传/删除/重建索引本来就能改内容，
+    再对它隐藏正文只是形式主义，也会让管理页切片预览自相矛盾。
+    """
+    return viewer_for(identity.roles, get_settings().admin_role_list)
 
 
 def require_admin(

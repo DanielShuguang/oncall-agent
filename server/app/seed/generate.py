@@ -218,6 +218,8 @@ async def load_to_db(out_dir: Path, *, reset: bool) -> None:
             title=document.title,
             text=document.text,
             source=f"seed:{document.filename}",
+            visibility=document.visibility,
+            allowed_roles=document.allowed_roles,
         )
     log.info(
         "seed_loaded",

@@ -9,8 +9,10 @@ from __future__ import annotations
 import math
 import uuid
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from datetime import UTC, datetime
 
+from app.rag.access import PUBLIC, Viewer, is_visible
 from app.rag.embed import cosine
 from app.rag.types import ChunkRow, DocumentInfo, Ranked, StoredChunk
 
@@ -31,6 +33,8 @@ class MemoryKnowledgeStore:
         checksum: str,
         chunks: Sequence[StoredChunk],
         version: str | None = None,
+        visibility: str = PUBLIC,
+        allowed_roles: Sequence[str] = (),
     ) -> DocumentInfo:
         document_id = str(uuid.uuid4())
         info = DocumentInfo(
@@ -42,6 +46,8 @@ class MemoryKnowledgeStore:
             status="indexed",
             created_at=datetime.now(UTC),
             version=version,
+            visibility=visibility,
+            allowed_roles=tuple(allowed_roles),
         )
         self._docs[document_id] = info
         self._by_source[source] = document_id
@@ -61,6 +67,16 @@ class MemoryKnowledgeStore:
             )
             self._vectors[chunk_id] = list(chunk.embedding)
         return info
+
+    async def set_access(
+        self, document_id: str, *, visibility: str, allowed_roles: Sequence[str]
+    ) -> DocumentInfo | None:
+        info = self._docs.get(document_id)
+        if info is None:
+            return None
+        updated = replace(info, visibility=visibility, allowed_roles=tuple(allowed_roles))
+        self._docs[document_id] = updated
+        return updated
 
     async def delete_by_source(self, source: str) -> None:
         document_id = self._by_source.pop(source, None)
@@ -89,12 +105,17 @@ class MemoryKnowledgeStore:
     async def chunk_count(self) -> int:
         return len(self._chunks)
 
-    async def sparse_search(self, query_tokens: Sequence[str], limit: int) -> list[Ranked]:
+    async def sparse_search(
+        self, query_tokens: Sequence[str], limit: int, *, viewer: Viewer
+    ) -> list[Ranked]:
         query = set(query_tokens)
         if not query:
             return []
+        visible = self._visible_documents(viewer)
         scored: list[Ranked] = []
         for chunk_id, row in self._chunks.items():
+            if row.document_id not in visible:
+                continue
             chunk_tokens = set(row.tokens.split())
             overlap = len(query & chunk_tokens)
             if overlap == 0:
@@ -104,13 +125,30 @@ class MemoryKnowledgeStore:
         scored.sort(key=lambda item: (-item.score, item.chunk_id))
         return scored[:limit]
 
-    async def dense_search(self, query_vector: Sequence[float], limit: int) -> list[Ranked]:
+    async def dense_search(
+        self, query_vector: Sequence[float], limit: int, *, viewer: Viewer
+    ) -> list[Ranked]:
+        visible = self._visible_documents(viewer)
         scored = [
             Ranked(chunk_id=chunk_id, score=cosine(query_vector, vector))
             for chunk_id, vector in self._vectors.items()
+            if self._chunks[chunk_id].document_id in visible
         ]
         scored.sort(key=lambda item: (-item.score, item.chunk_id))
         return scored[:limit]
+
+    def _visible_documents(self, viewer: Viewer) -> set[str]:
+        if viewer.unrestricted:
+            return set(self._docs)
+        return {
+            document_id
+            for document_id, info in self._docs.items()
+            if is_visible(
+                visibility=info.visibility,
+                allowed_roles=info.allowed_roles,
+                viewer=viewer,
+            )
+        }
 
     async def fetch_chunks(self, chunk_ids: Sequence[int]) -> Mapping[int, ChunkRow]:
         return {cid: self._chunks[cid] for cid in chunk_ids if cid in self._chunks}

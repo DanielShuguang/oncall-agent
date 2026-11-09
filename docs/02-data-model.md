@@ -181,7 +181,13 @@ CREATE TABLE kb_documents (
   checksum    TEXT NOT NULL,          -- 标题 + 正文的 sha256，用于判断是否变化
   chunk_count INT NOT NULL DEFAULT 0,
   status      TEXT NOT NULL,          -- pending|indexed|failed（v1 只写 indexed）
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+  visibility  VARCHAR(16) NOT NULL DEFAULT 'public',  -- public | roles（ADR-0019）
+  allowed_roles VARCHAR(32)[] NOT NULL DEFAULT '{}',  -- visibility=roles 时生效
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT ck_kb_documents_access CHECK (
+    (visibility = 'public' AND cardinality(allowed_roles) = 0) OR
+    (visibility = 'roles'  AND cardinality(allowed_roles) > 0)
+  )
 );
 
 CREATE TABLE kb_chunks (
@@ -206,7 +212,15 @@ CREATE INDEX idx_chunks_vec ON kb_chunks USING hnsw (embedding vector_cosine_ops
 > Postgres 默认分词器会把连续汉字当成一个 token，中文 BM25 会失效（见 ADR-0011）。
 > `embedding` 固定 1024 维；换 embedding 模型必须先迁移表结构，配置里改了维度会启动即拒绝。
 
-实现：`server/app/models/kb.py` + `migrations/versions/20261109_0003_kb_and_business.py`。
+**文档级可见性**（[ADR-0019](decisions/0019-document-level-access.md)）：`public` 表示所有
+登录用户可读，`roles` 表示 `allowed_roles` 与调用方角色有交集才可读；`admin`
+（`ONCALL_ADMIN_ROLES`）是知识库所有者，不受这两个字段限制。CHECK 让两种解释互斥：
+`public` 必须没有角色，`roles` 必须至少一个角色——否则「public 但有角色」在 SQL 与
+Python 里会有两种读法。角色是 JWT 里的字符串标签，没有 `roles` 表可外键，所以角色列
+只存字符串；检索时用 `allowed_roles && ARRAY[...]`（数组重叠）在 `LIMIT` 之前过滤。
+
+实现：`server/app/models/kb.py` + `migrations/versions/20261109_0003_kb_and_business.py`
+（可见性列在 `20261109_0008_kb_document_access.py`，存量文档落 `public`）。
 W2 D8 起真实使用 pgvector HNSW + GIN；`alembic check` 无漂移。
 
 ### 2.7 业务域（模拟真实系统，可换真实接口）

@@ -65,6 +65,28 @@ class ParsedDoc:
 
 ## 5. 检索
 
+### 5.0 可见性过滤先于召回（ADR-0019）
+
+两路召回（稀疏/稠密）都在 `WHERE` 里先按文档可见性过滤，再 `ORDER BY ... LIMIT`：
+
+```sql
+-- 稀疏通道（稠密通道同理，只是多了 <=> 的距离排序）
+SELECT c.id, ts_rank_cd(c.tsv, q) AS score
+FROM kb_chunks c
+JOIN kb_documents d ON d.id = c.document_id
+WHERE c.tsv @@ q
+  AND (d.visibility = 'public' OR d.allowed_roles && ARRAY['hr']::varchar[])
+ORDER BY score DESC, c.id
+LIMIT 20;
+```
+
+顺序很重要：**先检索后过滤**会让受限文档占掉 `candidates=20` 的名额，把可见文档挤出
+top_k，而且「命中数变少」本身就是受限文档存在的侧信道。`admin` 是知识库所有者，
+此条件整体省略（`WHERE` 里不出现可见性判断）。
+
+规则与实现拆在两个地方（SQL 过滤 / Python 判定），由 `tests/test_rag_acl.py` 与
+`tests/test_rag_pg.py` 用同一张 (可见性 × 角色) 矩阵保证等价。
+
 ### 5.1 混合检索
 
 | 通道 | 实现 | 擅长 |
@@ -205,5 +227,7 @@ W6 基线（50 条，3 轮均值，2026-11-09）：`recall@5 100%`、`cite_acc 9
 - 阈值 0.38 与重排权重是在 v0 的 20 条用例上调出来的，存在过拟合；
   W6 扩到 50 条后仍未留出不参与调参的盲测集，100% 是样本内结果
 - 50 条仍是小样本，结论只能说方向性，别吹成"生产验证"
+- 文档级可见性只有 `public` / `roles` 两档，没有按用户授权、部门继承、临时授权；
+  召回 SQL 多一次 `kb_documents` join，v1 规模下未做延迟对比基准（ADR-0019）
 
 > 主动写局限，比被面试官问出来强。

@@ -1,7 +1,8 @@
 """引用跳全文接口：可见性、焦点定位、404 与鉴权。
 
-可见性由 ADR-0018 定：预览与检索共用同一边界，普通员工可读引用文档全文，
-但知识库的列表/上传/重建索引仍只属于管理员。
+可见性：预览与检索共用同一条规则（ADR-0018 / ADR-0019）。
+`public` 文档任何登录员工可读；`roles` 文档要求角色交集，不可见与不存在
+都返回 404（403 会泄露「文档存在」）；知识库管理接口仍只属于管理员。
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ from tests.support import auth_headers
 
 ADMIN = auth_headers(user_id="admin_1", roles=("admin",))
 EMPLOYEE = auth_headers(user_id="u_204", roles=("employee",))
+HR = auth_headers(user_id="u_301", roles=("employee", "hr"))
 
 DOC = """# 访客网络说明
 
@@ -153,3 +155,54 @@ async def test_admin_kb_list_still_requires_admin(client: AsyncClient) -> None:
     response = await client.get("/api/admin/kb/documents", headers=EMPLOYEE)
     assert response.status_code == 403
     assert response.json()["code"] == "FORBIDDEN"
+
+
+HR_DOC = """# 薪酬、年终奖与工资条查询（HR 专用）
+
+## 年终奖
+
+年终奖在次年 1 月随工资发放，金额按绩效系数计算。
+""".encode()
+
+
+async def _upload_restricted(client: AsyncClient) -> str:
+    response = await client.post(
+        "/api/admin/kb/documents",
+        headers=ADMIN,
+        files={"file": ("hr-compensation.md", HR_DOC, "text/markdown")},
+        data={"visibility": "roles", "allowed_roles": "hr"},
+    )
+    assert response.status_code == 201
+    payload = response.json()["document"]
+    assert payload["visibility"] == "roles"
+    assert payload["allowed_roles"] == ["hr"]
+    return str(payload["id"])
+
+
+async def test_restricted_document_is_404_for_employees(client: AsyncClient) -> None:
+    document_id = await _upload_restricted(client)
+
+    response = await client.get(f"/api/kb/documents/{document_id}/preview", headers=EMPLOYEE)
+
+    # 不用 403：403 等于承认「这篇文档存在，只是你看不到」
+    assert response.status_code == 404
+    assert response.json()["code"] == "NOT_FOUND"
+    assert "年终奖" not in response.text
+
+
+async def test_restricted_document_is_readable_with_matching_role(client: AsyncClient) -> None:
+    document_id = await _upload_restricted(client)
+
+    employee = await client.get(f"/api/kb/documents/{document_id}/preview", headers=HR)
+
+    assert employee.status_code == 200
+    assert any("年终奖" in chunk["content"] for chunk in employee.json()["chunks"])
+
+
+async def test_admin_reads_restricted_document_as_knowledge_owner(client: AsyncClient) -> None:
+    document_id = await _upload_restricted(client)
+
+    response = await client.get(f"/api/kb/documents/{document_id}/preview", headers=ADMIN)
+
+    assert response.status_code == 200
+    assert response.json()["document"]["visibility"] == "roles"

@@ -16,6 +16,7 @@ from typing import Any
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     BigInteger,
+    CheckConstraint,
     DateTime,
     ForeignKey,
     Index,
@@ -24,7 +25,7 @@ from sqlalchemy import (
     Text,
     text,
 )
-from sqlalchemy.dialects.postgresql import TSVECTOR, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, TSVECTOR, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, utcnow
@@ -44,12 +45,29 @@ class KbDocument(Base):
     status: Mapped[str] = mapped_column(
         String(16), default="indexed", server_default=text("'indexed'"), nullable=False
     )
+    #: 文档级可见性：public（所有登录用户）/ roles（角色交集，见 app/rag/access.py）
+    visibility: Mapped[str] = mapped_column(
+        String(16), default="public", server_default=text("'public'"), nullable=False
+    )
+    allowed_roles: Mapped[list[str]] = mapped_column(
+        ARRAY(String(32)), default=list, server_default=text("'{}'"), nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, server_default=text("now()"), nullable=False
     )
 
     chunks: Mapped[list[KbChunk]] = relationship(
         back_populates="document", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        # 两种解释必须互斥：public 不带角色，roles 至少一个角色。
+        # 否则「public 但有角色」这类数据在 SQL 过滤和 Python 判定里会有两种读法。
+        CheckConstraint(
+            "(visibility = 'public' AND cardinality(allowed_roles) = 0)"
+            " OR (visibility = 'roles' AND cardinality(allowed_roles) > 0)",
+            name="access",
+        ),
     )
 
 

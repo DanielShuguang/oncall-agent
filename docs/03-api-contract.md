@@ -39,7 +39,8 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | POST | `/admin/kb/documents` | 上传知识文档（multipart，≤10MB） | W2 D7 |
 | GET | `/admin/kb/documents` | 知识库文档列表 + chunk 总数 | W2 D7 |
 | GET | `/admin/kb/documents/{id}?preview=20` | 文档详情与切片预览（含 heading_path） | W2 D7 |
-| GET | `/kb/documents/{id}/preview?chunk_id=&ord=` | 引用跳全文（登录即可；与检索同一可见性） | W5 D24 |
+| PATCH | `/admin/kb/documents/{id}/access` | 改文档可见范围（不重切，`chunk_id` 不变） | W6 后补 |
+| GET | `/kb/documents/{id}/preview?chunk_id=&ord=` | 引用跳全文（登录即可；受文档可见性约束，不可见 404） | W5 D24 |
 | POST | `/admin/kb/reindex` | 重建索引（用当前 embedder 重算向量） | W2 D8 |
 | GET | `/admin/tools` | 工具注册表（含生效角色/启用状态） | W3 D12 / W5 D22 |
 | PATCH | `/admin/tools/{name}` | 启用/禁用工具（`enabled: null` 恢复默认） | W5 D22 |
@@ -294,7 +295,8 @@ POST /api/approvals/{approval_id}/resolve
 ## 5. 管理接口与知识库读取示例
 
 > 本节除「引用跳全文」外都是管理接口（要求 `ONCALL_ADMIN_ROLES`）；
-> 引用全文只要求登录，例外原因见 [ADR-0018](decisions/0018-citation-fulltext-preview.md)。
+> 引用全文只要求登录，且受文档级可见性约束（[ADR-0018](decisions/0018-citation-fulltext-preview.md)、
+> [ADR-0019](decisions/0019-document-level-access.md)）。
 
 ### 成本汇总
 
@@ -326,6 +328,8 @@ Authorization: Bearer <admin token>
 Content-Type: multipart/form-data
 
 file=@vpn-guide.pdf
+visibility=public          # 可选，public（默认）| roles
+allowed_roles=            # 可选，visibility=roles 时逗号分隔，如 hr,finance
 ```
 
 ```json
@@ -338,6 +342,8 @@ file=@vpn-guide.pdf
     "checksum": "6f1c...",
     "chunk_count": 5,
     "status": "indexed",
+    "visibility": "public",
+    "allowed_roles": [],
     "created_at": "2026-11-09T01:00:00Z"
   },
   "chunks": [
@@ -357,6 +363,8 @@ file=@vpn-guide.pdf
 - `413 FILE_TOO_LARGE`：超过 `ONCALL_KB_MAX_UPLOAD_MB`（默认 10MB）
 - `503 EMBEDDING_FAILED` / `DATABASE_UNAVAILABLE`：向量化或写库失败，可重试
 - 上传响应里的 `chunks` 最多返回前 50 条（看全量用 `document.chunk_count` 判断）
+- 可见性（ADR-0019）：`visibility=public` 时不允许带 `allowed_roles`；`visibility=roles`
+  至少要一个角色；角色名只允许字母、数字、`_ . -`，最长 32。违反返回 `422 INVALID_ARGS`
 - `POST /api/admin/kb/reindex` 返回 `{"chunks": 156}`：用当前 embedder 重算所有切片的向量与分词，**不重新切分源文件**
 
 `GET /api/admin/kb/documents/{id}?preview=20` 返回文档字段（与上传响应一致）+ 切片预览：
@@ -370,6 +378,23 @@ file=@vpn-guide.pdf
 
 > 预览不返回 `is_table`：该标记只来自本次上传的切分结果，没有落库（docs/02 §2.6），
 > 返回恒为 `false` 会误导调用方。
+
+### 改可见范围（W6 后补，ADR-0019）
+
+```http
+PATCH /api/admin/kb/documents/9d0f.../access
+Authorization: Bearer <admin token>
+Content-Type: application/json
+
+{ "visibility": "roles", "allowed_roles": ["hr"] }
+```
+
+返回与列表项相同的文档对象（含 `visibility` / `allowed_roles`）。
+
+- **不重新切分**：`chunk_id` 保持不变，已有引用继续可点。为了改权限而重传文件会让
+  `document_id` 变化，历史引用全部失效，所以单给一个只改权限的入口
+- `422 INVALID_ARGS`：可见性取值非法或角色清单与可见性矛盾；`404 NOT_FOUND`：文档不存在
+- 保存后立即生效：下一次检索就按新范围过滤，不需要重建索引
 
 ### 引用跳全文（W5 D24）
 
@@ -388,6 +413,8 @@ Authorization: Bearer <任意登录用户>
     "checksum": "6f1c...",
     "chunk_count": 5,
     "status": "indexed",
+    "visibility": "public",
+    "allowed_roles": [],
     "created_at": "2026-11-09T01:00:00Z"
   },
   "chunks": [
@@ -405,8 +432,11 @@ Authorization: Bearer <任意登录用户>
 }
 ```
 
-- **只要求登录，不要求管理员**：预览与检索共用同一可见性边界（[ADR-0018](decisions/0018-citation-fulltext-preview.md)）。
-  刻意没有列表/浏览接口，员工只能凭已知的 `document_id` 打开；接口**不校验**该 id
+- **只要求登录，不要求管理员**，但受文档级可见性约束（[ADR-0018](decisions/0018-citation-fulltext-preview.md)、
+  [ADR-0019](decisions/0019-document-level-access.md)）：`public` 文档都能读，`roles` 文档要求
+  角色交集，`admin` 作为知识库所有者不受限。**不可见与不存在都返回 `404 NOT_FOUND`** ——
+  403 会泄露「这篇文档存在」
+- 刻意没有列表/浏览接口，员工只能凭已知的 `document_id` 打开；接口**不校验**该 id
   是否真的出现在调用方的引用里（那要绑定 run 归属），靠「无列表 + UUID 不可猜」收敛；
   管理操作仍走 `/admin/kb/*`
 - `chunk_id` 优先（引用自带）、`ord` 兜底（重切后 chunk_id 会变）；都对不上时

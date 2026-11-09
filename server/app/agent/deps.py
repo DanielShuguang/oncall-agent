@@ -8,10 +8,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from app.approvals.types import ApprovalRecorder
 from app.gateway.types import ModelGateway
+from app.rag.access import Viewer
 from app.rag.retrieve import Retriever
 from app.tools.registry import ToolGuard
 
@@ -26,3 +27,5 @@ class AgentDeps:
     gateway: ModelGateway | None = None
     #: 客户端指定的模型；网关只会路由到已配置的模型
     requested_model: str | None = None
+    #: 检索可见范围；runtime 用调用方身份覆盖它（R9），测试默认可只看公开文档
+    viewer: Viewer = field(default_factory=Viewer)

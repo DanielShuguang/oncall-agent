@@ -8,7 +8,7 @@
 **OnCall** = 可私有化部署的企业服务台 Agent：查资产 → 验权限 → 调工具 → 开单 → 审批 → 回填。
 技术栈：Python 3.12 + FastAPI + 显式 8 节点状态机（LangGraph 可选，ADR-0012） ｜ React 19 + Vite + Tailwind CSS ｜ PostgreSQL + pgvector ｜ SSE。
 
-当前状态：**W6 私有化交付代码完成（D26 评测 50 条 / D27 compose+压测 / D28 demo；D29 文档收尾；8C16G 与 ARM64 未验收；D25 嵌入形态暂缓）；W6 后补了 D11 分类评测（50 条）、审批决议事务原子性（ADR-0016）、孤儿 run 回收（ADR-0017）与引用跳全文（ADR-0018）**。
+当前状态：**W6 私有化交付代码完成（D26 评测 50 条 / D27 compose+压测 / D28 demo；D29 文档收尾；8C16G 与 ARM64 未验收；D25 嵌入形态暂缓）；W6 后补了 D11 分类评测（50 条）、审批决议事务原子性（ADR-0016）、孤儿 run 回收（ADR-0017）、引用跳全文（ADR-0018）与文档级可见性（ADR-0019）**。
 写代码前先确认你要做的是路线图里的哪一天（`docs/10-roadmap-6weeks.md`）。
 
 ## 1. 开始前必读（按顺序，别跳）
@@ -167,10 +167,10 @@ cd web && pnpm exec tsc --noEmit && pnpm test && pnpm lint && pnpm format:check
 | W2 | ✅ 已完成：50 篇 seed + 解析/切分 + pgvector/tsvector + 混合检索/引用 + 20 条评测 | `rag/*`, `seed/*`, `eval/*` |
 | W3 | ✅ 已完成：8 节点图 + 审批闭环（显式转移表，ADR-0012） | `agent/graph.py`, `agent/nodes/*`, `approvals/*` |
 | W4 | ✅ 已完成：模型网关 + 成本看板 + 运行回放（ADR-0013） | `gateway/*`, `core/limits.py`, `api/cost.py` |
-| W5 | ✅ 已完成：后台四页 + 工具配置覆盖（ADR-0014）；D24 引用跳全文在 W6 后补完（ADR-0018）；D25 iframe 暂缓 | `web/src/features/console/*`, `tools/policy.py`, `features/chat/CitationPreviewDialog.tsx` |
-| W6 | ✅ 代码完成：50 条评测、整栈 compose/离线镜像、压测、demo（D29 文档收尾；8C16G/ARM64 未验收）；W6 后补 D11 分类评测、审批事务 [ADR-0016](docs/decisions/0016-approval-decision-transaction.md)、孤儿 run 回收 [ADR-0017](docs/decisions/0017-stale-run-recovery.md) 与引用跳全文 [ADR-0018](docs/decisions/0018-citation-fulltext-preview.md) | `server/Dockerfile`, `web/Dockerfile`, `docker-compose*.yml`, `app/eval/classify.py`, `app/approvals/store.py`, `app/runs/recovery.py`, `app/rag/preview.py`, `app/api/kb.py` |
+| W5 | ✅ 已完成：后台四页 + 工具配置覆盖（ADR-0014）；D24 引用跳全文在 W6 后补完（ADR-0018），可见性在 ADR-0019 收紧为文档级；D25 iframe 暂缓 | `web/src/features/console/*`, `tools/policy.py`, `features/chat/CitationPreviewDialog.tsx` |
+| W6 | ✅ 代码完成：50 条评测、整栈 compose/离线镜像、压测、demo（D29 文档收尾；8C16G/ARM64 未验收）；W6 后补 D11 分类评测、审批事务 [ADR-0016](docs/decisions/0016-approval-decision-transaction.md)、孤儿 run 回收 [ADR-0017](docs/decisions/0017-stale-run-recovery.md)、引用跳全文 [ADR-0018](docs/decisions/0018-citation-fulltext-preview.md) 与文档级可见性 [ADR-0019](docs/decisions/0019-document-level-access.md) | `server/Dockerfile`, `web/Dockerfile`, `docker-compose*.yml`, `app/eval/classify.py`, `app/approvals/store.py`, `app/runs/recovery.py`, `app/rag/preview.py`, `app/rag/access.py`, `app/api/kb.py` |
 
-> 迁移现在到 0007（kb + assets/tickets + approvals + 授权按用户隔离 + model_calls + tool_settings）；改检索参数/语料必须跑 `make eval` 并对比
+> 迁移现在到 0008（kb + assets/tickets + approvals + 授权按用户隔离 + model_calls + tool_settings + 文档可见性）；改检索参数/语料必须跑 `make eval` 并对比
 > `docs/eval/baseline-v1.md`（回归超过 -3pp 不合并）。
 
 ## 10. 不确定时

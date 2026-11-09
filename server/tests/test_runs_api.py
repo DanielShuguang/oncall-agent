@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -186,6 +187,20 @@ async def test_list_runs_filters_status_and_owner(
 
 async def test_list_runs_rejects_invalid_cursor(client: AsyncClient) -> None:
     res = await client.get("/api/runs", params={"cursor": "not-base64"})
+    assert res.status_code == 400
+    assert res.json()["code"] == "INVALID_CURSOR"
+
+
+async def test_list_runs_rejects_cursor_with_non_uuid_run_id(client: AsyncClient) -> None:
+    cursor = base64.urlsafe_b64encode(b"2026-11-09T10:00:00+00:00|not-a-uuid").decode()
+    res = await client.get("/api/runs", params={"cursor": cursor})
+    assert res.status_code == 400
+    assert res.json()["code"] == "INVALID_CURSOR"
+
+
+async def test_list_runs_rejects_naive_cursor_datetime(client: AsyncClient) -> None:
+    cursor = base64.urlsafe_b64encode(f"2026-11-09T10:00:00|{uuid.uuid4()}".encode()).decode()
+    res = await client.get("/api/runs", params={"cursor": cursor})
     assert res.status_code == 400
     assert res.json()["code"] == "INVALID_CURSOR"
 

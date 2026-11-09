@@ -1,7 +1,6 @@
 /** 成本看板（W4 D19）：按天 / 模型 / 用户聚合，数据源是 model_calls。 */
 
 import { useEffect, useState } from 'react';
-import dayjs from 'dayjs';
 import ReactECharts from 'echarts-for-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -31,11 +30,22 @@ const GROUP_OPTIONS: { value: CostGroupBy; label: string }[] = [
   { value: 'user', label: '按用户' },
 ];
 
+function utcDay(offsetDays = 0): string {
+  // API 的 from/to 是 UTC 自然日；用本地日期在 00:00–08:00 会偏一天（R6）
+  return new Date(Date.now() + offsetDays * 86_400_000).toISOString().slice(0, 10);
+}
+
 function defaultRange(): { from: string; to: string } {
   return {
-    from: dayjs().subtract(6, 'day').format('YYYY-MM-DD'),
-    to: dayjs().format('YYYY-MM-DD'),
+    from: utcDay(-6),
+    to: utcDay(),
   };
+}
+
+/** ECharts 画在 canvas 上，读不到 CSS 变量，只能渲染前从设计令牌取一次值。 */
+function tokenColor(name: string): string | undefined {
+  if (typeof document === 'undefined') return undefined;
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || undefined;
 }
 
 export default function CostPage() {
@@ -69,6 +79,9 @@ export default function CostPage() {
 
   const items = summary?.items ?? [];
   const tokenTotal = items.reduce((sum, item) => sum + item.token_in + item.token_out, 0);
+  const muted = tokenColor('--color-muted-fg');
+  const line = tokenColor('--color-line');
+  const brand = tokenColor('--color-brand');
 
   const option = {
     tooltip: { trigger: 'axis' },
@@ -76,20 +89,20 @@ export default function CostPage() {
     xAxis: {
       type: 'category',
       data: items.map((item) => item.key),
-      axisLabel: { fontSize: 11, color: '#8a8f99' },
+      axisLabel: { fontSize: 11, color: muted },
     },
     yAxis: {
       type: 'value',
       name: '分',
-      nameTextStyle: { color: '#8a8f99', fontSize: 11 },
-      axisLabel: { fontSize: 11, color: '#8a8f99' },
-      splitLine: { lineStyle: { color: '#e5e7eb' } },
+      nameTextStyle: { color: muted, fontSize: 11 },
+      axisLabel: { fontSize: 11, color: muted },
+      splitLine: { lineStyle: { color: line } },
     },
     series: [
       {
         type: 'bar',
         data: items.map((item) => item.cost_cents),
-        itemStyle: { color: '#1668dc', borderRadius: [4, 4, 0, 0] },
+        itemStyle: { color: brand, borderRadius: [4, 4, 0, 0] },
         barMaxWidth: 28,
       },
     ],

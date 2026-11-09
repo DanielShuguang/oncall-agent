@@ -1,6 +1,6 @@
 /** 运行列表（W4 D19）：自己发起的 run，按开始时间倒序分页。 */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -38,8 +38,11 @@ export default function RunsPage() {
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // 切换筛选会让在途的“加载更多”变成旧请求；用序号丢弃它的结果，避免串页
+  const requestSeq = useRef(0);
 
   useEffect(() => {
+    const requestId = (requestSeq.current += 1);
     let cancelled = false;
     const fetchFirstPage = async () => {
       try {
@@ -47,14 +50,16 @@ export default function RunsPage() {
           limit: 20,
           status: status === 'all' ? null : status,
         });
-        if (cancelled) return;
+        if (cancelled || requestSeq.current !== requestId) return;
         setItems(res.items);
         setCursor(res.next_cursor);
         setError(null);
       } catch (exc) {
-        if (!cancelled) setError(exc instanceof Error ? exc.message : '加载失败');
+        if (!cancelled && requestSeq.current === requestId) {
+          setError(exc instanceof Error ? exc.message : '加载失败');
+        }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && requestSeq.current === requestId) setLoading(false);
       }
     };
     void fetchFirstPage();
@@ -64,13 +69,17 @@ export default function RunsPage() {
   }, [status]);
 
   const onStatusChange = (next: string) => {
+    requestSeq.current += 1;
     setLoading(true);
     setError(null);
+    setCursor(null);
+    setItems([]);
     setStatus(next);
   };
 
   const loadMore = async () => {
     if (!cursor) return;
+    const requestId = requestSeq.current;
     setLoading(true);
     try {
       const res = await listRuns({
@@ -78,12 +87,15 @@ export default function RunsPage() {
         cursor,
         status: status === 'all' ? null : status,
       });
+      if (requestSeq.current !== requestId) return;
       setItems((current) => [...current, ...res.items]);
       setCursor(res.next_cursor);
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : '加载失败');
+      if (requestSeq.current === requestId) {
+        setError(exc instanceof Error ? exc.message : '加载失败');
+      }
     } finally {
-      setLoading(false);
+      if (requestSeq.current === requestId) setLoading(false);
     }
   };
 

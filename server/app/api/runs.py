@@ -12,7 +12,8 @@ from __future__ import annotations
 
 import base64
 import binascii
-from datetime import datetime
+import uuid
+from datetime import UTC, datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
@@ -71,8 +72,13 @@ def _encode_cursor(record: RunRecord) -> str:
 def _decode_cursor(cursor: str) -> tuple[datetime, str]:
     try:
         raw = base64.urlsafe_b64decode(cursor.encode()).decode()
-        started_at, run_id = raw.split("|", 1)
-        return datetime.fromisoformat(started_at), run_id
+        started_at_raw, run_id = raw.split("|", 1)
+        started_at = datetime.fromisoformat(started_at_raw)
+        # 无时区的游标会让 Postgres 在比较 timestamptz 时行为不确定，
+        # 非法 UUID 则会让 keyset 分页退化成只按时间比较、可能跳过同一时刻的记录。
+        if started_at.tzinfo is None:
+            raise ValueError("cursor datetime must be timezone-aware")
+        return started_at.astimezone(UTC), str(uuid.UUID(run_id))
     except (ValueError, UnicodeDecodeError, binascii.Error) as exc:
         raise ApiError(400, "INVALID_CURSOR", "cursor 无效，请从第一页重新拉取") from exc
 

@@ -268,6 +268,9 @@ CREATE TABLE eval_results (
 3. 事件只追加，不修改；纠错用新事件（`run.failed` + 重跑）
 4. 一个 run 结束后，`runs` 的汇总字段（token/cost/step）与 `model_calls` 聚合必须相等——W4 已落测试
    `tests/test_metrics_pg.py`（失败 run 也覆盖），并在 `make test` 的 Postgres 套件里执行。
+   严格对账由 Postgres 后端保证（`gateway/meter.py` 同事务写计量行 + 增量更新 `runs`）；
+   `ONCALL_STORE_BACKEND=memory` 只用于测试/无库演示，失败 run 的 token/cost 不保证与
+   `model_calls` 一致（完成 run 仍由 `run.completed` 写入绝对值）。
 
 ### 3.1 事件 → `runs` 投影
 

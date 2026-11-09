@@ -81,7 +81,9 @@ class ModelGateway:
         limit_tokens = max(1, max_tokens or self._settings.model_max_tokens)
         limit_tokens = min(limit_tokens, self._settings.model_max_tokens)
         token_in_est = estimate_messages_tokens(messages)
-        reserved = estimate_cost_cents(routes[0], token_in_est, limit_tokens)
+        # 按所有候选路由里最贵的一档预扣：failover 可能切到更贵的 provider，
+        # 只按首选路由预扣会让单 run / 当日预算在切换后被突破。
+        reserved = max(estimate_cost_cents(route, token_in_est, limit_tokens) for route in routes)
 
         if spent_cents + reserved > self._settings.run_budget_cents:
             raise BudgetExceeded(
@@ -93,92 +95,100 @@ class ModelGateway:
 
         temperature = 0.0 if purpose is not Purpose.ANSWER else self._settings.model_temperature
         last_error = ""
-        for index, route in enumerate(routes):
-            provider = self._provider_factory(route)
-            started = perf_counter()
-            try:
-                raw = await provider.chat(
-                    messages,
-                    max_tokens=limit_tokens,
-                    temperature=temperature,
-                    json_mode=json_mode,
-                )
-            except ProviderError as exc:
-                latency_ms = _ms(started)
-                last_error = str(exc)
-                log.warning(
-                    "model_call_failed",
-                    run_id=run_id,
-                    purpose=purpose.value,
-                    provider=route.provider,
-                    model=route.model,
-                    latency_ms=latency_ms,
-                    error=last_error,
-                )
-                await self._record_error(
-                    run_id=run_id,
-                    step=step,
-                    user_id=user_id,
-                    route=route,
-                    latency_ms=latency_ms,
-                    error=last_error,
-                )
-                continue
-
-            latency_ms = _ms(started)
-            token_in = raw.token_in if raw.token_in is not None else token_in_est
-            token_out = raw.token_out if raw.token_out is not None else estimate_tokens(raw.text)
-            cost_cents = estimate_cost_cents(route, token_in, token_out)
-            await self._budget.settle(reserved, cost_cents)
-
-            completion = Completion(
-                text=raw.text,
-                model=route.model,
-                provider=route.provider,
-                token_in=token_in,
-                token_out=token_out,
-                cost_cents=cost_cents,
-                latency_ms=latency_ms,
-                first_token_ms=raw.first_token_ms,
-            )
-            status = "ok" if index == 0 else "fallback"
-            try:
-                await self._meter.record(
-                    ModelCallRecord(
+        settled = False
+        try:
+            for index, route in enumerate(routes):
+                provider = self._provider_factory(route)
+                started = perf_counter()
+                try:
+                    raw = await provider.chat(
+                        messages,
+                        max_tokens=limit_tokens,
+                        temperature=temperature,
+                        json_mode=json_mode,
+                    )
+                except ProviderError as exc:
+                    latency_ms = _ms(started)
+                    last_error = str(exc)
+                    log.warning(
+                        "model_call_failed",
                         run_id=run_id,
-                        step=step,
+                        purpose=purpose.value,
                         provider=route.provider,
                         model=route.model,
-                        token_in=token_in,
-                        token_out=token_out,
-                        cost_cents=cost_cents,
                         latency_ms=latency_ms,
-                        first_token_ms=raw.first_token_ms,
-                        status=status,
-                        error=None,
-                        user_id=user_id,
+                        error=last_error,
                     )
+                    await self._record_error(
+                        run_id=run_id,
+                        step=step,
+                        user_id=user_id,
+                        route=route,
+                        latency_ms=latency_ms,
+                        error=last_error,
+                    )
+                    continue
+
+                latency_ms = _ms(started)
+                token_in = raw.token_in if raw.token_in is not None else token_in_est
+                token_out = (
+                    raw.token_out if raw.token_out is not None else estimate_tokens(raw.text)
                 )
-            except Exception as exc:
-                # 没有 model_calls 的 token 会让看板与 runs 对不上，直接让 run 失败
-                raise MeteringError(f"计量写入失败: {exc}") from exc
+                cost_cents = estimate_cost_cents(route, token_in, token_out)
+                await self._budget.settle(reserved, cost_cents)
+                settled = True
 
-            log.info(
-                "model_call",
-                run_id=run_id,
-                purpose=purpose.value,
-                step=step,
-                provider=route.provider,
-                model=route.model,
-                token_in=token_in,
-                token_out=token_out,
-                cost_cents=cost_cents,
-                latency_ms=latency_ms,
-                status=status,
-            )
-            return completion
+                completion = Completion(
+                    text=raw.text,
+                    model=route.model,
+                    provider=route.provider,
+                    token_in=token_in,
+                    token_out=token_out,
+                    cost_cents=cost_cents,
+                    latency_ms=latency_ms,
+                    first_token_ms=raw.first_token_ms,
+                )
+                status = "ok" if index == 0 else "fallback"
+                try:
+                    await self._meter.record(
+                        ModelCallRecord(
+                            run_id=run_id,
+                            step=step,
+                            provider=route.provider,
+                            model=route.model,
+                            token_in=token_in,
+                            token_out=token_out,
+                            cost_cents=cost_cents,
+                            latency_ms=latency_ms,
+                            first_token_ms=raw.first_token_ms,
+                            status=status,
+                            error=None,
+                            user_id=user_id,
+                        )
+                    )
+                except Exception as exc:
+                    # 没有 model_calls 的 token 会让看板与 runs 对不上，直接让 run 失败
+                    raise MeteringError(f"计量写入失败: {exc}") from exc
 
-        await self._budget.settle(reserved, 0)
+                log.info(
+                    "model_call",
+                    run_id=run_id,
+                    purpose=purpose.value,
+                    step=step,
+                    provider=route.provider,
+                    model=route.model,
+                    token_in=token_in,
+                    token_out=token_out,
+                    cost_cents=cost_cents,
+                    latency_ms=latency_ms,
+                    status=status,
+                )
+                return completion
+        finally:
+            if not settled:
+                # provider 抛非 ProviderError 时也要归还预扣，避免预算泄漏
+                await self._budget.settle(reserved, 0)
+
         raise ModelUnavailable(f"所有模型 provider 均失败: {last_error}")
 
     async def _record_error(

@@ -9,6 +9,7 @@ import pytest
 
 from app.agent.deps import AgentDeps
 from app.agent.nodes.classify import classify_node, needs_model
+from app.agent.nodes.json_utils import extract_json_object
 from app.agent.nodes.plan import plan_node
 from app.agent.runtime import stream
 from app.agent.state import initial_state
@@ -90,6 +91,12 @@ def test_needs_model_only_for_ambiguous_input() -> None:
     assert not needs_model("打印机离线")
     assert not needs_model("帮我开单")
     assert not needs_model("你好")
+
+
+def test_extract_json_object_handles_fenced_model_output() -> None:
+    assert extract_json_object('```json\n{"calls": []}\n```') == {"calls": []}
+    assert extract_json_object('解释文字 {"calls": []} 结尾') == {"calls": []}
+    assert extract_json_object("not json") is None
 
 
 async def test_classify_uses_model_fallback_and_counts_usage() -> None:

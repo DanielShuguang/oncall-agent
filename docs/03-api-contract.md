@@ -191,7 +191,7 @@ GET /api/runs/{run_id}
   "status": "completed",
   "user_id": "u_102",
   "session_id": "sess_01H...",
-  "intent": "hardware",
+  "intent": "asset_check",
   "model": "qwen2.5:7b",
   "step_count": 6,
   "max_steps": 12,

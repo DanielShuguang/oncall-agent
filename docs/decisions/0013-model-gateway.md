@@ -72,6 +72,9 @@ W1–W3 的 8 节点里只有 plan 需要模型（classify 是规则兜底），
   `ONCALL_DAILY_BUDGET_CNY`（默认 5 元，按 UTC 日）
 - 调用前按估算预扣（Redis Lua 原子），返回后按实际结算；估算超限直接拒绝，
   不会先花钱再报错
+- 预扣取**所有候选路由里最贵的一档**：classify 首选 local，但 local 失败会切到
+  cloud，只按首选路由预扣会让预算在 failover 后被突破；非 `ProviderError` 的
+  异常也会在 `finally` 里归还预扣，避免预算泄漏
 - Redis 不可用时退化为进程内实现并打 warning：限流/预算只在单实例生效，
   但聊天接口不能因此 500
 

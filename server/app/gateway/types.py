@@ -20,12 +20,6 @@ class Purpose(StrEnum):
     ANSWER = "answer"
 
 
-class CallStatus(StrEnum):
-    OK = "ok"
-    ERROR = "error"
-    FALLBACK = "fallback"
-
-
 @dataclass(frozen=True, slots=True)
 class ChatMessage:
     role: str

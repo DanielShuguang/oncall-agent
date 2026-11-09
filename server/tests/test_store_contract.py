@@ -173,6 +173,17 @@ async def _exercise(store: RunStore) -> None:
     assert failed.status == RunStatus.FAILED.value
     assert failed.step_count == 2
     assert failed.error_code == "MODEL_TIMEOUT"
+    assert failed.failure_category == "model"
+
+    # 审批拒绝/超时也要有归因，不能等后续 run.failed 才补（事件投影自身要完整）
+    rejected_id = str(uuid.uuid4())
+    await store.create(run_id=rejected_id, user_id="u_102", session_id="sess_4", message="开单")
+    await store.append(rejected_id, EventType.RUN_STARTED, {})
+    await store.append(rejected_id, EventType.APPROVAL_RESOLVED, {"status": "rejected"})
+    rejected = await store.get(rejected_id)
+    assert rejected is not None
+    assert rejected.status == RunStatus.FAILED.value
+    assert rejected.failure_category == "approval"
 
     assert await store.status(run_id) == RunStatus.COMPLETED.value
     assert await store.status(str(uuid.uuid4())) is None

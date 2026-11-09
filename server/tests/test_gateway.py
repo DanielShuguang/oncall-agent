@@ -221,6 +221,71 @@ async def test_run_budget_rejects_when_spent_is_high() -> None:
     assert fake.calls == 0
 
 
+async def test_reservation_covers_failover_to_expensive_route() -> None:
+    """预扣要覆盖最贵候选：classify 首选 local 失败后切到 cloud 也会花真钱。"""
+    ledger = InMemoryBudgetLedger(0)
+    local = FakeProvider(LOCAL, ProviderError("local down", retryable=True))
+    cloud = FakeProvider(CLOUD, RawCompletion("cloud ok", 10, 5))
+    gateway = ModelGateway(
+        [LOCAL, CLOUD],
+        budget=ledger,
+        meter=InMemoryModelCallStore(),
+        settings=_settings(),
+        provider_factory=lambda route: local if route == LOCAL else cloud,
+    )
+    with pytest.raises(BudgetExceeded):
+        await gateway.chat(
+            [ChatMessage(role="user", content="hi")],
+            purpose=Purpose.CLASSIFY,
+            run_id="r7",
+            step="classify",
+            user_id="u_102",
+        )
+    # 预算在调用前拒绝，两个 provider 一次都不能调
+    assert local.calls == 0
+    assert cloud.calls == 0
+
+
+async def test_budget_settles_actual_after_success() -> None:
+    ledger = InMemoryBudgetLedger(1000)
+    gateway = ModelGateway(
+        [CLOUD],
+        budget=ledger,
+        meter=InMemoryModelCallStore(),
+        settings=_settings(),
+        provider_factory=lambda route: FakeProvider(route, RawCompletion("ok", 100, 20)),
+    )
+    await gateway.chat(
+        [ChatMessage(role="user", content="hi")],
+        purpose=Purpose.PLAN,
+        run_id="r8",
+        step="plan",
+        user_id="u_102",
+    )
+    # 成功路径按实际成本结算；finally 不能把已结算的预扣再退一次
+    assert await ledger.spent() == 1
+
+
+async def test_unexpected_provider_error_refunds_reservation() -> None:
+    ledger = InMemoryBudgetLedger(1000)
+    gateway = ModelGateway(
+        [CLOUD],
+        budget=ledger,
+        meter=InMemoryModelCallStore(),
+        settings=_settings(),
+        provider_factory=lambda route: FakeProvider(route, RuntimeError("bug")),
+    )
+    with pytest.raises(RuntimeError):
+        await gateway.chat(
+            [ChatMessage(role="user", content="hi")],
+            purpose=Purpose.PLAN,
+            run_id="r9",
+            step="plan",
+            user_id="u_102",
+        )
+    assert await ledger.spent() == 0
+
+
 async def test_metering_failure_is_fatal() -> None:
     class BrokenMeter(InMemoryModelCallStore):
         async def record(self, record: ModelCallRecord) -> None:

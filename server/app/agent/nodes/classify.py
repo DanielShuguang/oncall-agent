@@ -8,10 +8,10 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from app.agent.deps import AgentDeps
+from app.agent.nodes.json_utils import extract_json_object
 from app.agent.prompts import load_prompt
 from app.agent.state import AgentState
 from app.core.logging import get_logger
@@ -101,7 +101,7 @@ def needs_model(query: str) -> bool:
 
 def parse_classification(text: str) -> tuple[str, str] | None:
     """解析模型 JSON；非法输入返回 None，由调用方保留规则结果。"""
-    payload = _json_object(text)
+    payload = extract_json_object(text)
     if payload is None:
         return None
     intent = payload.get("intent")
@@ -114,26 +114,6 @@ def parse_classification(text: str) -> tuple[str, str] | None:
     if intent == INTENT_TICKET:
         intent = INTENT_KNOWLEDGE
     return intent, incident
-
-
-def _json_object(text: str) -> dict[str, Any] | None:
-    stripped = text.strip()
-    if stripped.startswith("```"):
-        stripped = stripped.strip("`")
-        if stripped.startswith("json"):
-            stripped = stripped[4:]
-    candidates = [stripped]
-    start, end = stripped.find("{"), stripped.rfind("}")
-    if start >= 0 and end > start:
-        candidates.append(stripped[start : end + 1])
-    for candidate in candidates:
-        try:
-            data = json.loads(candidate)
-        except ValueError:
-            continue
-        if isinstance(data, dict):
-            return data
-    return None
 
 
 async def classify_node(state: AgentState, deps: AgentDeps) -> dict[str, Any]:

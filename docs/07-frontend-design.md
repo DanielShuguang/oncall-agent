@@ -182,7 +182,7 @@ Pydantic 模型 ──► OpenAPI ──► openapi-typescript ──► src/api
 - 接入方式：`@tailwindcss/vite` 插件（`vite.config.ts`），**不用** PostCSS 配置
 - 唯一入口：`src/styles/global.css` 里 `@import 'tailwindcss'`
 - 设计令牌：全部写在 `@theme` 里，Tailwind 会生成对应 utility
-  （`--color-panel` → `bg-panel`，`--color-muted` → `text-muted`）
+  （`--color-panel` → `bg-panel`，`--color-muted-fg` → `text-muted-foreground`）
 
 | 令牌 | utility | 用途 |
 |---|---|---|
@@ -190,7 +190,8 @@ Pydantic 模型 ──► OpenAPI ──► openapi-typescript ──► src/api
 | `--color-panel` | `bg-panel` | 卡片 / 输入框底色 |
 | `--color-line` | `border-line` | 分隔线与边框 |
 | `--color-ink` | `text-ink` | 正文 |
-| `--color-muted` | `text-muted` | 次要信息 |
+| `--color-muted` | `bg-muted` | 弱背景（shadcn `--muted`） |
+| `--color-muted-fg` | `text-muted-foreground` | 次要信息文字 |
 | `--color-brand` | `text-brand` / `bg-brand` | 主色 |
 | `--color-ok` / `--color-warn` / `--color-danger` | `text-ok` … | 状态语义 |
 
@@ -218,7 +219,7 @@ Pydantic 模型 ──► OpenAPI ──► openapi-typescript ──► src/api
 | `--background` / `--card` / `--popover` | `--color-panel` |
 | `--foreground` | `--color-ink` |
 | `--primary` / `--ring` | `--color-brand` |
-| `--muted-foreground` | `--color-muted` |
+| `--muted-foreground` | `--color-muted-fg` |
 | `--destructive` | `--color-danger` |
 | `--border` / `--input` | `--color-line` |
 

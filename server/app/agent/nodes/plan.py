@@ -22,6 +22,7 @@ from app.agent.nodes.classify import (
     INTENT_TICKET,
     classify_incident,
 )
+from app.agent.nodes.json_utils import extract_json_object
 from app.agent.prompts import load_prompt
 from app.agent.state import MAX_TOOL_CALLS, AgentState
 from app.core.logging import get_logger
@@ -111,28 +112,8 @@ def _messages(state: AgentState, deps: AgentDeps) -> list[ChatMessage]:
     ]
 
 
-def _json_object(text: str) -> dict[str, Any] | None:
-    stripped = text.strip()
-    if stripped.startswith("```"):
-        stripped = stripped.strip("`")
-        if stripped.startswith("json"):
-            stripped = stripped[4:]
-    candidates = [stripped]
-    start, end = stripped.find("{"), stripped.rfind("}")
-    if start >= 0 and end > start:
-        candidates.append(stripped[start : end + 1])
-    for candidate in candidates:
-        try:
-            data = json.loads(candidate)
-        except ValueError:
-            continue
-        if isinstance(data, dict):
-            return data
-    return None
-
-
 def _calls_from_text(text: str, state: AgentState, deps: AgentDeps) -> list[dict[str, Any]] | None:
-    payload = _json_object(text)
+    payload = extract_json_object(text)
     if payload is None:
         return None
     calls = payload.get("calls")

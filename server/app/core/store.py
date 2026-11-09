@@ -109,11 +109,13 @@ def build_run_patch(event_type: EventType, payload: dict[str, Any], at: datetime
                 status=RunStatus.FAILED.value,
                 finished_at=at,
                 error_code="APPROVAL_TIMEOUT",
+                failure_category=FailureCategory.APPROVAL.value,
             )
         return RunPatch(
             status=RunStatus.FAILED.value,
             finished_at=at,
             error_code="APPROVAL_REJECTED",
+            failure_category=FailureCategory.APPROVAL.value,
         )
 
     if event_type is EventType.MESSAGE_COMPLETED:
@@ -198,12 +200,6 @@ class RunStore(Protocol):
     async def set_status(
         self, run_id: str, status: str, *, error_code: str | None = None
     ) -> None: ...
-
-    async def add_usage(
-        self, run_id: str, *, token_in: int, token_out: int, cost_cents: int
-    ) -> None:
-        """模型计量增量写回；由 `gateway.meter` 在每次调用后调用。"""
-        ...
 
     async def list_runs(
         self,
@@ -333,18 +329,6 @@ class InMemoryRunStore:
                 record.failure_category = categorize(error_code).value
             if status in _TERMINAL_STATUSES:
                 record.finished_at = datetime.now(UTC)
-
-    async def add_usage(
-        self, run_id: str, *, token_in: int, token_out: int, cost_cents: int
-    ) -> None:
-        rid = str(uuid.UUID(run_id))
-        async with self._lock:
-            record = self._runs.get(rid)
-            if record is None:
-                raise RunNotFoundError(run_id)
-            record.token_in += token_in
-            record.token_out += token_out
-            record.cost_cents += cost_cents
 
     async def list_runs(
         self,
@@ -518,18 +502,6 @@ class PostgresRunStore:
                 row.failure_category = categorize(error_code).value
             if status in _TERMINAL_STATUSES:
                 row.finished_at = datetime.now(UTC)
-
-    async def add_usage(
-        self, run_id: str, *, token_in: int, token_out: int, cost_cents: int
-    ) -> None:
-        rid = uuid.UUID(run_id)
-        async with self._sessionmaker() as session, session.begin():
-            row = await session.get(Run, rid, with_for_update=True)
-            if row is None:
-                raise RunNotFoundError(run_id)
-            row.token_in += token_in
-            row.token_out += token_out
-            row.cost_cents += cost_cents
 
     async def list_runs(
         self,

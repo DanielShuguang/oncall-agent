@@ -13,7 +13,7 @@
   --color-panel: #ffffff;
   --color-line: #e5e7eb;
   --color-ink: #1f2329;
-  --color-muted: #8a8f99;
+  --color-muted-fg: #8a8f99;
   --color-brand: #1668dc;
   --color-ok: #16a34a;
   --color-warn: #d97706;
@@ -34,7 +34,7 @@
   --secondary: #eef2f7;
   --secondary-foreground: var(--color-ink);
   --muted: #f1f3f5;
-  --muted-foreground: var(--color-muted);
+  --muted-foreground: var(--color-muted-fg);
   --accent: #eef4ff;
   --accent-foreground: var(--color-brand);
   --destructive: var(--color-danger);

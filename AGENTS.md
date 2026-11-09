@@ -6,9 +6,9 @@
 ## 0. 30 秒上下文
 
 **OnCall** = 可私有化部署的企业服务台 Agent：查资产 → 验权限 → 调工具 → 开单 → 审批 → 回填。
-技术栈：Python 3.12 + FastAPI + LangGraph ｜ React 19 + Vite + Tailwind CSS ｜ PostgreSQL + pgvector ｜ SSE。
+技术栈：Python 3.12 + FastAPI + 显式 8 节点状态机（LangGraph 可选，ADR-0012） ｜ React 19 + Vite + Tailwind CSS ｜ PostgreSQL + pgvector ｜ SSE。
 
-当前状态：**W2 已完成（RAG 全链路 + 评测 v0）；LangGraph 8 节点图 / 模型网关 / 成本看板尚未实现**。
+当前状态：**W3 已完成（8 节点图 + 审批闭环 + 工单落库，ADR-0012）；模型网关 / 成本看板（W4）尚未实现**。
 写代码前先确认你要做的是路线图里的哪一天（`docs/10-roadmap-6weeks.md`）。
 
 ## 1. 开始前必读（按顺序，别跳）
@@ -102,7 +102,7 @@ cd web && pnpm exec tsc --noEmit && pnpm test && pnpm lint && pnpm format:check
 
 1. 读 [docs/04-agent-design.md](docs/04-agent-design.md) 第 3 节，确认它属于「规则」还是「LLM」
 2. 实现为纯函数 `(state, deps) -> dict`，放 `agent/nodes/`
-3. 在 `agent/graph.py` 加节点与边；条件边同步 `route_*` 函数
+3. 在 `agent/graph.py` 的 `NODES` / `SEQUENTIAL_EDGES` 加节点与边；条件边改 `next_node()`
 4. **不改变**「8 节点只有 2 个调 LLM」的基线，若要改，先改 `docs/04`
 
 ### 5.4 改表结构
@@ -129,7 +129,7 @@ cd web && pnpm exec tsc --noEmit && pnpm test && pnpm lint && pnpm format:check
 
 | 想做的事 | 为什么不行 | 正确做法 |
 |---|---|---|
-| 用 `AgentExecutor` 一把梭 | 黑盒，讲不清工具边界 | 自己写节点 + LangGraph 编排 |
+| 用 `AgentExecutor` 一把梭 | 黑盒，讲不清工具边界 | 自己写节点 + 显式状态机（ADR-0012） |
 | 用 `EventSource` 收流 | 无法带 POST 与鉴权头 | `fetch` + `ReadableStream` |
 | 上 LiteLLM 做网关 | 路由/降级/预算正是要讲的设计，不能被配置化 | 自研薄层（~300 行） |
 | 让模型判断「这个操作安全」 | 可被提示词注入 | 审批 + 服务端权限判定 |
@@ -161,11 +161,11 @@ cd web && pnpm exec tsc --noEmit && pnpm test && pnpm lint && pnpm format:check
 | W1 D4 | ✅ 已完成：Postgres store + alembic 0001 + `Last-Event-ID` 续传 | `core/store.py`, `migrations/` |
 | W1 D5 | ✅ 已完成：手写运行时 + 规则节点 + `query_cmdb` 走治理层 | `agent/runtime.py`, `agent/nodes/*`, `tools/builtin.py` |
 | W2 | ✅ 已完成：50 篇 seed + 解析/切分 + pgvector/tsvector + 混合检索/引用 + 20 条评测 | `rag/*`, `seed/*`, `eval/*` |
-| W3 | 8 节点图 + 审批闭环 | `agent/graph.py`, `agent/nodes/*` |
+| W3 | ✅ 已完成：8 节点图 + 审批闭环（显式转移表，ADR-0012） | `agent/graph.py`, `agent/nodes/*`, `approvals/*` |
 | W4 | 模型网关 + 成本看板 | `gateway/*` |
 | W5–W6 | 后台四页 + 私有化交付 | `web/src/features/console/*` |
 
-> 迁移现在到 0003（kb + assets/tickets）；改检索参数/语料必须跑 `make eval` 并对比
+> 迁移现在到 0004（kb + assets/tickets + approvals）；改检索参数/语料必须跑 `make eval` 并对比
 > `docs/eval/baseline-v0.md`（回归超过 -3pp 不合并）。
 
 ## 10. 不确定时

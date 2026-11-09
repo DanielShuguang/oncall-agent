@@ -1,0 +1,162 @@
+"""Postgres 审批存储集成测试（默认跳过）。
+
+验证真实库上的三条约束：
+- 部分唯一索引：同一 run 同一工具只有一条 pending
+- 原子迁移：并发 resolve 只有一方执行写工具
+- 超时回收：expired 同时把 run 推到 failed(APPROVAL_TIMEOUT)
+"""
+
+from __future__ import annotations
+
+import asyncio
+import os
+import uuid
+from collections.abc import AsyncIterator
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
+import pytest
+import pytest_asyncio
+from sqlalchemy import select, text
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
+
+from app.approvals.service import ApprovalService
+from app.approvals.store import PostgresApprovalStore
+from app.core.store import PostgresRunStore
+from app.models import Approval, Base
+from app.schemas.event import EventType
+from app.tools.registry import Identity
+from app.tools.tickets import InMemoryTicketRepository
+
+APPROVER_A = Identity(user_id="u_900", roles=frozenset({"approver"}))
+APPROVER_B = Identity(user_id="u_901", roles=frozenset({"approver"}))
+
+
+@pytest_asyncio.fixture
+async def pg_approvals() -> AsyncIterator[
+    tuple[
+        PostgresRunStore, PostgresApprovalStore, ApprovalService, async_sessionmaker[AsyncSession]
+    ]
+]:
+    url = os.environ.get("ONCALL_TEST_DATABASE_URL")
+    if not url:
+        pytest.skip("需要 ONCALL_TEST_DATABASE_URL 指向一个可清空的测试库")
+
+    engine = create_async_engine(url, poolclass=NullPool)
+    async with engine.begin() as conn:
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(Base.metadata.create_all)
+    sessionmaker = async_sessionmaker(engine, expire_on_commit=False)
+    runs = PostgresRunStore(sessionmaker)
+    approvals = PostgresApprovalStore(sessionmaker)
+    service = ApprovalService(runs, approvals)
+    try:
+        yield runs, approvals, service, sessionmaker
+    finally:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
+        await engine.dispose()
+
+
+async def _new_run(runs: PostgresRunStore) -> str:
+    run_id = str(uuid.uuid4())
+    await runs.create(
+        run_id=run_id,
+        user_id="u_102",
+        session_id="sess_pg",
+        message="打印机坏了，帮我开一张报修工单",
+    )
+    return run_id
+
+
+async def _request(runs: PostgresRunStore, service: ApprovalService, run_id: str) -> str:
+    info = await service.request(
+        run_id=run_id,
+        call_id="call_1",
+        session_id="sess_pg",
+        tool_name="create_ticket",
+        args={"title": "打印机离线", "category": "hardware", "priority": "P2"},
+        risk_level="medium",
+        state={
+            "run_id": run_id,
+            "user": {"id": "u_102", "roles": ["employee"], "session_id": "sess_pg"},
+            "query": "打印机坏了，帮我开一张报修工单",
+            "intent": "ticket_create",
+            "incident_type": "hardware",
+            "retrieved": [],
+            "citations": [],
+            "plan": [],
+            "tool_results": [],
+            "step": 5,
+            "verify_ok": True,
+            "replan_count": 0,
+            "failed_tools": [],
+        },
+        requested_by="u_102",
+    )
+    # 真实链路里 chat 层会落库 approval.required；这里显式补上，
+    # 否则 run 还是 running，resolve 会被 APPROVAL_NOT_READY 拒绝
+    await runs.append(run_id, EventType.APPROVAL_REQUIRED, {"approval_id": info.approval_id})
+    return info.approval_id
+
+
+async def test_pg_approval_resume_executes_once(
+    pg_approvals: tuple[PostgresRunStore, PostgresApprovalStore, ApprovalService, Any],
+    mem_tickets: InMemoryTicketRepository,
+) -> None:
+    runs, approvals, service, _ = pg_approvals
+    run_id = await _new_run(runs)
+    approval_id = await _request(runs, service, run_id)
+
+    assert (await approvals.get(approval_id)) is not None
+    assert (await runs.status(run_id)) == "awaiting_approval"
+
+    resolved = await service.resolve(approval_id, APPROVER_A, decision="approved")
+    assert resolved.status == "approved"
+    assert (await runs.status(run_id)) == "completed"
+    assert mem_tickets.count() == 1
+
+    events = await runs.events_after(run_id)
+    types = [event.type.value for event in events]
+    assert "approval.required" in types
+    assert "approval.resolved" in types
+    assert "run.completed" in types
+
+
+async def test_pg_concurrent_resolve_executes_write_once(
+    pg_approvals: tuple[PostgresRunStore, PostgresApprovalStore, ApprovalService, Any],
+    mem_tickets: InMemoryTicketRepository,
+) -> None:
+    runs, _, service, _ = pg_approvals
+    run_id = await _new_run(runs)
+    approval_id = await _request(runs, service, run_id)
+
+    await asyncio.gather(
+        service.resolve(approval_id, APPROVER_A, decision="approved"),
+        service.resolve(approval_id, APPROVER_B, decision="approved"),
+    )
+    # 原子迁移保证只有一方 changed=True，写工具只执行一次
+    assert mem_tickets.count() == 1
+
+
+async def test_pg_expired_approval_fails_run(
+    pg_approvals: tuple[PostgresRunStore, PostgresApprovalStore, ApprovalService, Any],
+    mem_tickets: InMemoryTicketRepository,
+) -> None:
+    runs, _, service, sessionmaker = pg_approvals
+    run_id = await _new_run(runs)
+    approval_id = await _request(runs, service, run_id)
+
+    async with sessionmaker() as session, session.begin():
+        row = await session.scalar(select(Approval).where(Approval.id == uuid.UUID(approval_id)))
+        assert row is not None
+        row.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+
+    resolved = await service.resolve(approval_id, APPROVER_A, decision="approved")
+    assert resolved.status == "expired"
+    assert (await runs.status(run_id)) == "failed"
+    assert mem_tickets.count() == 0
+    rec = await runs.get(run_id)
+    assert rec is not None and rec.error_code == "APPROVAL_TIMEOUT"

@@ -33,6 +33,8 @@ RESERVED_ARGS: frozenset[str] = frozenset(
         "tenant",
         "tenant_id",
         "is_admin",
+        # 执行期由 ToolGuard 注入；模型传这个字段等于伪造身份
+        "identity",
     }
 )
 
@@ -96,6 +98,9 @@ class ToolSpec:
     retryable: tuple[str, ...] = ("timeout", "network", "rate_limited")
     max_attempts: int = 3
     enabled: bool = True
+    #: handler 需要服务端身份（如 create_ticket 的 requester）；由 ToolGuard 注入，
+    #: 不经过 args，模型无法伪造（R9）
+    inject_identity: bool = False
 
 
 @dataclass(slots=True)
@@ -308,13 +313,16 @@ class ToolGuard:
                 },
             )
 
-        return await self._run_with_retry(spec, args, call_id=call_id, started=started)
+        return await self._run_with_retry(
+            spec, args, identity=identity, call_id=call_id, started=started
+        )
 
     async def _run_with_retry(
         self,
         spec: ToolSpec,
         args: Mapping[str, Any],
         *,
+        identity: Identity,
         call_id: str,
         started: float,
     ) -> ToolCallResult:
@@ -326,7 +334,10 @@ class ToolGuard:
             try:
                 # asyncio.timeout 只保证"上层不再等"，handler 内部必须响应取消
                 async with asyncio.timeout(spec.timeout_ms / 1000):
-                    result = await spec.handler(**args)
+                    if spec.inject_identity:
+                        result = await spec.handler(**args, identity=identity)
+                    else:
+                        result = await spec.handler(**args)
                 return ToolCallResult(
                     call_id=call_id,
                     tool=spec.name,

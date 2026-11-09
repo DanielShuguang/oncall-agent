@@ -24,8 +24,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.agent.runtime import build_deps
 from app.agent.runtime import stream as agent_stream
-from app.api.deps import get_identity
+from app.api.deps import get_approval_service, get_identity
+from app.approvals.service import ApprovalService
 from app.core.logging import get_logger
 from app.core.sse import encode_comment, encode_frame
 from app.core.store import RunStore, get_store
@@ -118,6 +120,7 @@ async def chat_stream(
     request: Request,
     store: Annotated[RunStore, Depends(get_store)],
     identity: Annotated[Identity, Depends(get_identity)],
+    approval_service: Annotated[ApprovalService, Depends(get_approval_service)],
 ) -> StreamingResponse:
     run_id = str(uuid.uuid4())
     # W1 没有模型调用（规则节点），W4 网关接入后这里改成按 provider 选模型
@@ -147,6 +150,8 @@ async def chat_stream(
             query=req.message,
             model=model,
             max_steps=req.options.max_steps,
+            session_id=req.session_id,
+            deps=build_deps(approvals=approval_service),
         ):
             if await request.is_disconnected():
                 log.info("client_disconnected", run_id=rec.run_id)

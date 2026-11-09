@@ -75,6 +75,14 @@ function withAssistant(
 ): ChatMessage[] {
   const idx = messages.findIndex((m) => m.role === 'assistant' && m.streaming);
   if (idx === -1) {
+    // 审批挂起时会把占位消息的 streaming 置 false；恢复后继续写同一条，
+    // 否则会出现一个空气泡 + 一条新回答
+    const last = messages[messages.length - 1];
+    if (last?.role === 'assistant' && last.text === '') {
+      const copy = [...messages];
+      copy[copy.length - 1] = mutate({ ...last, streaming: true });
+      return copy;
+    }
     const created: ChatMessage = { id: uid('a'), role: 'assistant', text: '', streaming: true };
     return [...messages, mutate(created)];
   }

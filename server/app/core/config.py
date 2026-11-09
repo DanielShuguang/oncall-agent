@@ -65,6 +65,11 @@ class Settings(BaseSettings):
     kb_max_upload_mb: int = 10
     #: 知识库管理接口要求的角色（W3 会换成 tables 里的权限矩阵）
     admin_roles: str = "admin"
+    #: 审批人角色；resolve 要求该角色且不能是发起人（docs/06 §7）
+    approver_roles: str = "approver"
+    approval_ttl_min: int = 10
+    #: scope=session 的授权有效期；到期回到逐次审批
+    approval_grant_hours: int = 8
 
     # 运行态
     session_secret: str = DEFAULT_SESSION_SECRET
@@ -99,6 +104,12 @@ class Settings(BaseSettings):
             )
         if self.embedding_provider == "http" and not self.embedding_base_url.strip():
             raise ValueError("ONCALL_EMBEDDING_PROVIDER=http 时必须配置 ONCALL_EMBEDDING_BASE_URL")
+        if self.approval_ttl_min < 1:
+            raise ValueError("ONCALL_APPROVAL_TTL_MIN 必须 >= 1")
+        if self.approval_grant_hours < 1:
+            raise ValueError("ONCALL_APPROVAL_GRANT_HOURS 必须 >= 1")
+        if not self.approver_role_list:
+            raise ValueError("ONCALL_APPROVER_ROLES 至少配置一个角色")
         return self
 
     @model_validator(mode="after")
@@ -123,6 +134,10 @@ class Settings(BaseSettings):
     @property
     def admin_role_list(self) -> list[str]:
         return [r.strip() for r in self.admin_roles.split(",") if r.strip()]
+
+    @property
+    def approver_role_list(self) -> list[str]:
+        return [r.strip() for r in self.approver_roles.split(",") if r.strip()]
 
 
 @lru_cache

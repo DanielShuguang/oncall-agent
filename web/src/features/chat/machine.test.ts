@@ -100,3 +100,18 @@ describe('SSE 帧解析', () => {
     expect(parseFrame(': heartbeat')).toBeNull();
   });
 });
+
+describe('审批恢复', () => {
+  it('恢复后的 message.delta 复用挂起前的占位消息', () => {
+    let rt: Runtime = { ...running(), runId: 'r1' };
+    rt = runtimeReducer(rt, evt('approval.required', { approval_id: 'a1', tool: 'create_ticket' }));
+    rt = runtimeReducer(rt, evt('approval.resolved', { approval_id: 'a1', status: 'approved' }, 2));
+    rt = runtimeReducer(rt, evt('message.delta', { text: '已创建' }, 3));
+    rt = runtimeReducer(rt, evt('message.completed', { text: '已创建', citations: [] }, 4));
+
+    expect(rt.messages).toHaveLength(1);
+    expect(rt.messages[0].text).toBe('已创建');
+    expect(rt.messages[0].streaming).toBe(false);
+    expect(rt.phase).toBe('running');
+  });
+});

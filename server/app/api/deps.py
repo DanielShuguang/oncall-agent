@@ -15,8 +15,11 @@ from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.api.errors import ApiError
+from app.approvals.service import ApprovalService
+from app.approvals.store import ApprovalStore, get_approval_store
 from app.core.config import get_settings
 from app.core.security import InvalidTokenError, decode_token
+from app.core.store import RunStore, get_store
 from app.tools.registry import Identity
 
 # auto_error=False：缺 token 时返回 None，由我们统一成 docs/03 约定的 401 JSON
@@ -63,3 +66,11 @@ def require_admin(
     if not allowed.intersection(identity.roles):
         raise ApiError(403, "FORBIDDEN", "需要管理员角色")
     return identity
+
+
+def get_approval_service(
+    store: Annotated[RunStore, Depends(get_store)],
+    approvals: Annotated[ApprovalStore, Depends(get_approval_store)],
+) -> ApprovalService:
+    """审批服务依赖；测试通过 `dependency_overrides` 换成内存存储。"""
+    return ApprovalService(store, approvals)

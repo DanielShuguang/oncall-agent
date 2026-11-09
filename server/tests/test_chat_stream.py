@@ -56,7 +56,7 @@ async def test_stream_persists_events_and_completes(
     tool_results = [e for e in events if e["type"] == EventType.TOOL_RESULT.value]
     assert tool_results[0]["payload"]["status"] == "ok"
     completed = next(e for e in events if e["type"] == EventType.RUN_COMPLETED.value)
-    assert completed["payload"]["steps"] == 5
+    assert completed["payload"]["steps"] == 7
 
     # id 帧与 data.seq 一致
     ids = [int(line[4:]) for line in lines if line.startswith("id: ")]

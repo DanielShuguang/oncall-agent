@@ -29,6 +29,10 @@ class AgentState(TypedDict, total=False):
     tool_results: list    # [{call_id, tool, status, result}]
     pending_approval: dict
     step: int
+    node: str             # 当前节点；审批快照按它判断恢复入口
+    verify_ok: bool       # verify 的判定结果
+    replan_count: int     # 已重规划次数（上限 MAX_REPLAN=1）
+    failed_tools: list    # 已判失败的工具，plan 重规划时不再排
     budget: dict          # {remaining_cents, used_steps}
     error: str | None
 ```
@@ -82,10 +86,13 @@ class AgentState(TypedDict, total=False):
 | approve | 人工 | pending_approval | 决议 | 超时 → 拒绝 + 转人工 |
 | finalize | 规则 | 全部状态 | 回答 + citations + 成本 | 兜底模板 |
 
-> W1 D5 的运行时把 `classify` 的关键词规则合并在 `plan` 节点里（`intent` 由 plan 产出），
-> 图上仍是 8 节点；W3 D13 拆成独立 `classify` 节点再换 LLM 兜底。
-> W2 D9 已把 `retrieve` 落成运行时里的独立步骤（规则：混合检索 + RRF + 阈值），
-> 当前手写调度顺序是 `intake → retrieve → plan → act → finalize`；LangGraph 8 节点图仍留给 W3。
+> **W3 状态（2026-11-09）**：8 个节点均已落地，调度顺序
+> `intake → classify → retrieve → plan → act → verify → finalize`；
+> 写操作在 `act` 挂起，审批通过后 `approve → act → verify → finalize` 恢复（ADR-0012）。
+> `classify` 是纯规则（关键词），LLM 兜底随 W4 模型网关接入；W3 的规则覆盖
+> 工单/资产/知识问答三类意图，未命中落 `knowledge`，与上面的降级路径一致。
+> `verify` 只对可恢复错误（timeout/network/internal）重规划一次；`not_found` /
+> `permission` / `invalid_args` 换计划也不会变好，直接降级。
 
 ## 4. 为什么 plan 用 LLM 而 act 不用
 
@@ -119,7 +126,12 @@ BUDGET_CENTS = 50         # 单 run 成本上限
 W1 已生效 `STEP_LIMIT` / `TOOL_LIMIT` / `TIMEOUT`（总时长在节点与工具边界检查）；
 `BUDGET_EXCEEDED` 随 W4 模型网关接入（没有计量就没有预算）。
 
-## 7. LangGraph 落地
+## 7. LangGraph 落地（W4 再评估）
+
+> W3 没有启用 LangGraph，实际用的是 §8 的显式转移表（ADR-0012）。原因不是"做不出来"，
+> 而是审批恢复需要从**同一次 act 调用**继续：审计真相是事件表（R2），再引入
+> `langgraph-checkpoint-postgres` 会多一套状态源，恢复时还要保证两边一致。
+> 下面的图仍作为设计参考保留；节点函数与它兼容，换调度器不改节点。
 
 ```python
 # app/agent/graph.py
@@ -180,7 +192,8 @@ while state["step"] < MAX_STEPS and not terminal(state):
 | `step.started` / `step.completed` | 每个节点前后，带 `step/node/title`、`duration_ms/summary` |
 | `tool.call` | 计划里的每个工具调用前，带 `call_id/tool/args/write` |
 | `tool.result` | 工具执行后（含 denied / timeout / requires_approval），payload 来自 `ToolCallResult` |
-| `approval.required` | 写操作被挂起，run 停在 `awaiting_approval` |
+| `approval.required` | 写操作被挂起，run 停在 `awaiting_approval`；审批卡展示参数快照 |
+| `approval.resolved` | 审批完成（批准/拒绝/超时），由审批服务追加 |
 | `message.delta` / `message.completed` | finalize 拼装回答并流式发出；`citations` 是实际用到的 1-3 条 |
 | `run.completed` / `run.failed` | 正常结束 / 超限或内部异常 |
 
@@ -194,10 +207,16 @@ while state["step"] < MAX_STEPS and not terminal(state):
 - 无召回：固定兜底话术，**不调用模型生成**
 - 归档文档（标题带「归档」）不进入回答，只用于召回对照
 
+`approve` / `resume`（W3 D14）：
+- 审批通过后用 `approvals.state` 快照恢复，只重放挂起的那一次 `act`（`allow_write=True`）
+- 工具执行失败 → `run.failed(TOOL_ERROR)`；成功 → `verify → finalize`，回答带工单号
+- 审批服务的实现见 `app/approvals/`；runtime 只依赖 `ApprovalRecorder` 协议
+
 护栏：`max_steps` 来自请求（默认 12），`MAX_TOOL_CALLS=6`；超限发 `run.failed`，
 `error_code` 为 `STEP_LIMIT` / `TOOL_LIMIT`。总时长 `RUN_TIMEOUT_S` 在节点与工具边界
-检查，超限发 `TIMEOUT`；节点异常为 `INTERNAL_ERROR`。客户端断开由 `api/chat.py`
-标 `interrupted`，运行时本身不吞 `CancelledError`。
+检查，超限发 `TIMEOUT`；节点异常为 `INTERNAL_ERROR`。审批拒绝/超时为
+`APPROVAL_REJECTED` / `APPROVAL_TIMEOUT`，写工具执行失败为 `TOOL_ERROR`。
+客户端断开由 `api/chat.py` 标 `interrupted`，运行时本身不吞 `CancelledError`。
 
 W1 的 `plan` / `finalize` 是规则实现（关键词分类 + 模板回答）；W3 D13 把 plan 换成 LLM
 （JSON Schema 约束 + 失败降级），节点签名不变。W2 已接入 RAG 与引用；W4 才把

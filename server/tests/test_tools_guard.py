@@ -17,6 +17,8 @@ from app.tools import (
     ToolSpec,
     ToolStatus,
 )
+from app.tools.builtin import default_registry
+from app.tools.tickets import InMemoryTicketRepository
 
 EMPLOYEE = Identity(user_id="u_102", roles=frozenset({"employee"}))
 IT_SUPPORT = Identity(user_id="u_201", roles=frozenset({"it_support"}))
@@ -158,3 +160,41 @@ async def test_non_retryable_error_is_not_retried() -> None:
 async def test_reserved_args_case_insensitive(bad: str) -> None:
     res = await _guard().execute("query_cmdb", {"owner_id": "u", bad: "x"}, EMPLOYEE, call_id="c10")
     assert res.decision is Decision.DENIED
+
+
+async def test_server_injects_requester_for_write_tool(
+    mem_tickets: InMemoryTicketRepository,
+) -> None:
+    guard = ToolGuard(default_registry())
+    res = await guard.execute(
+        "create_ticket",
+        {"title": "打印机离线", "category": "hardware", "priority": "P2"},
+        EMPLOYEE,
+        call_id="c11",
+        allow_write=True,
+    )
+    assert res.status is ToolStatus.OK
+    assert isinstance(res.result, dict)
+    ticket = await mem_tickets.get(str(res.result["id"]))
+    assert ticket is not None
+    # 身份只来自服务端会话，模型没有机会填 requester
+    assert ticket["requester"] == "u_102"
+
+
+async def test_model_cannot_forge_identity_field(mem_tickets: InMemoryTicketRepository) -> None:
+    guard = ToolGuard(default_registry())
+    res = await guard.execute(
+        "create_ticket",
+        {
+            "title": "打印机离线",
+            "category": "hardware",
+            "priority": "P2",
+            "identity": {"user_id": "u_900"},
+        },
+        EMPLOYEE,
+        call_id="c12",
+        allow_write=True,
+    )
+    assert res.decision is Decision.DENIED
+    assert res.error_kind == ToolErrorKind.PERMISSION.value
+    assert mem_tickets.count() == 0

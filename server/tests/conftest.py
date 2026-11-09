@@ -10,12 +10,14 @@ from collections.abc import AsyncIterator
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from app.approvals.store import InMemoryApprovalStore, get_approval_store
 from app.core.store import InMemoryRunStore, get_store
 from app.main import app
 from app.rag.embed import HashingEmbedder
 from app.rag.memory import MemoryKnowledgeStore
 from app.rag.retrieve import KnowledgeBase
 from app.rag.service import set_knowledge_base
+from app.tools.tickets import InMemoryTicketRepository, set_ticket_repository
 from tests.support import auth_headers
 
 
@@ -35,6 +37,23 @@ def memory_kb() -> AsyncIterator[KnowledgeBase]:
     set_knowledge_base(kb)
     yield kb
     set_knowledge_base(None)
+
+
+@pytest.fixture(autouse=True)
+def mem_approvals() -> AsyncIterator[InMemoryApprovalStore]:
+    """审批默认落内存：测试不碰 approvals 表，也不跨用例污染。"""
+    store = InMemoryApprovalStore()
+    app.dependency_overrides[get_approval_store] = lambda: store
+    yield store
+    app.dependency_overrides.pop(get_approval_store, None)
+
+
+@pytest.fixture(autouse=True)
+def mem_tickets() -> AsyncIterator[InMemoryTicketRepository]:
+    repo = InMemoryTicketRepository()
+    set_ticket_repository(repo)
+    yield repo
+    set_ticket_repository(None)
 
 
 @pytest.fixture

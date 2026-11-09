@@ -1,4 +1,4 @@
-# server · FastAPI + LangGraph
+# server · FastAPI + 8 节点状态机
 
 ## 目录
 
@@ -8,9 +8,10 @@ app/
 ├─ cli.py             本地签发 JWT（`python -m app.cli token`）
 ├─ api/               路由（薄层：校验、鉴权、调 service）
 ├─ core/              配置、数据库引擎、JWT 校验、SSE 编码、运行态存储
-├─ schemas/           Pydantic 模型（事件契约/知识库响应）
-├─ models/            SQLAlchemy 模型（runs、kb、assets/tickets）
-├─ agent/             状态机、规则节点、运行时（事件流）
+├─ schemas/           Pydantic 模型（事件契约/知识库/审批响应）
+├─ models/            SQLAlchemy 模型（runs、kb、assets/tickets、approvals）
+├─ approvals/         审批存储/服务（提交、决议、超时回收、恢复执行）
+├─ agent/             8 节点状态机、规则节点、运行时（事件流 + 审批恢复）
 ├─ tools/             MCP 工具 + 治理（ToolSpec / ToolGuard）
 ├─ gateway/           模型网关（W4）
 ├─ rag/               解析、切分、分词、embedding、混合检索、pgvector 持久化
@@ -19,13 +20,13 @@ app/
 
 migrations/           Alembic
 ├─ env.py             DSN 取 ONCALL_DATABASE_URL
-└─ versions/          0001 runs/events · 0002 幂等键作用域 · 0003 kb + assets/tickets
+└─ versions/          0001 runs/events · 0002 幂等键 · 0003 kb + assets/tickets · 0004 approvals
 ```
 
 ## 启动
 
 ```bash
-uv sync --extra dev --extra rag   # rag = pypdf + python-docx；未装时解析相关用例自动 skip
+uv sync --all-extras   # dev + rag（pypdf/python-docx）+ agent（可选）；未装 rag 时解析用例自动 skip
 uv run alembic upgrade head
 uv run python -m app.seed.generate --db
 uv run uvicorn app.main:app --reload --port 8000
@@ -42,15 +43,16 @@ uv run python -m app.eval.runner
 | 模块 | 状态 |
 |---|---|
 | `main.py` / `api/health.py` | ✅ 可用（探 db + redis） |
-| `api/chat.py` | ✅ 真实运行时驱动事件，逐条落库（W1 D5 + W2 retrieve） |
+| `api/chat.py` | ✅ 8 节点运行时驱动事件，逐条落库（W3） |
 | `api/runs.py` | ✅ Postgres + `after_seq` / `Last-Event-ID` 补拉，只能读自己的 run |
 | `api/admin_kb.py` | ✅ 上传/列表/详情/重建索引；要求 admin 角色 |
 | `core/store.py` | ✅ `RunStore` Protocol + Postgres/内存两种实现 + 事件投影 |
-| `migrations/` | ✅ 0001–0003，`alembic check` 无漂移 |
+| `migrations/` | ✅ 0001–0004，`alembic check` 无漂移 |
 | `api/deps.py` / `core/security.py` / `cli.py` | ✅ 本地 JWT（W1 D2）：签发、Bearer 校验、401 JSON、run 归属 |
-| `tools/registry.py` | ✅ 五道闸门、超时、重试、审批标记已实现 |
-| `tools/builtin.py` | ✅ `query_cmdb` / `create_ticket` 假实现，走同一套治理（W3 换 MCP） |
-| `agent/*` | ✅ `runtime.py` + `nodes/*`（intake/retrieve/plan/act/finalize）；`graph.py` 仍占位（W3） |
+| `tools/registry.py` | ✅ 五道闸门、超时、重试、身份注入（`inject_identity`） |
+| `tools/builtin.py` | ✅ `create_ticket` 审批后真写 `tickets`；`query_cmdb` 仍是假 CMDB（W4 换真实系统） |
+| `agent/*` | ✅ 8 节点（intake/classify/retrieve/plan/act/verify/approve/finalize）+ 审批恢复（ADR-0012） |
+| `api/approvals.py` / `approvals/*` | ✅ 待办列表、批准/拒绝、超时回收、会话级授权、幂等 |
 | `rag/*` | ✅ 解析/切分/分词/哈希或 HTTP embedding/混合检索/RRF/阈值/引用（W2） |
 | `seed/*` | ✅ 50 文档 + 200 资产 + 500 工单；`--db` 索引进 pgvector |
 | `eval/*` | ✅ 20 条 v0 + markdown 报告 + baseline 对比 |
@@ -62,4 +64,5 @@ uv run python -m app.eval.runner
 - 事件类型只在 `schemas/event.py` 定义，前端从 OpenAPI 生成
 - 工具治理只在 `tools/registry.py` 实现，**不要在 MCP server 里重复校验**
 - 向量 SQL 只在 `rag/repository.py`，节点只依赖 `Retriever` 协议
+- 审批 SQL 只在 `approvals/store.py`，runtime 只依赖 `ApprovalRecorder` 协议
 - 所有时间戳 UTC；成本单位分

@@ -75,21 +75,40 @@ CREATE INDEX idx_events_type ON run_events (run_id, type);
 ```sql
 CREATE TABLE approvals (
   id          UUID PRIMARY KEY,
-  run_id      UUID NOT NULL REFERENCES runs(id),
+  run_id      UUID NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+  call_id     TEXT NOT NULL,          -- 挂起的那次工具调用，恢复执行时复用
+  session_id  TEXT,                   -- scope=session 的授权维度
   tool_name   TEXT NOT NULL,
-  args        JSONB NOT NULL,
+  args        JSONB NOT NULL,         -- 审批人看到的参数快照
   risk_level  TEXT NOT NULL,          -- low|medium|high
   status      TEXT NOT NULL,          -- pending|approved|rejected|expired
   requested_by TEXT NOT NULL,
   resolved_by TEXT,
   reason      TEXT,
+  scope       TEXT NOT NULL DEFAULT 'once',   -- once|session
+  state       JSONB NOT NULL DEFAULT '{}',    -- 挂起瞬间的 AgentState 快照
   expires_at  TIMESTAMPTZ NOT NULL,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   resolved_at TIMESTAMPTZ
 );
 CREATE UNIQUE INDEX uq_approval_pending ON approvals (run_id, tool_name)
   WHERE status = 'pending';
+CREATE INDEX idx_approvals_pending ON approvals (status, expires_at);
+
+-- scope=session 的授权；过期后自然回到逐次审批
+CREATE TABLE approval_grants (
+  session_id  TEXT NOT NULL,
+  tool_name   TEXT NOT NULL,
+  granted_by  TEXT NOT NULL,
+  expires_at  TIMESTAMPTZ NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (session_id, tool_name)
+);
 ```
+
+> `state` 是审批恢复的关键：审批通过后只重放挂起的那次 `act`，不重跑
+> `intake/retrieve/plan`。否则等待审批期间知识库或工具配置一变，
+> 审批人看到的参数就与真正执行的参数不一致了（docs/06 §7）。
 
 ### 2.4 model_calls（计量）
 
@@ -243,7 +262,7 @@ CREATE TABLE eval_results (
 | `run.started` | `status=running`，写 `model` / `max_steps` |
 | `step.completed` | `step_count += 1`（失败 run 也能看到跑了几个节点；`run.completed.payload.steps` 会覆盖为准确值） |
 | `approval.required` | `status=awaiting_approval` |
-| `approval.resolved` | `approved → running`；`rejected/expired → failed` + `error_code`，写 `finished_at` |
+| `approval.resolved` | `approved → running`；`rejected/expired → failed` + `error_code`（`APPROVAL_REJECTED` / `APPROVAL_TIMEOUT`），写 `finished_at`；随后还会追加一条 `run.failed`，让只消费事件的前端也能收敛 |
 | `message.completed` | 写 `output` |
 | `run.completed` | `status=completed`，写 `finished_at` / `step_count` / `token_*` / `cost_cents` |
 | `run.failed` | `status=failed`，写 `error_code` / `finished_at` |

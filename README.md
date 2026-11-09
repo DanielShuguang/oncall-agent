@@ -96,7 +96,14 @@ uv run python -m app.cli token --user u_102 --roles employee
 
 # 管理知识库时需要 admin 角色
 uv run python -m app.cli token --user admin_1 --roles admin
+
+# 审批写操作需要 approver 角色（不能用发起人自己的 token 自批）
+uv run python -m app.cli token --user u_900 --roles approver
 ```
+
+> 演示审批：用员工 token 发「帮我开一张报修工单」→ 页面出现审批卡 →
+> 换 approver token 在 `POST /api/approvals/{id}/resolve` 提交批准（或直接调接口）。
+> 前端审批卡按钮走当前 token，所以审批人要用 approver token 登录。
 
 ### 4. 起前端
 
@@ -109,9 +116,9 @@ pnpm dev
 
 前端已配置 `/api` 代理到 `http://127.0.0.1:8000`。
 
-> `/api/chat/stream` 已由真实运行时驱动：规则节点 → 混合检索（pgvector + tsvector）→
-> `query_cmdb`（走治理层）→ 带引用的回答。W2 验收：问「VPN 连不上怎么办」，
-> 答案带 3 条可点击引用。W3 换 LangGraph 8 节点图并打通审批。
+> `/api/chat/stream` 已由真实运行时驱动：8 节点状态机 → 混合检索（pgvector + tsvector）→
+> `query_cmdb`（走治理层）→ 带引用的回答。写操作会挂起成审批卡，批准后从快照恢复执行
+> 并真正落工单。三条剧本：打印机离线 / 申请 VPN 权限（含审批）/ VPN 知识问答。
 
 ## 目录
 
@@ -145,15 +152,16 @@ oncall/
 
 | 模块 | 状态 | 验证方式 |
 |---|---|---|
-| 文档（12 篇 + 11 篇 ADR + 评测基线） | ✅ 完成 | — |
-| 前端骨架（状态机 / SSE 客户端 / 页面） | ✅ 可用 | `tsc --noEmit`、`oxlint`、`oxfmt --check` 通过；`vitest` 22/22；`pnpm build` 成功 |
-| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` 101 passed + 4 skipped；设 `ONCALL_TEST_DATABASE_URL` 后 105 passed（含 Postgres 契约、并发 seq、pgvector 检索） |
+| 文档（12 篇 + 12 篇 ADR + 评测基线） | ✅ 完成 | — |
+| 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡） | ✅ 可用 | `tsc --noEmit`、`oxlint`、`oxfmt --check` 通过；`vitest` 25/25；`pnpm build` 成功 |
+| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` 120 passed + 7 skipped；设 `ONCALL_TEST_DATABASE_URL` 后 127 passed（含 Postgres 契约、并发 seq、pgvector 检索、审批并发） |
 | 本地 JWT（W1 D2） | ✅ 已完成 | `tests/test_auth.py` 20 条：签发/验签、过期、alg=none、401 JSON、OpenAPI Bearer、run 归属隔离 |
 | 事件落库 + 断线续传（D4） | ✅ 已完成 | `alembic upgrade head` + `alembic check` 无漂移；`tests/test_store_contract.py`（内存 + Postgres 契约）、`tests/test_chat_stream.py`（落库、幂等回放、503 语义） |
 | 最小 Agent 运行时（W1 D5） | ✅ 已完成 | `tests/test_agent_runtime.py` 9 条：工具真实执行、检索引用、写操作挂起审批、工具失败降级、步数/时长上限 |
 | RAG 全链路（W2 D6–D10） | ✅ 已完成 | 50 篇 seed 知识库（含过期版本/冲突/噪声）；解析→切分→pgvector+tsvector→RRF→阈值→引用；`tests/test_rag_parse.py`、`test_rag_retrieve.py`、`test_rag_pg.py`、`test_kb_api.py`；评测基线 [docs/eval/baseline-v0](docs/eval/baseline-v0.md)（20 条，recall@5 100%、cite_acc 91.7%） |
-| 工具治理五道闸门 + 超时重试 | ✅ 已实现 | `tests/test_tools_guard.py` 随 `make test` 通过 |
-| LangGraph 8 节点 / 模型网关 / 成本看板 | 🚧 W3–W4 | 见 [路线图](docs/10-roadmap-6weeks.md) |
+| 工具治理五道闸门 + 超时重试 | ✅ 已实现 | `tests/test_tools_guard.py` 14 条：权限/保留字段/超时重试/身份注入/伪造身份 |
+| 8 节点图 + 审批闭环（W3 D11–D15） | ✅ 已完成 | `tests/test_agent_graph.py`、`test_approvals.py`（8 条）、`test_approvals_pg.py`（3 条）、`test_playbooks.py`；审批通过后工单真正落库 |
+| 模型网关 / 成本看板 | 🚧 W4 | 见 [路线图](docs/10-roadmap-6weeks.md) |
 
 > 首次拉仓库执行 `uv sync --all-extras`（后端）与 `pnpm install`（前端）；
 > `--all-extras` 同时装 rag（pypdf / python-docx）与 dev 依赖，漏装 rag 时解析相关用例会 skip。
@@ -165,7 +173,8 @@ oncall/
 - PDF 用 `pypdf` 提取文本层，扫描件不做 OCR；复杂版面/表格请先转 DOCX/MD
 - 重排是确定性规则，bge-reranker 留到 W4 有模型服务后再评估
 - 中文检索用「单字 + 二元组」，长句与跨文档对比仍弱于 zhparser + 领域词典
-- W2 的答案是指令抽取 + 模板，不是生成；W3 接 LangGraph 与审批，W4 才有 token 成本
+- 答案仍是指令抽取 + 模板，不是生成；W4 接模型网关后才有真实 token 成本
+- 8 节点图用手写转移表而不是 LangGraph（[ADR-0012](docs/decisions/0012-explicit-agent-scheduler.md)），W4 再评估
 
 ## License
 

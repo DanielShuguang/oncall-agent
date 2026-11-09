@@ -33,7 +33,7 @@
 |---|---|---|
 | `p95_first_token_ms` | 请求 → 首个 `message.delta` | ≤ 1500ms |
 | `p95_run_ms` | 请求 → `run.completed` | ≤ 15000ms |
-| `avg_steps` | 平均节点推进次数 | ≤ 6 |
+| `avg_steps` | 平均节点推进次数 | ≤ 8（W3 起是 8 节点图；W2 的 5 节点口径目标为 ≤ 6） |
 | `avg_tool_calls` | 平均工具调用次数 | ≤ 3 |
 
 ### 2.3 成本类
@@ -104,7 +104,7 @@ uv run python -m app.eval.runner --baseline eval-reports/<batch>.json
 ```
 
 W2 基线见 [eval/baseline-v0.md](eval/baseline-v0.md)：20 条、`recall@5 100%`、
-`cite_acc 91.7%`、`refusal_correct 100%`、`injection_blocked 100%`、`p95 71ms`。
+`cite_acc 91.7%`、`refusal_correct 100%`、`injection_blocked 100%`、`avg_steps 7`、`p95 84ms`。
 
 执行器伪代码：
 

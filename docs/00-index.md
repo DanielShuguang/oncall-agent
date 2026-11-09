@@ -18,7 +18,7 @@
 | 10 | [10-roadmap-6weeks](10-roadmap-6weeks.md) | 30 天逐日任务与验收标准 | **每周一必看** |
 | 11 | [11-dev-setup](11-dev-setup.md) | 环境搭建、常用命令、排错 | 第一天 |
 | — | [eval/baseline-v0](eval/baseline-v0.md) | W2 评测基线（20 条、口径、复现命令） | 改检索/提示词前 |
-| — | [decisions/](decisions/) | 11 篇 ADR：为什么 React / Python / LangGraph / pgvector / SSE / Tailwind+oxc / 依赖版本 / shadcn / Postgres 存储 / 本地 JWT / 离线 RAG 向量化 | 面试前重读 |
+| — | [decisions/](decisions/) | 12 篇 ADR：为什么 React / Python / LangGraph / pgvector / SSE / Tailwind+oxc / 依赖版本 / shadcn / Postgres 存储 / 本地 JWT / 离线 RAG 向量化 / 显式调度 | 面试前重读 |
 
 ## ADR（Architecture Decision Record）
 
@@ -35,6 +35,7 @@
 | [0009](decisions/0009-run-store-postgres.md) | 运行态存储 | Postgres + 事件投影；`seq` 行锁生成，内存实现只用于测试 |
 | [0010](decisions/0010-local-jwt.md) | 鉴权 | 本地签发 JWT（HS256），不接 SSO；身份只来自 token |
 | [0011](decisions/0011-offline-rag-vectorizer.md) | 离线 RAG 向量化 | 默认哈希向量 + pypdf，不把 torch / PyMuPDF 2.x 装进默认依赖；可切 HTTP embedding |
+| [0012](decisions/0012-explicit-agent-scheduler.md) | Agent 调度 | W3 用显式转移表（8 节点 + 审批恢复），LangGraph 留 W4 再评估 |
 
 > ADR 的写法：背景 → 方案对比 → 决策 → 后果。面试被问"为什么这么做"时，直接念 ADR。
 

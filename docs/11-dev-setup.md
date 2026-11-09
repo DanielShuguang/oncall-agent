@@ -59,6 +59,9 @@ uv run python -m app.cli token --user u_102 --roles employee
 
 # 上传/重建知识库需要管理员角色（ONCALL_ADMIN_ROLES 默认 admin）
 uv run python -m app.cli token --user admin_1 --roles admin
+
+# 审批人：写操作审批用（不能审批自己发起的）
+uv run python -m app.cli token --user u_900 --roles approver
 ```
 
 上传一个文档验证 RAG 链路（`server/` 下执行）：

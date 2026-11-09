@@ -28,6 +28,12 @@ class AgentState(TypedDict, total=False):
     tool_results: list[dict[str, Any]]
     pending_approval: dict[str, Any] | None
     step: int
+    #: 当前节点名（approval 快照用它决定恢复入口）
+    node: str
+    #: verify 失败后是否还能重规划；与 `failed_tools` 一起避免同一工具反复重试
+    verify_ok: bool
+    replan_count: int
+    failed_tools: list[str]
     budget: Budget
     error: str | None
 
@@ -53,6 +59,10 @@ def initial_state(*, run_id: str, user: dict[str, Any], query: str) -> AgentStat
         tool_results=[],
         pending_approval=None,
         step=0,
+        node="",
+        verify_ok=True,
+        replan_count=0,
+        failed_tools=[],
         budget=Budget(remaining_cents=BUDGET_CENTS, used_steps=0),
         error=None,
     )

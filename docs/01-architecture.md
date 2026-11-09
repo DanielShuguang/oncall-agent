@@ -86,14 +86,16 @@ agent 决定 create_ticket
    │
 用户点「批准」─POST /api/approvals/{id}/resolve
    │
-   ├─ 校验：审批人 ≠ 申请人；角色 ∈ approvers
-   ├─ 执行工具（带超时）
+   ├─ 校验：审批人 ≠ 申请人；角色 ∈ ONCALL_APPROVER_ROLES；run 已进入待审批
+   ├─ 原子迁移 pending → approved（并发重复决议只执行一次）
    ├─ event: approval.resolved
+   ├─ 从 approvals.state 快照恢复 act（allow_write=true，带超时）
    ├─ event: tool.result
-   └─ 状态机继续 → run.completed
+   └─ verify → finalize → run.completed
 ```
 
-**关键设计**：审批不是"再问一次模型"，而是把执行权交还给人。模型永远不能自己批准自己。
+**关键设计**：审批不是"再问一次模型"，而是把执行权交还给人。模型永远不能自己批准自己；
+拒绝/超时追加 `run.failed(APPROVAL_REJECTED|APPROVAL_TIMEOUT)`，写工具一次都不执行。
 
 ### 3.3 断线续跑
 
@@ -121,7 +123,7 @@ agent 决定 create_ticket
 | 前端 | React 19 + TS + Vite + Zustand + Tailwind CSS 4 + ECharts |
 | 流式 | SSE（`fetch` + `ReadableStream`，非 EventSource） |
 | 后端 | Python 3.12 + FastAPI + Pydantic v2 + SQLAlchemy 2 + Alembic |
-| 编排 | LangGraph（8 节点，2 个调 LLM） |
+| 编排 | 显式 8 节点状态机（ADR-0012；LangGraph 可选、W4 再评估） |
 | 检索 | PostgreSQL 16 + pgvector + tsvector + RRF + 确定性重排（bge-reranker W4 可选） |
 | 工具 | MCP（FastMCP），stdio + streamable HTTP |
 | 模型 | OpenAI 兼容协议；Ollama（dev）/ vLLM（演示） |

@@ -90,9 +90,9 @@ data: {"seq":7,"run_id":"01J...","type":"tool.call","ts":"2026-11-09T02:11:03.12
 | `step.started` | `{step, node, title}` | 步骤条新增"进行中" |
 | `step.completed` | `{step, node, duration_ms, summary}` | 步骤条完成 |
 | `tool.call` | `{call_id, tool, args, write:boolean}` | 渲染工具卡片（参数） |
-| `tool.result` | `{call_id, status:"ok"\|"error"\|"timeout"\|"denied", result, duration_ms, error}` | 工具卡片填充结果/错误 |
+| `tool.result` | `{call_id, status:"ok"\|"error"\|"timeout"\|"denied"\|"requires_approval", result, duration_ms, error, approval?}` | 工具卡片填充结果/错误 |
 | `approval.required` | `{approval_id, tool, args, risk_level, expires_at, reason}` | 弹审批卡，state→awaiting_approval |
-| `approval.resolved` | `{approval_id, status:"approved"\|"rejected"\|"expired", resolved_by}` | 审批卡置终态 |
+| `approval.resolved` | `{approval_id, status:"approved"\|"rejected"\|"expired", resolved_by, reason, scope}` | 审批卡置终态；`rejected/expired` 后紧跟一条 `run.failed` |
 | `message.delta` | `{text}` | 追加到当前消息气泡 |
 | `message.completed` | `{text, citations:[{chunk_id,document_id,ord,title,heading,snippet,page}]}` | 收尾，渲染引用角标；点击打开原文片段 |
 | `run.completed` | `{status, steps, token_in, token_out, cost_cents, duration_ms}` | 置 completed，显示成本 |
@@ -102,6 +102,8 @@ data: {"seq":7,"run_id":"01J...","type":"tool.call","ts":"2026-11-09T02:11:03.12
 > W1 没有 LLM 调用：`run.started.model` 默认是 `rule-engine`，W4 网关接入后才是真实模型名。
 > W2 的 `retrieve` 是**节点**而不是工具，所以只发 `step.*`，不发 `tool.call`；
 > `message.completed.citations` 为本次实际用到的 1-3 条（无命中时为空数组）。
+> W3 的节点顺序固定为 `intake → classify → retrieve → plan → act → verify → finalize`；
+> 写操作在 `act` 挂起，run 停在 `awaiting_approval`，审批通过后从 `approve → act → verify → finalize` 继续。
 > OpenAPI 已声明 `BearerAuth` 安全方案（`fastapi.security.HTTPBearer`），Swagger 可直接 Authorize。
 
 ### 2.4 错误语义（三种，不要混）
@@ -169,14 +171,57 @@ GET /api/runs/{run_id}
 ## 4. 审批
 
 ```http
+GET /api/approvals?status=pending
+Authorization: Bearer <approver token>
+```
+
+```json
+{
+  "items": [
+    {
+      "approval_id": "3f1c...",
+      "run_id": "9a17...",
+      "call_id": "call_1",
+      "tool": "create_ticket",
+      "args": {"title": "打印机离线", "category": "hardware", "priority": "P2"},
+      "risk_level": "medium",
+      "status": "pending",
+      "requested_by": "u_102",
+      "resolved_by": null,
+      "reason": null,
+      "scope": "once",
+      "expires_at": "2026-11-09T04:20:00Z",
+      "created_at": "2026-11-09T04:10:00Z",
+      "resolved_at": null
+    }
+  ]
+}
+```
+
+- 审批人角色（`ONCALL_APPROVER_ROLES`，默认 `approver`）看全部待办；普通员工只看自己发起的
+- `status` 只接受 `pending|approved|rejected|expired`；打开列表时会把超时待办置 `expired`
+
+```http
 POST /api/approvals/{approval_id}/resolve
 { "decision": "approved", "reason": "已确认用户身份", "scope": "once" }
 ```
 
-- `scope`: `once` | `session`（本会话内同类工具不再询问）
-- 校验：审批人必须属于 `approvers` 角色，且 **`resolved_by != requested_by`**（不能自己批自己）
+```json
+{
+  "approval": { "...": "同列表项，status=approved" },
+  "run_id": "9a17...",
+  "run_status": "completed"
+}
+```
+
+- `scope`: `once` | `session`（本会话内同类工具不再询问；授权有效期 `ONCALL_APPROVAL_GRANT_HOURS`）
+- 校验：审批人必须属于 `ONCALL_APPROVER_ROLES`，且 **`resolved_by != requested_by`**（不能自己批自己）；否则 `403 {"code":"FORBIDDEN"}`
 - 幂等：重复 resolve 返回首次结果，不重复执行工具
-- 过期：超过 `expires_at` 自动置 `expired`，run 转 `failed(error_code=APPROVAL_TIMEOUT)`
+- 通过：追加 `approval.resolved`，从挂起快照恢复执行，再追加 `tool.result` / `message.*` / `run.completed`
+- 拒绝/过期：追加 `approval.resolved` + `run.failed`，run 转 `failed(error_code=APPROVAL_REJECTED|APPROVAL_TIMEOUT)`
+- 认证失败 `401`，审批不存在 `404 {"code":"APPROVAL_NOT_FOUND"}`
+- 竞态保护：`approval.required` 尚未落库时 run 仍是 `running`，此时 resolve 返回
+  `409 {"code":"APPROVAL_NOT_READY"}`，避免 `resolved` 排在 `required` 前面导致 run 卡住
 
 ## 5. 管理接口示例
 

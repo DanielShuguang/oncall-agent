@@ -100,12 +100,14 @@ async def test_step_events_carry_contract_fields() -> None:
     started = _of(events, EventType.STEP_STARTED)
     completed = _of(events, EventType.STEP_COMPLETED)
 
-    assert [s["step"] for s in started] == [1, 2, 3, 4, 5]
+    assert [s["step"] for s in started] == [1, 2, 3, 4, 5, 6, 7]
     assert [s["node"] for s in started] == [
         "intake",
+        "classify",
         "retrieve",
         "plan",
         "act",
+        "verify",
         "finalize",
     ]
     for payload in started:

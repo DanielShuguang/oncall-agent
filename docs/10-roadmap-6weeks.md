@@ -53,6 +53,7 @@
 
 W2 指标：`recall@5 100%` / `cite_acc 91.7%` / `refusal_correct 100%` /
 `injection_blocked 100%` / `p95 71ms`（20 条小样本，内存检索，口径见基线文档）。
+W3 拆出 `classify` / `verify` 后同一命令为 `avg_steps 7` / `p95 84ms`，基线文档已同步。
 与计划的差异：PDF 默认用 `pypdf` 而不是 PyMuPDF（体积与依赖原因，ADR-0011）；
 重排是确定性规则，bge-reranker 留到 W4 有模型服务后再评估。
 
@@ -73,6 +74,21 @@ W2 指标：`recall@5 100%` / `cite_acc 91.7%` / `refusal_correct 100%` /
 1. 打印机离线：查资产 → 检索 → 只读诊断 → 给出步骤 → 完成（无写操作）
 2. 申请软件权限：检索政策 → 判断需审批 → 生成工单草稿 → **人工审批** → 落库
 3. 知识问答：纯 RAG，带引用，无工具
+
+**实现状态（2026-11-09）**
+
+| 天 | 状态 | 落地 |
+|---|---|---|
+| D11 意图识别 | ✅（规则） | `agent/nodes/classify.py`：`ticket_create` / `asset_check` / `knowledge` + 工单分类；LLM 兜底随 W4 网关接入 |
+| D12 注册表/角色矩阵 | ✅（代码） | `tools/registry.py` 已有 `ToolSpec.roles` / `enabled`；管理页矩阵留 W5 D23 |
+| D13 五道闸门 + 重试 | ✅ | 五道闸门、按工具超时、分类重试、`verify` 重规划一次、降级话术；`tests/test_tools_guard.py` 14 条 |
+| D14 create_ticket + 审批 | ✅ | `approvals` 表 + `/api/approvals` + 审批卡；通过后从快照恢复 `act`，工单真正落 `tickets` |
+| D15 三条剧本 | ✅ | `tests/test_playbooks.py` 连续跑三条剧本；审批/越权/幂等/超时见 `tests/test_approvals.py` |
+
+W3 指标（本地）：后端 120 passed + 7 skipped；带 Postgres 127 passed；
+`ruff`/`mypy`/`alembic check` 全绿；越权/自批/非审批人/重复决议/超时全部有测试。
+与计划的差异：LangGraph 未启用，改用显式转移表（ADR-0012），理由与迁移路径见
+[docs/04 §7](04-agent-design.md)；审批 `scope=session` 已落库（默认 8 小时）。
 
 ---
 

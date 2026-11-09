@@ -12,6 +12,7 @@
  */
 
 import { create } from 'zustand';
+import { resolveApproval, type ApprovalDecision } from '@/api/approvals';
 import { getRunEvents, type RunEventsResponse } from '@/api/runs';
 import { initialRuntime, runtimeReducer, stopAssistantStreaming, type Runtime } from './machine';
 import { streamChat } from './stream';
@@ -29,6 +30,7 @@ interface ChatStore {
   sending: boolean;
   lastSeq: number;
   send: (text: string) => Promise<void>;
+  resolve: (decision: ApprovalDecision) => Promise<void>;
   abort: () => void;
   reset: () => void;
 }
@@ -144,6 +146,46 @@ export const useChat = create<ChatStore>((set, get) => {
       } finally {
         if (abortRef === controller) abortRef = null;
         // abort/新消息已经推进 generation，旧 send 不要覆盖新的 sending
+        if (gen === generation) set({ sending: false });
+      }
+    },
+
+    /**
+     * 审批决议：先提交，再用与断线恢复相同的补拉路径把后续事件写进 UI。
+     * 不在这里假设"批准后一定成功"—— run 可能因写工具失败而 failed。
+     */
+    resolve: async (decision: ApprovalDecision) => {
+      const { runtime, sending } = get();
+      const approval = runtime.approval;
+      const runId = runtime.runId;
+      if (!approval || !runId || sending) return;
+
+      const gen = generation;
+      const controller = new AbortController();
+      abortRef = controller;
+      set({ sending: true });
+
+      try {
+        await resolveApproval(approval.approvalId, decision);
+        const recovered = await catchUp(runId, controller.signal, gen);
+        if (!recovered && gen === generation) {
+          set((s) => ({
+            runtime: {
+              ...s.runtime,
+              phase: 'failed',
+              error: '审批已提交，但拉取执行结果超时，请刷新页面重试',
+              messages: stopAssistantStreaming(s.runtime.messages),
+            },
+          }));
+        }
+      } catch (err) {
+        if (gen === generation) {
+          set((s) => ({
+            runtime: { ...s.runtime, error: (err as Error).message },
+          }));
+        }
+      } finally {
+        if (abortRef === controller) abortRef = null;
         if (gen === generation) set({ sending: false });
       }
     },

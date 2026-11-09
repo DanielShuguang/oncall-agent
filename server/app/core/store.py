@@ -105,7 +105,7 @@ def build_run_patch(event_type: EventType, payload: dict[str, Any], at: datetime
             return RunPatch(
                 status=RunStatus.FAILED.value,
                 finished_at=at,
-                error_code="APPROVAL_EXPIRED",
+                error_code="APPROVAL_TIMEOUT",
             )
         return RunPatch(
             status=RunStatus.FAILED.value,

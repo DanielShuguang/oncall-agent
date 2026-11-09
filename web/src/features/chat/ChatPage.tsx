@@ -26,7 +26,7 @@ const PHASE_LABEL: Record<string, string> = {
 };
 
 export default function ChatPage() {
-  const { runtime, sending, send, abort, reset } = useChat();
+  const { runtime, sending, send, resolve, abort, reset } = useChat();
   const [text, setText] = useState('');
   const [activeCitation, setActiveCitation] = useState<Citation | null>(null);
 
@@ -110,11 +110,19 @@ export default function ChatPage() {
               <pre className="mt-2 max-h-64 overflow-auto rounded-md border bg-panel p-2 font-mono text-xs whitespace-pre-wrap">
                 {JSON.stringify(runtime.approval.args, null, 2)}
               </pre>
+              <p className="mt-2 text-xs text-muted-foreground">
+                审批人角色才能决议，且不能审批自己发起的操作。
+              </p>
               <div className="mt-2 flex gap-2">
-                <Button size="sm" disabled>
-                  批准（W3 D14 接通）
+                <Button size="sm" disabled={sending} onClick={() => void resolve('approved')}>
+                  {sending ? '提交中…' : '批准'}
                 </Button>
-                <Button size="sm" variant="outline" disabled>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={sending}
+                  onClick={() => void resolve('rejected')}
+                >
                   拒绝
                 </Button>
               </div>

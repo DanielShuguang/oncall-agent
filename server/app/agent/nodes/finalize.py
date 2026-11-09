@@ -3,7 +3,7 @@
 规则：
 1. 有检索结果 → 抽取式回答，每条引用标注 `[1] [2]`，并只保留真正用到的引用
 2. 无检索结果 / 低于阈值 → 固定兜底话术，不生成、不臆造（docs/05 §5.4）
-3. 工具结果（资产状态）作为前缀，工具失败不中断回答
+3. 工具结果（资产状态 / 已创建的工单）作为前缀，工具失败不中断回答
 
 W3 接模型后，这里保留「无引用不回答」的校验：模型给出的引用必须来自
 本次 `retrieved`，否则丢弃该句并降级为兜底（docs/04 §5）。
@@ -87,6 +87,19 @@ def _asset_prefix(state: AgentState) -> str | None:
     return None
 
 
+def _ticket_prefix(state: AgentState) -> str | None:
+    call = _first_tool(state, "create_ticket")
+    ticket = call.get("result") if call is not None else None
+    if isinstance(ticket, dict):
+        return (
+            f"已为你创建工单 {ticket.get('id', '-')}"
+            f"（{ticket.get('priority', 'P2')}）：{ticket.get('title', '报修')}。"
+        )
+    if call is not None:
+        return "工单没有创建成功，请手动提交或联系 IT 服务台。"
+    return None
+
+
 def _select_hits(retrieved: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """选出最多 3 条引用：先保每篇文档的最佳切片，再用高分切片补满。
 
@@ -133,6 +146,9 @@ def compose_answer(state: AgentState) -> tuple[str, list[dict[str, Any]]]:
     prefix = _asset_prefix(state)
     if prefix:
         parts.append(prefix)
+    ticket_prefix = _ticket_prefix(state)
+    if ticket_prefix:
+        parts.append(ticket_prefix)
 
     retrieved = state.get("retrieved", [])
     citation_by_chunk = {

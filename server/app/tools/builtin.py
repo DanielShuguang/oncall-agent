@@ -5,9 +5,11 @@
 - `query_cmdb`：查用户名下资产。W1 用内存假数据，接真实 CMDB 时只替换 handler，
   `input_schema` / 超时 / 角色约束不变，治理链路不用动（docs/06 §8.2）。
 - `create_ticket`：写操作，**永远不在这里判断能不能执行** —— 由 `ToolGuard` 挂起
-  等审批（R10），审批通过后 W3 D14 才会走到 handler。
+  等审批（R10），审批通过后 runtime 用 `allow_write=True` 才走到 handler。
+  requester 由 ToolGuard 注入服务端身份，不来自模型参数（R9）。
 
-⚠️ 本模块的读工具是假数据，不是从 CMDB 拉的，演示时不要当成真实资产。
+⚠️ `query_cmdb` 仍是假数据，不是从 CMDB 拉的，演示时不要当成真实资产；
+W4 接真实 CMDB 时只替换 handler 与 input_schema。
 """
 
 from __future__ import annotations
@@ -15,7 +17,8 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Any
 
-from app.tools.registry import ToolError, ToolErrorKind, ToolRegistry, ToolSpec
+from app.tools.registry import Identity, ToolError, ToolErrorKind, ToolRegistry, ToolSpec
+from app.tools.tickets import get_ticket_repository
 
 #: 假资产库：owner_id -> 资产。字段与 docs/06 的 query_cmdb 返回约定一致。
 FAKE_ASSETS: dict[str, dict[str, Any]] = {
@@ -59,16 +62,19 @@ async def create_ticket(
     category: str,
     priority: str,
     asset_id: str | None = None,
+    identity: Identity,
 ) -> dict[str, Any]:
-    """创建工单（写操作）。
+    """创建工单（写操作，审批通过后才会执行）。
 
-    正常链路走不到这里：`ToolGuard` 在 `is_write` 时直接返回
-    `REQUIRES_APPROVAL`。W3 D14 接通审批后由 runtime 用 `allow_write=True` 执行。
+    requester 只取服务端注入的 identity：模型即使把 user_id 写进 args 也会在
+    治理层被 RESERVED_ARGS 拒绝（R9）。
     """
-    raise ToolError(
-        ToolErrorKind.INTERNAL,
-        "写操作尚未接入（W3 D14 审批通过后执行）",
-        idempotent_safe=False,
+    return await get_ticket_repository().create(
+        title=title,
+        category=category,
+        priority=priority,
+        requester=identity.user_id,
+        asset_id=asset_id,
     )
 
 
@@ -112,6 +118,7 @@ def build_registry() -> ToolRegistry:
             is_write=True,
             timeout_ms=3000,
             roles=(),
+            inject_identity=True,
         )
     )
 

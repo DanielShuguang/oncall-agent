@@ -20,7 +20,13 @@ class ToolSpec:
     timeout_ms: int = 3000     # 每个工具单独配，不共用全局
     roles: tuple[str, ...] = ()# 允许调用的角色（空 = 所有登录用户）
     retryable: tuple[str, ...] = ("timeout", "network")  # 哪些错误可重试
+    inject_identity: bool = False  # handler 需要服务端身份时由治理层注入
 ```
+
+**身份注入**：`create_ticket` 的 `requester` 不能来自模型参数（`user_id`/`identity`
+都在保留字段黑名单里）。`ToolGuard` 在调用 handler 时用
+`spec.handler(**args, identity=identity)` 注入会话身份 —— 模型只能决定"开什么单"，
+决定不了"以谁的名义开"。
 
 **为什么超时按工具配**：查 CMDB 是 200ms 的内网调用，检索是 800ms，远程诊断可能 10s。用一个全局 5s 会让慢工具被误杀、快工具的故障被掩盖。
 
@@ -100,11 +106,12 @@ Agent 层面：单个工具失败不中断整个 run，`tool.result` 记 `status
 |---|---|
 | 触发 | `is_write == true`，或风险等级 ≥ medium |
 | 展示 | 工具名 + 参数预览（人类可读）+ 风险说明 + 影响范围 |
-| 审批人 | 角色 ∈ `approvers`，且 **≠ 发起人** |
-| 范围 | `once`（本次）/ `session`（本会话同类不再问） |
-| 过期 | 默认 10 分钟，超时 → `expired` → run 失败并转人工 |
-| 幂等 | 重复 resolve 返回首次结果，不重复执行工具 |
-| 审计 | 谁、何时、批了什么、理由，全部落 `approvals` 表 |
+| 审批人 | 角色 ∈ `ONCALL_APPROVER_ROLES`（默认 `approver`），且 **≠ 发起人** |
+| 范围 | `once` / `session`（本会话同类不再问，落 `approval_grants`，默认 8 小时过期） |
+| 过期 | 默认 10 分钟（`ONCALL_APPROVAL_TTL_MIN`），超时 → `expired` → run 失败并转人工 |
+| 幂等 | 重复 resolve 返回首次结果，不重复执行工具（存储层 `WHERE status='pending'` 原子迁移） |
+| 恢复 | 通过后从 `approvals.state` 快照恢复 `act`，只执行挂起的那一次调用 |
+| 审计 | 谁、何时、批了什么、理由、参数快照与上下文，全部落 `approvals` 表 |
 
 **反模式**（面试会问"这样设计有什么问题"）：
 - 让模型自己判断"这个操作安全"→ 模型可被提示词注入影响
@@ -152,9 +159,12 @@ app/tools/
 | `run_diagnostic` | 读 | 10000ms | it_support | 只读检测（ping/端口/驱动版本） |
 | `create_ticket` | **写** | 3000ms | 所有（需审批） | 创建工单 |
 
-> W1 D5 阶段 `query_cmdb` / `create_ticket` 是进程内假实现
-> （`server/app/tools/builtin.py`），治理链路与真实实现完全一致；接真实 CMDB 时只替换
+> `create_ticket` 在 W3 D14 接通审批后真正落 `tickets` 表（`server/app/tools/tickets.py`），
+> requester 由治理层注入；`query_cmdb` 仍是进程内假数据，W4 接真实 CMDB 时只替换
 > handler 与 `input_schema`，`ToolGuard` 不改（R3）。
+> 清单里的 `query_tickets` / `search_kb` / `run_diagnostic` 尚未注册：`search_kb`
+> 当前是 `retrieve` 节点（不是工具），另两个随 W4 接真实系统时再加，避免先写假工具
+> 再改一遍治理用例。
 
 ## 9. 审计与可观测
 

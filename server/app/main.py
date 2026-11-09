@@ -5,18 +5,22 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.errors import ApiError, api_error_handler
 from app.api.router import api_router
+from app.approvals.service import ApprovalService
+from app.approvals.store import get_approval_store
 from app.core.config import get_settings
 from app.core.db import configure as configure_db
 from app.core.db import dispose as dispose_db
 from app.core.logging import get_logger, setup_logging
+from app.core.store import get_store
 
 log = get_logger(__name__)
 
@@ -35,10 +39,33 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         store_backend=settings.store_backend,
         api_prefix=settings.api_prefix,
     )
+    # 审批超时回收：即使没人打开审批列表，run 也要在 TTL 后收敛到 failed
+    sweeper_stop = asyncio.Event()
+    sweeper = asyncio.create_task(_sweep_expired_approvals(sweeper_stop))
     yield
+    sweeper_stop.set()
+    sweeper.cancel()
+    with suppress(asyncio.CancelledError):
+        await sweeper
     if settings.store_backend == "postgres":
         await dispose_db()
     log.info("app_stopped")
+
+
+APPROVAL_SWEEP_INTERVAL_S = 30.0
+
+
+async def _sweep_expired_approvals(stop: asyncio.Event) -> None:
+    service = ApprovalService(get_store(), get_approval_store())
+    while not stop.is_set():
+        try:
+            expired = await service.expire_due()
+            if expired:
+                log.info("approvals_expired", count=len(expired))
+        except Exception as exc:  # 库没起来时不能让后台任务炸掉整个进程
+            log.warning("approval_sweep_failed", error=str(exc))
+        with suppress(TimeoutError):
+            await asyncio.wait_for(stop.wait(), timeout=APPROVAL_SWEEP_INTERVAL_S)
 
 
 def create_app() -> FastAPI:

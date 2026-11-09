@@ -89,7 +89,7 @@ def _evidence(state: AgentState) -> list[dict[str, str]]:
     return evidence
 
 
-def _messages(state: AgentState, deps: AgentDeps) -> list[ChatMessage]:
+async def _messages(state: AgentState, deps: AgentDeps) -> list[ChatMessage]:
     identity = _identity(state)
     tools = [
         {
@@ -97,7 +97,7 @@ def _messages(state: AgentState, deps: AgentDeps) -> list[ChatMessage]:
             "description": spec.description,
             "input_schema": spec.input_schema,
         }
-        for spec in deps.guard.registry.enabled_for(identity)
+        for spec in await deps.guard.effective_enabled(identity)
     ]
     payload = {
         "query": state.get("query", ""),
@@ -112,7 +112,27 @@ def _messages(state: AgentState, deps: AgentDeps) -> list[ChatMessage]:
     ]
 
 
-def _calls_from_text(text: str, state: AgentState, deps: AgentDeps) -> list[dict[str, Any]] | None:
+async def _filter_plan(
+    plan: list[dict[str, Any]], deps: AgentDeps, identity: Identity
+) -> list[dict[str, Any]]:
+    """规则计划也要遵守管理端覆盖：禁用的工具不能因为走了规则路径就复活。"""
+    allowed: list[dict[str, Any]] = []
+    for call in plan:
+        spec = deps.guard.registry.try_get(str(call.get("tool", "")))
+        if spec is None:
+            continue
+        effective = await deps.guard.effective_spec(spec)
+        if not effective.enabled:
+            continue
+        if effective.roles and not identity.roles.intersection(effective.roles):
+            continue
+        allowed.append(call)
+    return allowed
+
+
+async def _calls_from_text(
+    text: str, state: AgentState, deps: AgentDeps
+) -> list[dict[str, Any]] | None:
     payload = extract_json_object(text)
     if payload is None:
         return None
@@ -124,6 +144,7 @@ def _calls_from_text(text: str, state: AgentState, deps: AgentDeps) -> list[dict
     incident = state.get("incident_type", "other")
     intent = state.get("intent", INTENT_KNOWLEDGE)
     blocked = set(state.get("failed_tools", []))
+    identity = _identity(state)
     parsed: list[dict[str, Any]] = []
 
     for item in calls[:MAX_TOOL_CALLS]:
@@ -134,6 +155,11 @@ def _calls_from_text(text: str, state: AgentState, deps: AgentDeps) -> list[dict
             continue
         spec = deps.guard.registry.try_get(tool)
         if spec is None:
+            continue
+        spec = await deps.guard.effective_spec(spec)
+        if not spec.enabled:
+            continue
+        if spec.roles and not identity.roles.intersection(spec.roles):
             continue
         if spec.is_write and intent != INTENT_TICKET:
             # 模糊输入不能凭模型一句话就升级成写操作
@@ -172,7 +198,8 @@ async def plan_node(state: AgentState, deps: AgentDeps) -> dict[str, Any]:
     """返回 state 增量：plan / plan_source / usage。"""
     intent = state.get("intent") or INTENT_KNOWLEDGE
     incident = state.get("incident_type") or classify_incident(state.get("query", ""))
-    fallback = rule_plan(state)
+    identity = _identity(state)
+    fallback = await _filter_plan(rule_plan(state), deps, identity)
 
     if deps.gateway is None:
         return {
@@ -184,7 +211,7 @@ async def plan_node(state: AgentState, deps: AgentDeps) -> dict[str, Any]:
 
     user = state.get("user", {})
     usage = ModelUsage()
-    messages = _messages(state, deps)
+    messages = await _messages(state, deps)
     completion = None
     try:
         completion = await deps.gateway.chat(
@@ -211,7 +238,7 @@ async def plan_node(state: AgentState, deps: AgentDeps) -> dict[str, Any]:
         }
 
     usage = usage.add(completion)
-    calls = _calls_from_text(completion.text, state, deps)
+    calls = await _calls_from_text(completion.text, state, deps)
     if calls is None:
         # 解析失败重试一次（docs/04 §5）；仍然失败则退回规则计划
         retry_messages = [
@@ -238,7 +265,7 @@ async def plan_node(state: AgentState, deps: AgentDeps) -> dict[str, Any]:
             calls = None
         else:
             usage = usage.add(completion)
-            calls = _calls_from_text(completion.text, state, deps)
+            calls = await _calls_from_text(completion.text, state, deps)
 
     if calls is None:
         return {

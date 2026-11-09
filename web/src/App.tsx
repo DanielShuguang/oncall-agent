@@ -49,7 +49,7 @@ function TokenDialog() {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm" className="h-7 text-xs">
+        <Button variant="outline" size="sm" className="h-7 shrink-0 text-xs">
           {hasToken ? '已登录' : '设置 Token'}
         </Button>
       </DialogTrigger>
@@ -82,12 +82,15 @@ function TokenDialog() {
 export default function App() {
   return (
     <div className="mx-auto flex h-full w-full max-w-4xl flex-col bg-panel md:border-x">
-      <header className="flex items-center gap-3 border-b px-4 py-3">
+      <header className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b px-3 py-2.5 sm:px-4">
         <h1 className="m-0 text-[15px] font-semibold">OnCall</h1>
-        <Badge variant="outline" className="border-brand/20 bg-brand/10 text-brand">
+        <Badge
+          variant="outline"
+          className="hidden border-brand/20 bg-brand/10 text-brand sm:inline-flex"
+        >
           私有化企业智能体
         </Badge>
-        <nav className="ml-auto flex gap-4 text-[13px]">
+        <nav className="ml-auto flex gap-3 text-[13px] sm:gap-4">
           {NAV.map((item) => (
             <NavLink
               key={item.to}

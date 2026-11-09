@@ -21,7 +21,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 - 失败：`401 {"code":"UNAUTHORIZED","message":"缺少或无效的 token"}` + `WWW-Authenticate: Bearer`，**不建 SSE**
 - 归属：只能访问自己的 run；别人的 run 返回 `404`（不用 403，避免泄露 run 是否存在）
 - 前端：没有登录页，token 存在 `localStorage.oncall.token`，对话框入口在右上角「设置 Token」；接 SSO 时替换 `api/deps.get_identity` 与前端 token 获取（`api/client.ts`）
-- 管理接口（`/api/admin/kb/*`）额外要求 `ONCALL_ADMIN_ROLES` 中的任一角色（默认 `admin`）；不满足返回 `403 {"code":"FORBIDDEN","message":"需要管理员角色"}`。权限矩阵 W3 D12 再落库。
+- 管理接口（`/api/admin/kb/*` 与 `/api/admin/tools/*`、`/api/admin/perm-matrix`、`/api/admin/cost/*`）额外要求 `ONCALL_ADMIN_ROLES` 中的任一角色（默认 `admin`）；不满足返回 `403 {"code":"FORBIDDEN","message":"需要管理员角色"}`。工具/角色矩阵的覆盖存 `tool_settings`（ADR-0014）。
 
 ## 1. 接口清单
 
@@ -34,15 +34,16 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | GET | `/runs/{run_id}/events?after_seq=` | 补拉事件（断线续传，兼容 `Last-Event-ID`） | W1 D4 |
 | GET | `/runs/{run_id}/stream` | 重连增量流（可选，v1 用轮询替代） | — |
 | POST | `/approvals/{id}/resolve` | 审批通过/拒绝 | W3 D14 |
-| GET | `/approvals?status=pending` | 待办审批列表 | W3 D14 |
+| GET | `/approvals?status=pending&limit=50` | 待办审批列表（含已办筛选） | W3 D14 / W5 D23 |
 | POST | `/admin/kb/documents` | 上传知识文档（multipart，≤10MB） | W2 D7 |
 | GET | `/admin/kb/documents` | 知识库文档列表 + chunk 总数 | W2 D7 |
 | GET | `/admin/kb/documents/{id}?preview=20` | 文档详情与切片预览（含 heading_path） | W2 D7 |
 | POST | `/admin/kb/reindex` | 重建索引（用当前 embedder 重算向量） | W2 D8 |
-| GET | `/admin/tools` | 工具注册表 | W3 D12 |
-| POST | `/admin/tools/{name}/test` | 工具试调用 | W5 D22 |
-| GET | `/admin/perm-matrix` | 角色 × 工具矩阵 | W3 D12 |
-| PUT | `/admin/perm-matrix` | 更新矩阵 | W5 D23 |
+| GET | `/admin/tools` | 工具注册表（含生效角色/启用状态） | W3 D12 / W5 D22 |
+| PATCH | `/admin/tools/{name}` | 启用/禁用工具（`enabled: null` 恢复默认） | W5 D22 |
+| POST | `/admin/tools/{name}/test` | 工具试调用（强制走治理链路） | W5 D22 |
+| GET | `/admin/perm-matrix` | 角色 × 工具矩阵 | W3 D12 / W5 D23 |
+| PUT | `/admin/perm-matrix` | 更新矩阵（按工具部分更新） | W5 D23 |
 | GET | `/admin/cost/summary?from=&to=&group_by=day\|model\|user` | 成本聚合 | W4 D19 |
 | GET | `/admin/eval/report?batch_id=` | 评测报告 | W6 D26 |
 
@@ -263,6 +264,7 @@ Authorization: Bearer <approver token>
 
 - 审批人角色（`ONCALL_APPROVER_ROLES`，默认 `approver`）看全部待办；普通员工只看自己发起的
 - `status` 只接受 `pending|approved|rejected|expired`；打开列表时会把超时待办置 `expired`
+- `limit` 默认 50、范围 1–200；`expires_at` 升序，同时间按 `created_at` 升序
 
 ```http
 POST /api/approvals/{approval_id}/resolve
@@ -366,14 +368,97 @@ file=@vpn-guide.pdf
 
 W5 D21 再做知识库管理页；当前接口返回的 `chunks` 已经能直接看到 `heading_path` 与切片内容。
 
-### 工具试调用
+### 工具注册与试调用（W5 D22）
 
 ```http
-POST /api/admin/tools/search_kb/test
-{ "args": { "query": "VPN 连接失败" } }
+GET /api/admin/tools
+Authorization: Bearer <admin token>
 ```
 
-返回 `{ status, result, duration_ms }`，**强制走治理链路**（权限用当前管理员身份），不绕过 guard。
+```json
+{
+  "items": [
+    {
+      "name": "query_cmdb",
+      "description": "按 owner 查设备信息",
+      "input_schema": { "type": "object", "properties": { "owner_id": { "type": "string" } } },
+      "is_write": false,
+      "timeout_ms": 2000,
+      "roles": [],
+      "enabled": true,
+      "code_enabled": true,
+      "overridden": false,
+      "source": "builtin"
+    }
+  ]
+}
+```
+
+- `roles=[]` 表示所有登录用户；`overridden=true` 表示本环境存了启用/角色覆盖
+- `code_enabled=false` 是代码里的硬边界，管理页不能把它打开
+
+```http
+PATCH /api/admin/tools/query_cmdb
+{ "enabled": false }
+```
+
+- `enabled: false` 禁用；`enabled: null` 删除启用覆盖、回到代码默认值（**保留**角色覆盖）
+- 尝试把代码 `enabled=false` 的工具打开 → `422 TOOL_LOCKED`；未知工具 `404 TOOL_NOT_FOUND`
+- 只需要改启用开关时用 PATCH；角色矩阵走 `PUT /admin/perm-matrix`
+
+```http
+POST /api/admin/tools/query_cmdb/test
+{ "args": { "owner_id": "u_102" } }
+```
+
+返回 `{ tool, decision, status, result, error, error_kind, duration_ms, attempts }`，
+**强制走治理链路**（权限用当前管理员身份），不绕过 guard：
+
+- 只读工具真实执行；参数里的身份字段（`user_id` / `role` …）仍按 `RESERVED_ARGS` 拒绝
+- 写工具只返回 `decision=requires_approval`，**不会真的执行 handler**
+- 被禁用或角色不匹配时返回 `decision=denied`
+
+### 权限矩阵（W5 D23）
+
+```http
+GET /api/admin/perm-matrix
+```
+
+```json
+{
+  "roles": ["employee", "approver", "admin"],
+  "tools": [
+    {
+      "name": "query_cmdb",
+      "description": "按 owner 查设备信息",
+      "is_write": false,
+      "enabled": true,
+      "code_enabled": true,
+      "default_roles": [],
+      "default_enabled": true,
+      "roles": [],
+      "overridden": false
+    }
+  ]
+}
+```
+
+`PUT /api/admin/perm-matrix` 按工具部分更新（未列出的工具保持原样）：
+
+```json
+{
+  "tools": [
+    { "name": "query_cmdb", "enabled": true, "roles": ["admin"] },
+    { "name": "create_ticket", "enabled": true, "roles": [] }
+  ]
+}
+```
+
+- `roles: []` = 所有登录用户；角色必须来自响应里的 `roles` 目录（v1 内置
+  `employee/approver/admin`，并合并 `ONCALL_ADMIN_ROLES` / `ONCALL_APPROVER_ROLES`）
+- 与代码默认值相同的工具不写覆盖表；提交默认值即可删除该工具的覆盖
+- 未知角色/工具、重复工具 → `422 INVALID_ARGS`；代码禁用工具被打开 → `422 TOOL_LOCKED`
+- 保存后本进程立即生效；多副本部署最长 `2s` 生效（短 TTL 缓存，见 ADR-0014）
 
 ## 6. 版本与兼容
 

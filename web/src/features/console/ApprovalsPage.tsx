@@ -1,0 +1,360 @@
+/** 审批中心（W5 D23）：待办 / 已办可筛，审批人才能决议。 */
+
+import { useEffect, useState } from 'react';
+import { Link } from 'react-router';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  listApprovals,
+  resolveApproval,
+  type ApprovalDecision,
+  type ApprovalOut,
+  type ApprovalScope,
+} from '@/api/approvals';
+import { formatTime } from '@/lib/format';
+
+const STATUS_OPTIONS = [
+  { value: 'pending', label: '待办' },
+  { value: 'approved', label: '已批准' },
+  { value: 'rejected', label: '已拒绝' },
+  { value: 'expired', label: '已过期' },
+];
+
+const STATUS_TONES: Record<string, string> = {
+  pending: 'border-warn/20 bg-warn/10 text-warn',
+  approved: 'border-ok/20 bg-ok/10 text-ok',
+  rejected: 'border-danger/20 bg-danger/10 text-danger',
+  expired: 'border-line bg-muted text-muted-foreground',
+};
+
+interface ResolveState {
+  approval: ApprovalOut;
+  decision: ApprovalDecision;
+  reason: string;
+  scope: ApprovalScope;
+  submitting: boolean;
+  error: string | null;
+}
+
+export default function ApprovalsPage() {
+  const [status, setStatus] = useState('pending');
+  const [items, setItems] = useState<ApprovalOut[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [resolver, setResolver] = useState<ResolveState | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      setLoading(true);
+      try {
+        const data = await listApprovals(status);
+        if (!cancelled) {
+          setItems(data.items);
+          setError(null);
+        }
+      } catch (exc) {
+        if (!cancelled) setError(exc instanceof Error ? exc.message : '审批列表加载失败');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [status]);
+
+  const refresh = async () => {
+    const data = await listApprovals(status);
+    setItems(data.items);
+  };
+
+  const openResolve = (approval: ApprovalOut, decision: ApprovalDecision) => {
+    setResolver({ approval, decision, reason: '', scope: 'once', submitting: false, error: null });
+  };
+
+  const submit = async () => {
+    if (!resolver) return;
+    setResolver({ ...resolver, submitting: true, error: null });
+    try {
+      const result = await resolveApproval(resolver.approval.approval_id, resolver.decision, {
+        reason: resolver.reason.trim() || undefined,
+        scope: resolver.decision === 'approved' ? resolver.scope : 'once',
+      });
+      setResolver(null);
+      setNotice(
+        `${resolver.decision === 'approved' ? '已批准' : '已拒绝'} ${
+          resolver.approval.tool
+        }；run 当前状态：${result.run_status ?? '未知'}。`,
+      );
+      try {
+        await refresh();
+      } catch (exc) {
+        setError(exc instanceof Error ? exc.message : '决议已提交，但列表刷新失败');
+      }
+    } catch (exc) {
+      setResolver((current) =>
+        current
+          ? {
+              ...current,
+              submitting: false,
+              error: exc instanceof Error ? exc.message : '提交失败',
+            }
+          : current,
+      );
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="min-w-0 flex-1 text-xs text-muted-foreground">
+          审批人看到全部待办，普通员工只看到自己发起的；通过后从快照恢复 <code>act</code>，
+          拒绝后不执行写工具。
+        </div>
+        <Select
+          value={status}
+          onValueChange={(next) => {
+            setStatus(next);
+            setNotice(null);
+          }}
+        >
+          <SelectTrigger className="h-8 w-28 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {STATUS_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {error && (
+        <Card className="border-danger/30 bg-danger/5">
+          <CardContent className="p-3 text-xs text-danger">{error}</CardContent>
+        </Card>
+      )}
+      {notice && (
+        <Card className="border-ok/30 bg-ok/5">
+          <CardContent className="p-3 text-xs text-ok">{notice}</CardContent>
+        </Card>
+      )}
+
+      <Card className="gap-0 py-0">
+        <CardContent className="p-0">
+          {loading ? (
+            <div className="p-8 text-center text-xs text-muted-foreground">加载中…</div>
+          ) : items.length === 0 ? (
+            <div className="p-8 text-center text-xs text-muted-foreground">
+              {status === 'pending' ? '没有待办审批。' : '该状态下没有审批记录。'}
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>工具 / 参数</TableHead>
+                    <TableHead>发起人</TableHead>
+                    <TableHead>状态</TableHead>
+                    <TableHead>过期时间</TableHead>
+                    <TableHead className="text-right">操作</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {items.map((item) => (
+                    <TableRow key={item.approval_id}>
+                      <TableCell className="max-w-96 align-top">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge variant="outline">{item.tool}</Badge>
+                          <Badge variant="secondary" className="text-[10px]">
+                            {item.risk_level}
+                          </Badge>
+                        </div>
+                        <pre className="mt-2 max-h-28 overflow-auto rounded-md border bg-canvas/50 p-2 font-mono text-[11px] whitespace-pre-wrap">
+                          {JSON.stringify(item.args, null, 2)}
+                        </pre>
+                        {item.reason && (
+                          <div className="mt-1 text-[11px] text-muted-foreground">
+                            理由：{item.reason}
+                          </div>
+                        )}
+                      </TableCell>
+                      <TableCell className="align-top text-xs">
+                        {item.requested_by}
+                        {item.resolved_by && (
+                          <div className="text-[11px] text-muted-foreground">
+                            处理人 {item.resolved_by}
+                          </div>
+                        )}
+                      </TableCell>
+                      <TableCell className="align-top">
+                        <Badge
+                          variant="outline"
+                          className={STATUS_TONES[item.status] ?? 'text-muted-foreground'}
+                        >
+                          {STATUS_OPTIONS.find((option) => option.value === item.status)?.label ??
+                            item.status}
+                        </Badge>
+                        <div className="mt-1 text-[11px] text-muted-foreground">
+                          {formatTime(item.created_at)}
+                        </div>
+                      </TableCell>
+                      <TableCell className="align-top text-xs text-muted-foreground">
+                        {formatTime(item.expires_at)}
+                      </TableCell>
+                      <TableCell className="text-right align-top">
+                        <div className="flex justify-end gap-1">
+                          <Button asChild variant="ghost" size="sm" className="h-7 text-xs">
+                            <Link to={`/runs/${item.run_id}`}>运行</Link>
+                          </Button>
+                          {item.status === 'pending' && (
+                            <>
+                              <Button
+                                size="sm"
+                                className="h-7 text-xs"
+                                onClick={() => openResolve(item, 'approved')}
+                              >
+                                批准
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 text-xs"
+                                onClick={() => openResolve(item, 'rejected')}
+                              >
+                                拒绝
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <p className="text-[11px] text-muted-foreground">
+        只有 <code>ONCALL_APPROVER_ROLES</code> 中的角色能决议，且不能审批自己发起的操作；
+        <code>scope=session</code> 授权按「用户 + 会话 + 工具」隔离，默认 8 小时过期。
+      </p>
+
+      <Dialog
+        open={resolver !== null}
+        onOpenChange={(open) => {
+          if (!open && !resolver?.submitting) setResolver(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {resolver?.decision === 'approved' ? '批准' : '拒绝'} {resolver?.approval.tool}
+            </DialogTitle>
+            <DialogDescription>
+              发起人 {resolver?.approval.requested_by}；审批后 run 会继续执行或转人工。
+            </DialogDescription>
+          </DialogHeader>
+
+          <pre className="max-h-48 overflow-auto rounded-md border bg-panel p-3 font-mono text-xs whitespace-pre-wrap">
+            {JSON.stringify(resolver?.approval.args ?? {}, null, 2)}
+          </pre>
+
+          {resolver?.decision === 'approved' && (
+            <div className="text-xs text-muted-foreground">
+              授权范围
+              <Select
+                value={resolver.scope}
+                onValueChange={(next) =>
+                  setResolver((current) =>
+                    current ? { ...current, scope: next as ApprovalScope } : current,
+                  )
+                }
+              >
+                <SelectTrigger className="mt-1 h-8 w-full text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="once">仅本次</SelectItem>
+                  <SelectItem value="session">本会话同类工具（8 小时）</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          <div>
+            <div className="mb-1 text-xs text-muted-foreground">理由（可选）</div>
+            <Textarea
+              rows={3}
+              aria-label="审批理由"
+              placeholder={resolver?.decision === 'rejected' ? '建议填写拒绝原因' : '可留空'}
+              className="text-xs"
+              value={resolver?.reason ?? ''}
+              disabled={resolver?.submitting}
+              onChange={(event) =>
+                setResolver((current) =>
+                  current ? { ...current, reason: event.target.value } : current,
+                )
+              }
+            />
+          </div>
+
+          {resolver?.error && (
+            <div className="rounded-md border border-danger/30 bg-danger/5 p-3 text-xs text-danger">
+              {resolver.error}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={resolver?.submitting}
+              onClick={() => setResolver(null)}
+            >
+              取消
+            </Button>
+            <Button
+              variant={resolver?.decision === 'rejected' ? 'destructive' : 'default'}
+              disabled={resolver?.submitting}
+              onClick={() => void submit()}
+            >
+              {resolver?.submitting ? '提交中…' : '确认提交'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

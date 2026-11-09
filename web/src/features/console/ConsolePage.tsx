@@ -1,9 +1,16 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, type ComponentType, type LazyExoticComponent } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-const CostPage = lazy(() => import('./CostPage'));
+
+const PAGES: Record<string, { component: LazyExoticComponent<ComponentType>; loading: string }> = {
+  kb: { component: lazy(() => import('./KbPage')), loading: '加载知识库…' },
+  tools: { component: lazy(() => import('./ToolsPage')), loading: '加载工具注册…' },
+  perms: { component: lazy(() => import('./PermsPage')), loading: '加载权限矩阵…' },
+  approvals: { component: lazy(() => import('./ApprovalsPage')), loading: '加载审批中心…' },
+  cost: { component: lazy(() => import('./CostPage')), loading: '加载成本页…' },
+};
 
 const PANELS = [
   {
@@ -15,7 +22,7 @@ const PANELS = [
   {
     key: 'tools',
     label: '工具',
-    title: '工具注册与试调用（schema 编辑、启用开关）',
+    title: '工具注册与试调用（schema 查看、启用开关、试调用）',
     milestone: 'W5 D22',
   },
   { key: 'perms', label: '权限', title: '角色 × 工具权限矩阵', milestone: 'W5 D23' },
@@ -27,6 +34,17 @@ const PANELS = [
     milestone: 'W4 D19',
   },
 ];
+
+function PanelContent({ panelKey }: { panelKey: string }) {
+  const page = PAGES[panelKey];
+  if (!page) return null;
+  const Component = page.component;
+  return (
+    <Suspense fallback={<div className="p-4 text-xs text-muted-foreground">{page.loading}</div>}>
+      <Component />
+    </Suspense>
+  );
+}
 
 export default function ConsolePage() {
   const location = useLocation();
@@ -51,12 +69,8 @@ export default function ConsolePage() {
 
         {PANELS.map((panel) => (
           <TabsContent key={panel.key} value={panel.key} className="pt-4">
-            {panel.key === 'cost' ? (
-              <Suspense
-                fallback={<div className="p-4 text-xs text-muted-foreground">加载成本页…</div>}
-              >
-                <CostPage />
-              </Suspense>
+            {PAGES[panel.key] ? (
+              <PanelContent panelKey={panel.key} />
             ) : (
               <Card className="gap-0 py-0">
                 <CardContent className="space-y-2 p-4">

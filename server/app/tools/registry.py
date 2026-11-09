@@ -16,7 +16,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from time import perf_counter
-from typing import Any
+from typing import Any, Protocol
 
 Handler = Callable[..., Awaitable[Any]]
 
@@ -220,10 +220,19 @@ class ToolRegistry:
         ]
 
 
+class ToolPolicyProvider(Protocol):
+    """运行时覆盖（管理页的启用/角色配置）。按工具返回合并后的 spec。"""
+
+    async def apply(self, spec: ToolSpec) -> ToolSpec: ...
+
+
 class ToolGuard:
     """五道闸门 + 超时 + 分类重试 + 降级标记。
 
     所有工具调用必须经过这里；禁止在 MCP server 内重复实现校验。
+
+    `policy` 是可选的管理端覆盖：在闸门之前把 `ToolSpec` 换成生效版本，
+    因此禁用/角色变更对「试调用」和真实 run 同时生效。
     """
 
     def __init__(
@@ -232,10 +241,28 @@ class ToolGuard:
         *,
         approvers_role: str = "approver",
         backoff_base_ms: int = 200,
+        policy: ToolPolicyProvider | None = None,
     ) -> None:
         self.registry = registry
         self.approvers_role = approvers_role
         self.backoff_base_ms = backoff_base_ms
+        self.policy = policy
+
+    async def effective_spec(self, spec: ToolSpec) -> ToolSpec:
+        if self.policy is None:
+            return spec
+        return await self.policy.apply(spec)
+
+    async def effective_enabled(self, identity: Identity) -> list[ToolSpec]:
+        """给模型/规则计划看的工具清单；已禁用的工具不应出现在提示词里。"""
+        specs: list[ToolSpec] = []
+        for spec in self.registry.all():
+            effective = await self.effective_spec(spec)
+            if effective.enabled and (
+                not effective.roles or identity.roles.intersection(effective.roles)
+            ):
+                specs.append(effective)
+        return specs
 
     async def execute(
         self,
@@ -260,6 +287,9 @@ class ToolGuard:
                 error="工具未注册",
                 duration_ms=_ms(started),
             )
+
+        # ①.5 管理端覆盖：启用开关与角色以数据库配置为准，不能绕过代码硬边界
+        spec = await self.effective_spec(spec)
 
         # ② 保留字段：身份只能由会话注入
         lowered = {str(k).lower() for k in args}

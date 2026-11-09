@@ -5,9 +5,8 @@
 ## 1. ER 概览
 
 ```
-users ──< user_roles >── roles ──< role_tool_permissions >── tools
-                                                             │
-runs ──< run_events                                    tools 由 MCP server 注册
+tools（代码注册） ──< tool_settings（环境覆盖：启用/角色）
+runs ──< run_events
   │
   ├──< approvals
   └──< model_calls
@@ -148,25 +147,28 @@ CREATE INDEX idx_model_calls_run ON model_calls (run_id);
 
 ### 2.5 tools / roles / 权限矩阵
 
+工具定义是**代码**，不是数据库行：`name` / `description` / `input_schema` / `is_write` /
+`timeout_ms` 都写在 `tools/builtin.py`，改 schema 必须走 code review 与治理测试
+（docs/06 §2）。数据库只存本环境对默认值的覆盖，避免「代码加了工具但库里没同步」
+导致工具凭空消失，也避免管理页在线改出一个绕过 `validate_args` 的入参。
+
 ```sql
-CREATE TABLE tools (
-  name        TEXT PRIMARY KEY,        -- 唯一工具名，模型只能填这个名字
-  description TEXT NOT NULL,
-  input_schema JSONB NOT NULL,
-  server      TEXT NOT NULL,           -- 所属 MCP server
-  is_write    BOOLEAN NOT NULL DEFAULT false,
-  timeout_ms  INT NOT NULL DEFAULT 3000,
-  enabled     BOOLEAN NOT NULL DEFAULT true
-);
-
-CREATE TABLE roles (id TEXT PRIMARY KEY, name TEXT NOT NULL);
-
-CREATE TABLE role_tool_permissions (
-  role_id   TEXT NOT NULL REFERENCES roles(id),
-  tool_name TEXT NOT NULL REFERENCES tools(name),
-  PRIMARY KEY (role_id, tool_name)
+CREATE TABLE tool_settings (
+  name       TEXT PRIMARY KEY,        -- 与 ToolSpec.name 对应；无外键，删除工具后残留行读取时忽略
+  enabled    BOOLEAN,                 -- NULL = 继承代码默认；false = 本环境禁用
+  roles      JSONB,                   -- NULL = 继承；[] = 所有登录用户
+  updated_by TEXT,                    -- 最后修改人（完整历史看结构化日志）
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ```
+
+- 代码里 `enabled=False` 是硬边界：覆盖只能进一步收紧，不能把未就绪工具打开
+- 生效规则：`enabled = code_enabled AND COALESCE(override.enabled, true)`；
+  `roles = override.roles ?? code_roles`
+- v1 不建 `roles` / `role_tool_permissions` 表：角色来自 JWT 字符串，矩阵页的角色目录
+  由内置 `employee/approver/admin` 加 `ONCALL_ADMIN_ROLES` / `ONCALL_APPROVER_ROLES` 组成
+- 覆盖读取有 2s 进程内缓存（ADR-0014）；单进程保存后立即失效，多副本最长 2s 生效
+- 写操作即使角色允许，也仍需人工审批（`approvals` 表），权限矩阵不能替代审批
 
 ### 2.6 知识库
 
@@ -314,7 +316,7 @@ uv run alembic upgrade head --sql    # 无库环境渲染 DDL，评审用
 
 - 迁移文件在 `server/migrations/versions/`；`alembic.ini` 只放占位 DSN，真实 DSN 由 `migrations/env.py` 从环境变量读
 - 必须写 `downgrade`，并在空库上验证一次 `downgrade base && upgrade head`
-- 当前迁移链：`0001` runs/events → `0002` 幂等键按用户作用域 → `0003` kb（pgvector/tsvector）+ assets/tickets → `0004` approvals → `0005` 会话授权按用户隔离 → `0006` model_calls + failure_category
+- 当前迁移链：`0001` runs/events → `0002` 幂等键按用户作用域 → `0003` kb（pgvector/tsvector）+ assets/tickets → `0004` approvals → `0005` 会话授权按用户隔离 → `0006` model_calls + failure_category → `0007` tool_settings
 
 > `0003` 先 `CREATE EXTENSION IF NOT EXISTS vector`，否则 vector 类型与 HNSW 索引会失败；
 > 测试库由 fixture 建扩展后再 `create_all`（扩展是库级对象，`drop_all` 不会删）。

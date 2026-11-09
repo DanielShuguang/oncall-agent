@@ -25,7 +25,12 @@ const evt = (
 });
 
 beforeEach(() => {
-  useChat.setState({ runtime: initialRuntime, sending: false, lastSeq: 0 });
+  useChat.setState({
+    runtime: initialRuntime,
+    sending: false,
+    lastSeq: 0,
+    lastUserText: null,
+  });
   mockStream.mockReset();
   mockGetEvents.mockReset();
 });
@@ -167,5 +172,35 @@ describe('断线续传', () => {
 
     const { runtime } = useChat.getState();
     expect(runtime.phase).toBe('failed');
+  });
+});
+
+describe('失败重试', () => {
+  it('移除失败气泡后重发，不重复用户消息，并使用新的幂等键', async () => {
+    const clientIds: string[] = [];
+    mockStream.mockImplementationOnce(async (opts) => {
+      clientIds.push(opts.clientMsgId ?? '');
+      throw new Error('HTTP 503');
+    });
+    await useChat.getState().send('打印机离线');
+    expect(useChat.getState().runtime.phase).toBe('failed');
+
+    mockStream.mockImplementationOnce(async (opts) => {
+      clientIds.push(opts.clientMsgId ?? '');
+      opts.onEvent(evt(1, 'run.started'));
+      opts.onEvent(evt(2, 'message.completed', { text: '已恢复' }));
+      opts.onEvent(evt(3, 'run.completed', {}));
+    });
+    await useChat.getState().retry();
+
+    const { runtime, lastUserText } = useChat.getState();
+    expect(runtime.phase).toBe('completed');
+    expect(
+      runtime.messages.filter((m) => m.role === 'user' && m.text === '打印机离线'),
+    ).toHaveLength(1);
+    expect(lastUserText).toBe('打印机离线');
+    expect(clientIds).toHaveLength(2);
+    // 原 client_msg_id 会命中幂等回放，拿到的还是失败 run
+    expect(clientIds[0]).not.toBe(clientIds[1]);
   });
 });

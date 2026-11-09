@@ -24,6 +24,11 @@
 > W4 已落地 `/runs`、`/runs/:id` 与 `/console/cost`：运行详情用 `runtimeReducer`
 > 重放事件重建步骤/工具/消息，不重新执行 Agent；成本页按 day/model/user 分组，
 > 直接调用 `/admin/cost/summary`。导航从「对话」扩展为 对话 / 运行 / 管理后台。
+>
+> W5 已落地 `/console/kb`、`/console/tools`、`/console/perms`、`/console/approvals`：
+> 这些页面与成本页都按路由懒加载，表格在小屏横向滚动。D25 的 iframe 嵌入形态**未做**：
+> 它需要 `postMessage` 来源白名单与 CSP `frame-ancestors` 的部署决策，先不引入
+> 一个说不清边界的外嵌入口。
 
 ## 3. 状态机
 
@@ -107,9 +112,9 @@ ChatPage
 ```
 ConsolePage（Tabs，路径 /console/:panel）
 ├─ KbPage         上传、列表、切片预览、重建索引
-├─ ToolsPage      工具卡片、Schema 编辑、试调用
+├─ ToolsPage      工具卡片、Schema 查看（只读）、启用开关、试调用
 ├─ PermsPage      角色 × 工具矩阵（勾选即保存）
-├─ ApprovalsPage  待办/已办，支持批量
+├─ ApprovalsPage  待办/已办可筛，逐条决议（理由 + 授权范围）
 └─ CostPage       日/模型/用户三段聚合 + 趋势图 + Top 花费 run
 ```
 
@@ -121,7 +126,7 @@ ConsolePage（Tabs，路径 /console/:panel）
 | 工具执行中 | 卡片显示 loading + 已耗时；超过超时阈值显示"可能较慢" |
 | 审批 | 卡片置顶 + 页面 title 变化 + 声音提示（可关）；不能滚动走 |
 | 中断 | 发送按钮变"停止"，点击后 abort + 发 `ABORT`，保留已收到内容 |
-| 失败 | 显示 `error_code` 对应的人话 + "重试"按钮（重试用原 client_msg_id 新建 run） |
+| 失败 | 显示 `error_code` 对应的人话 + "重试"按钮；重试会移除失败气泡、用**新的** `client_msg_id` 重发（原 id 会命中幂等回放，拿回同一条失败 run） |
 | 断线 | 顶部条"连接已断开，正在恢复"，自动重连 + 补拉 |
 | 引用 | 角标 hover 显示片段；点击打开 Dialog（标题 + heading_path + 页码 + 片段 + document_id/ord）；W5 接文档预览后再跳全文高亮 |
 | 长会话 | 消息虚拟滚动；事件时间线按需折叠（默认收起中间步骤） |
@@ -171,6 +176,11 @@ Pydantic 模型 ──► OpenAPI ──► openapi-typescript ──► src/api
 - [ ] 未知事件类型不崩溃
 - [x] 任意历史 run 可按 seq 回放（W4 D20）：`/runs/:id` 拉全量事件后走同一个 reducer
 - [x] 成本看板与 `model_calls` 对得上（W4 D19）：`/console/cost` 展示分/调用/token
+- [x] 不写代码能上传文档、看切片、重建索引（W5 D21）
+- [x] 工具试调用走治理链路，写工具不会真的落单（W5 D22）
+- [x] 权限矩阵可编辑、审批中心待办/已办可筛（W5 D23）
+- [x] 失败后重试不重复用户气泡，且改用新的 `client_msg_id`（W5 D24）
+- [ ] iframe + postMessage 嵌入形态（W5 D25，暂缓，见 §2 说明）
 - [ ] 运行列表在 10 万条 run 下的分页体验（当前游标分页，未压测）
 - [ ] 1000 条消息的会话滚动流畅
 - [ ] 引用角标能跳到正确原文位置

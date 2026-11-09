@@ -136,6 +136,27 @@ LangGraph 在 W4 评估后仍未启用（ADR-0012）。
 
 **本周只做减法不做加法**：任何新想法写进 backlog，不加功能。
 
+**实现状态（2026-11-09）**
+
+| 天 | 状态 | 落地 |
+|---|---|---|
+| D21 知识库管理 | ✅ | `/console/kb`：上传（multipart）、列表筛选、切片预览 Dialog、重建索引；接口仍是 W2 的四个管理接口 |
+| D22 工具注册/试调用 | ✅（schema 只读） | `tool_settings` 表（迁移 0007）+ `GET/PATCH /admin/tools` + `POST /admin/tools/{name}/test`；试调用强制走 `ToolGuard`，写工具只返回 `requires_approval` |
+| D23 权限矩阵 + 审批中心 | ✅ | `GET/PUT /admin/perm-matrix`；`/console/perms` 勾选保存，`/console/approvals` 待办/已办筛选与决议（理由、`once/session`） |
+| D24 对话体验 | ◐ | 失败重试（移除失败气泡、换新 `client_msg_id`）、移动端头部与输入区换行；引用仍只打开片段 Dialog，全文跳转等文档预览权限方案 |
+| D25 嵌入形态 | ✗ 暂缓 | 需要 `postMessage` 来源白名单与 CSP `frame-ancestors` 的部署决策，不在没有安全边界时先做外嵌入口 |
+
+W5 指标（本地）：后端 **208 passed**（含 Postgres，2 warnings）；默认无库
+**194 passed + 14 skipped**；前端 **39 tests**，`tsc` / `oxlint 0` / `oxfmt --check` 全绿；
+`pnpm build` 主包约 411KB、CostPage 490KB（无 >500KB 告警）；迁移到 **0007**，`alembic check` 无漂移。
+
+与计划的差异：
+- D22 的「schema 编辑」改成**只读**：schema 同时约束模型提示词与 `validate_args`，
+  在线编辑会让两者脱节；工具定义继续走 code review，管理页只改启用/角色
+- D25 未做，理由见上；W5 验收「非技术同事能传文档、配工具、看审批」已满足
+- 角色目录是固定的 `employee/approver/admin` + 配置里的管理/审批角色，没有独立 roles 表
+  （ADR-0014）；多副本下覆盖配置最长 2s 生效
+
 ---
 
 ## W6 交付

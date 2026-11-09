@@ -30,6 +30,7 @@ export interface ApprovalResolveResponse {
 }
 
 export type ApprovalDecision = 'approved' | 'rejected';
+export type ApprovalScope = 'once' | 'session';
 
 export function listApprovals(status = 'pending'): Promise<ApprovalListResponse> {
   return getJson<ApprovalListResponse>(`/approvals?status=${encodeURIComponent(status)}`);
@@ -38,7 +39,7 @@ export function listApprovals(status = 'pending'): Promise<ApprovalListResponse>
 export function resolveApproval(
   approvalId: string,
   decision: ApprovalDecision,
-  options: { reason?: string; scope?: 'once' | 'session' } = {},
+  options: { reason?: string; scope?: ApprovalScope } = {},
 ): Promise<ApprovalResolveResponse> {
   return getJson<ApprovalResolveResponse>(`/approvals/${encodeURIComponent(approvalId)}/resolve`, {
     method: 'POST',

@@ -24,6 +24,7 @@ from app.rag.embed import HashingEmbedder
 from app.rag.memory import MemoryKnowledgeStore
 from app.rag.retrieve import KnowledgeBase
 from app.rag.service import set_knowledge_base
+from app.tools.policy import InMemoryToolSettingStore, ToolPolicy, set_tool_policy
 from app.tools.tickets import InMemoryTicketRepository, set_ticket_repository
 from tests.support import auth_headers
 
@@ -61,6 +62,15 @@ def mem_tickets() -> AsyncIterator[InMemoryTicketRepository]:
     set_ticket_repository(repo)
     yield repo
     set_ticket_repository(None)
+
+
+@pytest.fixture(autouse=True)
+def mem_tool_settings() -> Iterator[ToolPolicy]:
+    """工具覆盖默认落内存：管理接口测试不碰 tool_settings 表。"""
+    policy = ToolPolicy(InMemoryToolSettingStore(), ttl_s=0)
+    set_tool_policy(policy)
+    yield policy
+    set_tool_policy(None)
 
 
 @pytest.fixture(autouse=True)

@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { cn } from 'cn';
-import { Alert, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -26,7 +25,7 @@ const PHASE_LABEL: Record<string, string> = {
 };
 
 export default function ChatPage() {
-  const { runtime, sending, send, resolve, abort, reset } = useChat();
+  const { runtime, sending, send, retry, resolve, abort, reset } = useChat();
   const [text, setText] = useState('');
   const [activeCitation, setActiveCitation] = useState<Citation | null>(null);
 
@@ -164,9 +163,16 @@ export default function ChatPage() {
         ))}
 
         {runtime.error && (
-          <Alert variant="destructive">
-            <AlertTitle>{runtime.error}</AlertTitle>
-          </Alert>
+          <Card className="border-danger/30 bg-danger/5">
+            <CardContent className="flex flex-wrap items-center gap-3 p-3">
+              <span className="min-w-0 flex-1 text-sm text-danger">{runtime.error}</span>
+              {runtime.phase === 'failed' && (
+                <Button variant="outline" size="sm" disabled={sending} onClick={() => void retry()}>
+                  重试
+                </Button>
+              )}
+            </CardContent>
+          </Card>
         )}
       </div>
 
@@ -193,14 +199,14 @@ export default function ChatPage() {
         </DialogContent>
       </Dialog>
 
-      <div className="border-t px-4 py-3">
-        <div className="flex items-end gap-2">
+      <div className="border-t px-3 py-3 sm:px-4">
+        <div className="flex flex-wrap items-end gap-2">
           <Textarea
             value={text}
             rows={1}
             aria-label="消息输入框"
             placeholder="描述你的问题…（Enter 发送，Shift+Enter 换行）"
-            className="max-h-40 min-h-9 resize-none py-2 text-sm"
+            className="max-h-40 min-h-9 min-w-0 flex-1 resize-none py-2 text-sm"
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {

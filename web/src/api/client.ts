@@ -35,17 +35,41 @@ export function authHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+async function toApiError(res: Response, path: string): Promise<ApiError> {
+  if (res.status === 401) {
+    return new ApiError(401, '未登录或 token 过期：点右上角「设置 Token」');
+  }
+  // 后端错误统一 {code, message}；管理页要把「文件过大 / 解析失败」原样告诉用户
+  let message = `请求失败: ${path}`;
+  try {
+    const body = (await res.json()) as { message?: unknown };
+    if (typeof body.message === 'string' && body.message.trim()) message = body.message;
+  } catch {
+    // 非 JSON（网关 502、HTML 错误页）时保留通用文案
+  }
+  return new ApiError(res.status, message);
+}
+
 export async function getJson<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${PREFIX}${path}`, {
     ...init,
     headers: { 'Content-Type': 'application/json', ...authHeaders(), ...init?.headers },
   });
-  if (!res.ok) {
-    throw new ApiError(
-      res.status,
-      res.status === 401 ? '未登录或 token 过期：点右上角「设置 Token」' : `请求失败: ${path}`,
-    );
-  }
+  if (!res.ok) throw await toApiError(res, path);
+  return (await res.json()) as T;
+}
+
+/**
+ * multipart 上传：**不要手写 Content-Type**，浏览器要自己补 boundary。
+ * 单独一个函数而不是给 getJson 加分支，避免以后有人把 JSON body 和 FormData 混用。
+ */
+export async function postForm<T>(path: string, form: FormData): Promise<T> {
+  const res = await fetch(`${PREFIX}${path}`, {
+    method: 'POST',
+    body: form,
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw await toApiError(res, path);
   return (await res.json()) as T;
 }
 

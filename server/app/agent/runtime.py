@@ -54,6 +54,7 @@ from app.rag.service import get_knowledge_base
 from app.schemas.event import EventType
 from app.schemas.failure import categorize
 from app.tools.builtin import default_registry
+from app.tools.policy import get_tool_policy
 from app.tools.registry import Decision, Identity, ToolGuard, ToolStatus
 
 log = get_logger(__name__)
@@ -79,7 +80,7 @@ def build_deps(
 
         gateway = get_gateway()
     return AgentDeps(
-        guard=ToolGuard(default_registry()),
+        guard=ToolGuard(default_registry(), policy=get_tool_policy()),
         retriever=get_knowledge_base(),
         top_k=settings.rag_top_k,
         approvals=approvals,

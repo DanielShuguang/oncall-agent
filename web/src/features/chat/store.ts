@@ -29,7 +29,10 @@ interface ChatStore {
   runtime: Runtime;
   sending: boolean;
   lastSeq: number;
+  /** 最近一次发送的文本，失败后「重试」复用；不额外发 run 上下文 */
+  lastUserText: string | null;
   send: (text: string) => Promise<void>;
+  retry: () => Promise<void>;
   resolve: (decision: ApprovalDecision) => Promise<void>;
   abort: () => void;
   reset: () => void;
@@ -95,6 +98,7 @@ export const useChat = create<ChatStore>((set, get) => {
     runtime: initialRuntime,
     sending: false,
     lastSeq: 0,
+    lastUserText: null,
 
     send: async (text: string) => {
       if (get().sending || !text.trim()) return;
@@ -104,6 +108,7 @@ export const useChat = create<ChatStore>((set, get) => {
       set({
         sending: true,
         lastSeq: 0,
+        lastUserText: text,
         runtime: {
           ...initialRuntime,
           phase: 'running',
@@ -118,7 +123,7 @@ export const useChat = create<ChatStore>((set, get) => {
 
       const controller = new AbortController();
       abortRef = controller;
-      const clientMsgId = `cmsg_${Date.now()}`;
+      const clientMsgId = `cmsg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
       try {
         await streamChat({
@@ -148,6 +153,26 @@ export const useChat = create<ChatStore>((set, get) => {
         // abort/新消息已经推进 generation，旧 send 不要覆盖新的 sending
         if (gen === generation) set({ sending: false });
       }
+    },
+
+    /**
+     * 失败重试：去掉上一轮失败的用户/助手气泡后重新发送，避免对话里出现两条同样的问题。
+     * 每次都生成新的 client_msg_id —— 用原 id 会命中幂等回放，拿回来的还是那条失败 run。
+     */
+    retry: async () => {
+      const text = get().lastUserText;
+      if (!text || get().sending) return;
+      const messages = get().runtime.messages;
+      let end = messages.length;
+      while (end > 0 && messages[end - 1]?.role === 'assistant') end -= 1;
+      if (end > 0 && messages[end - 1]?.role === 'user' && messages[end - 1]?.text === text) {
+        end -= 1;
+      }
+      set({
+        runtime: { ...initialRuntime, messages: messages.slice(0, end) },
+        lastSeq: 0,
+      });
+      await get().send(text);
     },
 
     /**
@@ -208,7 +233,7 @@ export const useChat = create<ChatStore>((set, get) => {
       generation += 1;
       abortRef?.abort();
       abortRef = null;
-      set({ runtime: initialRuntime, lastSeq: 0, sending: false });
+      set({ runtime: initialRuntime, lastSeq: 0, sending: false, lastUserText: null });
     },
   };
 });

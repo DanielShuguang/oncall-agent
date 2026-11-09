@@ -52,7 +52,13 @@ handler 时用 `spec.handler(**args, identity=identity)` 注入会话身份 —�
    └────────→ 否 → 执行
 ```
 
-实现见 `server/app/tools/registry.py` 的 `ToolGuard.execute()`。
+实现见 `server/app/tools/registry.py` 的 `ToolGuard.execute()`。W5 起，在存在性检查之后、
+③/④ 之前会先应用 `tool_settings` 的环境覆盖（禁用/角色），生效规则与边界见 docs/02 §2.5；
+代码里的 `enabled=False` 不能被管理页打开。
+
+管理面试调用（`POST /admin/tools/{name}/test`）走同一个 `ToolGuard`：只读工具真实执行，
+写工具只返回 `requires_approval`，参数里的身份字段仍按保留字段拒绝。禁止在管理接口里
+直接调 handler，否则试调用会成为绕过治理的后门。
 
 W4 的 plan 是模型产出的，节点内会先用同一个 `validate_args` 过滤明显非法的调用
 （未知工具 / 未知参数 / enum 错 / 模糊输入计划写操作），全部非法时退回规则计划；

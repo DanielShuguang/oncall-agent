@@ -181,7 +181,7 @@ W5 指标（当时，本地）：后端 **215 passed**（含 Postgres，2 warnin
 
 W6 指标：评测 **50/50**（`cite_acc 97.09%`、`p95 81ms`、3 轮）；
 后端默认 **205 passed + 14 skipped**、带 Postgres **219 passed**；前端 40 tests；
-压测 **100/100** 成功、12.02 run/s、292.6 事件/s（开发机 16 vCPU/15GiB，非 8C16G 验收）；
+压测 **100/100** 成功、12.60 run/s、306.6 事件/s（开发机 16 vCPU/15GiB，非 8C16G 验收）；
 迁移仍 **0007**，`alembic check` 无漂移。
 
 与计划的差异：

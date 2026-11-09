@@ -757,8 +757,12 @@ class PostgresRunStore:
                 Run.session_id == session_id,
                 Run.output.is_not(None),
             )
-            # 空串等价于没有回答（历史数据里可能有 message.completed 的空文本）
-            .where(func.length(func.coalesce(Run.output, "")) > 0)
+            # 空串/纯空白等价于没有回答（历史数据里可能有 message.completed 的空文本）。
+            # 注意 btrim(output) 默认只去空格，不去换行/制表符；这里用 regexp_replace
+            # 去掉所有 \s 再判长度，才和内存实现的 .strip() 同口径
+            .where(
+                func.length(func.regexp_replace(func.coalesce(Run.output, ""), r"\s", "", "g")) > 0
+            )
             .order_by(Run.started_at.desc(), Run.id.desc())
             .limit(limit)
         )

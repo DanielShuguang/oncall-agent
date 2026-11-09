@@ -170,7 +170,7 @@ oncall/
 |---|---|---|
 | 文档（12 篇 + 19 篇 ADR + 评测基线） | ✅ 完成 | — |
 | 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡 / 运行回放 / 成本页） | ✅ 可用 | `tsc --noEmit`、`oxlint 0`、`oxfmt --check` 通过；`vitest` 55/55；`pnpm build` 成功 |
-| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **283 passed + 22 skipped**；设 `ONCALL_TEST_DATABASE_URL` 后 **305 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、计量一致性） |
+| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **286 passed + 22 skipped**；设 `ONCALL_TEST_DATABASE_URL` 后 **308 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、计量一致性） |
 | 本地 JWT（W1 D2） | ✅ 已完成 | `tests/test_auth.py` 20 条：签发/验签、过期、alg=none、401 JSON、OpenAPI Bearer、run 归属隔离 |
 | 事件落库 + 断线续传（D4） | ✅ 已完成 | `alembic upgrade head` + `alembic check` 无漂移；`tests/test_store_contract.py`（内存 + Postgres 契约）、`tests/test_chat_stream.py`（落库、幂等回放、503 语义） |
 | 最小 Agent 运行时（W1 D5） | ✅ 已完成 | `tests/test_agent_runtime.py` 9 条：工具真实执行、检索引用、写操作挂起审批、工具失败降级、步数/时长上限 |
@@ -245,7 +245,7 @@ W6 基线（3 轮均值，mock 规则路径，口径见 [baseline-v1](docs/eval/
 - 工具 schema 在管理页只读；配置覆盖只到「启用/角色」，且多副本部署最长 2s 生效（[ADR-0014](docs/decisions/0014-tool-policy-overrides.md)）
 - 引用全文预览是按切片重组的正文，不是原始文件渲染（PDF 排版/表格样式会丢）；没有列表接口、只能凭已知
   `document_id` 打开（[ADR-0018](docs/decisions/0018-citation-fulltext-preview.md)）
-- 多轮上下文只有 3 轮 / 1200 字，追问判定是关键词启发式（「那 + 新话题」会被上一轮稀释召回）；刷新页面即新会话，没有跨会话记忆；回答进历史时截断到 400 字；多轮没有进评测集（"指代解对"的口径未定，见 [docs/08 §3.2](docs/08-eval-metrics.md)）
+- 多轮上下文只有 3 轮 / 1200 字，追问判定是关键词启发式（「那 + 新话题」会被上一轮稀释召回）；刷新页面即新会话，没有跨会话记忆；历史来自旧 run 的回答，撤销角色不会清理它；回答进历史时截断到 400 字；多轮没有进评测集（"指代解对"的口径未定，见 [docs/08 §3.2](docs/08-eval-metrics.md)）
 - 文档级可见性只有 `public` / `roles` 两档：没有按用户授权、部门继承、临时授权与密级；
   `admin` 是知识库所有者、可读全部正文（合规要求「管理员也不能看内容」时需要在部署层拆角色）；
   角色名不做白名单，拼错会让文档除管理员外谁都看不到（控制台可见并可改）。召回多一次

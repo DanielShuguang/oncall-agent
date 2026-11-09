@@ -29,8 +29,8 @@ async def retrieve_node(state: AgentState, deps: AgentDeps) -> dict[str, Any]:
         log.info(
             "retrieval_context_merged",
             run_id=state.get("run_id"),
-            query=query,
-            context_query=context_query,
+            query=query[:80],
+            context_query=context_query[:160],
         )
     if not context_query or deps.retriever is None:
         return {"retrieved": [], "citations": [], "context_query": context_query}

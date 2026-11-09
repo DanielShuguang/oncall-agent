@@ -357,3 +357,81 @@ async def test_follow_up_inherits_previous_turn_context(client: AsyncClient) -> 
     fresh_answer, fresh_citations = _answer(fresh)
     assert fresh_citations == []
     assert fresh_answer == REFUSAL
+
+
+async def test_history_failure_degrades_to_single_turn() -> None:
+    """读历史失败只降级为单轮，不能把这一轮也打挂（ADR-0020）。"""
+
+    class HistoryDownStore(InMemoryRunStore):
+        async def recent_turns(
+            self,
+            *,
+            user_id: str,
+            session_id: str,
+            limit: int = 3,
+            exclude_run_id: str | None = None,
+        ) -> list[object]:
+            del user_id, session_id, limit, exclude_run_id
+            raise SQLAlchemyError("history down")
+
+    app.dependency_overrides[get_store] = lambda: HistoryDownStore()
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(
+            transport=transport, base_url="http://test", headers=auth_headers()
+        ) as http:
+            events = _parse(
+                await _stream(http, {"session_id": "sess_hist_down", "message": "那怎么办？"})
+            )
+    finally:
+        app.dependency_overrides.pop(get_store, None)
+
+    assert events[-1]["type"] == EventType.RUN_COMPLETED.value
+    answer, citations = _answer(events)
+    assert answer == REFUSAL
+    assert citations == []
+
+
+async def test_replay_does_not_reload_history() -> None:
+    """幂等重放只回放已落库事件，不再读历史（否则重复请求会多一次查询）。"""
+
+    class CountingStore(InMemoryRunStore):
+        def __init__(self) -> None:
+            super().__init__()
+            self.history_calls = 0
+
+        async def recent_turns(
+            self,
+            *,
+            user_id: str,
+            session_id: str,
+            limit: int = 3,
+            exclude_run_id: str | None = None,
+        ) -> list[object]:
+            self.history_calls += 1
+            return await super().recent_turns(
+                user_id=user_id,
+                session_id=session_id,
+                limit=limit,
+                exclude_run_id=exclude_run_id,
+            )
+
+    store = CountingStore()
+    app.dependency_overrides[get_store] = lambda: store
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(
+            transport=transport, base_url="http://test", headers=auth_headers()
+        ) as http:
+            payload = {
+                "session_id": "sess_replay",
+                "client_msg_id": "hist_replay",
+                "message": "VPN 连不上怎么办",
+            }
+            first = _parse(await _stream(http, payload))
+            second = _parse(await _stream(http, payload))
+    finally:
+        app.dependency_overrides.pop(get_store, None)
+
+    assert [e["seq"] for e in second] == [e["seq"] for e in first]
+    assert store.history_calls == 1

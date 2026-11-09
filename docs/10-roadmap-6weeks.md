@@ -277,9 +277,9 @@ W5 D24 的「多轮」一直没兑现：`AgentState.messages` 从 W1 起就是�
 | 追问判定 | 关键词启发式（≤ 30 字 + 指代词/承接词），不做 LLM 改写；长句一律按新问题处理 |
 | 前端 | 「清空对话」换新 `session_id`，否则新会话的第一句会带着上一段上下文；刷新页面即新会话 |
 | 边界 | 历史不进 `citations`、不进事件 payload；引用仍只能来自本轮检索；幂等重放不读历史 |
-| 回归 | `tests/test_history.py`（13 条纯函数）、store 契约（内存与 Postgres 共用）、runtime 两条（追问拼/独立问题不拼）、`test_chat_stream` 端到端（同会话追问引用 VPN、换会话拒绝） |
+| 回归 | `tests/test_history.py`（13 条纯函数）、store 契约（内存与 Postgres 共用，含空白回答与跨用户/会话隔离）、runtime 两条（追问拼/独立问题不拼）、plan 提示词带 history、`test_chat_stream` 端到端（同会话追问引用 VPN、换会话拒绝、读历史失败降级、重放不读历史） |
 
-验证：默认 **283 passed + 22 skipped**；带 Postgres **305 passed**（2026-11-10 本机
+验证：默认 **286 passed + 22 skipped**；带 Postgres **308 passed**（2026-11-10 本机
 WSL2 + Docker 复跑）；前端 **55 tests / 11 files**；`ruff` / `ruff format --check` /
 `mypy`（93 files）/ `tsc --noEmit` / `oxlint` / `oxfmt --check` 全绿；
 迁移 0009 已 `downgrade → upgrade` 往返，`alembic check` 无漂移。

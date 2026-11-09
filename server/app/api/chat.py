@@ -179,8 +179,9 @@ async def chat_stream(
                     limit=MAX_TURNS,
                     exclude_run_id=rec.run_id,
                 )
-            except SQLAlchemyError as exc:
-                log.warning("history_load_failed", run_id=rec.run_id, error=str(exc))
+            except Exception as exc:
+                # 不限定异常类型：读历史是附加动作，任何失败都只降级为单轮
+                log.exception("history_load_failed", run_id=rec.run_id, error=repr(exc))
 
         async for etype, payload in agent_stream(
             run_id=rec.run_id,

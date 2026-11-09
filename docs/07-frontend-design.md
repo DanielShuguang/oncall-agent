@@ -89,8 +89,7 @@ token 来源：v1 没有登录页，token 存在 `localStorage.oncall.token`，�
 
 ```
 ChatPage
-├─ ConversationList        历史会话
-├─ MessageList             虚拟滚动（长会话）
+├─ MessageList             直接渲染（未做虚拟滚动）
 │  ├─ UserMessage
 │  ├─ AssistantMessage
 │  │  ├─ MarkdownText      流式中渲染，代码块/表格
@@ -105,6 +104,9 @@ ChatPage
 ├─ Composer                输入框，Enter 发送，Shift+Enter 换行
 └─ ConnectionBanner        断线提示 + "正在恢复…"
 ```
+
+> 未实现：会话列表（`ConversationList`）与消息虚拟滚动。v1 只有当前会话——刷新页面即新会话，
+> 上下文作用域跟随 `session_id`（[ADR-0020](decisions/0020-multi-turn-context.md)）；长会话直接渲染。
 
 通用样式原语（Button / Tag / Card / Alert / Tabs）在 `src/components/ui.tsx`，页面只做组合，不重复写按钮/标签样式（见 §11）。
 

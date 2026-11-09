@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
 from typing import Any
 
@@ -126,6 +127,20 @@ async def test_classify_falls_back_to_rule_on_model_error() -> None:
     assert delta["classified_by"] == "rule"
     assert delta["intent"] == "knowledge"
     assert delta["usage"]["calls"] == 0
+
+
+async def test_plan_prompt_carries_history_for_follow_ups() -> None:
+    """追问的指代靠 history 理解：真实模式的 plan payload 必须带上它（ADR-0020）。"""
+    gateway = FakeGateway({Purpose.PLAN: ['{"calls": []}']})
+    history = [
+        {"role": "user", "content": "VPN 连不上"},
+        {"role": "assistant", "content": "先检查网络，再换节点。"},
+    ]
+
+    await plan_node(_state("那在公司电脑上呢", messages=history), _deps(gateway))
+
+    payload = json.loads(gateway.calls[0]["messages"][1].content)
+    assert payload["history"] == history
 
 
 async def test_plan_injects_owner_id_and_validates_calls() -> None:

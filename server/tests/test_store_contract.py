@@ -240,6 +240,15 @@ async def _exercise(store: RunStore) -> None:
         turn.query for turn in await store.recent_turns(user_id="u_999", session_id="sess_1")
     ] == ["别人的问题"]
 
+    # 纯空白的 output 不算「有回答」：内存用 strip()、Postgres 用 btrim，口径必须一致
+    blank_answer_id = str(uuid.uuid4())
+    await store.create(
+        run_id=blank_answer_id, user_id="u_102", session_id="sess_ws", message="空白回答"
+    )
+    await store.append(blank_answer_id, EventType.MESSAGE_COMPLETED, {"text": "  \n\t "})
+    await store.append(blank_answer_id, EventType.RUN_COMPLETED, {})
+    assert await store.recent_turns(user_id="u_102", session_id="sess_ws") == []
+
 
 async def _exercise_concurrent_seq(store: RunStore) -> None:
     run_id = str(uuid.uuid4())

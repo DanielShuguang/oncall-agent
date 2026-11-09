@@ -114,6 +114,7 @@ agent 决定 create_ticket
 | 幂等 | 客户端传 `client_msg_id`，重复提交返回同一 run |
 | 并发 | 一个 run 同时只允许一个执行者（DB 行锁 / Redis 锁） |
 | 超时 | 工具级超时 + run 级最大步数 + run 级总时长上限 |
+| 崩溃恢复 | 超过 stale 阈值的 `running` run 由后台回收为 `failed(RUN_INTERRUPTED)`；只收敛状态，不重放写操作（[ADR-0017](decisions/0017-stale-run-recovery.md)） |
 | 预算 | 每次模型调用前 `INCRBY` 预扣，超预算直接拒绝 |
 | 限流 | 按用户滑动窗口（ZSET），超限在建 run 前返回 429 |
 

@@ -228,6 +228,8 @@ run 也满足 `runs.token_in == sum(model_calls.token_in)`（`tests/test_metrics
 `error_code` 为 `STEP_LIMIT` / `TOOL_LIMIT`。总时长 `RUN_TIMEOUT_S` 在节点与工具边界
 检查，超限发 `TIMEOUT`；节点异常为 `INTERNAL_ERROR`。审批拒绝/超时为
 `APPROVAL_REJECTED` / `APPROVAL_TIMEOUT`，写工具执行失败为 `TOOL_ERROR`。
+进程崩溃留下的孤儿 run 由后台回收写 `RUN_INTERRUPTED`（[ADR-0017](decisions/0017-stale-run-recovery.md)），
+回收只收敛状态，不会自动重试写工具。
 客户端断开由 `api/chat.py` 标 `interrupted`，运行时本身不吞 `CancelledError`。
 
 W1 的 `plan` / `finalize` 是规则实现（关键词分类 + 模板回答）；W3 D13 把 plan 换成 LLM

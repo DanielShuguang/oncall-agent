@@ -85,6 +85,11 @@ class Settings(BaseSettings):
     # 运行态
     session_secret: str = DEFAULT_SESSION_SECRET
     event_retention_days: int = 30
+    #: 超过该时长没有任何事件的 running run 判定为进程中断（ADR-0017）。
+    #: 必须明显大于单 run 时长上限（agent.state.RUN_TIMEOUT_S=120s），否则会误杀活着的 run。
+    stale_run_min: int = 10
+    #: 孤儿 run 回收任务扫描间隔
+    recovery_interval_s: float = 60.0
 
     @model_validator(mode="after")
     def _validate_embedding_dim(self) -> Self:
@@ -121,6 +126,15 @@ class Settings(BaseSettings):
             raise ValueError("ONCALL_APPROVAL_GRANT_HOURS 必须 >= 1")
         if not self.approver_role_list:
             raise ValueError("ONCALL_APPROVER_ROLES 至少配置一个角色")
+        return self
+
+    @model_validator(mode="after")
+    def _validate_runtime(self) -> Self:
+        """回收阈值配错会误杀活着的 run，启动期就拒绝。"""
+        if self.stale_run_min < 1:
+            raise ValueError("ONCALL_STALE_RUN_MIN 必须 >= 1")
+        if self.recovery_interval_s <= 0:
+            raise ValueError("ONCALL_RECOVERY_INTERVAL_S 必须 > 0")
         return self
 
     @model_validator(mode="after")

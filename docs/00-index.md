@@ -20,7 +20,7 @@
 | — | [eval/baseline-v1](eval/baseline-v1.md) | W6 评测基线（50 条、口径、复现命令） | 改检索/提示词前 |
 | — | [eval/classify-v1](eval/classify-v1.md) | D11 意图分类基线（50 条标注，规则路径） | 改 classify 规则前 |
 | — | [eval/baseline-v0](eval/baseline-v0.md) | W2 历史基线（20 条） | 只看历史对比 |
-| — | [decisions/](decisions/) | 16 篇 ADR：为什么 React / Python / LangGraph / pgvector / SSE / Tailwind+oxc / 依赖版本 / shadcn / Postgres 存储 / 本地 JWT / 离线 RAG 向量化 / 显式调度 / 自研模型网关 / 工具覆盖存库 / 私有化交付 / 审批事务 | 面试前重读 |
+| — | [decisions/](decisions/) | 17 篇 ADR：为什么 React / Python / LangGraph / pgvector / SSE / Tailwind+oxc / 依赖版本 / shadcn / Postgres 存储 / 本地 JWT / 离线 RAG 向量化 / 显式调度 / 自研模型网关 / 工具覆盖存库 / 私有化交付 / 审批事务 / 孤儿 run 回收 | 面试前重读 |
 
 ## ADR（Architecture Decision Record）
 
@@ -42,6 +42,7 @@
 | [0014](decisions/0014-tool-policy-overrides.md) | 工具配置 | 定义留在代码，数据库只存启用/角色覆盖；schema 只读，代码禁用不可绕过 |
 | [0015](decisions/0015-private-delivery.md) | 私有化交付 | 单 compose + `full` profile；镜像内迁移/按需 seed；Nginx 反代 SSE；离线 tar；压测只承诺口径 |
 | [0016](decisions/0016-approval-decision-transaction.md) | 审批事务 | 决议状态 + `approval.resolved` + 拒绝/超时 `run.failed` 同一事务；恢复执行仍是独立窗口 |
+| [0017](decisions/0017-stale-run-recovery.md) | 孤儿 run 回收 | 超过 stale 阈值的 `running` run 追加 `run.failed(RUN_INTERRUPTED)` 收敛；只改状态，不重放写操作 |
 
 > ADR 的写法：背景 → 方案对比 → 决策 → 后果。面试被问"为什么这么做"时，直接念 ADR。
 

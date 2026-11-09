@@ -30,6 +30,8 @@ ERROR_CATEGORIES: dict[str, FailureCategory] = {
     "TIMEOUT": FailureCategory.LIMIT,
     "INTERNAL_ERROR": FailureCategory.INTERNAL,
     "STORE_WRITE_FAILED": FailureCategory.INTERNAL,
+    #: 进程中断、超过 stale 阈值被后台回收（ADR-0017）；不是工具/模型失败
+    "RUN_INTERRUPTED": FailureCategory.INTERNAL,
 }
 
 

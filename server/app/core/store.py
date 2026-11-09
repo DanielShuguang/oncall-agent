@@ -60,6 +60,20 @@ class RunRecord:
 
 
 @dataclass(frozen=True)
+class StaleRun:
+    """超过阈值没有任何事件的 running run（ADR-0017）。
+
+    只给运维回收用；正常读写路径不依赖它。`last_event_at` 在没有事件时回退到
+    `started_at`，覆盖「建完 run 还没写 run.started 就崩了」的情况。
+    """
+
+    run_id: str
+    user_id: str
+    started_at: datetime
+    last_event_at: datetime
+
+
+@dataclass(frozen=True)
 class RunPatch:
     """事件对 runs 汇总字段的投影。None 表示该字段不更新。"""
 
@@ -205,6 +219,20 @@ class RunStore(Protocol):
         self, run_id: str, status: str, *, error_code: str | None = None
     ) -> None: ...
 
+    async def list_stale_runs(self, *, older_than: datetime, limit: int = 100) -> list[StaleRun]:
+        """`running` 且最后一条事件（没有事件时用 `started_at`）早于 `older_than`。"""
+        ...
+
+    async def fail_stale_run(
+        self, run_id: str, *, older_than: datetime, payload: dict[str, Any]
+    ) -> bool:
+        """原子地把「仍然 running 且确实过期」的 run 追加 `run.failed`。
+
+        返回是否真的写入。状态检查、过期检查与事件写入在同一事务里完成，
+        多副本同时回收也只会有一次成功；刚有新事件或已进入终态的 run 不会被误杀。
+        """
+        ...
+
     async def list_runs(
         self,
         *,
@@ -299,24 +327,33 @@ class InMemoryRunStore:
     ) -> RunEvent:
         rid = str(uuid.UUID(run_id))
         async with self._lock:
-            record = self._runs.get(rid)
-            if record is None:
-                raise RunNotFoundError(run_id)
-            now = datetime.now(UTC)
-            event = RunEvent(
-                seq=len(self._events[rid]) + 1,
-                run_id=rid,
-                type=event_type,
-                ts=now,
-                payload=payload or {},
-            )
-            self._events[rid].append(event)
-            record.event_count = len(self._events[rid])
-            _apply_patch(record, build_run_patch(event_type, event.payload, now))
-            if event_type is EventType.STEP_COMPLETED:
-                # 失败 run 也需要“跑了几步”的口径；run.completed 会覆盖为准确值
-                record.step_count += 1
-            return event
+            return self._append_locked(rid, event_type, payload)
+
+    def _append_locked(
+        self, rid: str, event_type: EventType, payload: dict[str, Any] | None = None
+    ) -> RunEvent:
+        record = self._runs.get(rid)
+        if record is None:
+            raise RunNotFoundError(rid)
+        now = datetime.now(UTC)
+        event = RunEvent(
+            seq=len(self._events[rid]) + 1,
+            run_id=rid,
+            type=event_type,
+            ts=now,
+            payload=payload or {},
+        )
+        self._events[rid].append(event)
+        record.event_count = len(self._events[rid])
+        _apply_patch(record, build_run_patch(event_type, event.payload, now))
+        if event_type is EventType.STEP_COMPLETED:
+            # 失败 run 也需要“跑了几步”的口径；run.completed 会覆盖为准确值
+            record.step_count += 1
+        return event
+
+    def _last_activity_locked(self, rid: str) -> datetime:
+        events = self._events.get(rid) or []
+        return events[-1].ts if events else self._runs[rid].started_at
 
     async def events_after(
         self, run_id: str, after_seq: int = 0, limit: int = 200
@@ -342,6 +379,42 @@ class InMemoryRunStore:
                 record.failure_category = categorize(error_code).value
             if status in _TERMINAL_STATUSES:
                 record.finished_at = datetime.now(UTC)
+
+    async def list_stale_runs(self, *, older_than: datetime, limit: int = 100) -> list[StaleRun]:
+        async with self._lock:
+            items: list[StaleRun] = []
+            for rid, record in self._runs.items():
+                if record.status != RunStatus.RUNNING.value:
+                    continue
+                last = self._last_activity_locked(rid)
+                if last >= older_than:
+                    continue
+                items.append(
+                    StaleRun(
+                        run_id=rid,
+                        user_id=record.user_id,
+                        started_at=record.started_at,
+                        last_event_at=last,
+                    )
+                )
+        items.sort(key=lambda item: item.started_at)
+        return items[:limit]
+
+    async def fail_stale_run(
+        self, run_id: str, *, older_than: datetime, payload: dict[str, Any]
+    ) -> bool:
+        try:
+            rid = str(uuid.UUID(run_id))
+        except ValueError:
+            return False
+        async with self._lock:
+            record = self._runs.get(rid)
+            if record is None or record.status != RunStatus.RUNNING.value:
+                return False
+            if self._last_activity_locked(rid) >= older_than:
+                return False
+            self._append_locked(rid, EventType.RUN_FAILED, payload)
+            return True
 
     async def list_runs(
         self,
@@ -529,6 +602,52 @@ class PostgresRunStore:
                 row.failure_category = categorize(error_code).value
             if status in _TERMINAL_STATUSES:
                 row.finished_at = datetime.now(UTC)
+
+    async def list_stale_runs(self, *, older_than: datetime, limit: int = 100) -> list[StaleRun]:
+        last_event = (
+            select(func.max(RunEventRow.created_at))
+            .where(RunEventRow.run_id == Run.id)
+            .scalar_subquery()
+        )
+        stmt = (
+            select(Run, last_event)
+            .where(Run.status == RunStatus.RUNNING.value)
+            .where(func.coalesce(last_event, Run.started_at) < older_than)
+            .order_by(Run.started_at)
+            .limit(limit)
+        )
+        async with self._sessionmaker() as session:
+            rows = (await session.execute(stmt)).all()
+        return [
+            StaleRun(
+                run_id=str(row.id),
+                user_id=row.user_id,
+                started_at=row.started_at,
+                last_event_at=last or row.started_at,
+            )
+            for row, last in rows
+        ]
+
+    async def fail_stale_run(
+        self, run_id: str, *, older_than: datetime, payload: dict[str, Any]
+    ) -> bool:
+        try:
+            rid = uuid.UUID(run_id)
+        except ValueError:
+            return False
+        async with self._sessionmaker() as session, session.begin():
+            # 锁住 run 行后再检查：与 append 的 seq 分配同一把锁，
+            # 多副本同时回收时只有第一方能迁移到 failed（ADR-0017）
+            row = await session.scalar(select(Run).where(Run.id == rid).with_for_update())
+            if row is None or row.status != RunStatus.RUNNING.value:
+                return False
+            last_event = await session.scalar(
+                select(func.max(RunEventRow.created_at)).where(RunEventRow.run_id == rid)
+            )
+            if (last_event or row.started_at) >= older_than:
+                return False
+            await append_event_in_session(session, run_id, EventType.RUN_FAILED, payload)
+            return True
 
     async def list_runs(
         self,

@@ -21,6 +21,7 @@ from app.core.db import configure as configure_db
 from app.core.db import dispose as dispose_db
 from app.core.logging import get_logger, setup_logging
 from app.core.store import get_store
+from app.runs.recovery import RunRecovery
 
 log = get_logger(__name__)
 
@@ -42,11 +43,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # 审批超时回收：即使没人打开审批列表，run 也要在 TTL 后收敛到 failed
     sweeper_stop = asyncio.Event()
     sweeper = asyncio.create_task(_sweep_expired_approvals(sweeper_stop))
+    # 进程中断回收：崩溃后永远停在 running 的 run 也要收敛（ADR-0017）
+    recovery = asyncio.create_task(_sweep_stale_runs(sweeper_stop))
     yield
     sweeper_stop.set()
-    sweeper.cancel()
-    with suppress(asyncio.CancelledError):
-        await sweeper
+    for task in (sweeper, recovery):
+        task.cancel()
+    for task in (sweeper, recovery):
+        with suppress(asyncio.CancelledError):
+            await task
     if settings.store_backend == "postgres":
         await dispose_db()
     log.info("app_stopped")
@@ -66,6 +71,18 @@ async def _sweep_expired_approvals(stop: asyncio.Event) -> None:
             log.warning("approval_sweep_failed", error=str(exc))
         with suppress(TimeoutError):
             await asyncio.wait_for(stop.wait(), timeout=APPROVAL_SWEEP_INTERVAL_S)
+
+
+async def _sweep_stale_runs(stop: asyncio.Event) -> None:
+    settings = get_settings()
+    recovery = RunRecovery(get_store(), settings=settings)
+    while not stop.is_set():
+        try:
+            await recovery.reap()
+        except Exception as exc:  # 库没起来时不能让后台任务炸掉整个进程
+            log.warning("stale_run_sweep_failed", error=str(exc))
+        with suppress(TimeoutError):
+            await asyncio.wait_for(stop.wait(), timeout=settings.recovery_interval_s)
 
 
 def create_app() -> FastAPI:

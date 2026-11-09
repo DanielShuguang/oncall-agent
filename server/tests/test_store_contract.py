@@ -9,6 +9,7 @@ import asyncio
 import os
 import uuid
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime, timedelta
 
 import pytest
 import pytest_asyncio
@@ -204,9 +205,56 @@ async def _exercise_concurrent_seq(store: RunStore) -> None:
     assert rec.event_count == 10
 
 
+async def _exercise_stale(store: RunStore) -> None:
+    # 以操作前的时刻为界：之后创建的事件都晚于 now，不会被误判为过期
+    now = datetime.now(UTC)
+    stale_id = str(uuid.uuid4())
+    await store.create(run_id=stale_id, user_id="u_302", session_id="sess_stale", message="崩溃")
+    await store.append(stale_id, EventType.RUN_STARTED, {})
+
+    fresh_id = str(uuid.uuid4())
+    await store.create(run_id=fresh_id, user_id="u_302", session_id="sess_stale", message="正常")
+    await store.append(fresh_id, EventType.RUN_STARTED, {})
+
+    # 阈值取操作前：这两个 run 都不该被判定为过期
+    recent_ids = {item.run_id for item in await store.list_stale_runs(older_than=now)}
+    assert stale_id not in recent_ids
+    assert fresh_id not in recent_ids
+    assert not await store.fail_stale_run(fresh_id, older_than=now, payload={})
+
+    # 全新 run 也能被识别（没有事件时回退到 started_at）
+    silent_id = str(uuid.uuid4())
+    await store.create(run_id=silent_id, user_id="u_302", session_id="sess_stale", message="没事件")
+
+    future = now + timedelta(minutes=11)
+    stale_ids = {item.run_id for item in await store.list_stale_runs(older_than=future)}
+    assert {stale_id, fresh_id, silent_id} <= stale_ids
+    assert not await store.fail_stale_run(str(uuid.uuid4()), older_than=future, payload={})
+    assert not await store.fail_stale_run("not-a-uuid", older_than=future, payload={})
+
+    payload = {"error_code": "RUN_INTERRUPTED", "message": "进程中断"}
+    assert await store.fail_stale_run(stale_id, older_than=future, payload=payload) is True
+    rec = await store.get(stale_id)
+    assert rec is not None
+    assert rec.status == RunStatus.FAILED.value
+    assert rec.error_code == "RUN_INTERRUPTED"
+    assert rec.finished_at is not None
+    events = await store.events_after(stale_id)
+    assert [event.type for event in events] == [EventType.RUN_STARTED, EventType.RUN_FAILED]
+    assert events[-1].payload["message"] == "进程中断"
+
+    # 已是终态：重复回收不追加第二条 run.failed
+    assert await store.fail_stale_run(stale_id, older_than=future, payload=payload) is False
+    assert len(await store.events_after(stale_id)) == 2
+    remaining = {item.run_id for item in await store.list_stale_runs(older_than=future)}
+    assert stale_id not in remaining
+
+
 async def test_memory_store_contract() -> None:
-    await _exercise(InMemoryRunStore())
-    await _exercise_concurrent_seq(InMemoryRunStore())
+    store = InMemoryRunStore()
+    await _exercise(store)
+    await _exercise_concurrent_seq(store)
+    await _exercise_stale(store)
 
 
 @pytest_asyncio.fixture
@@ -233,3 +281,4 @@ async def pg_store() -> AsyncIterator[PostgresRunStore]:
 async def test_postgres_store_contract(pg_store: PostgresRunStore) -> None:
     await _exercise(pg_store)
     await _exercise_concurrent_seq(pg_store)
+    await _exercise_stale(pg_store)

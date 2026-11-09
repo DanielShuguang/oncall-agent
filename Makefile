@@ -2,7 +2,7 @@
 # Windows 无 make 时执行：pwsh -File scripts/dev.ps1 <target>
 # 或直接照抄下方命令。
 
-.PHONY: help up down logs migrate api web dev install fmt lint test eval eval-classify seed clean stack stack-down images loadtest demo
+.PHONY: help up down logs migrate api web dev install fmt lint test eval eval-classify seed clean stack stack-down images loadtest demo reap
 
 help:
 	@echo "up      起中间件 (postgres + redis)"
@@ -19,6 +19,7 @@ help:
 	@echo "test    跑测试"
 	@echo "eval    跑评测并生成报告"
 	@echo "eval-classify 跑意图分类评测 (50 条)"
+	@echo "reap    回收进程中断的 run（只收敛状态，不重放写操作）"
 	@echo "loadtest 对 SSE 对话压测"
 	@echo "demo    跑三条演示剧本"
 	@echo "seed    灌演示数据"
@@ -72,6 +73,9 @@ eval:
 
 eval-classify:
 	cd server && uv run python -m app.eval.classify
+
+reap:
+	cd server && uv run python -m app.cli reap
 
 loadtest:
 	cd server && uv run python -m app.eval.loadtest --requests 100 --concurrency 20 --users 20

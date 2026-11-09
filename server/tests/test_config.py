@@ -70,3 +70,13 @@ def test_http_embedding_requires_base_url() -> None:
         Settings(embedding_provider="http", embedding_base_url="")
     settings = Settings(embedding_provider="http", embedding_base_url="http://127.0.0.1:11434/v1")
     assert settings.embedding_provider == "http"
+
+
+def test_recovery_params_are_validated() -> None:
+    """阈值配成 0 会把活着的 run 当孤儿，必须在启动期拒绝。"""
+    with pytest.raises(ValidationError, match="ONCALL_STALE_RUN_MIN"):
+        Settings(stale_run_min=0)
+    with pytest.raises(ValidationError, match="ONCALL_RECOVERY_INTERVAL_S"):
+        Settings(recovery_interval_s=0)
+    settings = Settings(stale_run_min=15, recovery_interval_s=30)
+    assert (settings.stale_run_min, settings.recovery_interval_s) == (15, 30.0)

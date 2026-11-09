@@ -133,7 +133,13 @@ Agent 层面：单个工具失败不中断整个 run，`tool.result` 记 `status
 [ADR-0016](decisions/0016-approval-decision-transaction.md)），不会再出现
 「审批已完成但没有终态事件」。审批通过后的**恢复执行**仍在决议提交之后逐条追加
 `act → verify → finalize` 事件：进程若在工具执行后、事件落库前崩溃，run 仍可能停在
-非终态。当前不自动重试写工具（重试 = 可能重复开单），由运维按 run_id 对账/重放。
+非终态。当前不自动重试写工具（重试 = 可能重复开单），由运维按 run_id 对账后人工重试。
+
+进程中断（重启、被 kill、容器被驱逐）留下的 `running` run 由后台回收任务兜底：
+超过 `ONCALL_STALE_RUN_MIN`（默认 10 分钟）没有任何事件，就追加
+`run.failed(RUN_INTERRUPTED)`，让列表、回放和失败率收敛到同一个终态
+（[ADR-0017](decisions/0017-stale-run-recovery.md)）。回收**只收敛状态，不重放写工具**：
+工单是否已经创建仍要人工按 run_id 对账。审批等待中的 run 不归它管，由审批 TTL 回收。
 
 **反模式**（面试会问"这样设计有什么问题"）：
 - 让模型自己判断"这个操作安全"→ 模型可被提示词注入影响

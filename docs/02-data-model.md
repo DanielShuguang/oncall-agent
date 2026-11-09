@@ -292,6 +292,8 @@ CREATE TABLE eval_results (
 > `approval.resolved` 与拒绝/超时的 `run.failed` 由审批存储层在决议事务内写入
 > （[ADR-0016](decisions/0016-approval-decision-transaction.md)）：`approvals.status`
 > 迁移和这两条事件要么一起提交，要么一起回滚。
+> 进程中断的孤儿 run 由回收任务追加一条普通 `run.failed(RUN_INTERRUPTED)`，投影规则不变，
+> 没有新增表或字段（[ADR-0017](decisions/0017-stale-run-recovery.md)）。
 
 ## 4. 保留与清理
 

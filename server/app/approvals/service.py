@@ -15,7 +15,7 @@ from typing import Any
 
 from sqlalchemy.exc import IntegrityError
 
-from app.approvals.store import ApprovalStore
+from app.approvals.store import ApprovalStore, OnResolved
 from app.approvals.types import (
     ApprovalForbidden,
     ApprovalNotFound,
@@ -260,7 +260,9 @@ class ApprovalService:
     def _is_approver(self, identity: Identity) -> bool:
         return bool(set(self._settings.approver_role_list).intersection(identity.roles))
 
-    def _event_writer(self, run_id: str, events: list[tuple[EventType, dict[str, Any]]]) -> Any:
+    def _event_writer(
+        self, run_id: str, events: list[tuple[EventType, dict[str, Any]]]
+    ) -> OnResolved:
         """把决议事件写进存储层给的同一个事务；内存实现传 None，退回逐条 append。"""
 
         async def write(session: Any) -> None:

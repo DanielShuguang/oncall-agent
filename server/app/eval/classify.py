@@ -194,8 +194,10 @@ def render_report(
         "",
         "## 模型兜底",
         "",
-        f"规则无法判定、生产环境会走模型兜底的用例：**{len(report.fallback)}** 条"
+        f"满足 `needs_model` 触发条件、生产环境会调模型兜底/复核的用例："
+        f"**{len(report.fallback)}** 条"
         f"（{', '.join(report.fallback) if report.fallback else '无'}）。",
+        "这些用例的规则结果仍会计入上面的准确率；模型可能覆盖规则结果，",
         "mock 模式没有真实模型，本报告不度量模型兜底路径的准确率。",
         "",
         "## 局限",

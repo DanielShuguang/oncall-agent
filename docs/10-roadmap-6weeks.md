@@ -202,10 +202,10 @@ W6 交付完成后补两个遗留项：D11 的意图分类验收，以及会直�
 |---|---|
 | 意图分类评测（D11 收口） | `app/eval/classify_cases.yaml` 50 条人工标注 + `app/eval/classify.py`（混淆矩阵、失败用例、模型兜底覆盖）；规则路径 **50/50**，`make eval-classify` 可复跑，基线见 [eval/classify-v1.md](eval/classify-v1.md)。结果属样本内，模型兜底路径未量化 |
 | 审批决议原子性 | `ApprovalStore.resolve` 增加 `on_resolved` 回调；Postgres 在同一事务内写 `approvals.status` + `approval.resolved` + 拒绝/超时的 `run.failed`，事件失败则决议回滚；事件写入复用 `core/store.py: append_event_in_session`，seq/投影只有一份。[ADR-0016](decisions/0016-approval-decision-transaction.md) |
-| 回归覆盖 | 新增 `tests/test_classify_eval.py`（50 条标注、验收线与报告口径）与 `tests/test_approvals_pg.py::test_pg_event_failure_rolls_back_decision`（默认跳过）；内存路径沿用原有审批/超时用例 |
+| 回归覆盖 | 新增 `tests/test_classify_eval.py`（50 条标注、验收线与报告口径）与 `tests/test_approvals_pg.py` 两条事务回滚用例（首个事件失败、第二个事件失败）；内存路径沿用原有审批/超时用例 |
 | 文档 | docs/02 投影表、docs/06 §7 一致性边界、README 已知局限同步；恢复执行仍在事务外，明确不自动重试写工具 |
 
-验证：默认 **211 passed + 15 skipped**；带 Postgres **226 passed**（2026-11-09 本机
+验证：默认 **211 passed + 16 skipped**；带 Postgres **227 passed**（2026-11-09 本机
 WSL2 + Docker 复跑，含新增分类评测与审批事务回滚用例）；`ruff` / `ruff format --check` / `mypy` 通过。
 改 classify 规则后重跑 RAG 评测：**50/50**、`cite_acc 97.09%`、`avg_tool_calls 0.36`，
 未回退（单轮确定性运行，基线仍是 3 轮均值）。

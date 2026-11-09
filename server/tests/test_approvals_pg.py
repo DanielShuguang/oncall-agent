@@ -24,6 +24,7 @@ from sqlalchemy.pool import NullPool
 from app.approvals.service import ApprovalService
 from app.approvals.store import PostgresApprovalStore
 from app.core.store import PostgresRunStore
+from app.core.store import append_event_in_session as real_append_event_in_session
 from app.models import Approval, Base
 from app.schemas.event import EventType
 from app.tools.registry import Identity
@@ -121,13 +122,57 @@ async def test_pg_event_failure_rolls_back_decision(
     monkeypatch.setattr("app.approvals.service.append_event_in_session", boom)
 
     with pytest.raises(RuntimeError):
-        await service.resolve(approval_id, APPROVER_A, decision="approved")
+        await service.resolve(approval_id, APPROVER_A, decision="approved", scope="session")
 
     record = await approvals.get(approval_id)
     assert record is not None and record.status == "pending"
     assert (await runs.status(run_id)) == "awaiting_approval"
     types = [event.type.value for event in await runs.events_after(run_id)]
     assert "approval.resolved" not in types
+    # 同一事务里的 session 授权也必须回滚
+    assert not await approvals.is_granted(
+        user_id="u_102",
+        session_id="sess_pg",
+        tool_name="create_ticket",
+        at=datetime.now(UTC) + timedelta(hours=1),
+    )
+
+
+async def test_pg_second_event_failure_rolls_back_decision(
+    pg_approvals: tuple[PostgresRunStore, PostgresApprovalStore, ApprovalService, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """拒绝要写 approval.resolved + run.failed 两条事件；第二条失败也整体回滚。"""
+    runs, approvals, service, _ = pg_approvals
+    run_id = await _new_run(runs)
+    approval_id = await _request(runs, service, run_id)
+
+    calls = 0
+
+    async def flaky(
+        session: Any,
+        run_id: str,
+        event_type: Any,
+        payload: dict[str, Any] | None = None,
+    ) -> Any:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("second event failed")
+        return await real_append_event_in_session(session, run_id, event_type, payload)
+
+    monkeypatch.setattr("app.approvals.service.append_event_in_session", flaky)
+
+    with pytest.raises(RuntimeError):
+        await service.resolve(approval_id, APPROVER_A, decision="rejected")
+
+    assert calls == 2, "拒绝应写 approval.resolved + run.failed，第二条失败才触发回滚"
+    record = await approvals.get(approval_id)
+    assert record is not None and record.status == "pending"
+    assert (await runs.status(run_id)) == "awaiting_approval"
+    types = [event.type.value for event in await runs.events_after(run_id)]
+    assert "approval.resolved" not in types
+    assert "run.failed" not in types
 
 
 async def test_pg_approval_resume_executes_once(

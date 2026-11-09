@@ -1,0 +1,100 @@
+# 多跳型 10 条：需要「查资产 + 查政策」两类证据组合，验证 query_cmdb 与跨文档引用
+- id: mh-warranty-replace
+  question: 我的电脑保修到什么时候，还能申请换新吗
+  expected:
+    must_cite_docs: ["电脑保修与换新政策"]
+    must_cite_contains: ["换新"]
+    answer_must_contain: ["换新"]
+    must_call: ["query_cmdb"]
+  tags: [multihop, warranty]
+  difficulty: hard
+
+- id: mh-laptop-bluescreen
+  question: 我的笔记本蓝屏了，还在保修期吗
+  expected:
+    must_cite_docs: ["Windows 蓝屏与驱动问题", "电脑保修与换新政策"]
+    must_cite_contains: ["保修"]
+    answer_must_contain: ["保修"]
+    must_call: ["query_cmdb"]
+  tags: [multihop, hardware]
+  difficulty: hard
+
+- id: mh-printer-warranty
+  question: 打印机离线而且过保了，维修要花钱吗
+  expected:
+    must_cite_docs: ["打印机离线排查指南", "电脑保修与换新政策"]
+    must_cite_contains: ["保修"]
+    answer_must_contain: ["付费"]
+    must_call: ["query_cmdb"]
+  tags: [multihop, hardware]
+  difficulty: hard
+
+- id: mh-printer-ip-warranty
+  question: 打印机 IP 冲突，过保维修要付费吗
+  expected:
+    must_cite_docs: ["打印机离线排查指南", "电脑保修与换新政策"]
+    must_cite_contains: ["付费"]
+    answer_must_contain: ["付费"]
+    must_call: ["query_cmdb"]
+  tags: [multihop, hardware]
+  difficulty: hard
+
+- id: mh-battery-warranty
+  question: 笔记本电池不耐用，保修多久
+  expected:
+    must_cite_docs: ["电脑保修与换新政策"]
+    must_cite_contains: ["电池保修 1 年"]
+    answer_must_contain: ["1 年"]
+    must_call: ["query_cmdb"]
+  tags: [multihop, warranty]
+  difficulty: medium
+
+- id: mh-desktop-memory
+  question: 台式机很卡，可以申请内存升级吗
+  expected:
+    must_cite_docs: ["电脑卡顿与磁盘空间清理"]
+    must_cite_contains: ["内存升级"]
+    answer_must_contain: ["内存升级"]
+    must_call: ["query_cmdb"]
+  tags: [multihop, hardware]
+  difficulty: medium
+
+- id: mh-monitor-overwarranty
+  question: 显示器无信号，过保了维修要付费吗
+  expected:
+    must_cite_docs: ["显示器无信号与外接屏", "电脑保修与换新政策"]
+    must_cite_contains: ["付费"]
+    answer_must_contain: ["付费"]
+    must_call: ["query_cmdb"]
+  tags: [multihop, hardware]
+  difficulty: hard
+
+- id: mh-laptop-battery-free
+  question: 笔记本电池鼓包了，能免费换吗
+  expected:
+    must_cite_docs: ["电脑保修与换新政策"]
+    must_cite_contains: ["电池"]
+    answer_must_contain: ["电池"]
+    must_call: ["query_cmdb"]
+  tags: [multihop, warranty]
+  difficulty: hard
+
+- id: mh-printer-driver-download
+  question: 打印机驱动从内网哪里下载
+  expected:
+    must_cite_docs: ["打印机离线排查指南"]
+    must_cite_contains: ["内网软件库"]
+    answer_must_contain: ["内网软件库"]
+    must_call: ["query_cmdb"]
+  tags: [multihop, hardware]
+  difficulty: medium
+
+- id: mh-monitor-dock-warranty
+  question: 显示器接扩展坞闪烁，算保修范围吗
+  expected:
+    must_cite_docs: ["显示器无信号与外接屏", "电脑保修与换新政策"]
+    must_cite_contains: ["扩展坞"]
+    answer_must_contain: ["扩展坞"]
+    must_call: ["query_cmdb"]
+  tags: [multihop, warranty]
+  difficulty: hard

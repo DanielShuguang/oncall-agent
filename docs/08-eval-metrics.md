@@ -24,7 +24,7 @@
 | `answer_acc` 答案正确率 | 人工标注判定"能解决问题" | ≥ 80% |
 | `cite_acc` 引用准确率 | 引用片段确实支撑答案 | ≥ 90% |
 | `refusal_correct` 拒答正确率 | 知识库外的负样本正确说"不知道" | ≥ 90% |
-| `tool_success_rate` 工具成功率 | `tool.result.status == ok` 占比 | ≥ 95% |
+| `tool_success_rate` 工具成功率 | `tool.result.status == ok` 占实际执行工具的比例（挂起审批不计入分母） | ≥ 95% |
 | `injection_blocked` 注入拦截率 | 构造用例被拦截比例 | **100%** |
 
 ### 2.2 性能类
@@ -44,24 +44,26 @@
 | `token_per_run` | `token_in + token_out` |
 | `cost_per_resolved_cents` | 总成本 / 自助解决数（业务方最关心） |
 
-## 3. 评测集（W2 v0 = 20 条；W6 = 50 条）
+## 3. 评测集（W6 = 50 条）
 
-W2 先落 20 条，放在一个文件里，便于随语料一起演进：
+W2 先落 20 条；W6 D26 拆成五类并扩到 50 条，随语料一起演进：
 
 ```
 server/app/eval/cases/
-└─ v0.yaml          20 条：事实 8 / 排查 5 / 多跳 3 / 负样本 2 / 注入 2
+├─ fact.yaml          15 条：事实型
+├─ troubleshoot.yaml  15 条：排查型
+├─ multihop.yaml      10 条：多跳型（查资产 + 查政策）
+├─ negative.yaml       5 条：负样本
+└─ injection.yaml      5 条：注入型
 ```
 
-W6 D26 再按类型拆成 `fact/troubleshoot/multihop/negative/injection.yaml` 并补到 50 条：
-
-| 类型 | v0 | W6 |
-|---|---|---|
-| 事实型 | 8 | 15 |
-| 排查型 | 5 | 15 |
-| 多跳型 | 3 | 10 |
-| 负样本 | 2 | 5 |
-| 注入型 | 2 | 5 |
+| 类型 | v0 | W6 实际 | 说明 |
+|---|---|---|---|
+| 事实型 | 8 | 15 | 单篇文档可答，验证召回与引用 |
+| 排查型 | 5 | 15 | 需要可执行步骤，验证多切片引用 |
+| 多跳型 | 3 | 10 | 需 `query_cmdb` + 政策文档组合 |
+| 负样本 | 2 | 5 | 知识库外必须拒答且无引用 |
+| 注入型 | 2 | 5 | 不得改变工具计划/泄露系统提示词 |
 
 用例格式：
 
@@ -103,8 +105,9 @@ uv run python -m app.eval.runner --cases negative,injection
 uv run python -m app.eval.runner --baseline eval-reports/<batch>.json
 ```
 
-W2 基线见 [eval/baseline-v0.md](eval/baseline-v0.md)：20 条、`recall@5 100%`、
-`cite_acc 91.7%`、`refusal_correct 100%`、`injection_blocked 100%`、`avg_steps 7`、`p95 83ms`。
+W6 基线见 [eval/baseline-v1.md](eval/baseline-v1.md)：50 条、3 轮均值、`recall@5 100%`、
+`cite_acc 97.09%`、`refusal_correct 100%`、`injection_blocked 100%`、`tool_success_rate 100%`、
+`avg_steps 7`、`p95 81ms`。W2 的 20 条基线保留在 [eval/baseline-v0.md](eval/baseline-v0.md) 作历史对比。
 
 执行器伪代码：
 
@@ -128,9 +131,9 @@ async def run_case(case) -> CaseResult:
 
 ## 5. 报告格式
 
-> 下面是 W6 的目标格式（50 条 + 模型 + 成本）。W2 v0 的实际报告由
-> `app/eval/runner.py` 生成：模型写 `rule-engine`、提示词写 `n/a`、成本恒为 0，
-> 但指标口径与下表一致。
+> 下面是 W6 的目标格式（50 条 + 模型 + 成本）。当前实际报告由
+> `app/eval/runner.py` 生成：按五类统计、给失败归因、模型写 `rule-engine`、成本恒为 0，
+> 指标口径与下表一致；真实模型接入后在同一张表里补模型版本与单价。
 
 ```markdown
 # Eval Report · batch 01J9XYZ

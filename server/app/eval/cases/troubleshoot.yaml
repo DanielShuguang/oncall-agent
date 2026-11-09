@@ -1,0 +1,136 @@
+# 排查型 15 条：需要给出可执行步骤，验证引用片段能支撑操作建议
+- id: ts-printer-offline
+  question: 打印机显示离线怎么办
+  expected:
+    must_cite_docs: ["打印机离线排查指南"]
+    must_cite_contains: ["Print Spooler"]
+    answer_must_contain: ["Print Spooler"]
+  tags: [troubleshoot, hardware]
+  difficulty: medium
+
+- id: ts-vpn-failure
+  question: VPN 连不上怎么办
+  expected:
+    must_cite_docs: ["VPN 连接失败排查指南"]
+    must_cite_contains: ["VPN"]
+    answer_must_contain: ["VPN"]
+    min_citations: 3
+  tags: [troubleshoot, network]
+  difficulty: medium
+
+- id: ts-bluescreen
+  question: 电脑蓝屏怎么排查
+  expected:
+    must_cite_docs: ["Windows 蓝屏与驱动问题"]
+    must_cite_contains: ["蓝屏"]
+    answer_must_contain: ["蓝屏"]
+  tags: [troubleshoot, hardware]
+  difficulty: medium
+
+- id: ts-monitor
+  question: 显示器提示无信号怎么办
+  expected:
+    must_cite_docs: ["显示器无信号与外接屏"]
+    must_cite_contains: ["输入源"]
+    answer_must_contain: ["显示器"]
+  tags: [troubleshoot, hardware]
+  difficulty: medium
+
+- id: ts-performance
+  question: 电脑很卡怎么清理磁盘空间
+  expected:
+    must_cite_docs: ["电脑卡顿与磁盘空间清理"]
+    must_cite_contains: ["磁盘"]
+    answer_must_contain: ["磁盘"]
+  tags: [troubleshoot, hardware]
+  difficulty: medium
+
+- id: ts-wifi-auth
+  question: WiFi 提示身份验证失败怎么办
+  expected:
+    must_cite_docs: ["无线网络连接与认证"]
+    must_cite_contains: ["忘记网络"]
+    answer_must_contain: ["忘记网络"]
+  tags: [troubleshoot, network]
+  difficulty: medium
+
+- id: ts-email-return
+  question: 邮件发送失败，提示未送达怎么办
+  expected:
+    must_cite_docs: ["企业邮箱与 Outlook 收发故障"]
+    must_cite_contains: ["退信"]
+    answer_must_contain: ["退信"]
+  tags: [troubleshoot, email]
+  difficulty: medium
+
+- id: ts-disk-cleanup
+  question: C 盘空间不足怎么清理
+  expected:
+    must_cite_docs: ["电脑卡顿与磁盘空间清理"]
+    must_cite_contains: ["临时文件"]
+    answer_must_contain: ["临时文件"]
+  tags: [troubleshoot, hardware]
+  difficulty: easy
+
+- id: ts-external-display
+  question: 笔记本外接显示器检测不到怎么办
+  expected:
+    must_cite_docs: ["显示器无信号与外接屏"]
+    must_cite_contains: ["检测"]
+    answer_must_contain: ["检测"]
+  tags: [troubleshoot, hardware]
+  difficulty: medium
+
+- id: ts-bluescreen-dock
+  question: 插上扩展坞就蓝屏怎么办
+  expected:
+    must_cite_docs: ["Windows 蓝屏与驱动问题"]
+    must_cite_contains: ["扩展坞"]
+    answer_must_contain: ["扩展坞"]
+  tags: [troubleshoot, hardware]
+  difficulty: medium
+
+- id: ts-vpn-502
+  question: VPN 报 ERR-502 认证失败怎么处理
+  expected:
+    must_cite_docs: ["VPN 连接失败排查指南"]
+    must_cite_contains: ["ERR-502"]
+    answer_must_contain: ["认证失败"]
+  tags: [troubleshoot, network]
+  difficulty: medium
+
+- id: ts-printer-queue
+  question: 打印机队列卡住一直打印不了怎么办
+  expected:
+    must_cite_docs: ["打印机离线排查指南"]
+    must_cite_contains: ["Print Spooler"]
+    answer_must_contain: ["队列"]
+  tags: [troubleshoot, hardware]
+  difficulty: medium
+
+- id: ts-memory-85
+  question: 电脑内存占用长期超过 85% 怎么办
+  expected:
+    must_cite_docs: ["电脑卡顿与磁盘空间清理"]
+    must_cite_contains: ["内存升级"]
+    answer_must_contain: ["内存升级"]
+  tags: [troubleshoot, hardware]
+  difficulty: medium
+
+- id: ts-outlook-ost
+  question: Outlook 收不到邮件但网页版正常怎么办
+  expected:
+    must_cite_docs: ["企业邮箱与 Outlook 收发故障"]
+    must_cite_contains: [".ost"]
+    answer_must_contain: ["网页版"]
+  tags: [troubleshoot, email]
+  difficulty: hard
+
+- id: ts-proxy-407
+  question: 代理提示 407 认证过期怎么办
+  expected:
+    must_cite_docs: ["内网访问与代理配置"]
+    must_cite_contains: ["407"]
+    answer_must_contain: ["代理门户"]
+  tags: [troubleshoot, network]
+  difficulty: medium

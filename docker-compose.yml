@@ -32,19 +32,78 @@ services:
       timeout: 3s
       retries: 10
 
-  # ---- 以下为可选：整栈容器化（W6 交付阶段启用）----
-  # api:
-  #   build: ./server
-  #   env_file: .env
-  #   ports: ["8000:8000"]
-  #   depends_on:
-  #     postgres: { condition: service_healthy }
-  #     redis: { condition: service_healthy }
-  #
-  # web:
-  #   build: ./web
-  #   ports: ["8080:80"]
-  #   depends_on: [api]
+  # ---- 整栈：docker compose --profile full up -d --build ----
+  api:
+    profiles: ["full"]
+    build:
+      context: ./server
+    image: oncall-api:latest
+    container_name: oncall-api
+    restart: unless-stopped
+    environment:
+      # 容器内固定用服务名，不读 .env 里的 127.0.0.1
+      ONCALL_DATABASE_URL: postgresql+asyncpg://oncall:oncall@postgres:5432/oncall
+      ONCALL_REDIS_URL: redis://redis:6379/0
+      ONCALL_STORE_BACKEND: ${ONCALL_STORE_BACKEND:-postgres}
+      ONCALL_RAG_BACKEND: ${ONCALL_RAG_BACKEND:-auto}
+      ONCALL_ENV: ${ONCALL_ENV:-dev}
+      ONCALL_LOG_LEVEL: ${ONCALL_LOG_LEVEL:-INFO}
+      ONCALL_CORS_ORIGINS: http://localhost:8080,http://127.0.0.1:8080
+      ONCALL_MOCK_MODE: ${ONCALL_MOCK_MODE:-true}
+      # 演示环境自动灌 50 篇知识库/200 资产/500 工单；生产改成 false
+      ONCALL_SEED_DEMO: ${ONCALL_SEED_DEMO:-true}
+      ONCALL_SESSION_SECRET: ${ONCALL_SESSION_SECRET:-dev-change-me}
+      ONCALL_ADMIN_ROLES: ${ONCALL_ADMIN_ROLES:-admin}
+      ONCALL_APPROVER_ROLES: ${ONCALL_APPROVER_ROLES:-approver}
+      ONCALL_DAILY_BUDGET_CNY: ${ONCALL_DAILY_BUDGET_CNY:-5.0}
+      ONCALL_RATE_LIMIT_PER_MIN: ${ONCALL_RATE_LIMIT_PER_MIN:-30}
+      ONCALL_RUN_BUDGET_CENTS: ${ONCALL_RUN_BUDGET_CENTS:-50}
+      # 真实模型：mock=false 时生效；不填 key 就保持 mock
+      ONCALL_MODEL_PROVIDERS: ${ONCALL_MODEL_PROVIDERS:-cloud,local}
+      ONCALL_CLOUD_BASE_URL: ${ONCALL_CLOUD_BASE_URL:-}
+      ONCALL_CLOUD_API_KEY: ${ONCALL_CLOUD_API_KEY:-}
+      ONCALL_CLOUD_MODEL: ${ONCALL_CLOUD_MODEL:-}
+      ONCALL_LOCAL_BASE_URL: ${ONCALL_LOCAL_BASE_URL:-http://127.0.0.1:11434/v1}
+      ONCALL_LOCAL_MODEL: ${ONCALL_LOCAL_MODEL:-qwen2.5:7b}
+      ONCALL_EMBEDDING_PROVIDER: ${ONCALL_EMBEDDING_PROVIDER:-hashing}
+      ONCALL_EMBEDDING_BASE_URL: ${ONCALL_EMBEDDING_BASE_URL:-}
+      ONCALL_EMBEDDING_MODEL: ${ONCALL_EMBEDDING_MODEL:-bge-m3}
+    ports:
+      - "8000:8000"
+    extra_hosts:
+      # 真实本地模型（Ollama/vLLM）跑在宿主机时，容器内用 host.docker.internal 访问
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+    stop_grace_period: 20s
+
+  web:
+    profiles: ["full"]
+    build:
+      context: ./web
+    image: oncall-web:latest
+    container_name: oncall-web
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      api:
+        condition: service_healthy
 
 volumes:
   oncall-pgdata:

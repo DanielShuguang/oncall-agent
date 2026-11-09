@@ -10,7 +10,7 @@ param(
     [Parameter(Mandatory = $true)]
     [ValidateSet(
         'up', 'down', 'logs', 'migrate', 'install', 'api', 'web', 'fmt', 'lint', 'test', 'eval',
-        'seed', 'clean', 'check',
+        'seed', 'clean', 'check', 'stack', 'stack-down', 'images', 'loadtest', 'demo',
         'docker-up', 'docker-down', 'docker-ps', 'docker-logs'
     )]
     [string]$Target
@@ -41,6 +41,13 @@ function Invoke-WslDocker([string]$Args) {
 switch ($Target) {
     'up' { Push-Location $root; docker compose up -d; Pop-Location }
     'down' { Push-Location $root; docker compose down; Pop-Location }
+    'stack' { Push-Location $root; docker compose --profile full up -d --build; Pop-Location }
+    'stack-down' { Push-Location $root; docker compose --profile full down; Pop-Location }
+    'images' {
+        Push-Location $root
+        docker save -o oncall-images.tar oncall-api:latest oncall-web:latest pgvector/pgvector:pg16 redis:7-alpine
+        Pop-Location
+    }
     'logs' { Push-Location $root; docker compose logs -f --tail=100; Pop-Location }
     'migrate' { Push-Location "$root\server"; uv run alembic upgrade head; Pop-Location }
 
@@ -68,6 +75,12 @@ switch ($Target) {
         Push-Location "$root\web"; pnpm test; Pop-Location
     }
     'eval' { Push-Location "$root\server"; uv run python -m app.eval.runner; Pop-Location }
+    'loadtest' {
+        Push-Location "$root\server"
+        uv run python -m app.eval.loadtest --requests 100 --concurrency 20 --users 20
+        Pop-Location
+    }
+    'demo' { Push-Location "$root\server"; uv run python -m app.eval.demo; Pop-Location }
     'seed' { Push-Location "$root\server"; uv run python -m app.seed.generate --db; Pop-Location }
     'clean' {
         Remove-Item -Recurse -Force "$root\web\dist" -ErrorAction SilentlyContinue

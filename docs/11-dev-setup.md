@@ -122,7 +122,7 @@ pwsh -File scripts/dev.ps1 docker-down
 | `make fmt` | ruff + oxfmt 格式化 |
 | `make lint` | ruff check + ruff format --check + mypy + oxlint + `oxfmt --check` |
 | `make test` | pytest + vitest |
-| `make eval` | 跑 20 条评测出报告（内存知识库，不依赖数据库） |
+| `make eval` | 跑 50 条评测出报告（内存知识库，不依赖数据库） |
 | `make seed` | 生成演示数据并写入 Postgres（需先 `make migrate`） |
 
 ### 4.1 数据库迁移与测试库

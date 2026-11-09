@@ -1,4 +1,4 @@
-"""评测执行器 v0（W2 D10）：20 条用例 -> markdown 报告。
+"""评测执行器（W6 D26）：50 条用例，按 fact / troubleshoot / multihop / negative / injection 分类。
 
 设计原则（docs/08-eval-metrics.md）：
 - 能规则判的不用 LLM 判：引用是否命中、答案是否含关键结论都可确定性判断
@@ -43,6 +43,22 @@ REPORTS_DIR = Path(__file__).resolve().parents[2] / "eval-reports"
 EVAL_USER = Identity(user_id="u_102", roles=frozenset({"employee"}))
 MODEL_LABEL = "rule-engine（mock 模式，无 LLM 调用）"
 KB_LABEL = "seed-50（内存确定性哈希索引）"
+CATEGORY_LABELS = {
+    "fact": "事实型",
+    "troubleshoot": "排查型",
+    "multihop": "多跳型",
+    "negative": "负样本",
+    "injection": "注入型",
+}
+PERCENT_METRICS = {
+    "pass_rate",
+    "recall@5",
+    "cite_acc",
+    "answer_acc",
+    "refusal_correct",
+    "injection_blocked",
+    "tool_success_rate",
+}
 
 
 @dataclass(slots=True)
@@ -52,6 +68,8 @@ class EvalCase:
     expected: dict[str, Any] = field(default_factory=dict)
     tags: list[str] = field(default_factory=list)
     difficulty: str = "medium"
+    #: 用例文件 stem，用于报告里的失败归因分组
+    category: str = "unknown"
 
 
 @dataclass(slots=True)
@@ -64,6 +82,8 @@ class CaseResult:
     steps: int
     cost_cents: int
     latency_ms: int
+    tool_ok: int = 0
+    tool_total: int = 0
     failures: list[str] = field(default_factory=list)
 
     @property
@@ -73,21 +93,32 @@ class CaseResult:
 
 def load_cases(selector: str = "all") -> list[EvalCase]:
     cases: list[EvalCase] = []
+    seen: dict[str, str] = {}
     for path in sorted(CASES_DIR.glob("*.yaml")):
+        category = path.stem
         payload = yaml.safe_load(path.read_text(encoding="utf-8")) or []
         for item in payload:
+            case_id = str(item["id"])
+            if case_id in seen:
+                raise SystemExit(f"评测用例 id 重复: {case_id}（{seen[case_id]} 与 {path.name}）")
+            seen[case_id] = path.name
             cases.append(
                 EvalCase(
-                    id=str(item["id"]),
+                    id=case_id,
                     question=str(item["question"]),
                     expected=dict(item.get("expected") or {}),
                     tags=[str(tag) for tag in item.get("tags") or []],
                     difficulty=str(item.get("difficulty") or "medium"),
+                    category=category,
                 )
             )
     if selector != "all":
         wanted = {part.strip() for part in selector.split(",") if part.strip()}
-        cases = [case for case in cases if case.id in wanted or wanted & set(case.tags)]
+        cases = [
+            case
+            for case in cases
+            if case.id in wanted or case.category in wanted or wanted & set(case.tags)
+        ]
     if not cases:
         raise SystemExit(f"没有匹配的评测用例: {selector}")
     return cases
@@ -138,6 +169,12 @@ async def run_case(case: EvalCase, kb: KnowledgeBase, deps: AgentDeps) -> CaseRe
         for event_type, payload in events
         if event_type is EventType.TOOL_CALL
     ]
+    tool_payloads = [
+        payload for event_type, payload in events if event_type is EventType.TOOL_RESULT
+    ]
+    executed = [
+        payload for payload in tool_payloads if payload.get("status") != "requires_approval"
+    ]
     steps = sum(1 for event_type, _ in events if event_type is EventType.STEP_COMPLETED)
     result = CaseResult(
         case=case,
@@ -148,6 +185,8 @@ async def run_case(case: EvalCase, kb: KnowledgeBase, deps: AgentDeps) -> CaseRe
         steps=steps,
         cost_cents=cost_cents,
         latency_ms=latency_ms,
+        tool_ok=sum(1 for payload in executed if payload.get("status") == "ok"),
+        tool_total=len(executed),
     )
     result.failures = _judge(case, result)
     return result
@@ -244,6 +283,8 @@ def aggregate(results: list[CaseResult]) -> dict[str, float]:
     negative_ok = 0
     injection = 0
     injection_ok = 0
+    tool_ok = 0
+    tool_total = 0
     latencies: list[int] = []
 
     for result in results:
@@ -274,6 +315,8 @@ def aggregate(results: list[CaseResult]) -> dict[str, float]:
                 injection_ok += 1
 
         latencies.append(result.latency_ms)
+        tool_ok += result.tool_ok
+        tool_total += result.tool_total
 
     total = len(results)
     return {
@@ -285,6 +328,7 @@ def aggregate(results: list[CaseResult]) -> dict[str, float]:
         "answer_acc": _ratio(answer_ok, answer_cases),
         "refusal_correct": _ratio(negative_ok, negative),
         "injection_blocked": _ratio(injection_ok, injection),
+        "tool_success_rate": _ratio(tool_ok, tool_total),
         "avg_steps": round(statistics.fmean([result.steps for result in results]), 2),
         "avg_tool_calls": round(statistics.fmean([len(result.tools) for result in results]), 2),
         "avg_cost_cents": round(statistics.fmean([result.cost_cents for result in results]), 2),
@@ -294,6 +338,17 @@ def aggregate(results: list[CaseResult]) -> dict[str, float]:
 
 def _ratio(numerator: int, denominator: int) -> float:
     return round(numerator / denominator, 4) if denominator else 0.0
+
+
+def _category_breakdown(results: list[CaseResult]) -> str:
+    counts = {category: 0 for category in CATEGORY_LABELS}
+    for result in results:
+        counts[result.case.category] = counts.get(result.case.category, 0) + 1
+    return " / ".join(
+        f"{CATEGORY_LABELS.get(category, category)} {count}"
+        for category, count in counts.items()
+        if count
+    )
 
 
 def _percentile(values: list[int], percentile: float) -> int:
@@ -316,7 +371,7 @@ def render_report(
         f"- 模型: {MODEL_LABEL}",
         "- Prompt: n/a（mock 规则节点）",
         f"- 知识库: {KB_LABEL}",
-        f"- 用例: {int(metrics['cases'])}",
+        f"- 用例: {int(metrics['cases'])}（{_category_breakdown(results)}）",
         "",
         "## 总览",
         "",
@@ -331,6 +386,7 @@ def render_report(
         ("answer_acc", "answer_acc"),
         ("refusal_correct", "拒答正确率"),
         ("injection_blocked", "注入拦截率"),
+        ("tool_success_rate", "工具成功率"),
         ("avg_steps", "平均步数"),
         ("avg_tool_calls", "平均工具调用"),
         ("p95_latency_ms", "p95 延迟(ms)"),
@@ -341,30 +397,13 @@ def render_report(
         if previous is None:
             previous_text = "-"
             delta_text = "-"
-        elif key in {
-            "pass_rate",
-            "recall@5",
-            "cite_acc",
-            "answer_acc",
-            "refusal_correct",
-            "injection_blocked",
-        }:
+        elif key in PERCENT_METRICS:
             previous_text = f"{float(previous):.2%}"
             delta_text = f"{(float(current) - float(previous)) * 100:+.1f}pp"
         else:
             previous_text = f"{float(previous):g}"
             delta_text = f"{float(current) - float(previous):+g}"
-        if key in {
-            "pass_rate",
-            "recall@5",
-            "cite_acc",
-            "answer_acc",
-            "refusal_correct",
-            "injection_blocked",
-        }:
-            current_text = f"{float(current):.2%}"
-        else:
-            current_text = f"{float(current):g}"
+        current_text = f"{float(current):.2%}" if key in PERCENT_METRICS else f"{float(current):g}"
         lines.append(f"| {label} | {current_text} | {previous_text} | {delta_text} |")
 
     failures = [result for result in results if not result.passed]
@@ -372,6 +411,20 @@ def render_report(
     if not failures:
         lines.append("无。")
     else:
+        lines.append("### 失败归因")
+        lines.append("")
+        lines.append("| 类型 | 条数 | 典型用例 |")
+        lines.append("|---|---|---|")
+        by_category: dict[str, list[CaseResult]] = {}
+        for result in failures:
+            by_category.setdefault(result.case.category, []).append(result)
+        for category in CATEGORY_LABELS:
+            group = by_category.get(category)
+            if not group:
+                continue
+            typical = "、".join(result.case.id for result in group[:3])
+            lines.append(f"| {CATEGORY_LABELS[category]} | {len(group)} | {typical} |")
+        lines += ["", "### 明细", ""]
         lines.append("| id | 问题 | 失败原因 |")
         lines.append("|---|---|---|")
         for result in failures:
@@ -389,13 +442,17 @@ def render_report(
             f"{len(result.citations)} | {result.latency_ms} |"
         )
 
+    negative = sum(1 for result in results if result.case.expected.get("must_refuse"))
+    injection = sum(1 for result in results if result.case.expected.get("injection"))
     lines += [
         "",
         "## 口径与局限",
         "",
-        "- 20 条是小样本，结论只能说方向性；负样本 2 条、注入 2 条，覆盖不足。",
+        f"- {len(results)} 条是小样本，结论只能说方向性；"
+        f"负样本 {negative} 条、注入 {injection} 条，覆盖仍然有限。",
         "- recall@5 按「预期文档标题出现在 Top-5」计算；"
         "cite_acc 按「引用标题/片段命中预期关键词」计算。",
+        "- 工具成功率只统计实际执行的只读工具；挂起等审批的写操作不计入分母。",
         "- mock 模式没有 LLM，答案是指令抽取 + 模板，因此 answer_acc 偏低不代表接入模型后的效果。",
         "- 延迟包含内存检索与 SSE 分片模拟；真实模型延迟需要在 ONCALL_MOCK_MODE=false 后另跑。",
         "",
@@ -413,6 +470,7 @@ def _baseline_payload(
         "cases": [
             {
                 "id": result.case.id,
+                "category": result.case.category,
                 "passed": result.passed,
                 "failures": result.failures,
                 "steps": result.steps,

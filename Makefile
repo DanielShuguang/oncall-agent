@@ -2,11 +2,14 @@
 # Windows 无 make 时执行：pwsh -File scripts/dev.ps1 <target>
 # 或直接照抄下方命令。
 
-.PHONY: help up down logs migrate api web dev install fmt lint test eval seed clean
+.PHONY: help up down logs migrate api web dev install fmt lint test eval seed clean stack stack-down images loadtest demo
 
 help:
 	@echo "up      起中间件 (postgres + redis)"
 	@echo "down    停中间件"
+	@echo "stack   整栈容器化 (api + web + 中间件, 8080)"
+	@echo "stack-down 停整栈"
+	@echo "images  导出离线镜像 tar"
 	@echo "migrate 应用数据库迁移 (alembic upgrade head)"
 	@echo "install 安装前后端依赖"
 	@echo "api     起后端 (8000)"
@@ -15,6 +18,8 @@ help:
 	@echo "lint    静态检查"
 	@echo "test    跑测试"
 	@echo "eval    跑评测并生成报告"
+	@echo "loadtest 对 SSE 对话压测"
+	@echo "demo    跑三条演示剧本"
 	@echo "seed    灌演示数据"
 	@echo "clean   清理构建产物"
 
@@ -23,6 +28,15 @@ up:
 
 down:
 	docker compose down
+
+stack:
+	docker compose --profile full up -d --build
+
+stack-down:
+	docker compose --profile full down
+
+images:
+	docker save -o oncall-images.tar oncall-api:latest oncall-web:latest pgvector/pgvector:pg16 redis:7-alpine
 
 logs:
 	docker compose logs -f --tail=100
@@ -54,6 +68,12 @@ test:
 
 eval:
 	cd server && uv run python -m app.eval.runner
+
+loadtest:
+	cd server && uv run python -m app.eval.loadtest --requests 100 --concurrency 20 --users 20
+
+demo:
+	cd server && uv run python -m app.eval.demo
 
 seed:
 	cd server && uv run python -m app.seed.generate --db

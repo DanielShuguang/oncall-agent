@@ -1,0 +1,99 @@
+# 离线交付：客户内网先 `docker load -i oncall-images.tar`，再执行本文件。
+#   docker compose -f docker-compose.offline.yml up -d
+# 不包含 build 段；所有镜像必须已在本地。
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: oncall-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: oncall
+      POSTGRES_PASSWORD: oncall
+      POSTGRES_DB: oncall
+    volumes:
+      - oncall-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U oncall -d oncall"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: oncall-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - oncall-redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    image: oncall-api:latest
+    container_name: oncall-api
+    restart: unless-stopped
+    pull_policy: never
+    environment:
+      ONCALL_DATABASE_URL: postgresql+asyncpg://oncall:oncall@postgres:5432/oncall
+      ONCALL_REDIS_URL: redis://redis:6379/0
+      ONCALL_STORE_BACKEND: postgres
+      ONCALL_RAG_BACKEND: auto
+      ONCALL_ENV: ${ONCALL_ENV:-prod}
+      ONCALL_LOG_LEVEL: ${ONCALL_LOG_LEVEL:-INFO}
+      ONCALL_CORS_ORIGINS: http://localhost:8080,http://127.0.0.1:8080
+      ONCALL_MOCK_MODE: ${ONCALL_MOCK_MODE:-true}
+      ONCALL_SEED_DEMO: ${ONCALL_SEED_DEMO:-true}
+      ONCALL_SESSION_SECRET: ${ONCALL_SESSION_SECRET:-dev-change-me}
+      ONCALL_ADMIN_ROLES: ${ONCALL_ADMIN_ROLES:-admin}
+      ONCALL_APPROVER_ROLES: ${ONCALL_APPROVER_ROLES:-approver}
+      ONCALL_DAILY_BUDGET_CNY: ${ONCALL_DAILY_BUDGET_CNY:-5.0}
+      ONCALL_RATE_LIMIT_PER_MIN: ${ONCALL_RATE_LIMIT_PER_MIN:-30}
+      ONCALL_MODEL_PROVIDERS: ${ONCALL_MODEL_PROVIDERS:-cloud,local}
+      ONCALL_CLOUD_BASE_URL: ${ONCALL_CLOUD_BASE_URL:-}
+      ONCALL_CLOUD_API_KEY: ${ONCALL_CLOUD_API_KEY:-}
+      ONCALL_CLOUD_MODEL: ${ONCALL_CLOUD_MODEL:-}
+      ONCALL_LOCAL_BASE_URL: ${ONCALL_LOCAL_BASE_URL:-http://host.docker.internal:11434/v1}
+      ONCALL_LOCAL_MODEL: ${ONCALL_LOCAL_MODEL:-qwen2.5:7b}
+      ONCALL_EMBEDDING_PROVIDER: ${ONCALL_EMBEDDING_PROVIDER:-hashing}
+      ONCALL_EMBEDDING_BASE_URL: ${ONCALL_EMBEDDING_BASE_URL:-}
+      ONCALL_EMBEDDING_MODEL: ${ONCALL_EMBEDDING_MODEL:-bge-m3}
+    ports:
+      - "8000:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+    stop_grace_period: 20s
+
+  web:
+    image: oncall-web:latest
+    container_name: oncall-web
+    restart: unless-stopped
+    pull_policy: never
+    ports:
+      - "8080:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  oncall-pgdata:
+  oncall-redisdata:

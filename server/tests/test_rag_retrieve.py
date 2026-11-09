@@ -69,3 +69,50 @@ async def test_numbered_list_is_not_numbered_twice() -> None:
     assert citations
     assert "1. 1." not in answer
     assert "1. 2." not in answer
+
+
+async def test_citation_filler_requires_score_floor() -> None:
+    """补满 3 条引用不能拉低分噪声；同文档后续步骤可放宽到 0.6。"""
+    state = initial_state(run_id="run", user={"id": "u_102"}, query="打印机显示离线怎么办")
+    state["retrieved"] = [
+        {
+            "chunk_id": 1,
+            "document_id": "d1",
+            "ord": 0,
+            "title": "打印机离线排查指南",
+            "heading": "打印机离线排查指南 > 先确认打印机状态",
+            "content": "打印机显示离线时，先确认电源与网线是否插好。",
+            "score": 0.9,
+        },
+        {
+            "chunk_id": 2,
+            "document_id": "d1",
+            "ord": 1,
+            "title": "打印机离线排查指南",
+            "heading": "打印机离线排查指南 > Windows 打印服务",
+            "content": "在服务里找到 Print Spooler，先停止，再启动。",
+            "score": 0.6,
+        },
+        {
+            "chunk_id": 3,
+            "document_id": "d2",
+            "ord": 0,
+            "title": "办公电话使用指南",
+            "heading": "办公电话使用指南 > 注意事项",
+            "content": "如有疑问请联系行政部门。",
+            "score": 0.5,
+        },
+    ]
+    state["citations"] = [
+        {
+            "chunk_id": hit["chunk_id"],
+            "title": hit["title"],
+            "heading": hit["heading"],
+            "snippet": hit["content"],
+        }
+        for hit in state["retrieved"]
+    ]
+
+    answer, citations = compose_answer(state)
+    assert "Print Spooler" in answer
+    assert [citation["title"] for citation in citations] == ["打印机离线排查指南"] * 2

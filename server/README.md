@@ -16,7 +16,7 @@ app/
 ├─ gateway/           模型网关（路由/适配/failover/计量）
 ├─ rag/               解析、切分、分词、embedding、混合检索、pgvector 持久化
 ├─ seed/              50 篇知识库 + 200 资产 + 500 工单生成器
-└─ eval/              20 条评测用例与 markdown 报告执行器
+└─ eval/              50 条评测、SSE 压测、三条剧本 demo
 
 migrations/           Alembic
 ├─ env.py             DSN 取 ONCALL_DATABASE_URL
@@ -35,7 +35,9 @@ uv run uvicorn app.main:app --reload --port 8000
 评测（不依赖数据库，内存知识库）：
 
 ```bash
-uv run python -m app.eval.runner
+uv run python -m app.eval.runner          # 50 条分类评测
+uv run python -m app.eval.loadtest        # 对运行中的 API 打 SSE 压测
+uv run python -m app.eval.demo            # 三条剧本（含审批）
 ```
 
 ## 当前实现状态
@@ -59,7 +61,7 @@ uv run python -m app.eval.runner
 | `api/approvals.py` / `approvals/*` | ✅ 待办列表、批准/拒绝、超时回收、会话级授权、幂等 |
 | `rag/*` | ✅ 解析/切分/分词/哈希或 HTTP embedding/混合检索/RRF/阈值/引用（W2） |
 | `seed/*` | ✅ 50 文档 + 200 资产 + 500 工单；`--db` 索引进 pgvector |
-| `eval/*` | ✅ 20 条 v0 + markdown 报告 + baseline 对比 |
+| `eval/*` | ✅ 50 条五类评测 + 分类报告 + baseline 对比；SSE 压测；三条剧本 demo |
 | `gateway/*` | ✅ OpenAI 兼容 + Ollama 适配、规则路由、failover、`model_calls` 计量（W4，ADR-0013） |
 
 ## 约定

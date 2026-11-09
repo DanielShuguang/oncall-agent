@@ -24,24 +24,52 @@
 ## 3. 一键起
 
 ```bash
-cp .env.example .env        # 改 DATABASE_URL / 模型地址
-docker compose up -d
+cp .env.example .env        # 至少确认 MOCK_MODE / SESSION_SECRET；不填模型 key 也能演示
+docker compose --profile full up -d --build
 # 打开 http://<host>:8080
+docker compose --profile full ps
+docker compose --profile full logs -f api
 ```
 
-`docker-compose.yml` 里 `api` / `web` 两段在 W6 打开（现在注释着，避免开发期反复 build）。
+`api` / `web` 放在 compose 的 `full` profile 里：日常 `make up` 只起 postgres + redis，
+不会每次都 build 前端；交付/演示用 `make stack`（等价于上面的 `--profile full up --build`）。
+
+容器启动顺序由 entrypoint 保证：`alembic upgrade head` →（`ONCALL_SEED_DEMO=true` 时）
+灌 50 篇知识库 / 200 资产 / 500 工单 → uvicorn。演示环境默认灌数据；
+**生产必须设 `ONCALL_SEED_DEMO=false`**，否则每次重启都会把 seed 语料 upsert 回知识库。
+
+| 项 | 默认 | 说明 |
+|---|---|---|
+| Web | `http://<host>:8080` | Nginx 托管静态资源并反代 `/api`，SSE 已关闭缓冲 |
+| API | `http://<host>:8000` | 直连调试/压测用；生产可只暴露 8080 |
+| 健康检查 | `GET /api/health` | 返回 db/redis 状态；容器 healthcheck 也用它 |
+| 数据 | named volume `oncall-pgdata` / `oncall-redisdata` | `docker compose down -v` 会清空 |
+
+> 真实本地模型跑在宿主机时，容器内用
+> `ONCALL_LOCAL_BASE_URL=http://host.docker.internal:11434/v1`（compose 已加
+> `host.docker.internal:host-gateway`）。Linux 宿主机同样适用。
 
 ## 4. 离线镜像
 
 ```bash
-# 有网机器
-docker compose build
-docker save -o oncall-images.tar \
-  oncall-api:latest oncall-web:latest pgvector/pgvector:pg16 redis:7-alpine
+# 有网机器：构建并导出（Makefile 目标等价于 docker save 四条镜像）
+make stack
+make images          # -> oncall-images.tar
 
 # 客户内网
 docker load -i oncall-images.tar
+cp .env.example .env
 docker compose -f docker-compose.offline.yml up -d
+```
+
+`docker-compose.offline.yml` 不包含 `build`，所有服务用本地镜像并设 `pull_policy: never`；
+镜像清单：
+
+```
+oncall-api:latest
+oncall-web:latest
+pgvector/pgvector:pg16
+redis:7-alpine
 ```
 
 配套交付物：
@@ -50,7 +78,7 @@ docker compose -f docker-compose.offline.yml up -d
 delivery/
 ├─ oncall-images.tar
 ├─ docker-compose.offline.yml
-├─ .env.template
+├─ .env.template          # 从 .env.example 改：ONCALL_ENV=prod + 强 SESSION_SECRET
 ├─ 部署手册.pdf
 └─ 验收清单.xlsx
 ```
@@ -106,14 +134,32 @@ ONCALL_RATE_LIMIT_PER_MIN=30
 
 ## 7. 资源与容量
 
-| 项 | 单机 8C16G 实测目标 |
+| 项 | 单机 8C16G 验收目标 |
 |---|---|
 | 并发对话 | ≥ 20 |
 | 检索 QPS | ≥ 30（5 万 chunk） |
 | 事件写入 | ≥ 200 条/s |
 | 冷启动 | ≤ 30s |
 
-压测脚本：`server/app/eval/loadtest.py`（W6 D27 产出），报告附在 README。
+压测脚本：`server/app/eval/loadtest.py`（W6 D27）：
+
+```bash
+# 先起 API（本地 make api 或容器 make stack）
+make loadtest
+# 等价于：
+# cd server && uv run python -m app.eval.loadtest --requests 100 --concurrency 20 --users 20
+```
+
+口径：每个请求是一次完整 SSE run（建 run → 8 节点 → 事件落库 → `run.completed`），
+成功只认 `run.completed`；默认多用户 token 规避单用户 30 次/分钟限流。
+报告写到 `server/eval-reports/load-*.md`（gitignore），README 只贴**同环境同参数**的结果。
+
+当前开发机结果（2026-11-09，Windows 11 + WSL2 **16 vCPU / 15GiB**，Docker 29.1.3，
+单 API 容器 + Postgres/Redis 容器，mock 模式，100 请求 / 20 并发 / 20 用户）：
+成功率 100%、12.02 run/s、292.6 事件/s、p95 端到端 1816ms、p95 首事件 234ms。
+
+> 这不是 8C16G 生产容量验收。8C16G 目标（并发 ≥20、检索 QPS ≥30、事件 ≥200 条/s、
+> 冷启动 ≤30s）必须在同规格机器上用同一脚本重跑；开发机数字只证明链路没堵。
 
 ## 8. 运维
 

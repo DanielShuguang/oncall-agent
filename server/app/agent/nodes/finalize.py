@@ -126,6 +126,7 @@ def _select_hits(retrieved: list[dict[str, Any]]) -> list[dict[str, Any]]:
     selected = selected[:MAX_CITATIONS]
 
     chosen = {int(hit.get("chunk_id", 0)) for hit in selected}
+    primary_doc = str(selected[0].get("document_id", "")) if selected else ""
     for hit in retrieved:
         if len(selected) >= MAX_CITATIONS:
             break
@@ -133,6 +134,13 @@ def _select_hits(retrieved: list[dict[str, Any]]) -> list[dict[str, Any]]:
             continue
         chunk_id = int(hit.get("chunk_id", 0))
         if chunk_id in chosen:
+            continue
+        score = float(hit.get("score", 0.0))
+        # 补位不能为了凑满 3 条引入低分噪声（W6 D26 实测 cite_acc 只有 89%）。
+        # 同一篇文档的后续步骤放宽到 0.6：排查类答案需要覆盖不同步骤；
+        # 跨文档仍需过 0.8 阈值，否则多跳问题会把无关文档当第二证据。
+        floor = top_score * 0.6 if str(hit.get("document_id", "")) == primary_doc else threshold
+        if score < floor:
             continue
         selected.append(hit)
         chosen.add(chunk_id)

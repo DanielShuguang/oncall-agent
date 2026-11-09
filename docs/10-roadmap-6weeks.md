@@ -169,6 +169,26 @@ W5 指标（本地）：后端 **215 passed**（含 Postgres，2 warnings）；�
 | D29 | README + 架构图 + 部署文档 + 2 篇文章 | 陌生人 30 分钟能跑起来 |
 | D30 | 简历条目定稿 + 面试问答演练 + 投递 | T2 岗位投出 |
 
+**实现状态（2026-11-09）**
+
+| 天 | 状态 | 落地 |
+|---|---|---|
+| D26 评测 50 条 | ✅ | `app/eval/cases/` 拆成 fact 15 / troubleshoot 15 / multihop 10 / negative 5 / injection 5；报告加 `tool_success_rate` 与分类失败归因；3 轮均值见 [eval/baseline-v1](eval/baseline-v1.md) |
+| D27 compose + 离线镜像 | ✅（8C16G 未验收） | `server/Dockerfile`（uv 固定版本 + entrypoint 迁移/按需 seed）、`web/Dockerfile`（Node 构建 + Nginx SSE 反代）、compose `full` profile、`docker-compose.offline.yml`、`make images`、`app/eval/loadtest.py`。本机 registry 拉 Node 基础镜像超时，web 的 Node 构建层未在本机跑完；用 `pnpm build` + Nginx 镜像验证了运行态（SPA 200、SSE 透传、审批链路） |
+| D28 mock + demo | ✅（录屏未做） | mock 模式本就无 key；`app/eval/demo.py` 打三条剧本（第三条真实走审批）；`make demo`；3 分钟录屏属于人工交付物，未提交 |
+| D29 README + 部署文档 | ◐ | README 快速开始/评测/压测/局限已更新；`docs/09` 已补容器与离线命令；架构图沿用 README 文本图；两篇外部文章未写 |
+| D30 简历/投递 | ✗ | 不属于代码交付，未做 |
+
+W6 指标：评测 **50/50**（`cite_acc 97.09%`、`p95 81ms`、3 轮）；
+后端默认 **204 passed + 14 skipped**、带 Postgres **218 passed**；前端 40 tests；
+压测 **100/100** 成功、12.02 run/s、292.6 事件/s（开发机 16 vCPU/15GiB，非 8C16G 验收）；
+迁移仍 **0007**，`alembic check` 无漂移。
+
+与计划的差异：
+- 8C16G 压测目标未在 8C16G 机器上验收，只跑了开发机链路验证；不把开发机数字写成生产容量
+- 影像资料（3 分钟录屏、30 秒 GIF）未产出，README 用文字与命令替代
+- 离线镜像需在客户内网重跑 `docker compose -f docker-compose.offline.yml up -d` 做最终验收
+
 ---
 
 ## 每周固定动作

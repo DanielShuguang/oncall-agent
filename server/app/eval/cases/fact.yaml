@@ -1,0 +1,136 @@
+# 事实型 15 条：答案在单篇文档里能直接找到，验证召回与引用
+# 字段说明见 app/eval/runner.py 与 docs/08-eval-metrics.md §3。
+- id: fact-vpn-download
+  question: VPN 客户端在哪里下载
+  expected:
+    must_cite_docs: ["VPN 连接失败排查指南"]
+    must_cite_contains: ["内网软件库"]
+    answer_must_contain: ["内网软件库"]
+  tags: [fact, vpn]
+  difficulty: easy
+
+- id: fact-password-expiry
+  question: 密码多少天需要更换一次
+  expected:
+    must_cite_docs: ["账号密码重置与锁定处理", "信息安全与密码策略"]
+    must_cite_contains: ["90 天"]
+    answer_must_contain: ["90 天"]
+  tags: [fact, account]
+  difficulty: easy
+
+- id: fact-warranty-years
+  question: 公司笔记本整机保修几年
+  expected:
+    must_cite_docs: ["电脑保修与换新政策"]
+    must_cite_contains: ["3 年"]
+    answer_must_contain: ["3 年"]
+  tags: [fact, hardware]
+  difficulty: easy
+
+- id: fact-email-attachment
+  question: 邮件附件最大可以发多大
+  expected:
+    must_cite_docs: ["企业邮箱与 Outlook 收发故障"]
+    must_cite_contains: ["25MB"]
+    answer_must_contain: ["25MB"]
+  tags: [fact, email]
+  difficulty: easy
+
+- id: fact-wifi-name
+  question: 办公无线网络名称是什么
+  expected:
+    must_cite_docs: ["无线网络连接与认证"]
+    must_cite_contains: ["OnCall-Office"]
+    answer_must_contain: ["OnCall-Office"]
+  tags: [fact, network]
+  difficulty: easy
+
+- id: fact-ticket-p0
+  question: P0 工单多久响应
+  expected:
+    must_cite_docs: ["IT 工单流程与优先级说明"]
+    must_cite_contains: ["15 分钟"]
+    answer_must_contain: ["15 分钟"]
+  tags: [fact, process]
+  difficulty: easy
+
+- id: fact-onboarding-account
+  question: 新员工账号多久开通
+  expected:
+    must_cite_docs: ["新员工入职 IT 指南"]
+    must_cite_contains: ["2 小时"]
+    answer_must_contain: ["2 小时"]
+  tags: [fact, process]
+  difficulty: easy
+
+- id: fact-proxy-address
+  question: 公司统一代理地址是什么
+  expected:
+    must_cite_docs: ["内网访问与代理配置"]
+    must_cite_contains: ["proxy.internal.example.com:8080"]
+    answer_must_contain: ["proxy.internal.example.com:8080"]
+  tags: [fact, network]
+  difficulty: medium
+
+- id: fact-battery-warranty
+  question: 笔记本电池保修多久
+  expected:
+    must_cite_docs: ["电脑保修与换新政策"]
+    must_cite_contains: ["电池保修 1 年"]
+    answer_must_contain: ["1 年"]
+  tags: [fact, hardware]
+  difficulty: easy
+
+- id: fact-password-length
+  question: 密码最少要多少位
+  expected:
+    must_cite_docs: ["账号密码重置与锁定处理", "信息安全与密码策略"]
+    must_cite_contains: ["12 位"]
+    answer_must_contain: ["12 位"]
+  tags: [fact, account]
+  difficulty: easy
+
+- id: fact-lock-duration
+  question: 密码输错 5 次会锁定多久
+  expected:
+    must_cite_docs: ["账号密码重置与锁定处理"]
+    must_cite_contains: ["30 分钟"]
+    answer_must_contain: ["30 分钟"]
+  tags: [fact, account]
+  difficulty: easy
+
+- id: fact-software-approval
+  question: 安装设计软件需要审批吗
+  expected:
+    must_cite_docs: ["软件安装与权限申请流程"]
+    must_cite_contains: ["OA 审批"]
+    answer_must_contain: ["OA 审批"]
+  tags: [fact, software]
+  difficulty: easy
+
+- id: fact-imap
+  question: 企业邮箱 IMAP 服务器地址和端口是多少
+  expected:
+    must_cite_docs: ["企业邮箱与 Outlook 收发故障"]
+    must_cite_contains: ["993"]
+    answer_must_contain: ["993"]
+  tags: [fact, email]
+  difficulty: medium
+
+- id: fact-ticket-p2
+  question: P2 工单多久响应
+  expected:
+    must_cite_docs: ["IT 工单流程与优先级说明"]
+    must_cite_contains: ["4 小时"]
+    answer_must_contain: ["4 小时"]
+  tags: [fact, process]
+  difficulty: easy
+
+- id: fact-guest-wifi
+  question: 访客 WiFi 名称是什么
+  expected:
+    must_cite_docs: ["无线网络连接与认证"]
+    must_cite_contains: ["OnCall-Guest"]
+    answer_must_contain: ["OnCall-Guest"]
+  tags: [fact, network]
+  difficulty: easy

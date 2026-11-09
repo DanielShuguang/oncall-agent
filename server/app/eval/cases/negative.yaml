@@ -1,0 +1,40 @@
+# 负样本 5 条：知识库之外的问题必须拒答且不编造引用
+- id: neg-annual-party
+  question: 公司年会抽奖规则是什么
+  expected:
+    must_refuse: true
+    max_citations: 0
+  tags: [negative]
+  difficulty: easy
+
+- id: neg-annual-leave
+  question: 公司年假有几天
+  expected:
+    must_refuse: true
+    max_citations: 0
+  tags: [negative]
+  difficulty: easy
+
+- id: neg-bonus
+  question: 公司年终奖什么时候发
+  expected:
+    must_refuse: true
+    max_citations: 0
+  tags: [negative]
+  difficulty: easy
+
+- id: neg-stock-option
+  question: 员工股票期权怎么行权
+  expected:
+    must_refuse: true
+    max_citations: 0
+  tags: [negative]
+  difficulty: medium
+
+- id: neg-marriage-leave
+  question: 婚假有几天
+  expected:
+    must_refuse: true
+    max_citations: 0
+  tags: [negative]
+  difficulty: easy

@@ -16,13 +16,14 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Protocol
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 
 from app.core.logging import get_logger
 from app.models.run import Run
 from app.models.run import RunEvent as RunEventRow
 from app.schemas.event import EventType, RunEvent, RunStatus
+from app.schemas.failure import FailureCategory, categorize
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -52,6 +53,7 @@ class RunRecord:
     token_out: int = 0
     cost_cents: int = 0
     error_code: str | None = None
+    failure_category: str | None = None
     started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     finished_at: datetime | None = None
     event_count: int = 0
@@ -65,6 +67,7 @@ class RunPatch:
     finished_at: datetime | None = None
     output: str | None = None
     error_code: str | None = None
+    failure_category: str | None = None
     model: str | None = None
     max_steps: int | None = None
     step_count: int | None = None
@@ -129,10 +132,20 @@ def build_run_patch(event_type: EventType, payload: dict[str, Any], at: datetime
 
     if event_type is EventType.RUN_FAILED:
         code = payload.get("error_code")
+        error_code = code if isinstance(code, str) else "UNKNOWN"
+        category = payload.get("category")
+        if not isinstance(category, str):
+            category = categorize(error_code).value
+        else:
+            try:
+                category = FailureCategory(category).value
+            except ValueError:
+                category = categorize(error_code).value
         return RunPatch(
             status=RunStatus.FAILED.value,
             finished_at=at,
-            error_code=code if isinstance(code, str) else "UNKNOWN",
+            error_code=error_code,
+            failure_category=category,
         )
 
     return RunPatch()
@@ -185,6 +198,24 @@ class RunStore(Protocol):
     async def set_status(
         self, run_id: str, status: str, *, error_code: str | None = None
     ) -> None: ...
+
+    async def add_usage(
+        self, run_id: str, *, token_in: int, token_out: int, cost_cents: int
+    ) -> None:
+        """模型计量增量写回；由 `gateway.meter` 在每次调用后调用。"""
+        ...
+
+    async def list_runs(
+        self,
+        *,
+        user_id: str,
+        limit: int = 20,
+        before_started_at: datetime | None = None,
+        before_run_id: str | None = None,
+        status: str | None = None,
+    ) -> list[RunRecord]:
+        """按 started_at 倒序；`(before_started_at, before_run_id)` 是上一页游标。"""
+        ...
 
 
 class InMemoryRunStore:
@@ -299,8 +330,42 @@ class InMemoryRunStore:
             record.status = status
             if error_code is not None:
                 record.error_code = error_code
+                record.failure_category = categorize(error_code).value
             if status in _TERMINAL_STATUSES:
                 record.finished_at = datetime.now(UTC)
+
+    async def add_usage(
+        self, run_id: str, *, token_in: int, token_out: int, cost_cents: int
+    ) -> None:
+        rid = str(uuid.UUID(run_id))
+        async with self._lock:
+            record = self._runs.get(rid)
+            if record is None:
+                raise RunNotFoundError(run_id)
+            record.token_in += token_in
+            record.token_out += token_out
+            record.cost_cents += cost_cents
+
+    async def list_runs(
+        self,
+        *,
+        user_id: str,
+        limit: int = 20,
+        before_started_at: datetime | None = None,
+        before_run_id: str | None = None,
+        status: str | None = None,
+    ) -> list[RunRecord]:
+        rows = [record for record in self._runs.values() if record.user_id == user_id]
+        if status:
+            rows = [record for record in rows if record.status == status]
+        rows.sort(key=lambda record: (record.started_at, record.run_id), reverse=True)
+        if before_started_at is not None and before_run_id is not None:
+            rows = [
+                record
+                for record in rows
+                if (record.started_at, record.run_id) < (before_started_at, before_run_id)
+            ]
+        return rows[:limit]
 
 
 class PostgresRunStore:
@@ -450,8 +515,50 @@ class PostgresRunStore:
             row.status = status
             if error_code is not None:
                 row.error_code = error_code
+                row.failure_category = categorize(error_code).value
             if status in _TERMINAL_STATUSES:
                 row.finished_at = datetime.now(UTC)
+
+    async def add_usage(
+        self, run_id: str, *, token_in: int, token_out: int, cost_cents: int
+    ) -> None:
+        rid = uuid.UUID(run_id)
+        async with self._sessionmaker() as session, session.begin():
+            row = await session.get(Run, rid, with_for_update=True)
+            if row is None:
+                raise RunNotFoundError(run_id)
+            row.token_in += token_in
+            row.token_out += token_out
+            row.cost_cents += cost_cents
+
+    async def list_runs(
+        self,
+        *,
+        user_id: str,
+        limit: int = 20,
+        before_started_at: datetime | None = None,
+        before_run_id: str | None = None,
+        status: str | None = None,
+    ) -> list[RunRecord]:
+        stmt = select(Run).where(Run.user_id == user_id)
+        if status:
+            stmt = stmt.where(Run.status == status)
+        if before_started_at is not None and before_run_id:
+            try:
+                before_id = uuid.UUID(before_run_id)
+            except ValueError:
+                before_id = None
+            if before_id is not None:
+                stmt = stmt.where(
+                    or_(
+                        Run.started_at < before_started_at,
+                        and_(Run.started_at == before_started_at, Run.id < before_id),
+                    )
+                )
+        stmt = stmt.order_by(Run.started_at.desc(), Run.id.desc()).limit(limit)
+        async with self._sessionmaker() as session:
+            rows = (await session.scalars(stmt)).all()
+        return [_record_from_row(row, event_count=0) for row in rows]
 
     async def _find_by_client_msg_id(self, user_id: str, client_msg_id: str) -> RunRecord | None:
         async with self._sessionmaker() as session:
@@ -485,6 +592,7 @@ def _record_from_row(row: Run, *, event_count: int) -> RunRecord:
         token_out=row.token_out,
         cost_cents=row.cost_cents,
         error_code=row.error_code,
+        failure_category=row.failure_category,
         started_at=row.started_at,
         finished_at=row.finished_at,
         event_count=event_count,

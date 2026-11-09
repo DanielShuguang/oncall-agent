@@ -27,10 +27,13 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.agent.runtime import build_deps
 from app.agent.runtime import stream as agent_stream
 from app.api.deps import get_approval_service, get_identity
+from app.api.errors import ApiError
 from app.approvals.service import ApprovalService
+from app.core.limits import get_rate_limiter
 from app.core.logging import get_logger
 from app.core.sse import encode_comment, encode_frame
 from app.core.store import RunStore, get_store
+from app.gateway import default_model_name
 from app.schemas.chat import ChatRequest
 from app.schemas.event import RunStatus
 from app.tools.registry import Identity
@@ -123,8 +126,18 @@ async def chat_stream(
     approval_service: Annotated[ApprovalService, Depends(get_approval_service)],
 ) -> StreamingResponse:
     run_id = str(uuid.uuid4())
-    # W1 没有模型调用（规则节点），W4 网关接入后这里改成按 provider 选模型
-    model = req.options.model or "rule-engine"
+    # mock 模式是确定性规则引擎；真实模式取 plan 的首选模型（网关按 purpose 再路由）
+    model = req.options.model or default_model_name()
+
+    allowed = await get_rate_limiter().allow(identity.user_id)
+    if not allowed:
+        # 限流是请求级拒绝，不建 run、不建 SSE（docs/03 §2.4）
+        raise ApiError(
+            429,
+            "RATE_LIMITED",
+            "请求过于频繁，请稍后再试",
+            headers={"Retry-After": "60"},
+        )
 
     try:
         rec, created = await store.create(
@@ -151,7 +164,10 @@ async def chat_stream(
             model=model,
             max_steps=req.options.max_steps,
             session_id=req.session_id,
-            deps=build_deps(approvals=approval_service),
+            deps=build_deps(
+                approvals=approval_service,
+                requested_model=req.options.model,
+            ),
         ):
             if await request.is_disconnected():
                 log.info("client_disconnected", run_id=rec.run_id)

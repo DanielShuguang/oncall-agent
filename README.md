@@ -22,7 +22,7 @@
 
 1. **RAG 知识库**：混合检索（BM25 + 向量 + RRF）+ rerank + 引用溯源 + 无命中兜底
 2. **工具层**：MCP Server 封装内部系统（CMDB / 工单 / 知识检索 / 只读诊断 / 开单）
-3. **Agent 运行时**：LangGraph 状态机，8 个节点只有 2 个调 LLM（规则优先）
+3. **Agent 运行时**：显式 8 节点状态机（LangGraph 可选），只有 2 个节点调 LLM（规则优先）
 4. **工具治理**：白名单、会话级权限、单工具超时、错误分类重试、业务降级、保留字段拒绝
 5. **人工审批**：写操作必须确认，支持"本会话内允许"
 6. **模型网关**：多模型接入、规则路由、限流、每日预算、成本埋点
@@ -45,7 +45,7 @@
 └───┬──────────────┬──────────────┬───────────┘
     │              │              │
 ┌───▼────┐   ┌─────▼──────┐  ┌────▼─────────┐
-│LangGraph│   │ 模型网关     │  │ 工具运行时     │
+│显式状态机│   │ 模型网关     │  │ 工具运行时     │
 │ 状态机  │   │ 路由/降级/成本│  │ MCP + 治理     │
 └───┬────┘   └─────┬──────┘  └────┬─────────┘
     │              │              │
@@ -152,16 +152,16 @@ oncall/
 
 | 模块 | 状态 | 验证方式 |
 |---|---|---|
-| 文档（12 篇 + 12 篇 ADR + 评测基线） | ✅ 完成 | — |
-| 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡） | ✅ 可用 | `tsc --noEmit`、`oxlint`、`oxfmt --check` 通过；`vitest` 25/25；`pnpm build` 成功 |
-| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` 129 passed + 8 skipped；设 `ONCALL_TEST_DATABASE_URL` 后 137 passed（含 Postgres 契约、并发 seq、pgvector 检索、审批并发与授权隔离） |
+| 文档（12 篇 + 13 篇 ADR + 评测基线） | ✅ 完成 | — |
+| 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡 / 运行回放 / 成本页） | ✅ 可用 | `tsc --noEmit`、`oxlint 0`、`oxfmt --check` 通过；`vitest` 28/28；`pnpm build` 成功 |
+| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **165 passed + 12 skipped**；设 `ONCALL_TEST_DATABASE_URL` 后 **177 passed**（含 Postgres 契约、并发 seq、pgvector 检索、审批并发、计量一致性） |
 | 本地 JWT（W1 D2） | ✅ 已完成 | `tests/test_auth.py` 20 条：签发/验签、过期、alg=none、401 JSON、OpenAPI Bearer、run 归属隔离 |
 | 事件落库 + 断线续传（D4） | ✅ 已完成 | `alembic upgrade head` + `alembic check` 无漂移；`tests/test_store_contract.py`（内存 + Postgres 契约）、`tests/test_chat_stream.py`（落库、幂等回放、503 语义） |
 | 最小 Agent 运行时（W1 D5） | ✅ 已完成 | `tests/test_agent_runtime.py` 9 条：工具真实执行、检索引用、写操作挂起审批、工具失败降级、步数/时长上限 |
 | RAG 全链路（W2 D6–D10） | ✅ 已完成 | 50 篇 seed 知识库（含过期版本/冲突/噪声）；解析→切分→pgvector+tsvector→RRF→阈值→引用；`tests/test_rag_parse.py`、`test_rag_retrieve.py`、`test_rag_pg.py`、`test_kb_api.py`；评测基线 [docs/eval/baseline-v0](docs/eval/baseline-v0.md)（20 条，recall@5 100%、cite_acc 91.7%） |
-| 工具治理五道闸门 + 超时重试 | ✅ 已实现 | `tests/test_tools_guard.py` 14 条：权限/保留字段/超时重试/身份注入/伪造身份 |
+| 工具治理五道闸门 + 超时重试 | ✅ 已实现 | `tests/test_tools_guard.py` 20 条：权限/保留字段/入参白名单/enum/超时重试/身份注入/伪造身份 |
 | 8 节点图 + 审批闭环（W3 D11–D15） | ✅ 已完成 | `tests/test_agent_graph.py`、`test_approvals.py`（审批/越权/幂等/超时/503）、`test_approvals_pg.py`（含并发与授权隔离）、`test_playbooks.py`；审批通过后工单真正落库 |
-| 模型网关 / 成本看板 | 🚧 W4 | 见 [路线图](docs/10-roadmap-6weeks.md) |
+| 模型网关 + 成本看板 + 回放（W4 D16–D20） | ✅ 已完成 | `gateway/` 规则路由 / OpenAI 兼容 + Ollama / failover；`model_calls` 与 `runs` 同事务计量；`tests/test_gateway.py`、`test_agent_llm.py`、`test_metrics_pg.py`；前端 `/runs`、`/runs/:id`、`/console/cost` |
 
 > 首次拉仓库执行 `uv sync --all-extras`（后端）与 `pnpm install`（前端）；
 > `--all-extras` 同时装 rag（pypdf / python-docx）与 dev 依赖，漏装 rag 时解析相关用例会 skip。
@@ -171,10 +171,15 @@ oncall/
 - 评测集 v0 只有 20 条（负样本 2、注入 2），阈值与重排权重也在同一批用例上调过，结论只能说方向性
 - 默认 embedding 是确定性哈希，不是语义模型；生产建议切 `ONCALL_EMBEDDING_PROVIDER=http` 接 bge-m3
 - PDF 用 `pypdf` 提取文本层，扫描件不做 OCR；复杂版面/表格请先转 DOCX/MD
-- 重排是确定性规则，bge-reranker 留到 W4 有模型服务后再评估
+- 重排是确定性规则，bge-reranker 仍待有模型服务后再评估
 - 中文检索用「单字 + 二元组」，长句与跨文档对比仍弱于 zhparser + 领域词典
-- 答案仍是指令抽取 + 模板，不是生成；W4 接模型网关后才有真实 token 成本
-- 8 节点图用手写转移表而不是 LangGraph（[ADR-0012](docs/decisions/0012-explicit-agent-scheduler.md)），W4 再评估
+- 默认 `ONCALL_MOCK_MODE=true`：走确定性规则，没有真实模型调用，成本恒为 0；
+  真实模型的分类/计划质量与成本需要配置 provider 后另跑一轮（当前未测）
+- 答案仍是指令抽取 + 模板，不是生成；W4 的模型只用于 classify 兜底与 plan
+- 8 节点图用手写转移表而不是 LangGraph（[ADR-0012](docs/decisions/0012-explicit-agent-scheduler.md)），W4 评估后仍未启用
+- `query_cmdb` 仍是内置假数据，接真实 CMDB 留到后续
+- 审批决议与 run 事件写入不在同一事务：进程在 approve 后崩溃可能留下 `running`，
+  当前不自动重试写工具（避免重复开单），需按 run_id 对账（docs/06 §7）
 
 ## License
 

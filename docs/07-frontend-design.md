@@ -21,6 +21,10 @@
 | `/console/approvals` | 审批中心 | W5 D23 |
 | `/console/cost` | 成本看板 | W4 D19 |
 
+> W4 已落地 `/runs`、`/runs/:id` 与 `/console/cost`：运行详情用 `runtimeReducer`
+> 重放事件重建步骤/工具/消息，不重新执行 Agent；成本页按 day/model/user 分组，
+> 直接调用 `/admin/cost/summary`。导航从「对话」扩展为 对话 / 运行 / 管理后台。
+
 ## 3. 状态机
 
 Agent 界面最容易写崩的地方是"用一堆 boolean 拼状态"。这里用显式状态 + 转移表。
@@ -101,7 +105,7 @@ ChatPage
 管理后台：
 
 ```
-ConsoleLayout（侧边导航）
+ConsolePage（Tabs，路径 /console/:panel）
 ├─ KbPage         上传、列表、切片预览、重建索引
 ├─ ToolsPage      工具卡片、Schema 编辑、试调用
 ├─ PermsPage      角色 × 工具矩阵（勾选即保存）
@@ -165,6 +169,9 @@ Pydantic 模型 ──► OpenAPI ──► openapi-typescript ──► src/api
 - [x] 审批卡可提交（W3 D14）：批准/拒绝走 `POST /approvals/{id}/resolve`，随后轮询事件到终态
 - [ ] 点中断后，已收到内容保留，且不再有新事件
 - [ ] 未知事件类型不崩溃
+- [x] 任意历史 run 可按 seq 回放（W4 D20）：`/runs/:id` 拉全量事件后走同一个 reducer
+- [x] 成本看板与 `model_calls` 对得上（W4 D19）：`/console/cost` 展示分/调用/token
+- [ ] 运行列表在 10 万条 run 下的分页体验（当前游标分页，未压测）
 - [ ] 1000 条消息的会话滚动流畅
 - [ ] 引用角标能跳到正确原文位置
 

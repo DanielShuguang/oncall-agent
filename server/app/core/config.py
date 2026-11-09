@@ -45,6 +45,17 @@ class Settings(BaseSettings):
     local_base_url: str = "http://127.0.0.1:11434/v1"
     local_api_key: str = "ollama"
     local_model: str = "qwen2.5:7b"
+    #: 单次调用的 HTTP 超时；网关按 provider 逐个 failover
+    model_request_timeout_s: float = 20.0
+    model_max_tokens: int = 512
+    model_temperature: float = 0.2
+    #: 价格单位「分 / 百万 token」；本地模型默认 0，云端按供应商账单覆盖
+    cloud_price_in_cents_per_1m: int = 15
+    cloud_price_out_cents_per_1m: int = 60
+    local_price_in_cents_per_1m: int = 0
+    local_price_out_cents_per_1m: int = 0
+    #: 单 run 成本上限（与 agent.state.BUDGET_CENTS 同口径）
+    run_budget_cents: int = 50
 
     # 演示与限额
     mock_mode: bool = True
@@ -113,6 +124,33 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
+    def _validate_gateway(self) -> Self:
+        """网关参数直接决定计费与限流，非法值不能在第一次调用时才暴露。"""
+        if self.model_request_timeout_s <= 0:
+            raise ValueError("ONCALL_MODEL_REQUEST_TIMEOUT_S 必须 > 0")
+        if self.model_max_tokens < 1:
+            raise ValueError("ONCALL_MODEL_MAX_TOKENS 必须 >= 1")
+        if not 0.0 <= self.model_temperature <= 2.0:
+            raise ValueError("ONCALL_MODEL_TEMPERATURE 必须在 [0, 2] 内")
+        for name in (
+            "cloud_price_in_cents_per_1m",
+            "cloud_price_out_cents_per_1m",
+            "local_price_in_cents_per_1m",
+            "local_price_out_cents_per_1m",
+            "run_budget_cents",
+            "rate_limit_per_min",
+        ):
+            if getattr(self, name) < 0:
+                raise ValueError(f"ONCALL_{name.upper()} 不能为负数")
+        if self.run_budget_cents < 1:
+            raise ValueError("ONCALL_RUN_BUDGET_CENTS 必须 >= 1")
+        if self.daily_budget_cny <= 0:
+            raise ValueError("ONCALL_DAILY_BUDGET_CNY 必须 > 0")
+        if not self.mock_mode and not self.provider_names:
+            raise ValueError("ONCALL_MOCK_MODE=false 时 ONCALL_MODEL_PROVIDERS 不能为空")
+        return self
+
+    @model_validator(mode="after")
     def _validate_session_secret(self) -> Self:
         """生产用弱密钥签发 token 等于没有鉴权，启动即拒绝（ADR-0010）。"""
         if self.env == "dev":
@@ -130,6 +168,19 @@ class Settings(BaseSettings):
     @property
     def provider_names(self) -> list[str]:
         return [p.strip() for p in self.model_providers.split(",") if p.strip()]
+
+    @property
+    def daily_budget_cents(self) -> int:
+        """每日预算统一按「分」计算，避免浮点累计误差（R6）。"""
+        return max(1, round(self.daily_budget_cny * 100))
+
+    @property
+    def cloud_configured(self) -> bool:
+        return bool(self.cloud_base_url.strip() and self.cloud_model.strip())
+
+    @property
+    def local_configured(self) -> bool:
+        return bool(self.local_base_url.strip() and self.local_model.strip())
 
     @property
     def admin_role_list(self) -> list[str]:

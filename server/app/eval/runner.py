@@ -41,7 +41,7 @@ from app.tools.registry import Identity, ToolGuard
 CASES_DIR = Path(__file__).resolve().parent / "cases"
 REPORTS_DIR = Path(__file__).resolve().parents[2] / "eval-reports"
 EVAL_USER = Identity(user_id="u_102", roles=frozenset({"employee"}))
-MODEL_LABEL = "rule-engine（W2 无 LLM 调用）"
+MODEL_LABEL = "rule-engine（mock 模式，无 LLM 调用）"
 KB_LABEL = "seed-50（内存确定性哈希索引）"
 
 
@@ -314,7 +314,7 @@ def render_report(
         f"# Eval Report · {batch}",
         "",
         f"- 模型: {MODEL_LABEL}",
-        "- Prompt: n/a（W2 规则节点）",
+        "- Prompt: n/a（mock 规则节点）",
         f"- 知识库: {KB_LABEL}",
         f"- 用例: {int(metrics['cases'])}",
         "",
@@ -396,8 +396,8 @@ def render_report(
         "- 20 条是小样本，结论只能说方向性；负样本 2 条、注入 2 条，覆盖不足。",
         "- recall@5 按「预期文档标题出现在 Top-5」计算；"
         "cite_acc 按「引用标题/片段命中预期关键词」计算。",
-        "- W2 没有 LLM，答案是指令抽取 + 模板，因此 answer_acc 偏低不代表接入模型后的效果。",
-        "- 延迟包含内存检索与 SSE 分片模拟；真实模型延迟在 W4 网关接入后才有意义。",
+        "- mock 模式没有 LLM，答案是指令抽取 + 模板，因此 answer_acc 偏低不代表接入模型后的效果。",
+        "- 延迟包含内存检索与 SSE 分片模拟；真实模型延迟需要在 ONCALL_MOCK_MODE=false 后另跑。",
         "",
     ]
     return "\n".join(lines)

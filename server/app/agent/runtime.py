@@ -49,8 +49,10 @@ from app.agent.state import (
 from app.approvals.types import ApprovalRecord, ApprovalRecorder, ApprovalRequestInfo
 from app.core.config import get_settings
 from app.core.logging import get_logger
+from app.gateway.types import BudgetExceeded, MeteringError, ModelUsage
 from app.rag.service import get_knowledge_base
 from app.schemas.event import EventType
+from app.schemas.failure import categorize
 from app.tools.builtin import default_registry
 from app.tools.registry import Decision, Identity, ToolGuard, ToolStatus
 
@@ -64,13 +66,25 @@ CHUNK_DELAY_S = 0.005
 APPROVAL_TTL_MIN = 10
 
 
-def build_deps(*, approvals: ApprovalRecorder | None = None) -> AgentDeps:
+def build_deps(
+    *,
+    approvals: ApprovalRecorder | None = None,
+    requested_model: str | None = None,
+) -> AgentDeps:
     settings = get_settings()
+    gateway = None
+    if not settings.mock_mode:
+        # mock 模式走确定性规则；真实模式才构建网关（无 key 演示不触发 HTTP）
+        from app.gateway import get_gateway
+
+        gateway = get_gateway()
     return AgentDeps(
         guard=ToolGuard(default_registry()),
         retriever=get_knowledge_base(),
         top_k=settings.rag_top_k,
         approvals=approvals,
+        gateway=gateway,
+        requested_model=requested_model,
     )
 
 
@@ -78,11 +92,11 @@ async def _run_node(name: str, state: AgentState, deps: AgentDeps) -> dict[str, 
     if name == "intake":
         return intake_node(state, deps)
     if name == "classify":
-        return classify_node(state, deps)
+        return await classify_node(state, deps)
     if name == "retrieve":
         return await retrieve_node(state, deps)
     if name == "plan":
-        return plan_node(state, deps)
+        return await plan_node(state, deps)
     if name == "verify":
         return verify_node(state, deps)
     raise ValueError(f"未知节点: {name}")
@@ -94,15 +108,17 @@ def _summary(node: str, state: AgentState) -> str:
     if node == "classify":
         intent = state.get("intent", "knowledge")
         incident = state.get("incident_type", "other")
-        return f"意图 {intent}，类型 {incident}"
+        suffix = "（模型兜底）" if state.get("classified_by") == "llm" else ""
+        return f"意图 {intent}，类型 {incident}{suffix}"
     if node == "retrieve":
         hits = len(state.get("retrieved", []))
         return f"命中 {hits} 条资料" if hits else "未命中，走兜底话术"
     if node == "plan":
         plan = state.get("plan", [])
+        suffix = "（模型计划）" if state.get("plan_source") == "llm" else ""
         if plan:
-            return f"计划 {len(plan)} 个工具调用"
-        return "无需调用工具"
+            return f"计划 {len(plan)} 个工具调用{suffix}"
+        return f"无需调用工具{suffix}"
     if node == "verify":
         if state.get("verify_ok", True):
             return "校验通过"
@@ -133,7 +149,12 @@ async def stream(
     user = {"id": identity.user_id, "roles": sorted(identity.roles)}
     if session_id:
         user["session_id"] = session_id
-    state = initial_state(run_id=run_id, user=user, query=query)
+    state = initial_state(
+        run_id=run_id,
+        user=user,
+        query=query,
+        budget_cents=get_settings().run_budget_cents,
+    )
     yield (
         EventType.RUN_STARTED,
         {
@@ -280,6 +301,12 @@ async def stream(
                 replan_count=state.get("replan_count", 0),
             )
 
+    except BudgetExceeded as exc:
+        log.warning("agent_budget_exceeded", run_id=run_id, step=step, error=str(exc))
+        yield _failed("BUDGET_EXCEEDED", str(exc), step)
+    except MeteringError as exc:
+        log.error("agent_metering_failed", run_id=run_id, step=step, error=str(exc))
+        yield _failed("MODEL_ERROR", "模型计量写入失败", step)
     except Exception:  # 运行期失败必须变成事件，不能把连接打成 500
         log.exception("agent_run_failed", run_id=run_id, step=step)
         yield _failed("INTERNAL_ERROR", "运行时内部错误", step)
@@ -468,14 +495,15 @@ async def _finalize_events(
             "citations": state.get("citations", []),
         },
     )
+    usage = ModelUsage.from_dict(state.get("usage"))
     yield (
         EventType.RUN_COMPLETED,
         {
             "status": "completed",
             "steps": step,
-            "token_in": 0,
-            "token_out": 0,
-            "cost_cents": 0,
+            "token_in": usage.token_in,
+            "token_out": usage.token_out,
+            "cost_cents": usage.cost_cents,
             "duration_ms": _ms(started_at),
         },
     )
@@ -489,6 +517,9 @@ def _snapshot(state: AgentState) -> dict[str, Any]:
         "query",
         "intent",
         "incident_type",
+        "classified_by",
+        "plan_source",
+        "usage",
         "retrieved",
         "citations",
         "plan",
@@ -503,7 +534,16 @@ def _snapshot(state: AgentState) -> dict[str, Any]:
 
 
 def _merge(state: AgentState, delta: Mapping[str, Any] | None) -> AgentState:
-    return cast(AgentState, {**state, **(delta or {})})
+    if not delta:
+        return state
+    patch = dict(delta)
+    usage = patch.pop("usage", None)
+    merged = cast(AgentState, {**state, **patch})
+    if usage is not None:
+        merged["usage"] = (
+            ModelUsage.from_dict(state.get("usage")).merge(ModelUsage.from_dict(usage)).as_dict()
+        )
+    return merged
 
 
 def _last_message_text(state: AgentState) -> str:
@@ -520,7 +560,12 @@ def _ms(started: float) -> int:
 def _failed(error_code: str, message: str, at_step: int) -> Event:
     return (
         EventType.RUN_FAILED,
-        {"error_code": error_code, "message": message, "at_step": at_step},
+        {
+            "error_code": error_code,
+            "message": message,
+            "at_step": at_step,
+            "category": categorize(error_code).value,
+        },
     )
 
 

@@ -16,9 +16,12 @@ import { Input } from '@/components/ui/input';
 import { getToken, setToken } from './api/client';
 import ChatPage from './features/chat/ChatPage';
 import ConsolePage from './features/console/ConsolePage';
+import RunDetailPage from './features/runs/RunDetailPage';
+import RunsPage from './features/runs/RunsPage';
 
 const NAV = [
   { to: '/', label: '对话', end: true },
+  { to: '/runs', label: '运行', end: false },
   { to: '/console/kb', label: '管理后台', end: false },
 ];
 
@@ -107,6 +110,8 @@ export default function App() {
       <main className="flex min-h-0 flex-1 flex-col">
         <Routes>
           <Route path="/" element={<ChatPage />} />
+          <Route path="/runs" element={<RunsPage />} />
+          <Route path="/runs/:id" element={<RunDetailPage />} />
           <Route path="/console/*" element={<ConsolePage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

@@ -169,14 +169,22 @@ async def run_case(case) -> CaseResult:
 | 换模型 | 全量重跑，报告里注明模型与价格 |
 | 换知识库 | 用固定快照（`kb-YYYY-MM-DD`），否则不可比 |
 
-## 7. 一致性校验（W4 补）
+## 7. 一致性校验（W4 已补）
 
 ```python
 async def test_runs_summary_matches_model_calls():
     # runs.token_in == sum(model_calls.token_in) 对每个已结束的 run 成立
 ```
 
+实现：`tests/test_metrics_pg.py`（`ONCALL_TEST_DATABASE_URL` 存在时执行）覆盖正常运行、
+失败 run、按模型/用户/日期聚合与列表游标。关键设计是**计量行与 `runs` 增量更新同事务**，
+而不是等 `run.completed` 再结算，所以失败/超时/审批拒绝的 run 也不会漏账。
+
 这个测试能抓到"计量漏埋点"，也是面试里"你怎么保证数字可信"的答案。
+
+评测报告里 `avg_cost_cents` 的取值来自 `run.completed.payload.cost_cents`；mock 模式走
+规则节点，成本为 0。真实模型的成本/延迟需要在配置 provider 后另跑一轮，并在报告里
+注明模型版本与单价（docs/08 §6）。
 
 ## 8. 反作弊（对自己诚实）
 

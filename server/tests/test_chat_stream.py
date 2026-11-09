@@ -244,3 +244,16 @@ async def test_resume_header_on_fresh_run_is_accepted(
         headers={"Last-Event-ID": last_event_id},
     )
     assert _parse(lines)[0]["seq"] == 1
+
+
+async def test_rate_limit_rejects_before_creating_run(client: AsyncClient) -> None:
+    from app.core.limits import InMemoryRateLimiter, set_rate_limiter
+
+    set_rate_limiter(InMemoryRateLimiter(limit=1))
+    first = await _stream(client, {"session_id": "s", "message": "打印机离线"})
+    assert _parse(first)[0]["type"] == EventType.RUN_STARTED.value
+
+    res = await client.post("/api/chat/stream", json={"session_id": "s", "message": "再来一次"})
+    assert res.status_code == 429
+    assert res.json()["code"] == "RATE_LIMITED"
+    assert res.headers["retry-after"] == "60"

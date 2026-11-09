@@ -22,6 +22,12 @@ class AgentState(TypedDict, total=False):
     query: str
     intent: str
     incident_type: str  # hardware|network|software|account|other
+    #: rule | llm —— classify 是否用了模型兜底（日志/步骤摘要可见）
+    classified_by: str
+    #: rule | llm | fallback —— plan 的实际来源
+    plan_source: str
+    #: 本 run 已累计的模型用量（token_in/token_out/cost_cents/calls）
+    usage: dict[str, int]
     retrieved: list[dict[str, Any]]
     citations: list[dict[str, Any]]
     plan: list[dict[str, Any]]
@@ -45,7 +51,13 @@ RUN_TIMEOUT_S = 120
 BUDGET_CENTS = 50
 
 
-def initial_state(*, run_id: str, user: dict[str, Any], query: str) -> AgentState:
+def initial_state(
+    *,
+    run_id: str,
+    user: dict[str, Any],
+    query: str,
+    budget_cents: int = BUDGET_CENTS,
+) -> AgentState:
     return AgentState(
         run_id=run_id,
         user=user,
@@ -53,6 +65,9 @@ def initial_state(*, run_id: str, user: dict[str, Any], query: str) -> AgentStat
         query=query,
         intent="",
         incident_type="other",
+        classified_by="rule",
+        plan_source="rule",
+        usage={"token_in": 0, "token_out": 0, "cost_cents": 0, "calls": 0},
         retrieved=[],
         citations=[],
         plan=[],
@@ -63,6 +78,6 @@ def initial_state(*, run_id: str, user: dict[str, Any], query: str) -> AgentStat
         verify_ok=True,
         replan_count=0,
         failed_tools=[],
-        budget=Budget(remaining_cents=BUDGET_CENTS, used_steps=0),
+        budget=Budget(remaining_cents=budget_cents, used_steps=0),
         error=None,
     )

@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { lazy, Suspense } from 'react';
+import { useLocation, useNavigate } from 'react-router';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+const CostPage = lazy(() => import('./CostPage'));
 
 const PANELS = [
   {
@@ -27,11 +29,18 @@ const PANELS = [
 ];
 
 export default function ConsolePage() {
-  const [active, setActive] = useState('kb');
+  const location = useLocation();
+  const navigate = useNavigate();
+  const active = location.pathname.split('/')[2] || 'kb';
 
   return (
     <div className="flex-1 overflow-y-auto p-4">
-      <Tabs value={active} onValueChange={setActive}>
+      <Tabs
+        value={active}
+        onValueChange={(next) => {
+          navigate(`/console/${next}`);
+        }}
+      >
         <TabsList variant="line">
           {PANELS.map((panel) => (
             <TabsTrigger key={panel.key} value={panel.key}>
@@ -42,17 +51,25 @@ export default function ConsolePage() {
 
         {PANELS.map((panel) => (
           <TabsContent key={panel.key} value={panel.key} className="pt-4">
-            <Card className="gap-0 py-0">
-              <CardContent className="space-y-2 p-4">
-                <div className="text-sm">
-                  <strong>{panel.title}</strong> 正在建设中，计划于{' '}
-                  <Badge variant="secondary">{panel.milestone}</Badge> 完成。
-                </div>
-                <div className="text-sm text-muted-foreground">
-                  设计见 docs/07-frontend-design.md 与 docs/10-roadmap-6weeks.md。
-                </div>
-              </CardContent>
-            </Card>
+            {panel.key === 'cost' ? (
+              <Suspense
+                fallback={<div className="p-4 text-xs text-muted-foreground">加载成本页…</div>}
+              >
+                <CostPage />
+              </Suspense>
+            ) : (
+              <Card className="gap-0 py-0">
+                <CardContent className="space-y-2 p-4">
+                  <div className="text-sm">
+                    <strong>{panel.title}</strong> 正在建设中，计划于{' '}
+                    <Badge variant="secondary">{panel.milestone}</Badge> 完成。
+                  </div>
+                  <div className="text-sm text-muted-foreground">
+                    设计见 docs/07-frontend-design.md 与 docs/10-roadmap-6weeks.md。
+                  </div>
+                </CardContent>
+              </Card>
+            )}
           </TabsContent>
         ))}
       </Tabs>

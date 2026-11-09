@@ -115,6 +115,11 @@ agent 决定 create_ticket
 | 并发 | 一个 run 同时只允许一个执行者（DB 行锁 / Redis 锁） |
 | 超时 | 工具级超时 + run 级最大步数 + run 级总时长上限 |
 | 预算 | 每次模型调用前 `INCRBY` 预扣，超预算直接拒绝 |
+| 限流 | 按用户滑动窗口（ZSET），超限在建 run 前返回 429 |
+
+> W4 实现：`gateway/` 已接入 classify 兜底与 plan；`core/limits.py` 用 Redis
+> 做滑动窗口限流与 UTC 日预算，Redis 不可用时退化为进程内实现并打 warning。
+> mock 模式（`ONCALL_MOCK_MODE=true`）不经过网关，节点走确定性规则，成本恒为 0。
 
 ## 5. 技术栈（摘要）
 
@@ -123,7 +128,7 @@ agent 决定 create_ticket
 | 前端 | React 19 + TS + Vite + Zustand + Tailwind CSS 4 + ECharts |
 | 流式 | SSE（`fetch` + `ReadableStream`，非 EventSource） |
 | 后端 | Python 3.12 + FastAPI + Pydantic v2 + SQLAlchemy 2 + Alembic |
-| 编排 | 显式 8 节点状态机（ADR-0012；LangGraph 可选、W4 再评估） |
+| 编排 | 显式 8 节点状态机（ADR-0012；LangGraph 可选，W4 评估后仍未启用） |
 | 检索 | PostgreSQL 16 + pgvector + tsvector + RRF + 确定性重排（bge-reranker W4 可选） |
 | 工具 | MCP（FastMCP），stdio + streamable HTTP |
 | 模型 | OpenAI 兼容协议；Ollama（dev）/ vLLM（演示） |

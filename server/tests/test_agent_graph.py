@@ -61,18 +61,21 @@ def test_classify_splits_intent_from_incident() -> None:
     assert classify_intent("VPN 连不上怎么办", "network") == "knowledge"
 
 
-def test_classify_node_returns_delta() -> None:
+async def test_classify_node_returns_delta() -> None:
     state = initial_state(
         run_id="r1", user={"id": "u_102", "roles": ["employee"]}, query=" 打印机 离线 "
     )
-    # intake 之后 query 才是规范化后的；这里直接验证节点只产出两个字段
-    delta = classify_node(
+    # intake 之后 query 才是规范化后的；这里直接验证节点产出的意图字段
+    delta = await classify_node(
         {**state, "query": "打印机离线"}, AgentDeps(guard=ToolGuard(default_registry()))
     )
-    assert delta == {"intent": "asset_check", "incident_type": "hardware"}
+    assert delta["intent"] == "asset_check"
+    assert delta["incident_type"] == "hardware"
+    assert delta["classified_by"] == "rule"
+    assert delta["usage"] == {"token_in": 0, "token_out": 0, "cost_cents": 0, "calls": 0}
 
 
-def test_verify_reports_failure_once_and_plan_skips_it() -> None:
+async def test_verify_reports_failure_once_and_plan_skips_it() -> None:
     deps = AgentDeps(guard=ToolGuard(default_registry()))
     state = initial_state(run_id="r1", user={"id": "u_102"}, query="打印机离线")
     state["intent"] = "asset_check"
@@ -84,7 +87,7 @@ def test_verify_reports_failure_once_and_plan_skips_it() -> None:
     assert first["failed_tools"] == ["query_cmdb"]
 
     replanned = {**state, **first}
-    assert plan_node(replanned, deps)["plan"] == []
+    assert (await plan_node(replanned, deps))["plan"] == []
     assert verify_node(replanned, deps)["verify_ok"] is True
 
 

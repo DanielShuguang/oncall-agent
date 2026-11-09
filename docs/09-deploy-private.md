@@ -63,9 +63,32 @@ ONCALL_MOCK_MODE=true
 
 行为：
 
-- 模型返回**预置的确定性响应**（不是随机假数据），保证演示可复现
+- **不构建模型网关**：classify/plan 走确定性规则，`model_calls` 为空、成本恒为 0
 - 工具走**内置假数据**（`server/app/seed/`）
-- 事件流、审批、成本计量全部照常执行
+- 事件流、审批、回放全部照常执行
+- 切真实模型：`ONCALL_MOCK_MODE=false`，再按 §5.1 配 provider
+
+### 5.1 真实模型
+
+```env
+ONCALL_MOCK_MODE=false
+# 云端（OpenAI 兼容）
+ONCALL_CLOUD_BASE_URL=https://api.example.com/v1
+ONCALL_CLOUD_API_KEY=...
+ONCALL_CLOUD_MODEL=gpt-4o-mini
+ONCALL_CLOUD_PRICE_IN_CENTS_PER_1M=15
+ONCALL_CLOUD_PRICE_OUT_CENTS_PER_1M=60
+# 本地（Ollama 原生接口；base_url 配 /v1 也能用）
+ONCALL_LOCAL_BASE_URL=http://127.0.0.1:11434
+ONCALL_LOCAL_MODEL=qwen2.5:7b
+# 预算与限流（单位：分 / 元 / 次）
+ONCALL_RUN_BUDGET_CENTS=50
+ONCALL_DAILY_BUDGET_CNY=5
+ONCALL_RATE_LIMIT_PER_MIN=30
+```
+
+> 价格单位是「分 / 百万 token」，不是美元；填错会直接体现在成本看板上。
+> 详见 [ADR-0013](decisions/0013-model-gateway.md)。
 
 > 目的：面试官/客户拿到仓库，`docker compose up` 就能看到完整链路，不需要 key、不需要联网。这是开源项目的第一印象分。
 

@@ -55,6 +55,8 @@ class Run(Base):
         Integer, default=0, server_default=text("0"), nullable=False
     )
     error_code: Mapped[str | None] = mapped_column(String(64))
+    #: 失败归因大类（model/tool/approval/limit/internal），由 run.failed 投影写入
+    failure_category: Mapped[str | None] = mapped_column(String(24))
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, server_default=text("now()"), nullable=False
     )

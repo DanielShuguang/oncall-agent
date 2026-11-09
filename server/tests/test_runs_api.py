@@ -3,33 +3,48 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime, timedelta
 
 from httpx import ASGITransport, AsyncClient
 
 from app.core.store import InMemoryRunStore
+from app.gateway.meter import InMemoryModelCallStore, ModelCallRecord
 from app.main import app
 from app.schemas.event import EventType, RunStatus
 from tests.support import auth_headers
 
 
-async def _seed_run(store: InMemoryRunStore) -> str:
+async def _seed_run(
+    store: InMemoryRunStore,
+    *,
+    client_msg_id: str | None = None,
+    user_id: str = "u_102",
+    status: str = "completed",
+) -> str:
     run_id = str(uuid.uuid4())
     await store.create(
         run_id=run_id,
-        user_id="u_102",
+        user_id=user_id,
         session_id="sess_1",
         message="打印机离线",
-        client_msg_id="cmsg_seed",
+        client_msg_id=client_msg_id or f"cmsg_{uuid.uuid4().hex[:8]}",
     )
     await store.append(run_id, EventType.RUN_STARTED, {"model": "mock", "max_steps": 12})
     await store.append(run_id, EventType.STEP_STARTED, {"node": "intake"})
     await store.append(run_id, EventType.STEP_COMPLETED, {"node": "intake"})
     await store.append(run_id, EventType.MESSAGE_COMPLETED, {"text": "重启打印服务"})
-    await store.append(
-        run_id,
-        EventType.RUN_COMPLETED,
-        {"status": "completed", "steps": 1, "token_in": 12, "token_out": 3, "cost_cents": 1},
-    )
+    if status == "failed":
+        await store.append(
+            run_id,
+            EventType.RUN_FAILED,
+            {"error_code": "TOOL_ERROR", "message": "失败", "at_step": 4},
+        )
+    else:
+        await store.append(
+            run_id,
+            EventType.RUN_COMPLETED,
+            {"status": "completed", "steps": 1, "token_in": 12, "token_out": 3, "cost_cents": 1},
+        )
     return run_id
 
 
@@ -129,3 +144,78 @@ async def test_run_of_another_user_is_404(client: AsyncClient, mem_store: InMemo
     ) as other:
         assert (await other.get(f"/api/runs/{run_id}")).status_code == 404
         assert (await other.get(f"/api/runs/{run_id}/events")).status_code == 404
+
+
+async def test_list_runs_paginates_with_cursor(
+    client: AsyncClient, mem_store: InMemoryRunStore
+) -> None:
+    run_ids = [await _seed_run(mem_store) for _ in range(3)]
+    base = datetime(2026, 11, 9, 10, 0, tzinfo=UTC)
+    for index, run_id in enumerate(run_ids):
+        record = await mem_store.get(run_id)
+        assert record is not None
+        record.started_at = base + timedelta(minutes=index)
+
+    first = await client.get("/api/runs", params={"limit": 2})
+    assert first.status_code == 200
+    body = first.json()
+    assert len(body["items"]) == 2
+    assert body["next_cursor"]
+
+    second = await client.get("/api/runs", params={"limit": 2, "cursor": body["next_cursor"]})
+    second_body = second.json()
+    assert len(second_body["items"]) == 1
+    assert second_body["next_cursor"] is None
+    assert second_body["items"][0]["run_id"] == run_ids[0]
+
+
+async def test_list_runs_filters_status_and_owner(
+    client: AsyncClient, mem_store: InMemoryRunStore
+) -> None:
+    failed_id = await _seed_run(mem_store, status="failed")
+    await _seed_run(mem_store)
+    await _seed_run(mem_store, user_id="u_205")
+
+    res = await client.get("/api/runs", params={"status": "failed"})
+    assert res.status_code == 200
+    items = res.json()["items"]
+    assert [item["run_id"] for item in items] == [failed_id]
+    assert items[0]["failure_category"] == "tool"
+    assert items[0]["error_code"] == "TOOL_ERROR"
+
+
+async def test_list_runs_rejects_invalid_cursor(client: AsyncClient) -> None:
+    res = await client.get("/api/runs", params={"cursor": "not-base64"})
+    assert res.status_code == 400
+    assert res.json()["code"] == "INVALID_CURSOR"
+
+
+async def test_run_detail_includes_model_calls(
+    client: AsyncClient,
+    mem_store: InMemoryRunStore,
+    mem_model_calls: InMemoryModelCallStore,
+) -> None:
+    run_id = await _seed_run(mem_store)
+    await mem_model_calls.record(
+        ModelCallRecord(
+            run_id=run_id,
+            step="plan",
+            provider="local",
+            model="qwen-test",
+            token_in=100,
+            token_out=20,
+            cost_cents=0,
+            latency_ms=12,
+            first_token_ms=None,
+            status="ok",
+            error=None,
+            user_id="u_102",
+        )
+    )
+
+    res = await client.get(f"/api/runs/{run_id}")
+    assert res.status_code == 200
+    calls = res.json()["model_calls"]
+    assert len(calls) == 1
+    assert calls[0]["step"] == "plan"
+    assert calls[0]["token_in"] == 100

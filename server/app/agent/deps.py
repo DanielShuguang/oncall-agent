@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from app.approvals.types import ApprovalRecorder
+from app.gateway.types import ModelGateway
 from app.rag.retrieve import Retriever
 from app.tools.registry import ToolGuard
 
@@ -21,3 +22,7 @@ class AgentDeps:
     retriever: Retriever | None = None
     top_k: int = 5
     approvals: ApprovalRecorder | None = None
+    #: None = mock 模式，节点走确定性规则；非 None 时 classify/plan 才调模型
+    gateway: ModelGateway | None = None
+    #: 客户端指定的模型；网关只会路由到已配置的模型
+    requested_model: str | None = None

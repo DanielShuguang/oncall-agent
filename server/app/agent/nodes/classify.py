@@ -1,26 +1,37 @@
-"""classify 节点：意图识别（规则版，W3 D11）。
+"""classify 节点：意图识别（规则优先 + 小模型兜底，W4 D16）。
 
-W3 还没有模型网关（W4 才接），所以 docs/04 §3 的「小模型兜底」暂不启用：
-规则覆盖三类可执行意图，未命中落 `knowledge`（纯 RAG）。
-
-    ticket_create  用户明确要求开单/报修 → 写操作，后面必须审批
-    asset_check    涉及设备/硬件 → 先查 CMDB
-    knowledge      其余 → 只做检索问答
-
-`incident_type` 仍然是工单分类（hardware|network|software|account|other），
-和 `intent` 分开：前者进工单字段，后者决定要不要调工具。
+规则覆盖三类可执行意图；只有「规则完全没命中」的模糊输入才走小模型
+（`ONCALL_MOCK_MODE=false` 时）。模型只允许把模糊输入判成
+`knowledge` / `asset_check`，**不允许**凭模糊文本升级成 `ticket_create`：
+开单是写操作，必须由用户明确表达（R10）。
 """
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from app.agent.deps import AgentDeps
+from app.agent.prompts import load_prompt
 from app.agent.state import AgentState
+from app.core.logging import get_logger
+from app.gateway.types import (
+    BudgetExceeded,
+    ChatMessage,
+    MeteringError,
+    ModelUnavailable,
+    ModelUsage,
+    Purpose,
+)
+
+log = get_logger(__name__)
 
 INTENT_TICKET = "ticket_create"
 INTENT_ASSET = "asset_check"
 INTENT_KNOWLEDGE = "knowledge"
+
+INTENTS = {INTENT_TICKET, INTENT_ASSET, INTENT_KNOWLEDGE}
+INCIDENT_TYPES = {"hardware", "network", "software", "account", "other"}
 
 #: 写操作意图：命中即计划 create_ticket，由治理层挂起等审批（R10）。
 #: 只收「明确要开单」的说法；“申请/审批”单独出现时多是政策咨询，交给 RAG。
@@ -50,6 +61,9 @@ INCIDENT_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("software", ("软件", "安装", "office", "Office", "驱动", "崩溃", "闪退")),
 )
 
+#: 模糊输入至少这么长才值得花一次模型调用；"你好" 之类直接按规则走
+MODEL_FALLBACK_MIN_CHARS = 6
+
 
 def classify_incident(query: str) -> str:
     lowered = query.lower()
@@ -75,9 +89,92 @@ def classify_intent(query: str, incident: str) -> str:
     return INTENT_KNOWLEDGE
 
 
-def classify_node(state: AgentState, deps: AgentDeps) -> dict[str, Any]:
-    """返回 state 增量：intent / incident_type。"""
-    del deps  # 规则节点不需要依赖，签名保持统一便于 W4 换成规则 + 模型兜底
+def needs_model(query: str) -> bool:
+    """规则无法判断时才调模型：没有任何关键词命中，且输入足够长。"""
+    return (
+        len(query.strip()) >= MODEL_FALLBACK_MIN_CHARS
+        and not wants_write(query)
+        and classify_incident(query) == "other"
+        and not any(keyword in query for keyword in ASSET_KEYWORDS)
+    )
+
+
+def parse_classification(text: str) -> tuple[str, str] | None:
+    """解析模型 JSON；非法输入返回 None，由调用方保留规则结果。"""
+    payload = _json_object(text)
+    if payload is None:
+        return None
+    intent = payload.get("intent")
+    incident = payload.get("incident_type")
+    if not isinstance(intent, str) or intent not in INTENTS:
+        return None
+    if not isinstance(incident, str) or incident not in INCIDENT_TYPES:
+        return None
+    # 模糊输入不允许升级为写操作（R10）
+    if intent == INTENT_TICKET:
+        intent = INTENT_KNOWLEDGE
+    return intent, incident
+
+
+def _json_object(text: str) -> dict[str, Any] | None:
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        stripped = stripped.strip("`")
+        if stripped.startswith("json"):
+            stripped = stripped[4:]
+    candidates = [stripped]
+    start, end = stripped.find("{"), stripped.rfind("}")
+    if start >= 0 and end > start:
+        candidates.append(stripped[start : end + 1])
+    for candidate in candidates:
+        try:
+            data = json.loads(candidate)
+        except ValueError:
+            continue
+        if isinstance(data, dict):
+            return data
+    return None
+
+
+async def classify_node(state: AgentState, deps: AgentDeps) -> dict[str, Any]:
+    """返回 state 增量：intent / incident_type / classified_by / usage。"""
     query = state.get("query", "")
     incident = classify_incident(query)
-    return {"intent": classify_intent(query, incident), "incident_type": incident}
+    intent = classify_intent(query, incident)
+    usage = ModelUsage()
+    source = "rule"
+
+    if deps.gateway is not None and needs_model(query):
+        user = state.get("user", {})
+        try:
+            completion = await deps.gateway.chat(
+                [
+                    ChatMessage(role="system", content=load_prompt("classify")),
+                    ChatMessage(role="user", content=query),
+                ],
+                purpose=Purpose.CLASSIFY,
+                run_id=str(state.get("run_id", "")),
+                step="classify",
+                user_id=str(user.get("id", "")),
+                spent_cents=ModelUsage.from_dict(state.get("usage")).cost_cents,
+                max_tokens=120,
+                json_mode=True,
+                requested_model=deps.requested_model,
+            )
+        except BudgetExceeded:
+            raise
+        except (ModelUnavailable, MeteringError) as exc:
+            log.warning("classify_model_fallback", run_id=state.get("run_id"), error=str(exc))
+        else:
+            usage = usage.add(completion)
+            parsed = parse_classification(completion.text)
+            if parsed is not None:
+                intent, incident = parsed
+                source = "llm"
+
+    return {
+        "intent": intent,
+        "incident_type": incident,
+        "classified_by": source,
+        "usage": usage.as_dict(),
+    }

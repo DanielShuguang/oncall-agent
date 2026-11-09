@@ -29,8 +29,8 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 |---|---|---|---|
 | GET | `/health` | 健康检查（含 db/redis 探活） | W1 D1 |
 | POST | `/chat/stream` | 发起一次对话，返回 SSE 流 | W1 D3 |
-| GET | `/runs` | 运行列表（分页） | W4 D19 |
-| GET | `/runs/{run_id}` | 单次运行详情（含指标） | W1 D4 |
+| GET | `/runs` | 运行列表（分页、按状态筛选） | W4 D19 |
+| GET | `/runs/{run_id}` | 单次运行详情（含指标与模型调用明细） | W1 D4 / W4 D19 |
 | GET | `/runs/{run_id}/events?after_seq=` | 补拉事件（断线续传，兼容 `Last-Event-ID`） | W1 D4 |
 | GET | `/runs/{run_id}/stream` | 重连增量流（可选，v1 用轮询替代） | — |
 | POST | `/approvals/{id}/resolve` | 审批通过/拒绝 | W3 D14 |
@@ -65,6 +65,10 @@ Accept: text/event-stream
 ```
 
 - `client_msg_id` 是**幂等键**：同一用户重复提交返回同一个 `run_id`，不重复执行；空字符串按“未提供”处理
+- `options.model` 为空时由网关规则选模型（mock 模式是 `rule-engine`）；非空时只在**已配置的模型**
+  之间路由，未知模型名忽略（避免客户端指定任意模型）
+- 限流：`ONCALL_RATE_LIMIT_PER_MIN`（默认 30 次/分钟/用户，0 关闭）。超限在**建 run 之前**
+  返回 `429 {"code":"RATE_LIMITED"}` + `Retry-After: 60`，不建 SSE、不产生 run
 - 幂等命中时服务端只**回放已落库事件**（可带 `Last-Event-ID` 从断点开始），不会再跑一遍 Agent；若该 run 仍在 `running`，服务端继续跟到终态并用心跳保活（上限 5 分钟），客户端也可改用 `/runs/{run_id}/events` 轮询补齐
 - 响应头：`Content-Type: text/event-stream; charset=utf-8`、`Cache-Control: no-cache`、`X-Accel-Buffering: no`（Nginx 不缓冲）
 
@@ -96,10 +100,12 @@ data: {"seq":7,"run_id":"01J...","type":"tool.call","ts":"2026-11-09T02:11:03.12
 | `message.delta` | `{text}` | 追加到当前消息气泡 |
 | `message.completed` | `{text, citations:[{chunk_id,document_id,ord,title,heading,snippet,page}]}` | 收尾，渲染引用角标；点击打开原文片段 |
 | `run.completed` | `{status, steps, token_in, token_out, cost_cents, duration_ms}` | 置 completed，显示成本；`duration_ms` 是本次执行段耗时，审批等待不计入 |
-| `run.failed` | `{error_code, message, at_step}` | 置 failed，显示重试 |
+| `run.failed` | `{error_code, message, at_step, category}` | 置 failed，显示重试；`category` 是 model/tool/approval/limit/internal 归因 |
 | `heartbeat` | — | 忽略（或用于探测超时） |
 
-> W1 没有 LLM 调用：`run.started.model` 默认是 `rule-engine`，W4 网关接入后才是真实模型名。
+> W1 没有 LLM 调用：`run.started.model` 默认是 `rule-engine`；W4 网关接入后，mock 模式仍是
+> `rule-engine`（确定性规则、成本 0），真实模式是 plan 的首选模型名，单次调用实际走了哪个
+> provider 看 `model_calls`（`GET /runs/{id}`）。
 > W2 的 `retrieve` 是**节点**而不是工具，所以只发 `step.*`，不发 `tool.call`；
 > `message.completed.citations` 为本次实际用到的 1-3 条（无命中时为空数组）。
 > W3 的节点顺序固定为 `intake → classify → retrieve → plan → act → verify → finalize`；
@@ -111,6 +117,7 @@ data: {"seq":7,"run_id":"01J...","type":"tool.call","ts":"2026-11-09T02:11:03.12
 | 情况 | HTTP/事件 | 前端表现 |
 |---|---|---|
 | 请求本身不合法（未鉴权、字段缺失） | `4xx` JSON `{code,message}`（401 见 §0；422 是 FastAPI 校验格式），**不建 SSE** | 表单报错 / 提示设置 Token |
+| 请求限流 | `429 {"code":"RATE_LIMITED"}` + `Retry-After: 60`，**不建 SSE** | 提示稍后再试 |
 | 管理接口无权限 | `403 {"code":"FORBIDDEN","message":"需要管理员角色"}` | 提示切换有 admin 角色的 Token |
 | 数据库不可用（建流前落库失败） | `503` JSON `{detail}` | 提示稍后重试，不要进入"假运行" |
 | 运行期失败（模型超时、工具全挂） | `200` + `run.failed` 事件 | 卡片显示失败 + 重试按钮 |
@@ -133,7 +140,46 @@ Last-Event-ID: 7
 - `limit` 默认 200、上限 500；`next_seq` 是本次返回的最后一个 `seq`（没有新事件时等于请求的起点）
 - run 不存在返回 `404`，不要用空数组掩盖
 
-### 3.1 单次运行详情
+### 3.1 运行列表
+
+```http
+GET /api/runs?limit=20&status=failed&cursor=<opaque>
+Authorization: Bearer <token>
+```
+
+```json
+{
+  "items": [
+    {
+      "run_id": "9a17...",
+      "status": "failed",
+      "user_id": "u_102",
+      "session_id": "sess_01H...",
+      "intent": "ticket_create",
+      "model": "qwen2.5:7b",
+      "step_count": 5,
+      "max_steps": 12,
+      "token_in": 900,
+      "token_out": 120,
+      "cost_cents": 2,
+      "error_code": "TOOL_ERROR",
+      "failure_category": "tool",
+      "event_count": 18,
+      "started_at": "2026-11-09T02:11:03.120Z",
+      "finished_at": "2026-11-09T02:11:04.400Z"
+    }
+  ],
+  "next_cursor": "MjAyNi0xMS0wOVQwMjoxMTowMy4xMjArMDB8OWExNw=="
+}
+```
+
+- 只返回当前用户的 run；`status` 可选，值同事件流状态
+- `limit` 默认 20、上限 100；`next_cursor` 为 `null` 表示没有下一页
+- `cursor` 是不透明字符串（base64 的 `started_at|run_id`）；非法 cursor 返回
+  `400 {"code":"INVALID_CURSOR"}`，不要静默从头开始
+- `failure_category` 只对失败 run 有值，用来回答「失败在模型、工具、审批还是护栏」
+
+### 3.2 单次运行详情
 
 ```http
 GET /api/runs/{run_id}
@@ -153,11 +199,27 @@ GET /api/runs/{run_id}
   "token_out": 310,
   "cost_cents": 3,
   "error_code": null,
+  "failure_category": null,
   "event_count": 23,
   "started_at": "2026-11-09T02:11:03.120Z",
   "finished_at": "2026-11-09T02:11:04.400Z",
   "input": "我电脑连不上打印机了",
-  "output": "你名下的笔记本…"
+  "output": "你名下的笔记本…",
+  "model_calls": [
+    {
+      "step": "plan",
+      "provider": "local",
+      "model": "qwen2.5:7b",
+      "token_in": 1820,
+      "token_out": 310,
+      "cost_cents": 3,
+      "latency_ms": 840,
+      "first_token_ms": null,
+      "status": "ok",
+      "error": null,
+      "created_at": "2026-11-09T02:11:03.900Z"
+    }
+  ]
 }
 ```
 
@@ -242,6 +304,11 @@ GET /api/admin/cost/summary?from=2026-11-01&to=2026-11-30&group_by=model
   ]
 }
 ```
+
+- 管理接口，要求 `ONCALL_ADMIN_ROLES`；`from`/`to` 是 UTC 自然日，`to` 闭区间；
+  默认最近 7 天，最长 366 天；`from > to` 返回 `422 INVALID_RANGE`
+- `group_by=day` 按时间正序返回趋势；`model` / `user` 按花费倒序
+- 聚合源是 `model_calls`，不是缓存的汇总表；与 `/runs/{id}` 的 token/cost 同源
 
 ### 知识库上传与重建索引（W2 D7/D8）
 

@@ -36,7 +36,7 @@ docs/04 §8 本来就写了退路：
    能不能执行仍由 `ToolGuard` 决定）。
 3. 审批恢复由 `agent/runtime.py::resume()` 从 `approvals.state` 快照执行；
    审批存储与 runtime 之间只用 `ApprovalRecorder` 协议。
-4. `langgraph` / `langchain-core` 继续留在可选 `agent` extra；W4 接入模型网关时
+4. `langgraph` / `langchain-core` 继续留在可选 `agent` extra；W4 接入模型网关后仍未启用
    再评估是否用它替换调度层 —— 届时节点函数可以直接复用。
 
 ## 被否决的方案

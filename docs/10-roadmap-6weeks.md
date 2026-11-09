@@ -79,7 +79,7 @@ W3 拆出 `classify` / `verify` 后同一命令为 `avg_steps 7` / `p95 83ms`，
 
 | 天 | 状态 | 落地 |
 |---|---|---|
-| D11 意图识别 | ◐（规则，未做标注集） | `agent/nodes/classify.py`：`ticket_create` / `asset_check` / `knowledge` + 工单分类；**50 条标注准确率未测**，LLM 兜底随 W4 网关接入 |
+| D11 意图识别 | ◐（规则 + 模型兜底，未做标注集） | `agent/nodes/classify.py`：规则优先，模糊输入走小模型；`ticket_create` / `asset_check` / `knowledge` + 工单分类；**50 条标注准确率仍未测** |
 | D12 注册表/角色矩阵 | ✅（代码） | `tools/registry.py` 已有 `ToolSpec.roles` / `enabled`；管理页矩阵留 W5 D23 |
 | D13 五道闸门 + 重试 | ✅ | 五道闸门、入参白名单/enum、按工具超时、分类重试、`verify` 重规划一次、降级话术；`tests/test_tools_guard.py` 20 条 |
 | D14 create_ticket + 审批 | ✅ | `approvals` 表 + `/api/approvals` + 审批卡；通过后从快照恢复 `act`，工单真正落 `tickets` |
@@ -89,7 +89,7 @@ W3 指标（本地）：后端 129 passed + 8 skipped；带 Postgres 137 passed�
 `ruff`/`mypy`/`alembic check` 全绿；越权/自批/非审批人/重复决议/超时全部有测试。
 与计划的差异：LangGraph 未启用，改用显式转移表（ADR-0012），理由与迁移路径见
 [docs/04 §7](04-agent-design.md)；审批 `scope=session` 已落库（按 user + session + tool
-隔离，默认 8 小时）；D11 的分类准确率验收项未完成，记入 W4。
+隔离，默认 8 小时）；D11 的分类准确率验收项仍未完成（W4 只接了模型兜底，标注集留待补测）。
 
 ---
 
@@ -99,11 +99,28 @@ W3 指标（本地）：后端 129 passed + 8 skipped；带 Postgres 137 passed�
 |---|---|---|
 | D16 | 模型网关：provider 适配（OpenAI 兼容 / Ollama）+ 规则路由 | 简单意图走小模型（日志可见） |
 | D17 | 滑动窗口限流 + 每日预算 + 失败切换 | 超预算直接拒绝，不抛 500 |
-| D18 | token 成本埋点 + 聚合表 | 每次 run 有 cost_cents |
+| D18 | token 成本埋点 + 聚合查询 | 每次 run 有 cost_cents |
 | D19 | 成本看板 + 运行详情页 | 看板与 `model_calls` 对得上 |
 | D20 | 回放：按 run_id 重放事件 + 失败归因打标 | 任意历史 run 可完整回放 |
 
 **一致性测试**：`runs.token_in == sum(model_calls.token_in)`，写进 CI。
+
+**实现状态（2026-11-09）**
+
+| 天 | 状态 | 落地 |
+|---|---|---|
+| D16 模型网关 | ✅ | `gateway/`：OpenAI 兼容 + Ollama 原生适配、classify→local / plan→cloud 规则路由、失败切换；classify 兜底与 plan 均已接入 |
+| D17 限流 + 预算 | ✅ | `core/limits.py`：Redis ZSET 滑动窗口 + UTC 日预算预扣/结算；超限 429，超预算 `run.failed(BUDGET_EXCEEDED)` |
+| D18 token 计量 | ✅ | `model_calls` 表（迁移 0006）；计量行与 `runs` 汇总同事务增量更新；`tests/test_metrics_pg.py` 覆盖失败 run |
+| D19 成本看板 | ✅ | `GET /runs`、`GET /admin/cost/summary`；前端 `/runs`、`/console/cost` |
+| D20 回放 + 归因 | ✅ | `/runs/:id` 用事件 reducer 重建；`run.failed.category` + `runs.failure_category` |
+
+W4 指标（本地）：后端 **177 passed**（含 Postgres，1 warning）；默认无库 **165 passed + 12 skipped**；
+前端 **28 tests** 且 `tsc`/`oxlint 0`/`oxfmt --check`/`pnpm build` 全绿；`alembic check` 无漂移。
+评测仍是 mock/规则模式：20/20、recall@5 100%、cite_acc 91.67%、p95 87ms、avg_cost 0
+（真实模型效果与成本需要配置 provider 后另跑，见 docs/08 §6）。
+与计划的差异：D11 的 50 条标注分类准确率仍未测；`query_cmdb` 仍是内置假数据；
+LangGraph 在 W4 评估后仍未启用（ADR-0012）。
 
 ---
 

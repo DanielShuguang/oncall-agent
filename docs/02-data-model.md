@@ -39,6 +39,7 @@ CREATE TABLE runs (
   token_out       INT  NOT NULL DEFAULT 0,
   cost_cents      INT  NOT NULL DEFAULT 0,  -- 分为单位
   error_code      TEXT,
+  failure_category TEXT,                    -- model|tool|approval|limit|internal（W4）
   started_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   finished_at     TIMESTAMPTZ,
   CONSTRAINT uq_runs_user_client_msg UNIQUE (user_id, client_msg_id)
@@ -132,7 +133,18 @@ CREATE TABLE model_calls (
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_model_calls_day ON model_calls (created_at);
+CREATE INDEX idx_model_calls_run ON model_calls (run_id);
 ```
+
+> 实现（W4 D18）：`server/app/models/model_call.py` + 迁移 `0006`。
+> 每行是一次真实 provider 调用；失败尝试也留痕（`status=error`、token 记 0），
+> 成功切换 provider 的那一行记 `status=fallback`。
+> **`runs.token_*`/`cost_cents` 由 `gateway/meter.py` 在写这一行时同事务增量更新**，
+> 而不是等 `run.completed` 才结算：失败、超时、审批拒绝的 run 不会走到完成事件，
+> 只在完成时结算会少统计。`run.completed.payload` 里的 totals 仍会写一次绝对值，
+> 与增量累计相等，用于事件回放侧展示。
+> 价格单位是「分 / 百万 token」（配置项 `ONCALL_CLOUD_PRICE_*_CENTS_PER_1M`），
+> 成本向上取整到分；本地模型默认为 0。
 
 ### 2.5 tools / roles / 权限矩阵
 
@@ -254,7 +266,8 @@ CREATE TABLE eval_results (
 1. **先写事件，再推流**：推送失败不影响数据完整性；前端靠补拉恢复
 2. **业务表的当前态由事件驱动更新**，禁止直接 UPDATE 一个"说不清从哪来"的字段
 3. 事件只追加，不修改；纠错用新事件（`run.failed` + 重跑）
-4. 一个 run 结束后，`runs` 的汇总字段（token/cost/step）与 `model_calls` 聚合必须相等——**W4 写一个一致性校验测试**
+4. 一个 run 结束后，`runs` 的汇总字段（token/cost/step）与 `model_calls` 聚合必须相等——W4 已落测试
+   `tests/test_metrics_pg.py`（失败 run 也覆盖），并在 `make test` 的 Postgres 套件里执行。
 
 ### 3.1 事件 → `runs` 投影
 
@@ -268,7 +281,7 @@ CREATE TABLE eval_results (
 | `approval.resolved` | `approved → running`；`rejected/expired → failed` + `error_code`（`APPROVAL_REJECTED` / `APPROVAL_TIMEOUT`），写 `finished_at`；随后还会追加一条 `run.failed`，让只消费事件的前端也能收敛 |
 | `message.completed` | 写 `output` |
 | `run.completed` | `status=completed`，写 `finished_at` / `step_count` / `token_*` / `cost_cents` |
-| `run.failed` | `status=failed`，写 `error_code` / `finished_at` |
+| `run.failed` | `status=failed`，写 `error_code` / `failure_category` / `finished_at` |
 | 其他（`heartbeat` 等） | 不改 `runs`，只追加事件 |
 
 ## 4. 保留与清理
@@ -279,6 +292,9 @@ CREATE TABLE eval_results (
 | model_calls | 180 天 | 成本分析用，可归档 |
 | attachments / 上传文件 | 30 天 | 不落对象存储，v1 用本地卷 |
 | eval_results | 永久 | 体量小，是能力证明 |
+
+> 保留清理任务本身尚未实现（W6 运维项）；当前只有审批超时 sweeper，
+> 会自动把过期 pending 置 expired 并收敛 run。
 
 ## 5. 迁移
 
@@ -295,7 +311,7 @@ uv run alembic upgrade head --sql    # 无库环境渲染 DDL，评审用
 
 - 迁移文件在 `server/migrations/versions/`；`alembic.ini` 只放占位 DSN，真实 DSN 由 `migrations/env.py` 从环境变量读
 - 必须写 `downgrade`，并在空库上验证一次 `downgrade base && upgrade head`
-- 当前迁移链：`0001` runs/events → `0002` 幂等键按用户作用域 → `0003` kb（pgvector/tsvector）+ assets/tickets → `0004` approvals → `0005` 会话授权按用户隔离
+- 当前迁移链：`0001` runs/events → `0002` 幂等键按用户作用域 → `0003` kb（pgvector/tsvector）+ assets/tickets → `0004` approvals → `0005` 会话授权按用户隔离 → `0006` model_calls + failure_category
 
 > `0003` 先 `CREATE EXTENSION IF NOT EXISTS vector`，否则 vector 类型与 HNSW 索引会失败；
 > 测试库由 fixture 建扩展后再 `create_all`（扩展是库级对象，`drop_all` 不会删）。

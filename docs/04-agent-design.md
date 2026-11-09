@@ -86,11 +86,12 @@ class AgentState(TypedDict, total=False):
 | approve | 人工 | pending_approval | 决议 | 超时 → 拒绝 + 转人工 |
 | finalize | 规则 | 全部状态 | 回答 + citations + 成本 | 兜底模板 |
 
-> **W3 状态（2026-11-09）**：8 个节点均已落地，调度顺序
+> **W4 状态（2026-11-09）**：8 个节点均已落地，调度顺序
 > `intake → classify → retrieve → plan → act → verify → finalize`；
 > 写操作在 `act` 挂起，审批通过后 `approve → act → verify → finalize` 恢复（ADR-0012）。
-> `classify` 是纯规则（关键词），LLM 兜底随 W4 模型网关接入；W3 的规则覆盖
-> 工单/资产/知识问答三类意图，未命中落 `knowledge`，与上面的降级路径一致。
+> classify 规则优先，只有「没有任何关键词命中且输入足够长」的模糊输入才调小模型；
+> 模糊输入**不允许**被模型升级成 `ticket_create`（R10）。plan 在真实模式下由模型产出
+> `{calls}`，服务端逐条校验工具名/参数并注入身份；mock 模式与模型不可用时退回规则计划。
 > `verify` 只对可恢复错误（timeout/network/internal）重规划一次；`not_found` /
 > `permission` / `invalid_args` 换计划也不会变好，直接降级。
 
@@ -112,6 +113,10 @@ class AgentState(TypedDict, total=False):
 | 温度 | plan 用 0~0.2；回答用 0.3 |
 | 版本化 | 提示词存 `agent/prompts/*.md`，带版本号，评测报告记录版本 |
 
+W4 提示词：`agent/prompts/classify.md`（v1）和 `plan.md`（v1），由
+`agent/prompts/__init__.py` 的 `PROMPT_VERSIONS` 登记。plan 的输出由服务端二次校验，
+**模型只负责产出工具名与参数，能不能执行仍由治理层决定**。
+
 ## 6. 循环与护栏
 
 ```python
@@ -124,14 +129,18 @@ BUDGET_CENTS = 50         # 单 run 成本上限
 
 超限一律 `run.failed`，`error_code` 区分：`STEP_LIMIT` / `TOOL_LIMIT` / `TIMEOUT` / `BUDGET_EXCEEDED`。
 W1 已生效 `STEP_LIMIT` / `TOOL_LIMIT` / `TIMEOUT`（总时长在节点与工具边界检查）；
-`BUDGET_EXCEEDED` 随 W4 模型网关接入（没有计量就没有预算）。
+W4 接网关后 `BUDGET_EXCEEDED` 生效：单 run 上限 `ONCALL_RUN_BUDGET_CENTS`（默认 50 分），
+每日上限 `ONCALL_DAILY_BUDGET_CNY`（默认 5 元）。预算不足时在模型调用前拒绝，
+不会先花钱再报错；`run.failed.payload.category=model`。
 
-## 7. LangGraph 落地（W4 再评估）
+## 7. LangGraph 落地（W4 评估后仍未启用）
 
-> W3 没有启用 LangGraph，实际用的是 §8 的显式转移表（ADR-0012）。原因不是"做不出来"，
-> 而是审批恢复需要从**同一次 act 调用**继续：审计真相是事件表（R2），再引入
-> `langgraph-checkpoint-postgres` 会多一套状态源，恢复时还要保证两边一致。
-> 下面的图仍作为设计参考保留；节点函数与它兼容，换调度器不改节点。
+> W3 没有启用 LangGraph，W4 评估后仍未启用；实际用的是 §8 的显式转移表（ADR-0012）。
+> 原因不是"做不出来"，而是审批恢复需要从**同一次 act 调用**继续：审计真相是事件表（R2），
+> 再引入 `langgraph-checkpoint-postgres` 会多一套状态源，恢复时还要保证两边一致。
+> W4 的 gateway 只被节点调用，不改变调度器；下面的图仍作为设计参考保留，
+> 节点函数与它兼容，换调度器不改节点（示例里的同步 lambda 是 W3 签名，W4 的
+> classify/plan 已改为 async，LangGraph 迁移时直接换 async node 即可）。
 
 ```python
 # app/agent/graph.py
@@ -180,6 +189,9 @@ while state["step"] < MAX_STEPS and not terminal(state):
 ## 9. 评测挂钩
 
 每个节点记录 `duration_ms` 与 `model_calls`，写入 `model_calls` 表。评测报告按节点聚合延迟与成本，便于回答"慢在哪一步、贵在哪一步"。
+W4 实现：`gateway/meter.py` 在每次 provider 返回后写 `model_calls`，同事务增量更新
+`runs`；节点返回的 `usage` 由 runtime 累加，最终写进 `run.completed`。失败/中断的
+run 也满足 `runs.token_in == sum(model_calls.token_in)`（`tests/test_metrics_pg.py`）。
 
 ## 10. 运行时（W1 D5 → W2 D9）
 
@@ -221,4 +233,15 @@ while state["step"] < MAX_STEPS and not terminal(state):
 W1 的 `plan` / `finalize` 是规则实现（关键词分类 + 模板回答）；W3 D13 把 plan 换成 LLM
 （JSON Schema 约束 + 失败降级），节点签名不变。W2 已接入 RAG 与引用；W4 才把
 `citations` 的来源从确定性抽取换成模型生成 + 校验。
+
+W4 实际落地（2026-11-09）：
+- `classify` 与 `plan` 改为 async 节点，`runtime._run_node` 统一 await；节点仍是纯函数
+- `AgentDeps.gateway` 为 `None` 时（mock 模式）不触发任何 HTTP；评测/单测默认走这条
+- 节点返回的 `usage` 由 `runtime._merge` 累加，快照也带 `usage`，审批恢复后 finalize
+  仍能写出正确的 token/cost
+- plan 的模型输出先过 `validate_args`：未知工具/未知参数/enum 非法/写操作越权都会被
+  丢弃；全部丢弃时退回规则计划，不执行空计划
+- 模型输出 JSON 解析失败重试一次，仍失败退回规则计划（`plan_source=fallback`）
+- 预算/计量错误不降级：`BudgetExceeded` → `run.failed(BUDGET_EXCEEDED)`，
+  `MeteringError` → `run.failed(MODEL_ERROR)`，避免出现没有计量行的 token
 

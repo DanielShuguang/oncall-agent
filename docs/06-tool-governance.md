@@ -54,6 +54,11 @@ handler 时用 `spec.handler(**args, identity=identity)` 注入会话身份 —�
 
 实现见 `server/app/tools/registry.py` 的 `ToolGuard.execute()`。
 
+W4 的 plan 是模型产出的，节点内会先用同一个 `validate_args` 过滤明显非法的调用
+（未知工具 / 未知参数 / enum 错 / 模糊输入计划写操作），全部非法时退回规则计划；
+`act` 执行前仍会再走一遍五道闸门。**这不是重复校验**：plan 的校验是降级策略，
+act 的校验才是强制边界，模型不能靠"计划阶段漏网"绕过治理。
+
 ## 4. 超时与取消
 
 ```python
@@ -168,10 +173,10 @@ app/tools/
 | `create_ticket` | **写** | 3000ms | 所有（需审批） | 创建工单 |
 
 > `create_ticket` 在 W3 D14 接通审批后真正落 `tickets` 表（`server/app/tools/tickets.py`），
-> requester 由治理层注入；`query_cmdb` 仍是进程内假数据，W4 接真实 CMDB 时只替换
+> requester 由治理层注入；`query_cmdb` 仍是进程内假数据，后续接真实 CMDB 时只替换
 > handler 与 `input_schema`，`ToolGuard` 不改（R3）。
 > 清单里的 `query_tickets` / `search_kb` / `run_diagnostic` 尚未注册：`search_kb`
-> 当前是 `retrieve` 节点（不是工具），另两个随 W4 接真实系统时再加，避免先写假工具
+> 当前是 `retrieve` 节点（不是工具），另两个随接真实系统时再加，避免先写假工具
 > 再改一遍治理用例。
 
 ## 9. 审计与可观测

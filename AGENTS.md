@@ -8,7 +8,7 @@
 **OnCall** = 可私有化部署的企业服务台 Agent：查资产 → 验权限 → 调工具 → 开单 → 审批 → 回填。
 技术栈：Python 3.12 + FastAPI + 显式 8 节点状态机（LangGraph 可选，ADR-0012） ｜ React 19 + Vite + Tailwind CSS ｜ PostgreSQL + pgvector ｜ SSE。
 
-当前状态：**W3 已完成（8 节点图 + 审批闭环 + 工单落库，ADR-0012）；模型网关 / 成本看板（W4）尚未实现**。
+当前状态：**W4 已完成（模型网关 + 成本看板 + 运行回放，ADR-0013）；W5 后台四页 / W6 私有化交付尚未实现**。
 写代码前先确认你要做的是路线图里的哪一天（`docs/10-roadmap-6weeks.md`）。
 
 ## 1. 开始前必读（按顺序，别跳）
@@ -162,10 +162,10 @@ cd web && pnpm exec tsc --noEmit && pnpm test && pnpm lint && pnpm format:check
 | W1 D5 | ✅ 已完成：手写运行时 + 规则节点 + `query_cmdb` 走治理层 | `agent/runtime.py`, `agent/nodes/*`, `tools/builtin.py` |
 | W2 | ✅ 已完成：50 篇 seed + 解析/切分 + pgvector/tsvector + 混合检索/引用 + 20 条评测 | `rag/*`, `seed/*`, `eval/*` |
 | W3 | ✅ 已完成：8 节点图 + 审批闭环（显式转移表，ADR-0012） | `agent/graph.py`, `agent/nodes/*`, `approvals/*` |
-| W4 | 模型网关 + 成本看板 | `gateway/*` |
+| W4 | ✅ 已完成：模型网关 + 成本看板 + 运行回放（ADR-0013） | `gateway/*`, `core/limits.py`, `api/cost.py` |
 | W5–W6 | 后台四页 + 私有化交付 | `web/src/features/console/*` |
 
-> 迁移现在到 0005（kb + assets/tickets + approvals + 授权按用户隔离）；改检索参数/语料必须跑 `make eval` 并对比
+> 迁移现在到 0006（kb + assets/tickets + approvals + 授权按用户隔离 + model_calls）；改检索参数/语料必须跑 `make eval` 并对比
 > `docs/eval/baseline-v0.md`（回归超过 -3pp 不合并）。
 
 ## 10. 不确定时

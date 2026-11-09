@@ -5,13 +5,20 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.approvals.store import InMemoryApprovalStore, get_approval_store
+from app.core.limits import (
+    InMemoryBudgetLedger,
+    InMemoryRateLimiter,
+    set_budget_ledger,
+    set_rate_limiter,
+)
 from app.core.store import InMemoryRunStore, get_store
+from app.gateway.meter import InMemoryModelCallStore, set_model_call_store
 from app.main import app
 from app.rag.embed import HashingEmbedder
 from app.rag.memory import MemoryKnowledgeStore
@@ -54,6 +61,25 @@ def mem_tickets() -> AsyncIterator[InMemoryTicketRepository]:
     set_ticket_repository(repo)
     yield repo
     set_ticket_repository(None)
+
+
+@pytest.fixture(autouse=True)
+def mem_model_calls() -> AsyncIterator[InMemoryModelCallStore]:
+    """计量默认落内存：不碰 model_calls 表，也不跨用例串数据。"""
+    store = InMemoryModelCallStore()
+    set_model_call_store(store)
+    yield store
+    set_model_call_store(None)
+
+
+@pytest.fixture(autouse=True)
+def mem_limits() -> Iterator[None]:
+    """限流/预算默认给足额度；需要边界的用例自己 set 更小的实现。"""
+    set_rate_limiter(InMemoryRateLimiter(limit=0))
+    set_budget_ledger(InMemoryBudgetLedger(limit_cents=10_000))
+    yield
+    set_rate_limiter(None)
+    set_budget_ledger(None)
 
 
 @pytest.fixture

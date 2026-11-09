@@ -125,6 +125,7 @@ pwsh -File scripts/dev.ps1 docker-down
 | `make eval` | 跑 50 条评测出报告（内存知识库，不依赖数据库） |
 | `make eval-classify` | 跑 50 条意图分类评测（确定性规则，不需要数据库/模型） |
 | `make seed` | 生成演示数据并写入 Postgres（需先 `make migrate`） |
+| `make reap` | 回收进程中断的 `running` run（只收敛状态；先 `cd server && uv run python -m app.cli reap --dry-run` 看候选） |
 
 ### 4.1 数据库迁移与测试库
 

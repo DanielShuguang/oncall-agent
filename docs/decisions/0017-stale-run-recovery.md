@@ -31,7 +31,7 @@
 
 ## 决策
 
-新增 `POST` 之外的纯运维能力：`app/runs/recovery.py: RunRecovery.reap()`。
+新增一个不经过 HTTP 的纯运维能力：`app/runs/recovery.py: RunRecovery.reap()`。
 
 1. 扫描 `running` 且「最后一条事件（没有事件时用 `started_at`）早于
    `now - ONCALL_STALE_RUN_MIN`」的 run。默认阈值 **10 分钟**，远大于单 run 时长
@@ -71,6 +71,7 @@
 - `tests/test_store_contract.py::test_memory_store_contract` /
   `test_postgres_store_contract` 共用 `_exercise_stale`：新鲜 run 不入选、无事件 run
   用 `started_at` 兜底、重复回收不写第二条 `run.failed`、终态不再入选。
-- `tests/test_recovery.py`：阈值、dry-run、审批等待不误杀、幂等、payload 口径。
+- `tests/test_recovery.py`：阈值、dry-run、审批等待不误杀、幂等、`limit` 分批、
+  「最后活动时间优先于 `started_at`」、payload 口径。
 - `tests/test_recovery_pg.py::test_concurrent_reap_writes_failure_once`：两个回收任务
   并发，只有一个 `run.failed`。

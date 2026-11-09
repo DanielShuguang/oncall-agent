@@ -78,7 +78,13 @@ async def _sweep_stale_runs(stop: asyncio.Event) -> None:
     recovery = RunRecovery(get_store(), settings=settings)
     while not stop.is_set():
         try:
-            await recovery.reap()
+            result = await recovery.reap()
+            if result.reaped:
+                log.warning(
+                    "stale_runs_reaped",
+                    count=len(result.reaped),
+                    older_than=result.older_than.isoformat(),
+                )
         except Exception as exc:  # 库没起来时不能让后台任务炸掉整个进程
             log.warning("stale_run_sweep_failed", error=str(exc))
         with suppress(TimeoutError):

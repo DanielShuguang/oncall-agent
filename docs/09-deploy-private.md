@@ -169,7 +169,7 @@ make loadtest
 | 日志 | 结构化 JSON → 文件；可选 Loki |
 | 指标 | `/metrics`（Prometheus 格式），至少暴露：run 数、失败率、p95、token 消耗 |
 | 备份 | `pg_dump` 每日 + 事件表按月归档 |
-| 孤儿 run | 后台每 60s 扫描；超过 `ONCALL_STALE_RUN_MIN`（默认 10 分钟）没有事件的 `running` run 追加 `run.failed(RUN_INTERRUPTED)`。立即处理先看候选：`cd server && uv run python -m app.cli reap --dry-run`（容器内 `docker compose exec api python -m app.cli reap --dry-run`），确认后 `make reap`。只收敛状态，不自动重试写工具（[ADR-0017](decisions/0017-stale-run-recovery.md)） |
+| 孤儿 run | 后台默认每 60s（`ONCALL_RECOVERY_INTERVAL_S`）扫描；超过 `ONCALL_STALE_RUN_MIN`（默认 10 分钟）没有事件的 `running` run 追加 `run.failed(RUN_INTERRUPTED)`。立即处理先看候选：`cd server && uv run python -m app.cli reap --dry-run`（容器内 `docker compose exec api python -m app.cli reap --dry-run`），确认后 `make reap`。只收敛状态，不自动重试写工具（[ADR-0017](decisions/0017-stale-run-recovery.md)） |
 | 升级 | 先跑 alembic 迁移 → 再滚动重启 api |
 | 回滚 | 镜像 tag + 数据库迁移的 downgrade 脚本（每次迁移必须写 downgrade） |
 

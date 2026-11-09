@@ -18,11 +18,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from app.core.config import Settings, get_settings
-from app.core.logging import get_logger
 from app.core.store import RunStore
 from app.schemas.failure import FailureCategory
-
-log = get_logger(__name__)
 
 ERROR_CODE = "RUN_INTERRUPTED"
 
@@ -79,13 +76,6 @@ class RunRecovery:
             ):
                 reaped.append(candidate.run_id)
 
-        if reaped:
-            log.warning(
-                "stale_runs_reaped",
-                count=len(reaped),
-                dry_run=dry_run,
-                older_than=older_than.isoformat(),
-            )
         return ReapResult(
             older_than=older_than,
             scanned=len(candidates),

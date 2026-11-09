@@ -18,6 +18,7 @@ import json
 import sys
 
 from app.core.config import get_settings
+from app.core.db import dispose as dispose_db
 from app.core.security import DEFAULT_TTL_MINUTES, create_token
 from app.core.store import build_store
 from app.runs.recovery import RunRecovery
@@ -63,7 +64,12 @@ async def _reap(args: argparse.Namespace) -> int:
         settings = settings.model_copy(update={"stale_run_min": int(args.older_than_min)})
 
     recovery = RunRecovery(build_store(settings), settings=settings)
-    result = await recovery.reap(limit=int(args.limit), dry_run=bool(args.dry_run))
+    try:
+        result = await recovery.reap(limit=int(args.limit), dry_run=bool(args.dry_run))
+    finally:
+        # 一次性命令：显式释放连接池，避免解释器退出时留下未关闭的 asyncpg 连接
+        if settings.store_backend == "postgres":
+            await dispose_db()
     print(
         json.dumps(
             {

@@ -56,4 +56,17 @@ describe('token', () => {
 
     await expect(getJson('/runs')).rejects.toThrow(/Token/);
   });
+
+  it('非 401 时透传后端 message（上传解析失败等）', async () => {
+    stubStorage();
+    const fetchMock = vi.fn<typeof fetch>();
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ code: 'PARSE_FAILED', message: '扫描件没有文本层' }), {
+        status: 422,
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(getJson('/admin/kb/documents')).rejects.toThrow('扫描件没有文本层');
+  });
 });

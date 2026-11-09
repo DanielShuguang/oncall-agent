@@ -1,7 +1,6 @@
 /** 审批中心（W5 D23）：待办 / 已办可筛，审批人才能决议。 */
 
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -208,6 +207,9 @@ export default function ApprovalsPage() {
                             理由：{item.reason}
                           </div>
                         )}
+                        <div className="mt-1 font-mono text-[10px] text-muted-foreground">
+                          run {item.run_id}
+                        </div>
                       </TableCell>
                       <TableCell className="align-top text-xs">
                         {item.requested_by}
@@ -234,9 +236,6 @@ export default function ApprovalsPage() {
                       </TableCell>
                       <TableCell className="text-right align-top">
                         <div className="flex justify-end gap-1">
-                          <Button asChild variant="ghost" size="sm" className="h-7 text-xs">
-                            <Link to={`/runs/${item.run_id}`}>运行</Link>
-                          </Button>
                           {item.status === 'pending' && (
                             <>
                               <Button
@@ -270,6 +269,7 @@ export default function ApprovalsPage() {
       <p className="text-[11px] text-muted-foreground">
         只有 <code>ONCALL_APPROVER_ROLES</code> 中的角色能决议，且不能审批自己发起的操作；
         <code>scope=session</code> 授权按「用户 + 会话 + 工具」隔离，默认 8 小时过期。
+        运行详情目前只对发起人开放，审批人凭参数快照决议；跨用户读 run 需要单独授权。
       </p>
 
       <Dialog

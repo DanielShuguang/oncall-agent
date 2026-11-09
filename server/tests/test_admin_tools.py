@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import replace
 
 from httpx import AsyncClient
+from sqlalchemy.exc import SQLAlchemyError
 
+from app.agent.deps import AgentDeps
+from app.agent.nodes.plan import plan_node
+from app.agent.state import initial_state
 from app.tools.builtin import default_registry
 from app.tools.policy import ToolOverride, ToolPolicy
 from app.tools.registry import Identity, ToolGuard
@@ -13,6 +18,19 @@ from app.tools.tickets import InMemoryTicketRepository
 from tests.support import auth_headers
 
 ADMIN = auth_headers(user_id="admin_1", roles=("admin",))
+
+
+class _FailingStore:
+    """策略存储不可用：管理接口应 503，而不是拿空快照覆盖。"""
+
+    async def load(self) -> dict[str, ToolOverride]:
+        raise SQLAlchemyError("database down")
+
+    async def upsert(self, name: str, override: ToolOverride | None, *, updated_by: str) -> None:
+        raise SQLAlchemyError("database down")
+
+    async def replace(self, overrides: Mapping[str, ToolOverride], *, updated_by: str) -> None:
+        raise SQLAlchemyError("database down")
 
 
 async def test_list_tools_requires_admin(client: AsyncClient) -> None:
@@ -214,3 +232,98 @@ async def test_policy_cannot_enable_code_disabled_tool() -> None:
     locked = replace(default_registry().require("query_cmdb"), enabled=False)
     effective = ToolPolicy.effective_spec(locked, ToolOverride(enabled=True))
     assert effective.enabled is False
+
+
+async def test_admin_read_returns_503_when_policy_unreadable(
+    client: AsyncClient, mem_tool_settings: ToolPolicy
+) -> None:
+    original = mem_tool_settings._store  # 注入故障存储，验证失败语义
+    mem_tool_settings._store = _FailingStore()  # type: ignore[assignment]
+    try:
+        tools = await client.get("/api/admin/tools", headers=ADMIN)
+        matrix = await client.get("/api/admin/perm-matrix", headers=ADMIN)
+    finally:
+        mem_tool_settings._store = original  # type: ignore[assignment]
+    assert tools.status_code == 503
+    assert matrix.status_code == 503
+
+
+async def test_perm_matrix_read_failure_does_not_wipe_overrides(
+    client: AsyncClient, mem_tool_settings: ToolPolicy
+) -> None:
+    await client.put(
+        "/api/admin/perm-matrix",
+        headers=ADMIN,
+        json={"tools": [{"name": "query_cmdb", "enabled": True, "roles": ["admin"]}]},
+    )
+    original = mem_tool_settings._store
+    mem_tool_settings._store = _FailingStore()  # type: ignore[assignment]
+    try:
+        failed = await client.put(
+            "/api/admin/perm-matrix",
+            headers=ADMIN,
+            json={"tools": [{"name": "create_ticket", "enabled": False, "roles": []}]},
+        )
+    finally:
+        mem_tool_settings._store = original  # type: ignore[assignment]
+        mem_tool_settings.invalidate()
+    assert failed.status_code == 503
+    # 关键：读失败的那次保存没有进入 replace，原有角色覆盖还在
+    override = await mem_tool_settings.override_for("query_cmdb")
+    assert override is not None
+    assert override.roles == ("admin",)
+
+
+async def test_partial_matrix_update_keeps_other_overrides(
+    client: AsyncClient, mem_tool_settings: ToolPolicy
+) -> None:
+    await client.put(
+        "/api/admin/perm-matrix",
+        headers=ADMIN,
+        json={"tools": [{"name": "query_cmdb", "enabled": True, "roles": ["admin"]}]},
+    )
+    await client.put(
+        "/api/admin/perm-matrix",
+        headers=ADMIN,
+        json={"tools": [{"name": "create_ticket", "enabled": False, "roles": []}]},
+    )
+    override = await mem_tool_settings.override_for("query_cmdb")
+    assert override is not None
+    assert override.roles == ("admin",)
+
+
+async def test_admin_requests_reject_unknown_fields(client: AsyncClient) -> None:
+    patch = await client.patch(
+        "/api/admin/tools/query_cmdb",
+        headers=ADMIN,
+        json={"enabled": True, "roles": ["admin"]},
+    )
+    test = await client.post(
+        "/api/admin/tools/query_cmdb/test",
+        headers=ADMIN,
+        json={"args": {}, "unexpected": 1},
+    )
+    assert patch.status_code == 422
+    assert test.status_code == 422
+
+
+async def test_plan_skips_tools_removed_by_policy(
+    mem_tool_settings: ToolPolicy,
+) -> None:
+    """管理端禁用后，规则计划也不能继续把该工具送进 act。"""
+    await mem_tool_settings.set_override("query_cmdb", ToolOverride(enabled=False))
+    deps = AgentDeps(
+        guard=ToolGuard(default_registry(), policy=mem_tool_settings),
+        gateway=None,
+    )
+    state = initial_state(
+        run_id="r1",
+        user={"id": "u_102", "roles": ["employee"]},
+        query="我电脑连不上打印机了",
+    )
+    state.update({"intent": "asset_check", "incident_type": "hardware"})
+
+    delta = await plan_node(state, deps)
+
+    assert delta["plan"] == []
+    assert delta["plan_source"] == "rule"

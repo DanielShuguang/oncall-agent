@@ -128,26 +128,58 @@ class ToolPolicy:
         self._ttl_s = ttl_s
         self._cached: dict[str, ToolOverride] | None = None
         self._loaded_at = 0.0
+        # None = 没失败过；用时间戳作哨兵会在 monotonic 起点附近误判成「刚失败」
+        self._failed_at: float | None = None
         self._lock = asyncio.Lock()
 
-    async def overrides(self, *, force: bool = False) -> dict[str, ToolOverride]:
+    async def overrides(
+        self, *, force: bool = False, allow_stale: bool = True
+    ) -> dict[str, ToolOverride]:
+        """读取覆盖。
+
+        `allow_stale=True` 供工具执行使用：库短暂不可用时保留上一份快照，
+        避免所有工具调用一起失败。
+        `allow_stale=False` 供管理页使用：读不到真实配置就报错，**不能**把
+        空/旧快照当成现状再整表覆盖回去（会静默丢掉禁用/角色配置）。
+        """
         now = monotonic()
         cached = self._cached
         if not force and cached is not None and now - self._loaded_at < self._ttl_s:
             return cached
+        # 冷启动就遇到库故障时，2s 内不要每个工具调用都重试一次
+        if (
+            not force
+            and allow_stale
+            and cached is None
+            and self._failed_at is not None
+            and now - self._failed_at < self._ttl_s
+        ):
+            return {}
         async with self._lock:
             # 等锁期间可能已有别的协程刷新过
             now = monotonic()
             cached = self._cached
             if not force and cached is not None and now - self._loaded_at < self._ttl_s:
                 return cached
+            if (
+                not force
+                and allow_stale
+                and cached is None
+                and self._failed_at is not None
+                and now - self._failed_at < self._ttl_s
+            ):
+                return {}
             try:
                 loaded = await self._store.load()
-            except Exception as exc:  # 库不可用时保留上一份快照，不能让读配置拖垮工具调用
+            except Exception as exc:  # 库不可用
                 log.warning("tool_policy_load_failed", error=str(exc))
+                if not allow_stale:
+                    raise
+                self._failed_at = monotonic()
                 return dict(self._cached or {})
             self._cached = loaded
             self._loaded_at = monotonic()
+            self._failed_at = None
             return loaded
 
     async def apply(self, spec: ToolSpec) -> ToolSpec:
@@ -181,6 +213,8 @@ class ToolPolicy:
     def invalidate(self) -> None:
         self._cached = None
         self._loaded_at = 0.0
+        # 写入成功说明库已恢复：清掉失败退避，否则新配置会被 TTL 挡住 2s
+        self._failed_at = None
 
 
 _policy: ToolPolicy | None = None

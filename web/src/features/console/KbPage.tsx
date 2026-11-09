@@ -201,7 +201,11 @@ export default function KbPage() {
                 if (file) void onUpload(file);
               }}
             />
-            <Button size="sm" disabled={uploading} onClick={() => fileInput.current?.click()}>
+            <Button
+              size="sm"
+              disabled={uploading || reindexing}
+              onClick={() => fileInput.current?.click()}
+            >
               {uploading ? '上传并索引中…' : '选择文件'}
             </Button>
           </CardContent>
@@ -215,7 +219,12 @@ export default function KbPage() {
                 换 embedding 模型后重算全部向量，不重新切分源文件。
               </p>
             </div>
-            <Button variant="outline" size="sm" disabled={reindexing} onClick={onReindex}>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={reindexing || uploading}
+              onClick={onReindex}
+            >
               <RefreshCw className={reindexing ? 'size-3.5 animate-spin' : 'size-3.5'} />
               {reindexing ? '重建中…' : '重建'}
             </Button>

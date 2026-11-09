@@ -300,6 +300,12 @@ export default function ToolsPage() {
                 if (tester) setTester({ ...tester, argsText: event.target.value });
               }}
             />
+            <details className="mt-2 text-[11px] text-muted-foreground">
+              <summary className="cursor-pointer select-none">查看只读 schema</summary>
+              <pre className="mt-1 max-h-40 overflow-auto rounded-md border bg-canvas/50 p-2 font-mono text-[11px] whitespace-pre-wrap">
+                {JSON.stringify(tester?.tool.input_schema ?? {}, null, 2)}
+              </pre>
+            </details>
           </div>
 
           {tester?.error && (

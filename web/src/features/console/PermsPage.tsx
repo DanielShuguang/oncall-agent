@@ -73,6 +73,7 @@ export default function PermsPage() {
       ...current,
       [name]: { ...(current[name] ?? { enabled: false, roles: [] }), ...change },
     }));
+    setError(null);
     setNotice(null);
   };
 
@@ -111,6 +112,7 @@ export default function PermsPage() {
 
   const resetAll = () => {
     if (!matrix) return;
+    setError(null);
     setDraft(
       Object.fromEntries(
         matrix.tools.map((tool) => [

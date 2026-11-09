@@ -58,8 +58,8 @@ def _tool_out(
     )
 
 
-async def _matrix(policy: ToolPolicy) -> PermMatrixResponse:
-    overrides = await policy.overrides(force=True)
+async def _matrix(policy: ToolPolicy, *, allow_stale: bool = True) -> PermMatrixResponse:
+    overrides = await policy.overrides(force=True, allow_stale=allow_stale)
     tools: list[PermMatrixTool] = []
     for spec in default_registry().all():
         override = overrides.get(spec.name)
@@ -85,7 +85,12 @@ async def list_tools(
     policy: Annotated[ToolPolicy, Depends(get_tool_policy)],
     _admin: Annotated[Identity, Depends(require_admin)],
 ) -> ToolListResponse:
-    overrides = await policy.overrides()
+    try:
+        # 管理页展示的必须是真实配置，不能拿旧快照冒充当前状态
+        overrides = await policy.overrides(allow_stale=False)
+    except SQLAlchemyError as exc:
+        log.error("tool_settings_read_failed", error=str(exc))
+        raise ApiError(503, "DATABASE_UNAVAILABLE", "工具配置暂不可用") from exc
     items: list[ToolOut] = []
     for spec in default_registry().all():
         override = overrides.get(spec.name)
@@ -200,7 +205,11 @@ async def get_perm_matrix(
     policy: Annotated[ToolPolicy, Depends(get_tool_policy)],
     _admin: Annotated[Identity, Depends(require_admin)],
 ) -> PermMatrixResponse:
-    return await _matrix(policy)
+    try:
+        return await _matrix(policy, allow_stale=False)
+    except SQLAlchemyError as exc:
+        log.error("perm_matrix_read_failed", error=str(exc))
+        raise ApiError(503, "DATABASE_UNAVAILABLE", "权限矩阵暂不可用") from exc
 
 
 @router.put("/perm-matrix")
@@ -211,10 +220,14 @@ async def update_perm_matrix(
 ) -> PermMatrixUpdateResponse:
     registry = default_registry()
     catalog = set(role_catalog(get_settings()))
+    try:
+        # 读失败时不能把空快照当真：随后的 replace 会静默删掉所有覆盖
+        loaded = await policy.overrides(force=True, allow_stale=False)
+    except SQLAlchemyError as exc:
+        log.error("perm_matrix_read_failed", error=str(exc))
+        raise ApiError(503, "DATABASE_UNAVAILABLE", "权限矩阵暂不可用") from exc
     current = {
-        name: override
-        for name, override in (await policy.overrides(force=True)).items()
-        if registry.try_get(name) is not None
+        name: override for name, override in loaded.items() if registry.try_get(name) is not None
     }
     seen: set[str] = set()
     for item in body.tools:
@@ -245,5 +258,9 @@ async def update_perm_matrix(
         raise ApiError(503, "DATABASE_UNAVAILABLE", "权限矩阵保存失败，请稍后重试") from exc
 
     log.info("perm_matrix_updated", tools=len(seen), by=admin.user_id)
-    matrix = await _matrix(policy)
+    try:
+        matrix = await _matrix(policy, allow_stale=False)
+    except SQLAlchemyError as exc:
+        log.error("perm_matrix_read_failed", error=str(exc))
+        raise ApiError(503, "DATABASE_UNAVAILABLE", "权限矩阵已保存，但回读失败") from exc
     return PermMatrixUpdateResponse(roles=matrix.roles, tools=matrix.tools)

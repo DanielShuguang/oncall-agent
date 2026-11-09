@@ -128,7 +128,7 @@ ConsolePage（Tabs，路径 /console/:panel）
 | 中断 | 发送按钮变"停止"，点击后 abort + 发 `ABORT`，保留已收到内容 |
 | 失败 | 显示 `error_code` 对应的人话 + "重试"按钮；重试会移除失败气泡、用**新的** `client_msg_id` 重发（原 id 会命中幂等回放，拿回同一条失败 run） |
 | 断线 | 顶部条"连接已断开，正在恢复"，自动重连 + 补拉 |
-| 引用 | 角标 hover 显示片段；点击打开 Dialog（标题 + heading_path + 页码 + 片段 + document_id/ord）；W5 接文档预览后再跳全文高亮 |
+| 引用 | 角标 hover 显示片段；点击打开 Dialog（标题 + heading_path + 页码 + 片段 + document_id/ord）；全文跳转未做：知识库预览仅 admin，跨用户读原文需要单独授权 |
 | 长会话 | 消息虚拟滚动；事件时间线按需折叠（默认收起中间步骤） |
 
 ### 6.1 断线续传的实现（W1 D4）

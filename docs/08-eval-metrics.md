@@ -167,7 +167,7 @@ async def run_case(case) -> CaseResult:
 
 | 场景 | 做法 |
 |---|---|
-| 首次建立 | 记录为 `baseline-v0` |
+| 首次建立 | 记录为 `baseline-v0`（W2 20 条）；W6 扩到 50 条后重建 `baseline-v1` |
 | 每次改 prompt/检索参数 | 必须对比，回归超过 -3pp 不许合并 |
 | 换模型 | 全量重跑，报告里注明模型与价格 |
 | 换知识库 | 用固定快照（`kb-YYYY-MM-DD`），否则不可比 |

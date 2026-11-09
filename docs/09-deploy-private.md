@@ -41,7 +41,7 @@ docker compose --profile full logs -f api
 | 项 | 默认 | 说明 |
 |---|---|---|
 | Web | `http://<host>:8080` | Nginx 托管静态资源并反代 `/api`，SSE 已关闭缓冲 |
-| API | `http://<host>:8000` | 直连调试/压测用；生产可只暴露 8080 |
+| API | `http://127.0.0.1:8000` | 只绑定本机，供调试/压测；生产只暴露 8080 |
 | 健康检查 | `GET /api/health` | 返回 db/redis 状态；容器 healthcheck 也用它 |
 | 数据 | named volume `oncall-pgdata` / `oncall-redisdata` | `docker compose down -v` 会清空 |
 
@@ -59,6 +59,7 @@ make images          # -> oncall-images.tar
 # 客户内网
 docker load -i oncall-images.tar
 cp .env.example .env
+# 生产：ONCALL_ENV=prod、强 SESSION_SECRET、ONCALL_SEED_DEMO=false
 docker compose -f docker-compose.offline.yml up -d
 ```
 
@@ -176,7 +177,7 @@ make loadtest
 - [ ] 所有对外接口鉴权，管理接口二次校验角色
 - [ ] 工具白名单默认拒绝（未注册即拒）
 - [ ] 身份字段不允许来自模型入参
-- [ ] 上传文件类型与大小限制，解析在子进程（防 PDF 炸弹）
+- [ ] 上传文件类型与大小限制；**PDF 解析目前在 API 进程内，子进程隔离尚未实现**（W6 已知缺口）
 - [ ] 提示词注入防护：检索内容包 `<document>` 并声明非指令
 - [ ] 审计日志保留 180 天
 - [ ] `.env` 不入库，密钥不出现在日志

@@ -36,7 +36,7 @@ def test_report_marks_dev_machine_scope() -> None:
         )
     )
     summary["concurrency"] = 1
-    report = render_report("test-load", summary, LoadResult())
+    report = render_report("test-load", summary)
     assert "成功率 | 100.00%" in report
     assert "不是 8C16G 生产容量承诺" in report
     assert "无。" in report

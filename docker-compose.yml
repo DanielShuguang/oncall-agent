@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: oncall
       POSTGRES_DB: oncall
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - oncall-pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -23,7 +23,7 @@ services:
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - oncall-redisdata:/data
     healthcheck:
@@ -69,7 +69,7 @@ services:
       ONCALL_EMBEDDING_BASE_URL: ${ONCALL_EMBEDDING_BASE_URL:-}
       ONCALL_EMBEDDING_MODEL: ${ONCALL_EMBEDDING_MODEL:-bge-m3}
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     extra_hosts:
       # 真实本地模型（Ollama/vLLM）跑在宿主机时，容器内用 host.docker.internal 访问
       - "host.docker.internal:host-gateway"

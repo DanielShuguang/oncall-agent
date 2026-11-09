@@ -232,7 +232,7 @@ async def run_load(
         return LoadResult(samples=list(samples), wall_s=wall_s, health=health)
 
 
-def render_report(batch: str, summary: dict[str, Any], result: LoadResult) -> str:
+def render_report(batch: str, summary: dict[str, Any]) -> str:
     health = summary.get("health") or {}
     failures: dict[str, int] = summary.get("failures") or {}
     lines = [
@@ -312,7 +312,7 @@ async def _main(args: argparse.Namespace) -> int:
     summary["base_url"] = args.base_url
     batch = datetime.now(UTC).strftime("load-%Y%m%d-%H%M%S")
     args.out.mkdir(parents=True, exist_ok=True)
-    report = render_report(batch, summary, result)
+    report = render_report(batch, summary)
     (args.out / f"{batch}.md").write_text(report, encoding="utf-8")
     (args.out / f"{batch}.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"

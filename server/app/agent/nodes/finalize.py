@@ -109,13 +109,16 @@ def _select_hits(retrieved: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """
     if not retrieved:
         return []
-    top_score = float(retrieved[0].get("score", 0.0))
+    # 归档文档只用于召回对照，不能进引用，也不能参与阈值计算：
+    # 旧版本文档常因词面重合拿到最高分，一旦用它算 threshold，
+    # 在用的文档会被整体压掉（W6 审阅发现的边界）。
+    usable = [hit for hit in retrieved if "归档" not in str(hit.get("title", ""))]
+    if not usable:
+        return []
+    top_score = max(float(hit.get("score", 0.0)) for hit in usable)
     threshold = top_score * 0.8
     best_by_document: dict[str, dict[str, Any]] = {}
-    for hit in retrieved:
-        # 归档文档是冲突/过期说法，只用于召回对照，不能进引用与回答
-        if "归档" in str(hit.get("title", "")):
-            continue
+    for hit in usable:
         document_id = str(hit.get("document_id", ""))
         if document_id not in best_by_document:
             best_by_document[document_id] = hit
@@ -127,11 +130,9 @@ def _select_hits(retrieved: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
     chosen = {int(hit.get("chunk_id", 0)) for hit in selected}
     primary_doc = str(selected[0].get("document_id", "")) if selected else ""
-    for hit in retrieved:
+    for hit in usable:
         if len(selected) >= MAX_CITATIONS:
             break
-        if "归档" in str(hit.get("title", "")):
-            continue
         chunk_id = int(hit.get("chunk_id", 0))
         if chunk_id in chosen:
             continue

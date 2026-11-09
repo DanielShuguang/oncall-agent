@@ -116,3 +116,41 @@ async def test_citation_filler_requires_score_floor() -> None:
     answer, citations = compose_answer(state)
     assert "Print Spooler" in answer
     assert [citation["title"] for citation in citations] == ["打印机离线排查指南"] * 2
+
+
+async def test_archived_top_hit_does_not_suppress_valid_citations() -> None:
+    """归档文档拿到最高分时，不能用它计算阈值把在用文档压掉。"""
+    state = initial_state(run_id="run", user={"id": "u_102"}, query="VPN 客户端在哪里下载")
+    state["retrieved"] = [
+        {
+            "chunk_id": 1,
+            "document_id": "old",
+            "ord": 0,
+            "title": "【已归档】VPN 旧版客户端使用说明（PPTP）",
+            "heading": "【已归档】VPN 旧版客户端使用说明（PPTP） > 安装",
+            "content": "从旧版共享目录安装 PPTP 客户端。",
+            "score": 0.99,
+        },
+        {
+            "chunk_id": 2,
+            "document_id": "new",
+            "ord": 0,
+            "title": "VPN 连接失败排查指南",
+            "heading": "VPN 连接失败排查指南 > 客户端下载与安装",
+            "content": "请从内网软件库下载 Windows 版 VPN 客户端，版本号不低于 5.2。",
+            "score": 0.7,
+        },
+    ]
+    state["citations"] = [
+        {
+            "chunk_id": hit["chunk_id"],
+            "title": hit["title"],
+            "heading": hit["heading"],
+            "snippet": hit["content"],
+        }
+        for hit in state["retrieved"]
+    ]
+
+    answer, citations = compose_answer(state)
+    assert "内网软件库" in answer
+    assert [citation["title"] for citation in citations] == ["VPN 连接失败排查指南"]

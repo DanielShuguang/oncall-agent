@@ -146,7 +146,7 @@ LangGraph 在 W4 评估后仍未启用（ADR-0012）。
 | D24 对话体验 | ◐ | 失败重试（移除失败气泡、换新 `client_msg_id`）、移动端头部与输入区换行；引用仍只打开片段 Dialog，全文跳转等文档预览权限方案 |
 | D25 嵌入形态 | ✗ 暂缓 | 需要 `postMessage` 来源白名单与 CSP `frame-ancestors` 的部署决策，不在没有安全边界时先做外嵌入口 |
 
-W5 指标（本地）：后端 **215 passed**（含 Postgres，2 warnings）；默认无库
+W5 指标（当时，本地）：后端 **215 passed**（含 Postgres，2 warnings）；默认无库
 **201 passed + 14 skipped**；前端 **40 tests**，`tsc` / `oxlint 0` / `oxfmt --check` 全绿；
 `pnpm build` 主包约 411KB、CostPage 490KB（无 >500KB 告警）；迁移到 **0007**，`alembic check` 无漂移。
 
@@ -180,7 +180,7 @@ W5 指标（本地）：后端 **215 passed**（含 Postgres，2 warnings）；�
 | D30 简历/投递 | ✗ | 不属于代码交付，未做 |
 
 W6 指标：评测 **50/50**（`cite_acc 97.09%`、`p95 81ms`、3 轮）；
-后端默认 **204 passed + 14 skipped**、带 Postgres **218 passed**；前端 40 tests；
+后端默认 **205 passed + 14 skipped**、带 Postgres **219 passed**；前端 40 tests；
 压测 **100/100** 成功、12.02 run/s、292.6 事件/s（开发机 16 vCPU/15GiB，非 8C16G 验收）；
 迁移仍 **0007**，`alembic check` 无漂移。
 

@@ -16,7 +16,7 @@
 | 工具调用失败怎么办？ | 加重试 | 按错误类型决定是否重试 + 指数退避 + 抖动 + 业务降级 |
 | 回答错了怎么查？ | 看日志 | 每个答案带原文引用；每次运行可完整回放 |
 | 花了多少钱？ | 月底看账单 | 单次对话实时计量，按 run / 天 / 模型聚合 |
-| 能不能私有化？ | 依赖云 API | 本地模型（vLLM / Ollama）+ docker-compose 一键部署，8C16G 可跑 |
+| 能不能私有化？ | 依赖云 API | 本地模型（vLLM / Ollama）+ docker-compose 一键部署；资源目标 8C16G，当前只完成开发机链路验证 |
 
 ## 核心能力
 
@@ -170,7 +170,7 @@ oncall/
 |---|---|---|
 | 文档（12 篇 + 15 篇 ADR + 评测基线） | ✅ 完成 | — |
 | 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡 / 运行回放 / 成本页） | ✅ 可用 | `tsc --noEmit`、`oxlint 0`、`oxfmt --check` 通过；`vitest` 40/40；`pnpm build` 成功 |
-| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **204 passed + 14 skipped**；设 `ONCALL_TEST_DATABASE_URL` 后 **218 passed**（含 Postgres 契约、并发 seq、pgvector 检索、审批并发、计量一致性） |
+| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **205 passed + 14 skipped**；设 `ONCALL_TEST_DATABASE_URL` 后 **219 passed**（含 Postgres 契约、并发 seq、pgvector 检索、审批并发、计量一致性） |
 | 本地 JWT（W1 D2） | ✅ 已完成 | `tests/test_auth.py` 20 条：签发/验签、过期、alg=none、401 JSON、OpenAPI Bearer、run 归属隔离 |
 | 事件落库 + 断线续传（D4） | ✅ 已完成 | `alembic upgrade head` + `alembic check` 无漂移；`tests/test_store_contract.py`（内存 + Postgres 契约）、`tests/test_chat_stream.py`（落库、幂等回放、503 语义） |
 | 最小 Agent 运行时（W1 D5） | ✅ 已完成 | `tests/test_agent_runtime.py` 9 条：工具真实执行、检索引用、写操作挂起审批、工具失败降级、步数/时长上限 |

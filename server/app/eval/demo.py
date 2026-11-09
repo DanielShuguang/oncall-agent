@@ -197,8 +197,9 @@ def main(argv: list[str] | None = None) -> int:
     user_token = args.token or _token("u_102", ["employee"])
     approver_token = args.approver_token
     if approver_token is None and args.token is None:
-        # 本地演示默认自动生成审批人；远端环境不要假设密钥一致
-        approver_token = _token("u_900", ["approver"])
+        # 本地演示默认自动生成审批人；角色取配置里的第一个审批角色，改过配置也能跑
+        approver_role = get_settings().approver_role_list[0]
+        approver_token = _token("u_900", [approver_role])
     return asyncio.run(
         run_demo(
             base_url=args.base_url,

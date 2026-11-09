@@ -45,7 +45,8 @@ services:
       ONCALL_LOG_LEVEL: ${ONCALL_LOG_LEVEL:-INFO}
       ONCALL_CORS_ORIGINS: http://localhost:8080,http://127.0.0.1:8080
       ONCALL_MOCK_MODE: ${ONCALL_MOCK_MODE:-true}
-      ONCALL_SEED_DEMO: ${ONCALL_SEED_DEMO:-true}
+      # 离线交付默认不灌演示数据；POC 演示时显式设 true
+      ONCALL_SEED_DEMO: ${ONCALL_SEED_DEMO:-false}
       ONCALL_SESSION_SECRET: ${ONCALL_SESSION_SECRET:-dev-change-me}
       ONCALL_ADMIN_ROLES: ${ONCALL_ADMIN_ROLES:-admin}
       ONCALL_APPROVER_ROLES: ${ONCALL_APPROVER_ROLES:-approver}
@@ -61,7 +62,7 @@ services:
       ONCALL_EMBEDDING_BASE_URL: ${ONCALL_EMBEDDING_BASE_URL:-}
       ONCALL_EMBEDDING_MODEL: ${ONCALL_EMBEDDING_MODEL:-bge-m3}
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:

@@ -359,12 +359,62 @@ async def _exercise_prune(store: RunStore) -> None:
     assert run_id not in again.run_ids
 
 
+async def _exercise_cited_documents(store: RunStore) -> None:
+    """引用快照（ADR-0022）：`message.completed.citations` 投影到 runs，事件清了也还在。"""
+    run_id = str(uuid.uuid4())
+    await store.create(
+        run_id=run_id, user_id="u_305", session_id="sess_cite", message="年终奖什么时候发"
+    )
+    assert await store.cited_document_ids(run_id) == []
+
+    # 没有 citations 字段的事件不改字段（旧客户端/拒答都没有引用）
+    await store.append(run_id, EventType.RUN_STARTED, {"model": "mock"})
+    await store.append(run_id, EventType.MESSAGE_COMPLETED, {"text": "1 月发"})
+    assert await store.cited_document_ids(run_id) == []
+
+    # 去重保序；非字符串/空 id/非对象元素忽略
+    await store.append(
+        run_id,
+        EventType.MESSAGE_COMPLETED,
+        {
+            "text": "年终奖 1 月随工资发放",
+            "citations": [
+                {"document_id": "doc_b", "title": "薪酬"},
+                {"document_id": "doc_a", "chunk_id": 7},
+                {"document_id": "doc_b"},
+                {"document_id": ""},
+                {"title": "没有 document_id"},
+                "不是对象",
+            ],
+        },
+    )
+    assert await store.cited_document_ids(run_id) == ["doc_b", "doc_a"]
+    rec = await store.get(run_id)
+    assert rec is not None
+    assert rec.cited_document_ids == ["doc_b", "doc_a"]
+    # 多轮历史也带着引用快照，供读时过滤（ADR-0022）
+    turns = await store.recent_turns(user_id="u_305", session_id="sess_cite")
+    assert [turn.cited_document_ids for turn in turns] == [("doc_b", "doc_a")]
+
+    # 空数组表示「这轮明确没有引用」：以最后一次回答为准，不能残留旧引用
+    await store.append(
+        run_id,
+        EventType.MESSAGE_COMPLETED,
+        {"text": "另一版回答", "citations": []},
+    )
+    assert await store.cited_document_ids(run_id) == []
+
+    # 不存在的 run 返回 None（路由层据此 404），不是空数组
+    assert await store.cited_document_ids(str(uuid.uuid4())) is None
+
+
 async def test_memory_store_contract() -> None:
     store = InMemoryRunStore()
     await _exercise(store)
     await _exercise_concurrent_seq(store)
     await _exercise_stale(store)
     await _exercise_prune(store)
+    await _exercise_cited_documents(store)
 
 
 @pytest_asyncio.fixture
@@ -393,3 +443,4 @@ async def test_postgres_store_contract(pg_store: PostgresRunStore) -> None:
     await _exercise_concurrent_seq(pg_store)
     await _exercise_stale(pg_store)
     await _exercise_prune(pg_store)
+    await _exercise_cited_documents(pg_store)

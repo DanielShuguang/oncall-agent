@@ -58,6 +58,8 @@ class RunRecord:
     finished_at: datetime | None = None
     #: 事件已被保留策略清理的时间（ADR-0021）；有值表示回放不可用，但 run 摘要仍在
     events_pruned_at: datetime | None = None
+    #: 回答引用过的知识库文档 id（ADR-0022）；读回放时按当前可见性重新校验
+    cited_document_ids: list[str] = field(default_factory=list)
     event_count: int = 0
 
 
@@ -97,6 +99,8 @@ class RunTurn:
 
     query: str
     answer: str
+    #: 这一轮回答引用过的文档（ADR-0022）；历史里要先按当前可见性过滤再喂给模型
+    cited_document_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -114,6 +118,9 @@ class RunPatch:
     token_in: int | None = None
     token_out: int | None = None
     cost_cents: int | None = None
+    #: `message.completed` 的引用快照（ADR-0022）；空列表表示「这轮没有引用」，
+    #: None 表示「这次事件不改这个字段」
+    cited_document_ids: list[str] | None = None
 
 
 _TERMINAL_STATUSES = {
@@ -160,7 +167,10 @@ def build_run_patch(event_type: EventType, payload: dict[str, Any], at: datetime
 
     if event_type is EventType.MESSAGE_COMPLETED:
         text = payload.get("text")
-        return RunPatch(output=text) if isinstance(text, str) else RunPatch()
+        return RunPatch(
+            output=text if isinstance(text, str) else None,
+            cited_document_ids=_cited_document_ids(payload.get("citations")),
+        )
 
     if event_type is EventType.RUN_COMPLETED:
         return RunPatch(
@@ -197,6 +207,32 @@ def _int_or_none(value: Any) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
+#: 引用快照上限：一次回答的引用本来就来自 top_k；这里只防脏 payload 把 JSONB 撑大
+MAX_CITED_DOCUMENTS = 50
+
+
+def _cited_document_ids(raw: Any) -> list[str] | None:
+    """从 `message.completed.citations` 里抽文档 id（ADR-0022）。
+
+    不是数组就返回 None（这次事件不改字段）；空数组返回 `[]`（这轮明确没有引用）。
+    id 只认非空字符串，去重保序并截断到上限：payload 是事件表里的 JSON，
+    不能假设它一定来自 runtime。
+    """
+    if not isinstance(raw, list):
+        return None
+    ids: list[str] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        document_id = item.get("document_id")
+        if not isinstance(document_id, str) or not document_id or document_id in ids:
+            continue
+        ids.append(document_id)
+        if len(ids) >= MAX_CITED_DOCUMENTS:
+            break
+    return ids
+
+
 def _apply_patch(record: RunRecord, patch: RunPatch) -> None:
     for name in patch.__dataclass_fields__:
         value = getattr(patch, name)
@@ -229,6 +265,14 @@ class RunStore(Protocol):
 
     async def owner(self, run_id: str) -> str | None:
         """run 的 user_id；不存在返回 None。路由层做归属校验用，不要为此跑 COUNT。"""
+        ...
+
+    async def cited_document_ids(self, run_id: str) -> list[str] | None:
+        """回答引用过的知识库文档 id（ADR-0022）；run 不存在返回 None。
+
+        回放与详情在读取时要用它按**当前**可见性重新校验。不复用 `get()`：
+        那个会顺便 COUNT 事件，而被每秒轮询的事件补拉不该付这个代价。
+        """
         ...
 
     async def append(
@@ -395,6 +439,14 @@ class InMemoryRunStore:
         record = self._runs.get(rid)
         return record.user_id if record is not None else None
 
+    async def cited_document_ids(self, run_id: str) -> list[str] | None:
+        try:
+            rid = str(uuid.UUID(run_id))
+        except ValueError:
+            return None
+        record = self._runs.get(rid)
+        return list(record.cited_document_ids) if record is not None else None
+
     async def append(
         self, run_id: str, event_type: EventType, payload: dict[str, Any] | None = None
     ) -> RunEvent:
@@ -529,7 +581,14 @@ class InMemoryRunStore:
         rows.sort(key=lambda record: (record.started_at, record.run_id), reverse=True)
         newest = rows[:limit]
         newest.reverse()
-        return [RunTurn(query=record.input, answer=record.output or "") for record in newest]
+        return [
+            RunTurn(
+                query=record.input,
+                answer=record.output or "",
+                cited_document_ids=tuple(record.cited_document_ids),
+            )
+            for record in newest
+        ]
 
     async def prune_events(
         self,
@@ -687,6 +746,15 @@ class PostgresRunStore:
         async with self._sessionmaker() as session:
             return await session.scalar(select(Run.user_id).where(Run.id == rid))
 
+    async def cited_document_ids(self, run_id: str) -> list[str] | None:
+        try:
+            rid = uuid.UUID(run_id)
+        except ValueError:
+            return None
+        async with self._sessionmaker() as session:
+            row = await session.scalar(select(Run.cited_document_ids).where(Run.id == rid))
+        return list(row or []) if row is not None else None
+
     async def append(
         self, run_id: str, event_type: EventType, payload: dict[str, Any] | None = None
     ) -> RunEvent:
@@ -818,7 +886,7 @@ class PostgresRunStore:
         exclude_run_id: str | None = None,
     ) -> list[RunTurn]:
         stmt = (
-            select(Run.input, Run.output)
+            select(Run.input, Run.output, Run.cited_document_ids)
             .where(
                 Run.user_id == user_id,
                 Run.session_id == session_id,
@@ -843,7 +911,14 @@ class PostgresRunStore:
                 stmt = stmt.where(Run.id != exclude_id)
         async with self._sessionmaker() as session:
             rows = (await session.execute(stmt)).all()
-        return [RunTurn(query=query, answer=answer or "") for query, answer in reversed(rows)]
+        return [
+            RunTurn(
+                query=query,
+                answer=answer or "",
+                cited_document_ids=tuple(cited or ()),
+            )
+            for query, answer, cited in reversed(rows)
+        ]
 
     async def prune_events(
         self,
@@ -919,6 +994,7 @@ def _record_from_row(row: Run, *, event_count: int) -> RunRecord:
         started_at=row.started_at,
         finished_at=row.finished_at,
         events_pruned_at=row.events_pruned_at,
+        cited_document_ids=list(row.cited_document_ids or []),
         event_count=event_count,
     )
 

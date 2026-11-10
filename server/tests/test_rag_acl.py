@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
 
 from app.rag.access import (
@@ -204,6 +206,34 @@ async def test_get_document_applies_the_same_rule() -> None:
     assert await kb.get_document(document_id, viewer=Viewer(roles=frozenset({"hr"}))) is not None
     assert await kb.get_document(document_id, viewer=Viewer(unrestricted=True)) is not None
     assert await kb.get_document("not-a-uuid", viewer=Viewer(unrestricted=True)) is None
+
+
+async def test_visible_document_ids_batches_the_same_rule() -> None:
+    """批量校验（ADR-0022）与 `is_visible` 同一条规则；查不到/非法 id 按不可见。"""
+    kb = _kb()
+    public_id = await _index(kb, title="VPN 连接失败排查指南", text=PUBLIC_DOC, source="vpn.md")
+    hr_id = await _index(
+        kb,
+        title="薪酬、年终奖与工资条",
+        text=HR_DOC,
+        source="hr.md",
+        visibility=ROLES,
+        allowed_roles=("hr",),
+    )
+    ids = [public_id, hr_id, "missing-id", str(uuid.uuid4())]
+
+    assert await kb.visible_document_ids(ids, viewer=Viewer()) == {public_id}
+    assert await kb.visible_document_ids(ids, viewer=Viewer(roles=frozenset({"employee"}))) == {
+        public_id
+    }
+    assert await kb.visible_document_ids(ids, viewer=Viewer(roles=frozenset({"hr"}))) == {
+        public_id,
+        hr_id,
+    }
+    assert await kb.visible_document_ids(
+        ids, viewer=Viewer(roles=frozenset({"hr"}), unrestricted=True)
+    ) == {public_id, hr_id}
+    assert await kb.visible_document_ids([], viewer=Viewer()) == set()
 
 
 async def test_set_access_switches_visibility_without_reindexing() -> None:

@@ -14,6 +14,8 @@ from app.agent.nodes.finalize import REFUSAL
 from app.api.chat import _with_heartbeat
 from app.core.store import InMemoryRunStore, get_store
 from app.main import app
+from app.rag.access import ROLES
+from app.rag.retrieve import KnowledgeBase
 from app.schemas.event import EventType, RunStatus
 from tests.support import auth_headers
 
@@ -357,6 +359,68 @@ async def test_follow_up_inherits_previous_turn_context(client: AsyncClient) -> 
     fresh_answer, fresh_citations = _answer(fresh)
     assert fresh_citations == []
     assert fresh_answer == REFUSAL
+
+
+async def test_history_excludes_turns_with_revoked_citations(
+    client: AsyncClient, memory_kb: KnowledgeBase
+) -> None:
+    """上一轮引用的文档被收权后，旧回答不能进多轮历史（ADR-0022）。
+
+    否则模型会把受限正文从历史里复述进新回答，读接口的回收就白做了。
+    """
+    hr_headers = auth_headers(user_id="u_303", roles=("employee", "hr"))
+    first = _parse(
+        await _stream(
+            client,
+            {
+                "session_id": "sess_revoke_hist",
+                "client_msg_id": "h1",
+                "message": "公司年终奖什么时候发",
+            },
+            headers=hr_headers,
+        )
+    )
+    _answer_text, citations = _answer(first)
+    assert citations
+    for document_id in {str(citation["document_id"]) for citation in citations}:
+        await memory_kb.set_access(document_id, visibility=ROLES, allowed_roles=("finance",))
+
+    # 同样以 hr 身份追问：历史被剔除，回到"没有上文"的拒答
+    follow = _parse(
+        await _stream(
+            client,
+            {
+                "session_id": "sess_revoke_hist",
+                "client_msg_id": "h2",
+                "message": "那怎么办？",
+            },
+            headers=hr_headers,
+        )
+    )
+    follow_answer, follow_citations = _answer(follow)
+    assert follow_answer == REFUSAL
+    assert follow_citations == []
+
+
+async def test_replay_of_redacted_run_is_rejected(
+    client: AsyncClient, memory_kb: KnowledgeBase
+) -> None:
+    """幂等重放也要过回收（ADR-0022）：不能靠重试 client_msg_id 把旧回答再流一遍。"""
+    hr_headers = auth_headers(user_id="u_304", roles=("employee", "hr"))
+    payload = {
+        "session_id": "sess_revoke_replay",
+        "client_msg_id": "cmsg_revoke_replay",
+        "message": "公司年终奖什么时候发",
+    }
+    first = _parse(await _stream(client, payload, headers=hr_headers))
+    _answer_text, citations = _answer(first)
+    assert citations
+    for document_id in {str(citation["document_id"]) for citation in citations}:
+        await memory_kb.set_access(document_id, visibility=ROLES, allowed_roles=("finance",))
+
+    res = await client.post("/api/chat/stream", json=payload, headers=hr_headers)
+    assert res.status_code == 403
+    assert res.json()["code"] == "CONTENT_REDACTED"
 
 
 async def test_history_failure_degrades_to_single_turn() -> None:

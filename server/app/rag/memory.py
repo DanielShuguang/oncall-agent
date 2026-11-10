@@ -102,6 +102,20 @@ class MemoryKnowledgeStore:
         )
         return info, rows
 
+    async def visible_document_ids(
+        self, document_ids: Sequence[str], *, viewer: Viewer
+    ) -> set[str]:
+        visible: set[str] = set()
+        for document_id in dict.fromkeys(document_ids):
+            info = self._docs.get(document_id)
+            if info is not None and is_visible(
+                visibility=info.visibility,
+                allowed_roles=info.allowed_roles,
+                viewer=viewer,
+            ):
+                visible.add(document_id)
+        return visible
+
     async def chunk_count(self) -> int:
         return len(self._chunks)
 

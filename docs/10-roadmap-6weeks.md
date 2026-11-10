@@ -328,6 +328,41 @@ WSL2 + Docker 复跑）；前端 **55 tests / 11 files**；`ruff` / `ruff format
 
 ---
 
+## W6 后补：回答内容回收（ADR-0022）
+
+ADR-0019 的文档级可见性只管检索与预览，**已经产生的 run 不会重算**：`runs.output` 与
+`message.completed.citations[].snippet` 里都是当时可见文档的正文；用户角色被撤销后，
+旧回放、事件补拉、幂等重试与下一轮追问仍能读到这些内容。ADR-0021 的「待定」里记着这条，
+这次补上。
+
+卡点有两个，决定了不能只在事件里现取引用：事件默认 180 天后会被整场清理（ADR-0021），
+清理过的 run 就再也没法重算；文档范围又随时可能被改窄或删除。所以引用快照必须落在
+`runs` 上，判定必须是读时的。
+
+| 事项 | 落地 |
+|---|---|
+| 引用快照 | `message.completed.citations[].document_id` 投影到 `runs.cited_document_ids`（JSONB，去重保序、上限 50），与 `output` 同一事务写；迁移 0011 从存量 `message.completed` 用 `jsonb_path_query` 回填 |
+| 读时校验 | `app/runs/content.py`：引用文档**全部**当前可见才展示，任何一篇不可见（改窄或删除）就整场回收；`admin`（知识库所有者）不受限；没有引用时直接放行，不查知识库 |
+| 覆盖路径 | 详情 `output=null` + `content_redacted=true`；事件接口 200 + 空数组；幂等重放 403 `CONTENT_REDACTED`；多轮历史剔除该轮（跨轮合并成一次批量查询） |
+| 规则复用 | `KnowledgeStore.visible_document_ids`：Postgres 复用召回的 `_visibility_clause`，内存实现用 `is_visible`；同一张 (visibility × 角色) 矩阵在 `test_rag_acl.py` 与 `test_rag_pg.py` 两边断言 |
+| 不改存储 | 回收是读时判定：可见范围改回去，旧回答自动恢复；不重扫、不改写事件、不做分布式任务 |
+| 前端 | `/runs/:id` 用 `content_redacted` 显示「引用的文档已不可见」，隐藏回答与回放，摘要/计量/失败归因照常 |
+
+验证：默认 **315 passed + 24 skipped**；带 Postgres **339 passed**（2026-11-10 本机
+WSL2 + Docker 复跑）；前端 **55 tests / 11 files**；`ruff` / `ruff format --check` /
+`mypy`（95 files）/ `tsc --noEmit` / `oxlint` / `oxfmt --check` 全绿，`pnpm build` 成功；
+迁移 0011 已 `downgrade → upgrade` 往返，`alembic check` 无漂移；开发库回填 307/310 场 run。
+
+重跑 RAG 评测：**50/50**、`cite_acc 97.09%`、`recall@5 100%`、`p95 81ms`，与基线一致
+（回收只影响读回放，不碰检索与提示词）。
+
+已知边界：**fail-closed**——重新上传会换 `document_id`，旧引用因此按不可见处理，正常维护
+知识库可能隐藏一批旧回答；回收只覆盖知识库引用（CMDB/工单/用户输入不在范围），
+`runs.input/output` 的按时间保留（TTL）仍未做；读详情/回放多一次 `kb_documents` 查询，
+没有延迟基准。详见 [ADR-0022](decisions/0022-run-content-visibility.md)。
+
+---
+
 ## 每周固定动作
 
 | 时点 | 动作 |

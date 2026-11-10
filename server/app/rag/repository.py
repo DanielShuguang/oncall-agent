@@ -148,6 +148,28 @@ class PgKnowledgeStore:
             for row in rows
         ]
 
+    async def visible_document_ids(
+        self, document_ids: Sequence[str], *, viewer: Viewer
+    ) -> set[str]:
+        """与召回侧同一条可见性条件（ADR-0019/0022）：`_visibility_clause`。
+
+        非法 UUID 与不存在的文档都直接不在结果里——调用方按 fail-closed 处理。
+        """
+        ids: list[uuid.UUID] = []
+        for raw in document_ids:
+            try:
+                ids.append(uuid.UUID(str(raw)))
+            except ValueError:
+                continue
+        if not ids:
+            return set()
+        stmt = select(KbDocumentRow.id).where(KbDocumentRow.id.in_(ids))
+        clause = _visibility_clause(viewer)
+        if clause is not None:
+            stmt = stmt.where(clause)
+        async with self._sessionmaker() as session:
+            return {str(rid) for rid in (await session.scalars(stmt)).all()}
+
     async def chunk_count(self) -> int:
         async with self._sessionmaker() as session:
             return int(await session.scalar(select(func.count()).select_from(KbChunkRow)) or 0)

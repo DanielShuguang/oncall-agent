@@ -131,8 +131,9 @@ docs/02 §4 从 W2 起就有一张保留表：`run_events` 30 天、`model_calls
 - 多副本同时清理是安全的（SKIP LOCKED + 标记同事务），但没有测试并发下的
   批次分配；数据库层面由行锁保证不重复删除。
 - 删事件不影响多轮上下文：`recent_turns` 只读 `runs.input/output`（ADR-0020）。
-  反过来说，**角色被撤销后的旧回答仍在 `runs.output` 里**，本次没有解决；
-  按当前可见性回收内容需要重算引用文档可见性，属于 run 级保留，见待定。
+  反过来说，**角色被撤销后的旧回答仍在 `runs.output` 里**；按当前可见性回收内容
+  已在 [ADR-0022](0022-run-content-visibility.md) 实现（引用快照 + 读时校验），
+  与本次的事件清理正交。按时间的 run 内容 TTL 仍待定。
 - `model_calls` 删除后，`runs` 的 token/cost 与明细不再对账；成本页按日期聚合，
   历史区间会变小（查不到已删明细），这是"保留"的预期表现，但要在看板上说明。
 - 已清理的 run 如果被后续事件写回（正常路径不存在：终态 run 不接受审批恢复），
@@ -142,7 +143,8 @@ docs/02 §4 从 W2 起就有一张保留表：`run_events` 30 天、`model_calls
 **待定**
 
 - 事件冷归档（对象存储 / 归档表），满足"超过 180 天仍要能看"的现场
-- run 级保留：`runs.input/output` 的保留期，以及角色撤销后如何回收历史内容
+- run 级保留：`runs.input/output` 的**按时间**保留期（按权限的内容回收已由
+  [ADR-0022](0022-run-content-visibility.md) 补上，两者正交）
 - 审批记录（`approvals` / `approval_grants`）的保留期
 - 清理任务的性能基线：单批耗时、对 Postgres autovacuum 的影响
 

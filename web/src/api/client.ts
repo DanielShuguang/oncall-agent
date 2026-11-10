@@ -35,7 +35,7 @@ export function authHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-async function toApiError(res: Response, path: string): Promise<ApiError> {
+export async function toApiError(res: Response, path: string): Promise<ApiError> {
   if (res.status === 401) {
     return new ApiError(401, '未登录或 token 过期：点右上角「设置 Token」');
   }

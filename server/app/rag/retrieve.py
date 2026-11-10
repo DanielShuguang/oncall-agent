@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 from collections import defaultdict
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Protocol
 
@@ -231,6 +232,12 @@ class KnowledgeBase:
         ):
             return None
         return info, rows
+
+    async def visible_document_ids(
+        self, document_ids: Sequence[str], *, viewer: Viewer
+    ) -> set[str]:
+        """批量校验文档当前是否可见（ADR-0022）；查不到的按不可见处理。"""
+        return await self.store.visible_document_ids(document_ids, viewer=viewer)
 
     async def set_access(
         self, document_id: str, *, visibility: str, allowed_roles: tuple[str, ...]

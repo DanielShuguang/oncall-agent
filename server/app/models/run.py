@@ -63,6 +63,11 @@ class Run(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     #: 事件已被保留策略清理的时间（ADR-0021）；有值时回放不可用，run 摘要仍保留
     events_pruned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: 回答引用过的知识库文档 id（ADR-0022）。读回放时按**当前**可见性重新校验，
+    #: 不能等到事件被清理后再算——那时 `message.completed` 里的引用已经没了
+    cited_document_ids: Mapped[list[str]] = mapped_column(
+        JSONB, default=list, server_default=text("'[]'::jsonb"), nullable=False
+    )
 
     events: Mapped[list[RunEvent]] = relationship(back_populates="run", cascade="all, delete")
 

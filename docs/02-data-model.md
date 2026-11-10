@@ -44,6 +44,7 @@ CREATE TABLE runs (
   started_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   finished_at     TIMESTAMPTZ,
   events_pruned_at TIMESTAMPTZ,            -- 事件被保留策略清理的时间（ADR-0021）
+  cited_document_ids JSONB NOT NULL DEFAULT '[]',  -- 回答引用过的文档 id（ADR-0022）
   CONSTRAINT uq_runs_user_client_msg UNIQUE (user_id, client_msg_id)
 );
 CREATE INDEX idx_runs_user_time         ON runs (user_id, started_at DESC);
@@ -56,13 +57,17 @@ CREATE INDEX idx_runs_status            ON runs (status) WHERE status IN ('runni
 > `runs` 没有 `created_at`，`started_at` 即创建时间；`status` 由事件投影写入，不接受 API 直接改。
 > 幂等键按 **用户作用域**：不同用户撞 key 不会互相回放；空字符串视为未提供（迁移 0002）。
 > 多轮上下文按 `(user_id, session_id, started_at DESC)` 取最近几轮（迁移 0009、[ADR-0020](decisions/0020-multi-turn-context.md)）：
-> 只读 `input/output` 两列，不读事件；`idx_runs_user_time` 没有 `session_id` 前缀，不能替代。
+> 只读 `runs` 的 `input/output` 与引用快照，不读事件；`idx_runs_user_time` 没有 `session_id` 前缀，不能替代。
 > `events_pruned_at` 非空表示这场 run 的事件已按保留策略整场删除（迁移 0010、
 > [ADR-0021](decisions/0021-data-retention.md)）：**由清理任务写入，不是事件投影**；
 > 回放不可用，摘要/回答/计量仍保留。
 > `idx_runs_retention` 是部分索引，只含还没清理的 run：普通 `finished_at` 索引会从最老的
 > 行开始扫，而最老的行恰好全是已清理的，每轮都要越过整个历史；标记写入后部分索引
 > 立即移除条目。它只服务保留清理，不参与在线请求。
+> `cited_document_ids` 是 `message.completed.citations[]` 的投影（迁移 0011、
+> [ADR-0022](decisions/0022-run-content-visibility.md)）：读详情/事件/重放/多轮历史时
+> 用它按**当前**可见性校验，引用文档不可见就隐藏正文。落在 runs 而不是只读事件，
+> 是因为事件 180 天后会被整场清理，而 `output` 还留着。
 
 ### 2.2 run_events（事件，只追加）
 
@@ -296,6 +301,9 @@ multihop / negative / injection 拆分），执行结果写文件：
    严格对账由 Postgres 后端保证（`gateway/meter.py` 同事务写计量行 + 增量更新 `runs`）；
    `ONCALL_STORE_BACKEND=memory` 只用于测试/无库演示，失败 run 的 token/cost 不保证与
    `model_calls` 一致（完成 run 仍由 `run.completed` 写入绝对值）。
+5. **内容回收是读时判定，不改写历史**：引用文档的可见性变化只影响读接口的展示
+   （详情 `output`、事件回放、多轮历史），不会 `UPDATE runs.output` 或删事件；
+   范围改回去内容自动恢复（[ADR-0022](decisions/0022-run-content-visibility.md)）。
 
 ### 3.1 事件 → `runs` 投影
 
@@ -324,7 +332,7 @@ multihop / negative / injection 拆分），执行结果写文件：
 |---|---|---|
 | run_events | 180 天 | `ONCALL_EVENT_RETENTION_DAYS`；按 **run 整场**清理，`runs.events_pruned_at` 标记，同事务 |
 | model_calls | 180 天 | `ONCALL_MODEL_CALL_RETENTION_DAYS`；只删计量明细，`runs` 上的 token/cost 汇总保留 |
-| runs | 不清理 | 运行列表、成本口径与多轮上下文都依赖 `input/output`；run 级保留见 ADR-0021「待定」 |
+| runs | 不清理 | 运行列表、成本口径与多轮上下文都依赖 `input/output`；回答内容按**权限**回收见 [ADR-0022](decisions/0022-run-content-visibility.md)，按**时间**保留（TTL）仍待定 |
 | approvals / approval_grants | 不清理 | 审批决议是治理证据，量小；保留期未定 |
 | kb_documents / kb_chunks | 不清理 | 知识库由管理员维护，删除是业务操作，不是保留策略 |
 | 评测报告（文件） | 永久 | 不入库，体量小，是能力证明（§2.8） |
@@ -353,7 +361,7 @@ uv run alembic upgrade head --sql    # 无库环境渲染 DDL，评审用
 
 - 迁移文件在 `server/migrations/versions/`；`alembic.ini` 只放占位 DSN，真实 DSN 由 `migrations/env.py` 从环境变量读
 - 必须写 `downgrade`，并在空库上验证一次 `downgrade base && upgrade head`
-- 当前迁移链：`0001` runs/events → `0002` 幂等键按用户作用域 → `0003` kb（pgvector/tsvector）+ assets/tickets → `0004` approvals → `0005` 会话授权按用户隔离 → `0006` model_calls + failure_category → `0007` tool_settings
+- 当前迁移链：`0001` runs/events → `0002` 幂等键按用户作用域 → `0003` kb（pgvector/tsvector）+ assets/tickets → `0004` approvals → `0005` 会话授权按用户隔离 → `0006` model_calls + failure_category → `0007` tool_settings → `0008` 文档可见性 → `0009` 会话索引 → `0010` 事件清理标记/部分索引 → `0011` 回答引用快照
 
 > `0003` 先 `CREATE EXTENSION IF NOT EXISTS vector`，否则 vector 类型与 HNSW 索引会失败；
 > 测试库由 fixture 建扩展后再 `create_all`（扩展是库级对象，`drop_all` 不会删）。

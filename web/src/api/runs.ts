@@ -41,6 +41,8 @@ export interface ModelCall {
 export interface RunDetail extends RunSummary {
   input: string;
   output: string | null;
+  // 回答引用的文档按当前可见性回收（ADR-0022）：为 true 时 output 为 null、事件不回放
+  content_redacted: boolean;
   model_calls: ModelCall[];
 }
 
@@ -53,6 +55,8 @@ export interface RunEventsResponse {
   events: RunEvent[];
   next_seq: number;
   run_status: string;
+  // 引用文档不可见时事件整场不回放（ADR-0022）；与保留清理的空数组区分见详情字段
+  content_redacted: boolean;
 }
 
 export function listRuns(params: {

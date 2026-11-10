@@ -41,11 +41,14 @@ class AgentState(TypedDict, total=False):
 ### 2.1 多轮上下文（[ADR-0020](decisions/0020-multi-turn-context.md)）
 
 `messages` **不是**客户端传进来的 transcript，而是服务端按「当前用户 + `session_id`」
-从 `runs.input/output` 取到的最近 3 轮（总 1200 字）。三条边界：
+从 `runs.input/output` 取到的最近 3 轮（总 1200 字）；引用快照随行返回，用于按当前
+可见性过滤。三条边界：
 
 - **只用于理解指代**：`retrieve` 在判定为追问时把上一轮问题拼进 `context_query`；
   `plan` 的 payload 带 `history`。引用仍然只能来自本轮 `retrieved`
 - **不进事件、不进引用**：历史不写进任何事件 payload，也不会出现在 `citations` 里
+- **按当前可见性过滤**：上一轮引用的文档被收权/删除后，该轮不再进历史（
+  [ADR-0022](decisions/0022-run-content-visibility.md)），否则模型会把受限正文复述进新回答
 - **有预算**：3 轮 / 单条回答 400 字 / 总 1200 字，超了从最旧的丢；读取失败降级为单轮
 
 追问判定是关键词启发式（`app/agent/history.py`）：≤ 30 字且含「那/再/它/刚才/呢…」。

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import os
+import uuid
 from collections.abc import AsyncIterator
 
 import pytest
@@ -184,6 +185,31 @@ async def test_pg_visibility_filter_matches_rule_matrix(pg_kb: KnowledgeBase) ->
             dense = await pg_kb.store.dense_search(vector, total, viewer=viewer)
             hit = chunk_ids[index] & {row.chunk_id for row in dense}
             assert bool(hit) is expected, where
+
+
+async def test_pg_visible_document_ids_matches_rule(pg_kb: KnowledgeBase) -> None:
+    """批量校验（ADR-0022）复用召回的同一条 SQL 条件，逐组合对 `is_visible`。"""
+    ids: list[str] = []
+    for index, (visibility, roles) in enumerate(_ACL_DOCS):
+        info, _chunks = await pg_kb.index_text(
+            title=f"ACL 批量探针 {index}",
+            text=f"# ACL 批量探针 {index}\n\n## 内容\n\n可见性批量校验 {index}。",
+            source=f"acl:batch:{index}",
+            visibility=visibility,
+            allowed_roles=roles,
+        )
+        ids.append(info.id)
+
+    query = [*ids, str(uuid.uuid4()), "not-a-uuid"]
+    for viewer_roles, unrestricted in _ACL_VIEWERS:
+        viewer = Viewer(roles=viewer_roles, unrestricted=unrestricted)
+        expected = {
+            document_id
+            for document_id, (visibility, roles) in zip(ids, _ACL_DOCS, strict=True)
+            if is_visible(visibility=visibility, allowed_roles=roles, viewer=viewer)
+        }
+        assert await pg_kb.visible_document_ids(query, viewer=viewer) == expected
+    assert await pg_kb.visible_document_ids([], viewer=Viewer()) == set()
 
 
 async def test_pg_limit_applies_after_visibility_filter(pg_kb: KnowledgeBase) -> None:

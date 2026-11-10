@@ -8,6 +8,7 @@
 - 每条事件先落库、再推送，保证可回放（R2）
 - 客户端断开即停止，并标记 interrupted，不产生"幽灵事件"
 - `client_msg_id` 命中时只回放已落库事件，不重复执行；仍在 running 时持续跟到终态
+- 幂等重放与多轮历史都要按当前可见性回收旧回答（ADR-0022）：前者 403，后者剔除整轮
 - 空闲每 15s 发 `: heartbeat`，避免代理空闲超时
 """
 
@@ -27,7 +28,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.agent.history import MAX_TURNS
 from app.agent.runtime import build_deps
 from app.agent.runtime import stream as agent_stream
-from app.api.deps import get_approval_service, get_identity
+from app.api.deps import get_approval_service, get_identity, get_viewer
 from app.api.errors import ApiError
 from app.approvals.service import ApprovalService
 from app.core.limits import get_rate_limiter
@@ -35,6 +36,10 @@ from app.core.logging import get_logger
 from app.core.sse import encode_comment, encode_frame
 from app.core.store import RunStore, RunTurn, get_store
 from app.gateway import default_model_name
+from app.rag.access import Viewer
+from app.rag.retrieve import KnowledgeBase
+from app.rag.service import get_knowledge_base
+from app.runs.content import content_is_visible, filter_visible_turns
 from app.schemas.chat import ChatRequest
 from app.schemas.event import RunStatus
 from app.tools.registry import Identity
@@ -125,6 +130,8 @@ async def chat_stream(
     store: Annotated[RunStore, Depends(get_store)],
     identity: Annotated[Identity, Depends(get_identity)],
     approval_service: Annotated[ApprovalService, Depends(get_approval_service)],
+    kb: Annotated[KnowledgeBase, Depends(get_knowledge_base)],
+    viewer: Annotated[Viewer, Depends(get_viewer)],
 ) -> StreamingResponse:
     run_id = str(uuid.uuid4())
     # mock 模式是确定性规则引擎；真实模式取 plan 的首选模型（网关按 purpose 再路由）
@@ -165,6 +172,20 @@ async def chat_stream(
         log.error("run_create_failed", error=str(exc))
         raise HTTPException(status_code=503, detail="database unavailable") from exc
 
+    if not created:
+        # 幂等重放也要过可见性回收（ADR-0022）：否则撤权后重试同一个 client_msg_id
+        # 就能把旧回答再流一遍。直接 403，而不是回放一个「成功但没有回答」的空流。
+        try:
+            replay_visible = await content_is_visible(
+                cited_document_ids=rec.cited_document_ids, viewer=viewer, kb=kb
+            )
+        except SQLAlchemyError as exc:
+            log.error("run_content_check_failed", run_id=rec.run_id, error=str(exc))
+            raise HTTPException(status_code=503, detail="database unavailable") from exc
+        if not replay_visible:
+            log.info("run_replay_redacted", run_id=rec.run_id, user_id=identity.user_id)
+            raise ApiError(403, "CONTENT_REDACTED", "该回答引用的文档已不可见，内容不再回放")
+
     resumed_after = _resume_after(request)
 
     async def gen() -> AsyncIterator[str]:
@@ -179,6 +200,9 @@ async def chat_stream(
                     limit=MAX_TURNS,
                     exclude_run_id=rec.run_id,
                 )
+                # 撤权后旧回答不能再进上下文（ADR-0022）：否则模型会把上一轮的
+                # 受限正文复述进新回答，回收就失效了。一轮一次查询太贵，这里批量校验
+                history = await filter_visible_turns(history, viewer=viewer, kb=kb)
             except Exception as exc:
                 # 不限定异常类型：读历史是附加动作，任何失败都只降级为单轮
                 log.exception("history_load_failed", run_id=rec.run_id, error=repr(exc))

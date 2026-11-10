@@ -132,6 +132,17 @@ class KnowledgeStore(Protocol):
         """
         ...
 
+    async def visible_document_ids(
+        self, document_ids: Sequence[str], *, viewer: Viewer
+    ) -> set[str]:
+        """批量返回这些文档里**当前可见**的 id（ADR-0022）。
+
+        查不到的 id 不在返回集合里，调用方要把「查不到」当成不可见：管理员删除
+        一篇文档后，旧回答里由它生成的正文同样不该继续展示。这是**读时**判定，
+        不改存储；批量校验的 SQL 条件必须与召回侧同一条（`is_visible` 的镜像）。
+        """
+        ...
+
     async def chunk_count(self) -> int: ...
 
     async def sparse_search(

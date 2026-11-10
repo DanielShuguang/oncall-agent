@@ -5,7 +5,7 @@
  * 分帧规则见 docs/03-api-contract.md：以空行分隔，data 可能多行。
  */
 
-import { authHeaders } from '@/api/client';
+import { authHeaders, toApiError } from '@/api/client';
 import type { RunEvent } from './types';
 
 export interface StreamOptions {
@@ -55,11 +55,9 @@ export async function streamChat(opts: StreamOptions): Promise<void> {
   });
 
   if (!res.ok || !res.body) {
-    throw new Error(
-      res.status === 401
-        ? '未登录或 token 过期：点右上角「设置 Token」'
-        : `建流失败: HTTP ${res.status}`,
-    );
+    // 403 CONTENT_REDACTED（ADR-0022）等后端错误带 {code,message}：原样展示，
+    // 不要退化成「建流失败: HTTP 403」让用户无从判断。
+    throw await toApiError(res, '/chat/stream');
   }
 
   const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();

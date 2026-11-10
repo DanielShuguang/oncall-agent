@@ -49,6 +49,7 @@ describe('断线续传', () => {
       ],
       next_seq: 4,
       run_status: 'completed',
+      content_redacted: false,
     });
 
     await useChat.getState().send('打印机离线');
@@ -68,11 +69,17 @@ describe('断线续传', () => {
       throw new Error('network down');
     });
     mockGetEvents
-      .mockResolvedValueOnce({ events: page, next_seq: 201, run_status: 'completed' })
+      .mockResolvedValueOnce({
+        events: page,
+        next_seq: 201,
+        run_status: 'completed',
+        content_redacted: false,
+      })
       .mockResolvedValueOnce({
         events: [evt(202, 'run.completed', { cost_cents: 7 })],
         next_seq: 202,
         run_status: 'completed',
+        content_redacted: false,
       });
 
     await useChat.getState().send('长回答');
@@ -106,6 +113,7 @@ describe('断线续传', () => {
       events: [evt(2, 'message.completed', { text: 'STALE' }), evt(3, 'run.completed')],
       next_seq: 3,
       run_status: 'completed',
+      content_redacted: false,
     });
     await sending;
 
@@ -140,6 +148,7 @@ describe('断线续传', () => {
       events: [evt(4, 'message.completed', { text: 'OLD' })],
       next_seq: 4,
       run_status: 'completed',
+      content_redacted: false,
     });
     await oldSend;
 

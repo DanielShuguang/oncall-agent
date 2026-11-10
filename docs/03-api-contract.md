@@ -128,6 +128,7 @@ data: {"seq":7,"run_id":"01J...","type":"tool.call","ts":"2026-11-09T02:11:03.12
 | 请求本身不合法（未鉴权、字段缺失） | `4xx` JSON `{code,message}`（401 见 §0；422 是 FastAPI 校验格式），**不建 SSE** | 表单报错 / 提示设置 Token |
 | 请求限流 | `429 {"code":"RATE_LIMITED"}` + `Retry-After: 60`，**不建 SSE** | 提示稍后再试 |
 | 管理接口无权限 | `403 {"code":"FORBIDDEN","message":"需要管理员角色"}` | 提示切换有 admin 角色的 Token |
+| 幂等命中的 run 回答已回收 | `403 {"code":"CONTENT_REDACTED"}`，**不建 SSE**（[ADR-0022](decisions/0022-run-content-visibility.md)） | 不重试；打开运行详情看回收标记 |
 | 数据库不可用（建流前落库失败） | `503` JSON `{detail}` | 提示稍后重试，不要进入"假运行" |
 | 运行期失败（模型超时、工具全挂） | `200` + `run.failed` 事件 | 卡片显示失败 + 重试按钮 |
 | 连接断开 | 无 | 用 `lastEventId` 补拉 |
@@ -142,7 +143,7 @@ Last-Event-ID: 7
 ```
 
 ```json
-{ "events": [ ... ], "next_seq": 42, "run_status": "running" }
+{ "events": [ ... ], "next_seq": 42, "run_status": "running", "content_redacted": false }
 ```
 
 - `after_seq` 与 `Last-Event-ID` 都支持：**查询参数优先**；两者都没传按 0 处理；非法 header 也按 0（不因续传参数把主流程打成 422）
@@ -151,6 +152,8 @@ Last-Event-ID: 7
 - 事件超过保留期（默认 180 天）会被**按 run 整场清理**（[ADR-0021](decisions/0021-data-retention.md)）：
   此时仍返回 `200` + `events: []`（run 没消失，`run_status` 仍可读）；要区分"没有事件"和
   "清理过"，看 `GET /runs/{run_id}` 的 `events_pruned_at`
+- 回答引用的文档已不可见（可见范围被改窄/文档被删除）时，事件整场不回放（[ADR-0022](decisions/0022-run-content-visibility.md)）：
+  同样 `200` + `events: []`，但 `content_redacted: true`；原因与处理看详情的同名标记
 
 ### 3.1 运行列表
 
@@ -221,6 +224,7 @@ GET /api/runs/{run_id}
   "finished_at": "2026-11-09T02:11:04.400Z",
   "input": "我电脑连不上打印机了",
   "output": "你名下的笔记本…",
+  "content_redacted": false,
   "model_calls": [
     {
       "step": "plan",
@@ -245,6 +249,11 @@ GET /api/runs/{run_id}
 2. 重连 → 先 `GET /events?after_seq=lastEventId` 补齐
 3. 若 `run_status == "running"` 且支持 `/stream`，再挂增量流；否则轮询到终态
 4. **以事件重放重建 UI，不做增量猜测**（避免"补拉 + 实时"交错导致重复渲染）
+
+> `content_redacted`（[ADR-0022](decisions/0022-run-content-visibility.md)）：回答引用的知识库
+> 文档按**读取时**的角色重新校验，任何一篇不可见（改窄或删除）就整场回收——`output: null`、
+> 事件不回放、多轮历史剔除该轮；`input`、状态、计量、失败归因照常。回收不改存储，可见范围
+> 改回去后自动恢复。列表接口不返回 `output`，所以不带这个字段。
 
 ## 4. 审批
 

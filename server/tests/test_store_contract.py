@@ -17,7 +17,13 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
-from app.core.store import InMemoryRunStore, PostgresRunStore, RunNotFoundError, RunStore
+from app.core.store import (
+    InMemoryRunStore,
+    PostgresRunStore,
+    PrunedEvents,
+    RunNotFoundError,
+    RunStore,
+)
 from app.models import Base
 from app.schemas.event import EventType, RunStatus
 
@@ -240,7 +246,8 @@ async def _exercise(store: RunStore) -> None:
         turn.query for turn in await store.recent_turns(user_id="u_999", session_id="sess_1")
     ] == ["别人的问题"]
 
-    # 纯空白的 output 不算「有回答」：内存用 strip()、Postgres 用 btrim，口径必须一致
+    # 纯空白的 output 不算「有回答」：内存用 .strip()，Postgres 用 regexp_replace 去空白
+    # （btrim 默认只去空格，不去换行/制表符），两端口径必须一致
     blank_answer_id = str(uuid.uuid4())
     await store.create(
         run_id=blank_answer_id, user_id="u_102", session_id="sess_ws", message="空白回答"
@@ -308,11 +315,50 @@ async def _exercise_stale(store: RunStore) -> None:
     assert stale_id not in remaining
 
 
+async def _exercise_prune(store: RunStore) -> None:
+    """保留清理（ADR-0021）：按 run 整场删、dry-run 不动、标记后不重复清。"""
+    not_yet = datetime.now(UTC) - timedelta(days=1)
+
+    run_id = str(uuid.uuid4())
+    await store.create(run_id=run_id, user_id="u_304", session_id="sess_prune", message="打印机")
+    await store.append(run_id, EventType.RUN_STARTED, {"model": "mock"})
+    await store.append(run_id, EventType.MESSAGE_COMPLETED, {"text": "重启打印服务"})
+    await store.append(run_id, EventType.RUN_COMPLETED, {"status": "completed"})
+
+    # 还没到保留期：不能动
+    assert await store.prune_events(finished_before=not_yet) == PrunedEvents(run_ids=[])
+
+    future = datetime.now(UTC) + timedelta(days=365)
+    preview = await store.prune_events(finished_before=future, dry_run=True)
+    assert run_id in preview.run_ids
+    assert preview.deleted == 0
+    assert len(await store.events_after(run_id)) == 3
+
+    pruned = await store.prune_events(finished_before=future)
+    assert run_id in pruned.run_ids
+    assert pruned.deleted >= 3
+    assert await store.events_after(run_id) == []
+    rec = await store.get(run_id)
+    assert rec is not None
+    assert rec.events_pruned_at is not None
+    assert rec.event_count == 0
+    # 事件删了，多轮上下文仍可读（ADR-0020 只读 runs.input/output）
+    assert [
+        (turn.query, turn.answer)
+        for turn in await store.recent_turns(user_id="u_304", session_id="sess_prune")
+    ] == [("打印机", "重启打印服务")]
+
+    # 已经清理过：不会再被选中（多副本/多轮扫描是幂等的）
+    again = await store.prune_events(finished_before=future)
+    assert run_id not in again.run_ids
+
+
 async def test_memory_store_contract() -> None:
     store = InMemoryRunStore()
     await _exercise(store)
     await _exercise_concurrent_seq(store)
     await _exercise_stale(store)
+    await _exercise_prune(store)
 
 
 @pytest_asyncio.fixture
@@ -340,3 +386,4 @@ async def test_postgres_store_contract(pg_store: PostgresRunStore) -> None:
     await _exercise(pg_store)
     await _exercise_concurrent_seq(pg_store)
     await _exercise_stale(pg_store)
+    await _exercise_prune(pg_store)

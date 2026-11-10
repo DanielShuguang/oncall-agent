@@ -8,7 +8,7 @@
 **OnCall** = 可私有化部署的企业服务台 Agent：查资产 → 验权限 → 调工具 → 开单 → 审批 → 回填。
 技术栈：Python 3.12 + FastAPI + 显式 8 节点状态机（LangGraph 可选，ADR-0012） ｜ React 19 + Vite + Tailwind CSS ｜ PostgreSQL + pgvector ｜ SSE。
 
-当前状态：**W6 私有化交付代码完成（D26 评测 50 条 / D27 compose+压测 / D28 demo；D29 文档收尾；8C16G 与 ARM64 未验收；D25 嵌入形态暂缓）；W6 后补了 D11 分类评测（50 条）、审批决议事务原子性（ADR-0016）、孤儿 run 回收（ADR-0017）、引用跳全文（ADR-0018）、文档级可见性（ADR-0019）与多轮上下文（ADR-0020）**。
+当前状态：**W6 私有化交付代码完成（D26 评测 50 条 / D27 compose+压测 / D28 demo；D29 文档收尾；8C16G 与 ARM64 未验收；D25 嵌入形态暂缓）；W6 后补了 D11 分类评测（50 条）、审批决议事务原子性（ADR-0016）、孤儿 run 回收（ADR-0017）、引用跳全文（ADR-0018）、文档级可见性（ADR-0019）、多轮上下文（ADR-0020）与数据保留清理（ADR-0021）**。
 写代码前先确认你要做的是路线图里的哪一天（`docs/10-roadmap-6weeks.md`）。
 
 ## 1. 开始前必读（按顺序，别跳）
@@ -56,6 +56,7 @@ Windows 用 `pwsh -File scripts/dev.ps1 <target>`，其余用 `make <target>`，
 | `images` | 导出离线镜像 tar |
 | `loadtest` / `demo` | SSE 压测 / 三条演示剧本 |
 | `reap` | 回收进程中断的 `running` run（只收敛状态，不重放写操作，ADR-0017） |
+| `prune` | 清理超过保留期的事件与模型计量（`--dry-run` 先看候选，ADR-0021） |
 
 单独跑：
 
@@ -168,9 +169,9 @@ cd web && pnpm exec tsc --noEmit && pnpm test && pnpm lint && pnpm format:check
 | W3 | ✅ 已完成：8 节点图 + 审批闭环（显式转移表，ADR-0012） | `agent/graph.py`, `agent/nodes/*`, `approvals/*` |
 | W4 | ✅ 已完成：模型网关 + 成本看板 + 运行回放（ADR-0013） | `gateway/*`, `core/limits.py`, `api/cost.py` |
 | W5 | ✅ 已完成：后台四页 + 工具配置覆盖（ADR-0014）；D24 引用跳全文与多轮上下文在 W6 后补完（ADR-0018 / ADR-0020），可见性在 ADR-0019 收紧为文档级；D25 iframe 暂缓 | `web/src/features/console/*`, `tools/policy.py`, `features/chat/CitationPreviewDialog.tsx` |
-| W6 | ✅ 代码完成：50 条评测、整栈 compose/离线镜像、压测、demo（D29 文档收尾；8C16G/ARM64 未验收）；W6 后补 D11 分类评测、审批事务 [ADR-0016](docs/decisions/0016-approval-decision-transaction.md)、孤儿 run 回收 [ADR-0017](docs/decisions/0017-stale-run-recovery.md)、引用跳全文 [ADR-0018](docs/decisions/0018-citation-fulltext-preview.md)、文档级可见性 [ADR-0019](docs/decisions/0019-document-level-access.md) 与多轮上下文 [ADR-0020](docs/decisions/0020-multi-turn-context.md) | `server/Dockerfile`, `web/Dockerfile`, `docker-compose*.yml`, `app/eval/classify.py`, `app/approvals/store.py`, `app/runs/recovery.py`, `app/rag/preview.py`, `app/rag/access.py`, `app/api/kb.py` |
+| W6 | ✅ 代码完成：50 条评测、整栈 compose/离线镜像、压测、demo（D29 文档收尾；8C16G/ARM64 未验收）；W6 后补 D11 分类评测、审批事务 [ADR-0016](docs/decisions/0016-approval-decision-transaction.md)、孤儿 run 回收 [ADR-0017](docs/decisions/0017-stale-run-recovery.md)、引用跳全文 [ADR-0018](docs/decisions/0018-citation-fulltext-preview.md)、文档级可见性 [ADR-0019](docs/decisions/0019-document-level-access.md)、多轮上下文 [ADR-0020](docs/decisions/0020-multi-turn-context.md) 与数据保留清理 [ADR-0021](docs/decisions/0021-data-retention.md) | `server/Dockerfile`, `web/Dockerfile`, `docker-compose*.yml`, `app/eval/classify.py`, `app/approvals/store.py`, `app/runs/recovery.py`, `app/runs/retention.py`, `app/rag/preview.py`, `app/rag/access.py`, `app/api/kb.py` |
 
-> 迁移现在到 0009（kb + assets/tickets + approvals + 授权按用户隔离 + model_calls + tool_settings + 文档可见性 + 会话索引）；改检索参数/语料必须跑 `make eval` 并对比
+> 迁移现在到 0010（kb + assets/tickets + approvals + 授权按用户隔离 + model_calls + tool_settings + 文档可见性 + 会话索引 + 事件清理标记/索引）；改检索参数/语料必须跑 `make eval` 并对比
 > `docs/eval/baseline-v1.md`（回归超过 -3pp 不合并）。
 
 ## 10. 不确定时

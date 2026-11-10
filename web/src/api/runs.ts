@@ -18,6 +18,8 @@ export interface RunSummary {
   error_code: string | null;
   failure_category: string | null;
   event_count: number;
+  // 事件过了保留期会被整场清理（ADR-0021）；有值表示回放不可用，摘要仍可信
+  events_pruned_at: string | null;
   started_at: string;
   finished_at: string | null;
 }

@@ -212,7 +212,7 @@ async def run_case(case) -> CaseResult:
 
 ```python
 async def test_runs_summary_matches_model_calls():
-    # runs.token_in == sum(model_calls.token_in) 对每个已结束的 run 成立
+    # runs.token_in == sum(model_calls.token_in) 对每个已结束、且在计量保留期内的 run 成立
 ```
 
 实现：`tests/test_metrics_pg.py`（`ONCALL_TEST_DATABASE_URL` 存在时执行）覆盖正常运行、

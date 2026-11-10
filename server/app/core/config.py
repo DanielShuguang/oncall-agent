@@ -84,7 +84,14 @@ class Settings(BaseSettings):
 
     # 运行态
     session_secret: str = DEFAULT_SESSION_SECRET
-    event_retention_days: int = 30
+    #: 事件（回放 + 审计）保留天数（ADR-0021）。docs/09 §9 要求审计日志 180 天，
+    #: 30 天会让「可回放」和「可审计」都短于承诺；清理任务按整场 run 删事件。
+    event_retention_days: int = 180
+    #: 模型调用计量的保留天数：成本看板的数据源，过期后只保留 runs 上的汇总
+    model_call_retention_days: int = 180
+    #: 保留清理任务扫描间隔与单批上限（一次最多处理多少场 run / 多少条计量）
+    retention_interval_s: float = 21600.0
+    retention_batch: int = 200
     #: 超过该时长没有任何事件的 running run 判定为进程中断（ADR-0017）。
     #: 必须明显大于单 run 时长上限（agent.state.RUN_TIMEOUT_S=120s），否则会误杀活着的 run。
     stale_run_min: int = 10
@@ -130,11 +137,19 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _validate_runtime(self) -> Self:
-        """回收阈值配错会误杀活着的 run，启动期就拒绝。"""
+        """回收阈值配错会误杀活着的 run，保留天数配错会删掉不该删的数据，启动期就拒绝。"""
         if self.stale_run_min < 1:
             raise ValueError("ONCALL_STALE_RUN_MIN 必须 >= 1")
         if self.recovery_interval_s <= 0:
             raise ValueError("ONCALL_RECOVERY_INTERVAL_S 必须 > 0")
+        if self.event_retention_days < 1:
+            raise ValueError("ONCALL_EVENT_RETENTION_DAYS 必须 >= 1")
+        if self.model_call_retention_days < 1:
+            raise ValueError("ONCALL_MODEL_CALL_RETENTION_DAYS 必须 >= 1")
+        if self.retention_interval_s <= 0:
+            raise ValueError("ONCALL_RETENTION_INTERVAL_S 必须 > 0")
+        if self.retention_batch < 1:
+            raise ValueError("ONCALL_RETENTION_BATCH 必须 >= 1")
         return self
 
     @model_validator(mode="after")

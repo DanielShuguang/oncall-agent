@@ -24,6 +24,8 @@
 > W4 已落地 `/runs`、`/runs/:id` 与 `/console/cost`：运行详情用 `runtimeReducer`
 > 重放事件重建步骤/工具/消息，不重新执行 Agent；成本页按 day/model/user 分组，
 > 直接调用 `/admin/cost/summary`。导航从「对话」扩展为 对话 / 运行 / 管理后台。
+> 事件过了保留期（默认 180 天，ADR-0021）会被整场清理：详情页用 `events_pruned_at`
+> 显示「事件已过保留期被清理」，时间线与工具调用标为不可用，摘要/计量/失败归因与最终回答（`run.output`）照常展示，引用角标退化为不可用。
 >
 > W5 已落地 `/console/kb`、`/console/tools`、`/console/perms`、`/console/approvals`：
 > 这些页面与成本页都按路由懒加载，表格在小屏横向滚动。D25 的 iframe 嵌入形态**未做**：
@@ -179,6 +181,7 @@ Pydantic 模型 ──► OpenAPI ──► openapi-typescript ──► src/api
 - [ ] 点中断后，已收到内容保留，且不再有新事件
 - [ ] 未知事件类型不崩溃
 - [x] 任意历史 run 可按 seq 回放（W4 D20）：`/runs/:id` 拉全量事件后走同一个 reducer
+- [x] 超过保留期的 run 显示「事件已清理」，不把空时间线伪装成没有步骤（W6 后补，ADR-0021）
 - [x] 成本看板与 `model_calls` 对得上（W4 D19）：`/console/cost` 展示分/调用/token
 - [x] 不写代码能上传文档、看切片、重建索引（W5 D21）
 - [x] 不写代码能设「公开 / 指定角色」，列表显示可见范围且不重切就能改（W6 后补，ADR-0019）

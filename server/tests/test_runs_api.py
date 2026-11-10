@@ -63,6 +63,7 @@ async def test_get_run_detail(client: AsyncClient, mem_store: InMemoryRunStore) 
     assert body["token_in"] == 12
     assert body["cost_cents"] == 1
     assert body["finished_at"] is not None
+    assert body["events_pruned_at"] is None
 
 
 async def test_get_run_unknown_returns_404(client: AsyncClient) -> None:
@@ -234,3 +235,29 @@ async def test_run_detail_includes_model_calls(
     assert len(calls) == 1
     assert calls[0]["step"] == "plan"
     assert calls[0]["token_in"] == 100
+
+
+async def test_pruned_events_are_marked_in_detail(
+    client: AsyncClient, mem_store: InMemoryRunStore
+) -> None:
+    """保留清理后 run 仍在：详情带 events_pruned_at，事件接口返回空而不是 404。"""
+    run_id = await _seed_run(mem_store)
+    pruned = await mem_store.prune_events(finished_before=datetime.now(UTC) + timedelta(days=365))
+    assert pruned.run_ids == [run_id]
+
+    detail = (await client.get(f"/api/runs/{run_id}")).json()
+    assert detail["events_pruned_at"] is not None
+    assert detail["event_count"] == 0
+    # 摘要与回答保留：回放不可用不等于 run 消失
+    assert detail["output"] == "重启打印服务"
+    assert detail["status"] == RunStatus.COMPLETED.value
+
+    events = await client.get(f"/api/runs/{run_id}/events")
+    assert events.status_code == 200
+    payload = events.json()
+    assert payload["events"] == []
+    assert payload["run_status"] == RunStatus.COMPLETED.value
+
+    # 列表与详情共用同一个 summary，标记也要出现在列表里
+    listing = (await client.get("/api/runs")).json()
+    assert listing["items"][0]["events_pruned_at"] is not None

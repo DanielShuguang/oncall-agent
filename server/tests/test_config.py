@@ -80,3 +80,19 @@ def test_recovery_params_are_validated() -> None:
         Settings(recovery_interval_s=0)
     settings = Settings(stale_run_min=15, recovery_interval_s=30)
     assert (settings.stale_run_min, settings.recovery_interval_s) == (15, 30.0)
+
+
+def test_retention_params_are_validated() -> None:
+    """保留期是删除边界：配成 0 天会立刻清空事件，必须在启动期拒绝。"""
+    with pytest.raises(ValidationError, match="ONCALL_EVENT_RETENTION_DAYS"):
+        Settings(event_retention_days=0)
+    with pytest.raises(ValidationError, match="ONCALL_MODEL_CALL_RETENTION_DAYS"):
+        Settings(model_call_retention_days=0)
+    with pytest.raises(ValidationError, match="ONCALL_RETENTION_INTERVAL_S"):
+        Settings(retention_interval_s=0)
+    with pytest.raises(ValidationError, match="ONCALL_RETENTION_BATCH"):
+        Settings(retention_batch=0)
+
+    settings = Settings(_env_file=None)  # 只看代码默认值，不读本机 .env
+    assert settings.event_retention_days == 180
+    assert settings.model_call_retention_days == 180

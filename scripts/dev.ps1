@@ -11,7 +11,7 @@ param(
     [ValidateSet(
         'up', 'down', 'logs', 'migrate', 'install', 'api', 'web', 'fmt', 'lint', 'test', 'eval',
         'eval-classify', 'seed', 'clean', 'check', 'stack', 'stack-down', 'images', 'loadtest', 'demo',
-        'reap', 'docker-up', 'docker-down', 'docker-ps', 'docker-logs'
+        'reap', 'prune', 'docker-up', 'docker-down', 'docker-ps', 'docker-logs'
     )]
     [string]$Target
 )
@@ -83,6 +83,7 @@ switch ($Target) {
     }
     'demo' { Push-Location "$root\server"; uv run python -m app.eval.demo; Pop-Location }
     'reap' { Push-Location "$root\server"; uv run python -m app.cli reap; Pop-Location }
+    'prune' { Push-Location "$root\server"; uv run python -m app.cli prune; Pop-Location }
     'seed' { Push-Location "$root\server"; uv run python -m app.seed.generate --db; Pop-Location }
     'clean' {
         Remove-Item -Recurse -Force "$root\web\dist" -ErrorAction SilentlyContinue

@@ -14,7 +14,7 @@ runs ──< run_events
 kb_documents ──< kb_chunks (embedding)
 assets（模拟 CMDB）
 tickets ──< ticket_events
-eval_cases ──< eval_results
+（评测用例与结果不落库，见 §2.8）
 ```
 
 ## 2. 表定义
@@ -41,10 +41,12 @@ CREATE TABLE runs (
   failure_category TEXT,                    -- model|tool|approval|limit|internal（W4）
   started_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   finished_at     TIMESTAMPTZ,
+  events_pruned_at TIMESTAMPTZ,            -- 事件被保留策略清理的时间（ADR-0021）
   CONSTRAINT uq_runs_user_client_msg UNIQUE (user_id, client_msg_id)
 );
 CREATE INDEX idx_runs_user_time         ON runs (user_id, started_at DESC);
 CREATE INDEX idx_runs_user_session_time ON runs (user_id, session_id, started_at DESC);
+CREATE INDEX idx_runs_finished_at       ON runs (finished_at);
 CREATE INDEX idx_runs_status            ON runs (status) WHERE status IN ('running','awaiting_approval');
 ```
 
@@ -53,6 +55,9 @@ CREATE INDEX idx_runs_status            ON runs (status) WHERE status IN ('runni
 > 幂等键按 **用户作用域**：不同用户撞 key 不会互相回放；空字符串视为未提供（迁移 0002）。
 > 多轮上下文按 `(user_id, session_id, started_at DESC)` 取最近几轮（迁移 0009、[ADR-0020](decisions/0020-multi-turn-context.md)）：
 > 只读 `input/output` 两列，不读事件；`idx_runs_user_time` 没有 `session_id` 前缀，不能替代。
+> `events_pruned_at` 非空表示这场 run 的事件已按保留策略整场删除（迁移 0010、
+> [ADR-0021](decisions/0021-data-retention.md)）：回放不可用，摘要/回答/计量仍保留。
+> `idx_runs_finished_at` 只服务保留清理的候选扫描，不参与在线请求。
 
 ### 2.2 run_events（事件，只追加）
 
@@ -260,25 +265,15 @@ CREATE TABLE tickets (
 
 ### 2.8 评测
 
-```sql
-CREATE TABLE eval_cases (
-  id          TEXT PRIMARY KEY,
-  question    TEXT NOT NULL,
-  expected    JSONB NOT NULL,       -- {must_cite:[...], must_call:[...], forbidden_tools:[...]}
-  tags        TEXT[],
-  difficulty  TEXT
-);
+评测**不落库**：用例是 `server/app/eval/cases/*.yaml`（50 条，按 fact / troubleshoot /
+multihop / negative / injection 拆分），执行结果写文件：
 
-CREATE TABLE eval_results (
-  id          BIGSERIAL PRIMARY KEY,
-  batch_id    UUID NOT NULL,
-  case_id     TEXT NOT NULL REFERENCES eval_cases(id),
-  run_id      UUID,
-  passed      BOOLEAN NOT NULL,
-  metrics     JSONB NOT NULL,       -- {recall, cite_acc, steps, cost_cents, latency_ms}
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-```
+- `server/eval-reports/report-*.md` 与 `baseline-*.json`（gitignore，本机复跑产物）
+- `docs/eval/baseline-v1.md` / `classify-v1.md`（进仓库的基线）
+
+没有 `eval_cases` / `eval_results` 表：用例需要 code review 与版本对比，文件比表更直接；
+结果体量小，跑一次生成一次报告即可，不需要在线查询。自动化的回归门槛是
+`make eval` 与 `docs/08` §6 的 -3pp 规则。
 
 ## 3. 事件与业务表的一致性规则
 
@@ -287,6 +282,8 @@ CREATE TABLE eval_results (
 3. 事件只追加，不修改；纠错用新事件（`run.failed` + 重跑）
 4. 一个 run 结束后，`runs` 的汇总字段（token/cost/step）与 `model_calls` 聚合必须相等——W4 已落测试
    `tests/test_metrics_pg.py`（失败 run 也覆盖），并在 `make test` 的 Postgres 套件里执行。
+   **保留期外不再对账**：超过 `ONCALL_MODEL_CALL_RETENTION_DAYS` 的计量明细会被清理，
+   `runs` 上的汇总保留（[ADR-0021](decisions/0021-data-retention.md)）；这是「只留汇总」的语义。
    严格对账由 Postgres 后端保证（`gateway/meter.py` 同事务写计量行 + 增量更新 `runs`）；
    `ONCALL_STORE_BACKEND=memory` 只用于测试/无库演示，失败 run 的 token/cost 不保证与
    `model_calls` 一致（完成 run 仍由 `run.completed` 写入绝对值）。
@@ -316,13 +313,19 @@ CREATE TABLE eval_results (
 
 | 数据 | 保留 | 说明 |
 |---|---|---|
-| run_events | 30 天 | 可配置 `ONCALL_EVENT_RETENTION_DAYS` |
-| model_calls | 180 天 | 成本分析用，可归档 |
-| attachments / 上传文件 | 30 天 | 不落对象存储，v1 用本地卷 |
-| eval_results | 永久 | 体量小，是能力证明 |
+| run_events | 180 天 | `ONCALL_EVENT_RETENTION_DAYS`；按 **run 整场**清理，`runs.events_pruned_at` 标记，同事务 |
+| model_calls | 180 天 | `ONCALL_MODEL_CALL_RETENTION_DAYS`；只删计量明细，`runs` 上的 token/cost 汇总保留 |
+| runs | 不清理 | 运行列表、成本口径与多轮上下文都依赖 `input/output`；run 级保留见 ADR-0021「待定」 |
+| approvals / approval_grants | 不清理 | 审批决议是治理证据，量小；保留期未定 |
+| kb_documents / kb_chunks | 不清理 | 知识库由管理员维护，删除是业务操作，不是保留策略 |
+| 评测报告（文件） | 永久 | 不入库，体量小，是能力证明（§2.8） |
 
-> 保留清理任务本身尚未实现（W6 运维项）；当前只有审批超时 sweeper，
-> 会自动把过期 pending 置 expired 并收敛 run。
+> 执行者是 `app/runs/retention.py: RetentionSweeper`（[ADR-0021](decisions/0021-data-retention.md)）：
+> 后台每 `ONCALL_RETENTION_INTERVAL_S`（默认 6 小时）扫一批，单批 `ONCALL_RETENTION_BATCH`
+> （默认 200 场 run）；也可手动 `make prune` / `cd server && uv run python -m app.cli prune --dry-run`。
+> 只清终态（completed / failed / interrupted）且 `finished_at` 早于阈值的 run；挂起审批、
+> 正在跑的 run 永远不清理。**上传文件不单独落盘**（解析后写 `kb_documents` / `kb_chunks`），
+> 早期文档里的「附件 30 天」没有对应表，已删除。
 
 ## 5. 迁移
 

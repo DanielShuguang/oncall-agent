@@ -205,7 +205,9 @@ while state["step"] < MAX_STEPS and not terminal(state):
 每个节点记录 `duration_ms` 与 `model_calls`，写入 `model_calls` 表。评测报告按节点聚合延迟与成本，便于回答"慢在哪一步、贵在哪一步"。
 W4 实现：`gateway/meter.py` 在每次 provider 返回后写 `model_calls`，同事务增量更新
 `runs`；节点返回的 `usage` 由 runtime 累加，最终写进 `run.completed`。失败/中断的
-run 也满足 `runs.token_in == sum(model_calls.token_in)`（`tests/test_metrics_pg.py`）。
+run 也满足 `runs.token_in == sum(model_calls.token_in)`（`tests/test_metrics_pg.py`）；
+计量明细超过保留期（默认 180 天）后会被清理，`runs` 汇总保留，两者不再对账
+（[ADR-0021](decisions/0021-data-retention.md)）。
 
 ## 10. 运行时（W1 D5 → W2 D9）
 

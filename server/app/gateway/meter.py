@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from app.models.model_call import ModelCall
 from app.models.run import Run
@@ -77,6 +77,17 @@ class ModelCallStore(Protocol):
         group_by: GroupBy,
     ) -> CostSummary: ...
 
+    async def prune_calls(
+        self, *, created_before: datetime, limit: int = 500, dry_run: bool = False
+    ) -> int:
+        """删除早于阈值的计量行，返回条数（dry-run 时是候选条数，ADR-0021）。
+
+        只删 `model_calls`，不动 `runs` 上的 token/cost 汇总：保留期内
+        `runs.token_in == sum(model_calls.token_in)` 仍成立，超出保留期后
+        两者不再对账，这是「保留」本身的语义，不是账不平。
+        """
+        ...
+
 
 class InMemoryModelCallStore:
     """测试与 `ONCALL_STORE_BACKEND=memory` 用；不落库，重启即丢。"""
@@ -125,6 +136,20 @@ class InMemoryModelCallStore:
             item.token_out += record.token_out
             item.cost_cents += record.cost_cents
         return _summary_from_items(list(buckets.values()), group_by=group_by)
+
+    async def prune_calls(
+        self, *, created_before: datetime, limit: int = 500, dry_run: bool = False
+    ) -> int:
+        expired = sorted(
+            (record for record in self._records if record.created_at < created_before),
+            key=lambda record: record.created_at,
+        )[:limit]
+        if dry_run:
+            return len(expired)
+        # ModelCallRecord 是可变 dataclass（不可哈希），按对象身份摘除
+        drop = {id(record) for record in expired}
+        self._records = [record for record in self._records if id(record) not in drop]
+        return len(expired)
 
 
 class PostgresModelCallStore:
@@ -246,6 +271,29 @@ class PostgresModelCallStore:
                 )
             )
         return _summary_from_items(items, group_by=group_by)
+
+    async def prune_calls(
+        self, *, created_before: datetime, limit: int = 500, dry_run: bool = False
+    ) -> int:
+        stmt = (
+            select(ModelCall.id)
+            .where(ModelCall.created_at < created_before)
+            .order_by(ModelCall.created_at)
+            .limit(limit)
+        )
+        if dry_run:
+            async with self._sessionmaker() as session:
+                return len((await session.scalars(stmt)).all())
+        async with self._sessionmaker() as session, session.begin():
+            # SKIP LOCKED：多副本同时清理时各删各的批次，不会互相等待
+            ids = (await session.scalars(stmt.with_for_update(skip_locked=True))).all()
+            if not ids:
+                return 0
+            # 用 RETURNING 数删除行：AsyncSession.execute 的结果类型没有 rowcount
+            deleted = await session.scalars(
+                delete(ModelCall).where(ModelCall.id.in_(ids)).returning(ModelCall.id)
+            )
+            return len(deleted.all())
 
 
 def _summary_from_items(items: list[CostItem], *, group_by: GroupBy) -> CostSummary:

@@ -59,6 +59,8 @@ def _run_summary(rec: RunRecord) -> dict[str, Any]:
         "error_code": rec.error_code,
         "failure_category": rec.failure_category,
         "event_count": rec.event_count,
+        # 事件过了保留期会被整场清理（ADR-0021）；有值表示回放不可用，摘要仍可信
+        "events_pruned_at": rec.events_pruned_at,
         "started_at": rec.started_at,
         "finished_at": rec.finished_at,
     }
@@ -164,6 +166,10 @@ async def get_events(
     run_status = await store.status(run_id)
     if run_status is None:
         raise _not_found()
+
+    # 事件可能已被保留策略整场清理（ADR-0021）：仍返回 200 + 空数组，因为 run
+    # 本身存在、状态仍可读；要区分「没有事件」和「清理过」看 /runs/{id} 的
+    # events_pruned_at。这里不做额外查询，补拉会被客户端每秒轮询。
 
     # 查询参数优先：显式传 0 表示"从头补"，不会被旧 header 覆盖
     effective_after = after_seq if after_seq is not None else _parse_last_event_id(last_event_id)

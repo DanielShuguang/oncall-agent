@@ -61,6 +61,8 @@ class Run(Base):
         DateTime(timezone=True), default=utcnow, server_default=text("now()"), nullable=False
     )
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: 事件已被保留策略清理的时间（ADR-0021）；有值时回放不可用，run 摘要仍保留
+    events_pruned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     events: Mapped[list[RunEvent]] = relationship(back_populates="run", cascade="all, delete")
 
@@ -71,6 +73,8 @@ class Run(Base):
         # 多轮上下文按会话取最近几轮（ADR-0020）；(user_id, started_at) 的前缀
         # 不支持 session_id 过滤，会话一多就要读该用户全部 run
         Index("idx_runs_user_session_time", "user_id", "session_id", text("started_at DESC")),
+        # 保留清理按「结束时间早于阈值」扫候选（ADR-0021）；没有它每轮清理都要扫整表
+        Index("idx_runs_finished_at", "finished_at"),
         Index(
             "idx_runs_status",
             "status",

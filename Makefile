@@ -2,7 +2,7 @@
 # Windows 无 make 时执行：pwsh -File scripts/dev.ps1 <target>
 # 或直接照抄下方命令。
 
-.PHONY: help up down logs migrate api web dev install fmt lint test eval eval-classify seed clean stack stack-down images loadtest demo reap
+.PHONY: help up down logs migrate api web dev install fmt lint test eval eval-classify seed clean stack stack-down images loadtest demo reap prune
 
 help:
 	@echo "up      起中间件 (postgres + redis)"
@@ -20,6 +20,7 @@ help:
 	@echo "eval    跑评测并生成报告"
 	@echo "eval-classify 跑意图分类评测 (50 条)"
 	@echo "reap    回收进程中断的 run（只收敛状态，不重放写操作）"
+	@echo "prune   清理超过保留期的事件与模型计量（保留策略，ADR-0021）"
 	@echo "loadtest 对 SSE 对话压测"
 	@echo "demo    跑三条演示剧本"
 	@echo "seed    灌演示数据"
@@ -76,6 +77,9 @@ eval-classify:
 
 reap:
 	cd server && uv run python -m app.cli reap
+
+prune:
+	cd server && uv run python -m app.cli prune
 
 loadtest:
 	cd server && uv run python -m app.eval.loadtest --requests 100 --concurrency 20 --users 20

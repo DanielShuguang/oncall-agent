@@ -166,3 +166,25 @@ async def test_run_list_pagination(pg_metrics: tuple) -> None:
     )
     assert len(second_page) == 1
     assert {record.run_id for record in first_page + second_page} == set(ids)
+
+
+async def test_prune_calls_removes_only_expired_rows(pg_metrics: tuple) -> None:
+    """保留清理只删 model_calls，runs 上的历史汇总不动（ADR-0021）。"""
+    runs, meter, _ = pg_metrics
+    run_id = await _new_run(runs)
+    now = datetime.now(UTC)
+    await _record(meter, run_id, created_at=now - timedelta(days=200), token_in=100)
+    await _record(meter, run_id, created_at=now - timedelta(days=10), token_in=50)
+    cutoff = now - timedelta(days=180)
+
+    assert await meter.prune_calls(created_before=cutoff, dry_run=True) == 1
+    assert len(await meter.list_for_run(run_id)) == 2
+
+    assert await meter.prune_calls(created_before=cutoff) == 1
+    remaining = await meter.list_for_run(run_id)
+    assert [record.token_in for record in remaining] == [50]
+    assert await meter.prune_calls(created_before=cutoff) == 0
+
+    record = await runs.get(run_id)
+    assert record is not None
+    assert record.token_in == 150

@@ -5,9 +5,12 @@ v1 不接 SSO（ADR-0010）：给用户签发短期 token 由运维离线完成�
     cd server
     uv run python -m app.cli token --user u_102 --roles employee
     uv run python -m app.cli reap --dry-run
+    uv run python -m app.cli prune --dry-run
 
 `reap` 回收进程中断后停在 `running` 的 run（ADR-0017）：只追加
 `run.failed(RUN_INTERRUPTED)` 收敛状态，不会自动重放写工具。
+`prune` 执行保留策略（ADR-0021）：整场删除过期 run 的事件、按时间删除过期的
+模型计量行，先 `--dry-run` 看候选。
 """
 
 from __future__ import annotations
@@ -21,7 +24,9 @@ from app.core.config import get_settings
 from app.core.db import dispose as dispose_db
 from app.core.security import DEFAULT_TTL_MINUTES, create_token
 from app.core.store import build_store
+from app.gateway.meter import build_model_call_store
 from app.runs.recovery import RunRecovery
+from app.runs.retention import RetentionSweeper
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -46,6 +51,14 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         help="覆盖 ONCALL_STALE_RUN_MIN（分钟）；必须 >= 1",
+    )
+    prune = sub.add_parser("prune", help="清理超过保留期的事件与模型计量")
+    prune.add_argument("--dry-run", action="store_true", help="只列候选，不删除")
+    prune.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="单批上限，覆盖 ONCALL_RETENTION_BATCH",
     )
     return parser
 
@@ -85,6 +98,40 @@ async def _reap(args: argparse.Namespace) -> int:
     return 0
 
 
+async def _prune(args: argparse.Namespace) -> int:
+    if args.limit is not None and args.limit < 1:
+        print("--limit 必须 >= 1", file=sys.stderr)
+        return 2
+
+    settings = get_settings()
+    sweeper = RetentionSweeper(
+        build_store(settings),
+        build_model_call_store(settings),
+        settings=settings,
+    )
+    try:
+        result = await sweeper.sweep(limit=args.limit, dry_run=bool(args.dry_run))
+    finally:
+        # 一次性命令：显式释放连接池，避免解释器退出时留下未关闭的 asyncpg 连接
+        if settings.store_backend == "postgres":
+            await dispose_db()
+    print(
+        json.dumps(
+            {
+                "store": settings.store_backend,
+                "events_before": result.events_before.isoformat(),
+                "calls_before": result.calls_before.isoformat(),
+                "runs": len(result.run_ids),
+                "events": result.events,
+                "calls": result.calls,
+                "dry_run": result.dry_run,
+            },
+            ensure_ascii=False,
+        )
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     if args.command == "token":
@@ -100,6 +147,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "reap":
         return asyncio.run(_reap(args))
+    if args.command == "prune":
+        return asyncio.run(_prune(args))
     return 2  # pragma: no cover - argparse 已保证 command 合法
 
 

@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Protocol
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 
 from app.core.logging import get_logger
@@ -56,7 +56,21 @@ class RunRecord:
     failure_category: str | None = None
     started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     finished_at: datetime | None = None
+    #: 事件已被保留策略清理的时间（ADR-0021）；有值表示回放不可用，但 run 摘要仍在
+    events_pruned_at: datetime | None = None
     event_count: int = 0
+
+
+@dataclass(frozen=True)
+class PrunedEvents:
+    """一次事件清理的结果（ADR-0021）。
+
+    `run_ids` 是**真正**被清理的 run（dry-run 时是候选）；`deleted` 是删除的事件行数，
+    dry-run 不数行数（0），避免为了预览再扫一遍事件表。
+    """
+
+    run_ids: list[str]
+    deleted: int = 0
 
 
 @dataclass(frozen=True)
@@ -270,6 +284,22 @@ class RunStore(Protocol):
         只认 `runs.output` 非空：拒答也是回答（"知识库里没有"本身要进上下文），
         但还没走完的 run（挂起审批 / 正在跑 / 中断）没有 output，不能当成历史，
         否则用户会看到模型"记得"一句它从未说过的话。
+        """
+        ...
+
+    async def prune_events(
+        self,
+        *,
+        finished_before: datetime,
+        limit: int = 200,
+        dry_run: bool = False,
+    ) -> PrunedEvents:
+        """清理已结束（completed/failed/interrupted）且 `finished_at` 早于阈值的 run 事件。
+
+        以 **run 为单位整场删除**，而不是按事件时间逐条删：只删一半会让回放从中间
+        开始，前端归约器会得到一个没有 run.started 的时间线。删除事件与写
+        `runs.events_pruned_at` 标记在同一事务内完成，多副本同时清理也只会有一次效果。
+        非终态 run 永远不清理（等待审批的 run 可能长时间没有新事件）。
         """
         ...
 
@@ -500,6 +530,37 @@ class InMemoryRunStore:
         newest = rows[:limit]
         newest.reverse()
         return [RunTurn(query=record.input, answer=record.output or "") for record in newest]
+
+    async def prune_events(
+        self,
+        *,
+        finished_before: datetime,
+        limit: int = 200,
+        dry_run: bool = False,
+    ) -> PrunedEvents:
+        async with self._lock:
+            candidates = [
+                (record.finished_at, record.run_id)
+                for record in self._runs.values()
+                if record.status in _TERMINAL_STATUSES
+                and record.events_pruned_at is None
+                and record.finished_at is not None
+                and record.finished_at < finished_before
+            ]
+            candidates.sort()
+            run_ids = [run_id for _, run_id in candidates[:limit]]
+            if dry_run:
+                return PrunedEvents(run_ids=run_ids)
+
+            pruned_at = datetime.now(UTC)
+            deleted = 0
+            for run_id in run_ids:
+                deleted += len(self._events.get(run_id) or [])
+                self._events[run_id] = []
+                record = self._runs[run_id]
+                record.events_pruned_at = pruned_at
+                record.event_count = 0
+            return PrunedEvents(run_ids=run_ids, deleted=deleted)
 
 
 async def append_event_in_session(
@@ -778,6 +839,44 @@ class PostgresRunStore:
             rows = (await session.execute(stmt)).all()
         return [RunTurn(query=query, answer=answer or "") for query, answer in reversed(rows)]
 
+    async def prune_events(
+        self,
+        *,
+        finished_before: datetime,
+        limit: int = 200,
+        dry_run: bool = False,
+    ) -> PrunedEvents:
+        stmt = (
+            select(Run.id)
+            .where(
+                Run.status.in_(tuple(_TERMINAL_STATUSES)),
+                Run.events_pruned_at.is_(None),
+                Run.finished_at.is_not(None),
+                Run.finished_at < finished_before,
+            )
+            .order_by(Run.finished_at)
+            .limit(limit)
+        )
+        if dry_run:
+            async with self._sessionmaker() as session:
+                ids = (await session.scalars(stmt)).all()
+            return PrunedEvents(run_ids=[str(rid) for rid in ids])
+
+        async with self._sessionmaker() as session, session.begin():
+            # SKIP LOCKED：多副本同时清理时各拿各的 run，不会互相等待；
+            # 标记写入后下一轮不会再选中同一场 run（删除与标记同事务）
+            ids = (await session.scalars(stmt.with_for_update(skip_locked=True))).all()
+            if not ids:
+                return PrunedEvents(run_ids=[])
+            deleted = await session.scalar(
+                select(func.count()).select_from(RunEventRow).where(RunEventRow.run_id.in_(ids))
+            )
+            await session.execute(delete(RunEventRow).where(RunEventRow.run_id.in_(ids)))
+            await session.execute(
+                update(Run).where(Run.id.in_(ids)).values(events_pruned_at=datetime.now(UTC))
+            )
+        return PrunedEvents(run_ids=[str(rid) for rid in ids], deleted=int(deleted or 0))
+
     async def find_by_client_msg_id(self, user_id: str, client_msg_id: str) -> RunRecord | None:
         async with self._sessionmaker() as session:
             row = await session.scalar(
@@ -813,6 +912,7 @@ def _record_from_row(row: Run, *, event_count: int) -> RunRecord:
         failure_category=row.failure_category,
         started_at=row.started_at,
         finished_at=row.finished_at,
+        events_pruned_at=row.events_pruned_at,
         event_count=event_count,
     )
 

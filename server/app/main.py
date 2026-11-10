@@ -21,7 +21,9 @@ from app.core.db import configure as configure_db
 from app.core.db import dispose as dispose_db
 from app.core.logging import get_logger, setup_logging
 from app.core.store import get_store
+from app.gateway.meter import get_model_call_store
 from app.runs.recovery import RunRecovery
+from app.runs.retention import RetentionSweeper
 
 log = get_logger(__name__)
 
@@ -45,11 +47,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     sweeper = asyncio.create_task(_sweep_expired_approvals(sweeper_stop))
     # 进程中断回收：崩溃后永远停在 running 的 run 也要收敛（ADR-0017）
     recovery = asyncio.create_task(_sweep_stale_runs(sweeper_stop))
+    # 保留清理：过期事件与计量行按保留期删除（ADR-0021）
+    retention = asyncio.create_task(_sweep_retention(sweeper_stop))
     yield
     sweeper_stop.set()
-    for task in (sweeper, recovery):
+    for task in (sweeper, recovery, retention):
         task.cancel()
-    for task in (sweeper, recovery):
+    for task in (sweeper, recovery, retention):
         with suppress(asyncio.CancelledError):
             await task
     if settings.store_backend == "postgres":
@@ -89,6 +93,27 @@ async def _sweep_stale_runs(stop: asyncio.Event) -> None:
             log.warning("stale_run_sweep_failed", error=str(exc))
         with suppress(TimeoutError):
             await asyncio.wait_for(stop.wait(), timeout=settings.recovery_interval_s)
+
+
+async def _sweep_retention(stop: asyncio.Event) -> None:
+    settings = get_settings()
+    sweeper = RetentionSweeper(get_store(), get_model_call_store(), settings=settings)
+    while not stop.is_set():
+        try:
+            result = await sweeper.sweep()
+            if result.run_ids or result.calls:
+                log.info(
+                    "retention_pruned",
+                    runs=len(result.run_ids),
+                    events=result.events,
+                    calls=result.calls,
+                    events_before=result.events_before.isoformat(),
+                    calls_before=result.calls_before.isoformat(),
+                )
+        except Exception as exc:  # 库没起来时不能让后台任务炸掉整个进程
+            log.warning("retention_sweep_failed", error=str(exc))
+        with suppress(TimeoutError):
+            await asyncio.wait_for(stop.wait(), timeout=settings.retention_interval_s)
 
 
 def create_app() -> FastAPI:

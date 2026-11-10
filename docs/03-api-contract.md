@@ -148,6 +148,9 @@ Last-Event-ID: 7
 - `after_seq` 与 `Last-Event-ID` 都支持：**查询参数优先**；两者都没传按 0 处理；非法 header 也按 0（不因续传参数把主流程打成 422）
 - `limit` 默认 200、上限 500；`next_seq` 是本次返回的最后一个 `seq`（没有新事件时等于请求的起点）
 - run 不存在返回 `404`，不要用空数组掩盖
+- 事件超过保留期（默认 180 天）会被**按 run 整场清理**（[ADR-0021](decisions/0021-data-retention.md)）：
+  此时仍返回 `200` + `events: []`（run 没消失，`run_status` 仍可读）；要区分"没有事件"和
+  "清理过"，看 `GET /runs/{run_id}` 的 `events_pruned_at`
 
 ### 3.1 运行列表
 
@@ -174,6 +177,7 @@ Authorization: Bearer <token>
       "error_code": "TOOL_ERROR",
       "failure_category": "tool",
       "event_count": 18,
+      "events_pruned_at": null,
       "started_at": "2026-11-09T02:11:03.120Z",
       "finished_at": "2026-11-09T02:11:04.400Z"
     }
@@ -187,6 +191,8 @@ Authorization: Bearer <token>
 - `cursor` 是不透明字符串（base64 的 `started_at|run_id`）；非法 cursor 返回
   `400 {"code":"INVALID_CURSOR"}`，不要静默从头开始
 - `failure_category` 只对失败 run 有值，用来回答「失败在模型、工具、审批还是护栏」
+- `events_pruned_at` 非空表示事件已按保留策略清理（ADR-0021）：`event_count` 是
+  当前仍保留的条数（清理后为 0），回放不可用，摘要与 `output` 仍可信
 
 ### 3.2 单次运行详情
 
@@ -210,6 +216,7 @@ GET /api/runs/{run_id}
   "error_code": null,
   "failure_category": null,
   "event_count": 23,
+  "events_pruned_at": null,
   "started_at": "2026-11-09T02:11:03.120Z",
   "finished_at": "2026-11-09T02:11:04.400Z",
   "input": "我电脑连不上打印机了",

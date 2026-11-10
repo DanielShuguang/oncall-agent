@@ -294,6 +294,39 @@ WSL2 + Docker 复跑）；前端 **55 tests / 11 files**；`ruff` / `ruff format
 
 ---
 
+## W6 后补：数据保留清理（ADR-0021）
+
+docs/02 §4 从 W2 起就写着事件保留 30 天、计量 180 天，但**只有配置项、没有执行者**：
+`ONCALL_EVENT_RETENTION_DAYS` 是死配置，`run_events` / `model_calls` 只增不删；
+同时 docs/09 §9 要求「审计日志保留 180 天」，与 30 天的事件保留自相矛盾。这次把保留策略
+变成可执行、可 dry-run、可解释的运维动作：过期事件按 run 整场清理，run 摘要继续保留。
+
+| 事项 | 落地 |
+|---|---|
+| 事件清理 | 终态（completed / failed / interrupted）且 `finished_at` 早于 180 天（`ONCALL_EVENT_RETENTION_DAYS`）的 run，按 **run 整场**删除事件，同事务写 `runs.events_pruned_at`；`FOR UPDATE SKIP LOCKED` 分批，多副本不重复；挂起审批/运行中的 run 永不清理。迁移 0010 加列与 `idx_runs_finished_at` |
+| 计量清理 | `model_calls` 按 `created_at` 删过期明细（`ONCALL_MODEL_CALL_RETENTION_DAYS`，默认 180 天），`runs` 上的 token/cost 汇总保留；保留期内两表对账口径不变 |
+| 不清理 | `runs`（列表/成本/多轮上下文依赖）、审批记录、知识库；上传文件本来就不落盘，docs/02 的「附件 30 天」一行是 W2 设想，已删除 |
+| API 语义 | `GET /runs/{id}` 与列表 summary 增加 `events_pruned_at`；`/runs/{id}/events` 对已清理 run 返回 200 + 空数组（run 没消失），由详情字段解释；`event_count` 表示当前仍保留的条数 |
+| 前端 | `/runs/:id` 在 `events_pruned_at` 有值时显示「事件已过保留期被清理」，时间线/工具调用标为不可用，摘要、计量、失败归因与 `run.output` 最终回答照常展示 |
+| 触发 | 后台每 6 小时（`ONCALL_RETENTION_INTERVAL_S`）扫一次；`make prune` / `python -m app.cli prune --dry-run` 立即处理或先看候选（`--limit` 覆盖单批上限） |
+| 回归 | `tests/test_retention.py`（策略 8 条）、store 契约新增 `_exercise_prune`（内存 + Postgres 共用）、`test_runs_api.py`（清理后详情/事件/列表）、`test_metrics_pg.py`（计量清理与汇总不变）、`test_config.py`（0 值启动期拒绝） |
+
+验证：默认 **296 passed + 23 skipped**；带 Postgres **319 passed**（2026-11-10 本机
+WSL2 + Docker 复跑）；前端 **55 tests / 11 files**；`ruff` / `ruff format --check` /
+`mypy`（94 files）/ `tsc --noEmit` / `oxlint` / `oxfmt --check` 全绿，`pnpm build` 成功；
+迁移 0010 已 `downgrade → upgrade` 往返，`alembic check` 无漂移；
+`python -m app.cli prune --dry-run` 在开发库返回候选与截止时间。
+
+重跑 RAG 评测：**50/50**、`cite_acc 97.09%`、`recall@5 100%`、`p95 81ms`，与基线一致
+（保留策略不碰检索与提示词）。
+
+已知边界：超过保留期的 run 只能看摘要，没有冷归档；清理任务没做性能基准（单批 200 场、
+6 小时间隔是保守默认值）；`model_calls` 删除后，超出窗口的区间成本明细不可再核对
+（`runs` 汇总仍在）；角色撤销后的旧回答仍在 `runs.output`，run 级保留与内容回收未做。
+详见 [ADR-0021](decisions/0021-data-retention.md)。
+
+---
+
 ## 每周固定动作
 
 | 时点 | 动作 |

@@ -26,9 +26,10 @@ from app.rag.types import Hit
 log = get_logger(__name__)
 
 #: 原句自足的判定：第一名文档要比第二名至少高这么多分（同一篇文档的切片不参与比较）。
-#: 0.10 是实测的「明显领先」线：泛化追问（那怎么申请 / 那流程是什么 / 那密码呢）的
-#: 分差只有 0.01–0.03，而点名追问（那报销怎么走 / 那会议室怎么订）在 0.2 以上。
-#: 口径见 docs/eval/multiturn-v2.md，回归由 `make eval-multiturn` 守着。
+#: 0.10 是实测的「明显领先」线：没点名新话题的追问分差只有 0.006–0.056；切换用例里
+#: 两条有第二名（那报销怎么走 0.213 / 那会议室怎么订 0.316），另两条只有一篇文档。
+#: 「那差旅怎么申请」0.547 vs 0.530 是已知漏判，按现在的口径仍拼上文。口径见
+#: docs/eval/multiturn-v2.md，回归由 `make eval-multiturn` 守着。
 STANDALONE_MARGIN = 0.10
 
 
@@ -44,17 +45,19 @@ def names_top_document(query: str, hits: Sequence[Hit]) -> bool:
        点到哪一篇——这时拼上文反而更可信
 
     只有两条都成立才丢掉上文，所以漏判的代价是「退化成现在的合并行为」，不会
-    比现在更差。`hits` 按分数降序（`Retriever.search` 的返回顺序）。
+    比现在更差。函数不依赖 `hits` 的顺序；候选里只有一篇文档时没有第二名可比，
+    置信度只剩标题证据（候选只有 top-5，见 ADR-0025 的「待定」）。
     """
     head = topic_head(query)
     if not head or not hits:
         return False
-    top = hits[0]
+    top = max(hits, key=lambda hit: hit.score)
     head_tokens = {token for token in tokenize(head) if len(token) >= 2}
     title_tokens = {token for token in tokenize(top.title) if len(token) >= 2}
     if not head_tokens & title_tokens:
         return False
-    runner_up = next((hit.score for hit in hits if hit.document_id != top.document_id), None)
+    others = [hit.score for hit in hits if hit.document_id != top.document_id]
+    runner_up = max(others) if others else None
     return runner_up is None or top.score - runner_up >= STANDALONE_MARGIN
 
 
@@ -75,12 +78,13 @@ async def retrieve_node(state: AgentState, deps: AgentDeps) -> dict[str, Any]:
             log.exception("retrieval_failed", run_id=state.get("run_id"), query=query[:80])
             standalone = []
         if names_top_document(query, standalone):
+            top = max(standalone, key=lambda hit: hit.score)
             log.info(
                 "retrieval_followup_standalone",
                 run_id=state.get("run_id"),
                 query=query[:80],
                 context_query=context_query[:160],
-                title=standalone[0].title,
+                title=top.title,
             )
             return _result(standalone, context_query=query)
 

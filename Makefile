@@ -19,7 +19,7 @@ help:
 	@echo "test    跑测试"
 	@echo "eval    跑评测并生成报告"
 	@echo "eval-classify 跑意图分类评测 (50 条)"
-	@echo "eval-multiturn 跑多轮评测（追问指代 + 隔离对照，ADR-0024）"
+	@echo "eval-multiturn 跑多轮评测（追问指代 + 话题切换 + 双向隔离对照，ADR-0024/0025）"
 	@echo "reap    回收进程中断的 run（只收敛状态，不重放写操作）"
 	@echo "prune   清理超过保留期的事件与模型计量（保留策略，ADR-0021）"
 	@echo "loadtest 对 SSE 对话压测"

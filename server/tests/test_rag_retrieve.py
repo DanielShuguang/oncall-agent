@@ -184,6 +184,8 @@ def test_names_top_document_needs_both_title_evidence_and_margin() -> None:
     same_doc = [_hit("d1", "差旅报销流程", 0.63), _hit("d1", "差旅报销流程", 0.62)]
     assert names_top_document("那报销怎么走", same_doc)
     assert not names_top_document("那报销怎么走", [])
+    # 不依赖调用方给的是不是降序：函数自己找第一名
+    assert names_top_document("那报销怎么走", list(reversed(hits)))
 
 
 def _history(topic: str) -> list[dict[str, str]]:

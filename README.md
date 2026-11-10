@@ -258,9 +258,11 @@ W6 基线（3 轮均值，mock 规则路径，口径见 [baseline-v1](docs/eval/
 - 引用全文预览是按切片重组的正文，不是原始文件渲染（PDF 排版/表格样式会丢）；没有列表接口、只能凭已知
   `document_id` 打开（[ADR-0018](docs/decisions/0018-citation-fulltext-preview.md)）
 - 多轮上下文只有 3 轮 / 1200 字，追问判定是关键词启发式；连续追问的检索词按链累积（最多 80 字），
-  点名了语料文档的新话题会切回原句（`topic_head` + 分差 ≥ 0.10，[ADR-0025](docs/decisions/0025-followup-original-first.md)），
-  但**没点名任何文档**的新话题仍会被上一轮稀释（多轮评测诊断项 0/1，见
-  [multiturn-v2](docs/eval/multiturn-v2.md)）；追问路径多一次检索，真实嵌入服务下的延迟未做基准；
+  点名了语料文档**且检索明显领先**的新话题会切回原句（`topic_head` + 分差 ≥ 0.10，
+  [ADR-0025](docs/decisions/0025-followup-original-first.md)）；**没点名任何文档**的新话题（多轮评测
+  诊断项 0/1），以及点名了但分差不够的（如「那差旅怎么申请」0.547 vs 0.530，退化为拼上文）仍会被
+  上一轮稀释，见 [multiturn-v2](docs/eval/multiturn-v2.md)；点不出具体文档的追问多一次检索，
+  真实嵌入服务下的延迟未做基准；
   刷新页面即新会话，没有跨会话记忆；上一轮引用的文档被收权后该轮会剔出历史
   （[ADR-0022](docs/decisions/0022-run-content-visibility.md)），但历史仍来自当时展示过的
   `runs.output`；回答进历史时截断到 400 字；多轮评测只覆盖被启发式识别的追问、判定是文档级，

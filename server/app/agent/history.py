@@ -120,10 +120,46 @@ def last_user_query(messages: Sequence[Message]) -> str | None:
     return None
 
 
+def _context_anchor(messages: Sequence[Message]) -> str | None:
+    """把最近几轮的**用户问题**按时间顺序拼成检索锚点，总长不超过预算。
+
+    只拼紧邻的一句会在连续追问时失忆：「VPN 下载」→「那装完还要做什么」→
+    「那还要注意什么」，第三句只接上一句时检索词里已经没有 VPN 了，召回直接变空
+    （多轮评测 ADR-0024 发现）。回看上限仍是 `MAX_TURNS`、预算仍是
+    `CONTEXT_QUERY_CHARS`，所以单轮与两轮的检索词和以前完全一样。
+
+    预算从最新往回装：装不下时丢更早的轮次，保证最近一句完整（它决定指代指向）；
+    只有单句本身就超预算时才截断。
+    """
+    queries = [
+        str(message.get("content", "")).strip()
+        for message in messages
+        if message.get("role") == "user" and str(message.get("content", "")).strip()
+    ]
+    if not queries:
+        return None
+    parts: list[str] = []
+    remaining = CONTEXT_QUERY_CHARS
+    for question in reversed(queries[-MAX_TURNS:]):
+        if not parts:
+            question = _shorten(question, CONTEXT_QUERY_CHARS)
+            cost = len(question)
+        else:
+            cost = len(question) + 1
+            if cost > remaining:
+                break
+        parts.append(question)
+        remaining -= cost
+    parts.reverse()
+    return " ".join(parts)
+
+
 def contextual_query(query: str, messages: Sequence[Message]) -> str:
-    """检索用的查询：追问时把上一轮问题拼在前面，否则原样返回（不改变单轮行为）。"""
+    """检索用的查询：追问时把最近几轮问题拼在前面，否则原样返回（不改变单轮行为）。"""
     text = query.strip()
-    previous = last_user_query(messages)
-    if not previous or not needs_context(text):
+    if not text or not needs_context(text):
         return text
-    return f"{_shorten(previous, CONTEXT_QUERY_CHARS)} {text}"
+    anchor = _context_anchor(messages)
+    if not anchor:
+        return text
+    return f"{anchor} {text}"

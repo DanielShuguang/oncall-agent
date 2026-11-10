@@ -128,3 +128,39 @@ def test_contextual_query_truncates_previous_question() -> None:
 
     assert merged.startswith("问" * CONTEXT_QUERY_CHARS + "…")
     assert merged.endswith("那呢")
+
+
+def test_contextual_query_keeps_the_topic_across_consecutive_follow_ups() -> None:
+    """连续追问时只拼上一句会失忆：第三句里已经没有 VPN 了（ADR-0024）。"""
+    messages = _messages(
+        [
+            ("VPN 客户端在哪里下载", "从内网软件库下载。"),
+            ("那装完还要做什么", "重启电脑并重新导入配置。"),
+        ]
+    )
+
+    merged = contextual_query("那还要注意什么", messages)
+
+    assert merged == "VPN 客户端在哪里下载 那装完还要做什么 那还要注意什么"
+
+
+def test_contextual_query_does_not_merge_assistant_answers() -> None:
+    messages = _messages([("VPN 客户端在哪里下载", "从内网软件库下载 VPN 客户端")])
+
+    merged = contextual_query("那怎么办", messages)
+
+    assert merged == "VPN 客户端在哪里下载 那怎么办"
+
+
+def test_contextual_query_budget_keeps_the_most_recent_question() -> None:
+    """预算不足时丢更早的轮次，但最近一句必须完整（它决定指代指向）。"""
+    messages = _messages(
+        [
+            ("问" * (CONTEXT_QUERY_CHARS + 20), "答"),
+            ("最近一问", "答"),
+        ]
+    )
+
+    merged = contextual_query("那呢", messages)
+
+    assert merged == "最近一问 那呢"

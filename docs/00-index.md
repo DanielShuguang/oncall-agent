@@ -19,8 +19,9 @@
 | 11 | [11-dev-setup](11-dev-setup.md) | 环境搭建、常用命令、排错 | 第一天 |
 | — | [eval/baseline-v1](eval/baseline-v1.md) | W6 评测基线（50 条、口径、复现命令） | 改检索/提示词前 |
 | — | [eval/classify-v1](eval/classify-v1.md) | D11 意图分类基线（50 条标注，规则路径） | 改 classify 规则前 |
+| — | [eval/multiturn-v1](eval/multiturn-v1.md) | 多轮评测基线（追问指代 + 隔离对照，ADR-0024） | 改 history / 检索参数前 |
 | — | [eval/baseline-v0](eval/baseline-v0.md) | W2 历史基线（20 条） | 只看历史对比 |
-| — | [decisions/](decisions/) | 23 篇 ADR：为什么 React / Python / LangGraph / pgvector / SSE / Tailwind+oxc / 依赖版本 / shadcn / Postgres 存储 / 本地 JWT / 离线 RAG 向量化 / 显式调度 / 自研模型网关 / 工具覆盖存库 / 私有化交付 / 审批事务 / 孤儿 run 回收 / 引用全文预览 / 文档级可见性 / 多轮上下文 / 数据保留 / 回答内容回收 / 正文按时间保留 | 面试前重读 |
+| — | [decisions/](decisions/) | 24 篇 ADR：为什么 React / Python / LangGraph / pgvector / SSE / Tailwind+oxc / 依赖版本 / shadcn / Postgres 存储 / 本地 JWT / 离线 RAG 向量化 / 显式调度 / 自研模型网关 / 工具覆盖存库 / 私有化交付 / 审批事务 / 孤儿 run 回收 / 引用全文预览 / 文档级可见性 / 多轮上下文 / 数据保留 / 回答内容回收 / 正文按时间保留 / 多轮评测 | 面试前重读 |
 
 ## ADR（Architecture Decision Record）
 
@@ -49,6 +50,7 @@
 | [0021](decisions/0021-data-retention.md) | 数据保留 | 过期事件按 run 整场清理（默认 180 天）并标记 `events_pruned_at`；计量只删明细、保留 `runs` 汇总；不删 runs / 审批 / 知识库 |
 | [0022](decisions/0022-run-content-visibility.md) | 回答内容回收 | 回答引用快照落 `runs.cited_document_ids`；读详情/事件/重放/多轮历史时按**当前**可见性校验，引用文档不可见就隐藏正文（fail-closed，不改写历史） |
 | [0023](decisions/0023-run-content-retention.md) | run 正文按时间保留 | `runs.input/output` 到期清空并写 `content_pruned_at`，只留摘要；强制正文保留期 ≥ 事件保留期（事件里是同一段正文）；与按权限回收正交 |
+| [0024](decisions/0024-multiturn-eval.md) | 多轮评测 | 追问轮按「引用命中 + 空会话隔离对照」判定指代解对（`coref_acc`）；独立基线不与单轮主集混算；评测顺带修好连续追问丢话题锚点的 `context_query` |
 
 > ADR 的写法：背景 → 方案对比 → 决策 → 后果。面试被问"为什么这么做"时，直接念 ADR。
 

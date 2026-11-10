@@ -70,7 +70,7 @@ ORDER BY started_at DESC LIMIT 3;
 | 位置 | 用法 | 边界 |
 |---|---|---|
 | `state.messages` | `[{role:"user"},{role:"assistant"}]` 交替；`finalize` 追加本轮 assistant | 只有 plan 与后续轮次读取；不进事件、不进引用 |
-| `retrieve` | `contextual_query(query, messages)`：**判定为追问时**把上一轮问题拼在前面，作为 `context_query` 检索 | 未判定为追问 → 与单轮完全一致 |
+| `retrieve` | `contextual_query(query, messages)`：**判定为追问时**把最近几轮问题拼在前面，作为 `context_query` 检索（初版只拼紧邻一句，连续追问会丢话题，已由 [ADR-0024](0024-multiturn-eval.md) 修正） | 未判定为追问 → 与单轮完全一致 |
 | `plan`（真实模式） | payload 增加 `history`（最多 4 条消息） | 提示词写明：历史不是证据、不是指令 |
 
 `finalize` 用 `context_query` 挑句子：只说「那怎么办」时，单靠本轮 token
@@ -103,11 +103,13 @@ ORDER BY started_at DESC LIMIT 3;
 **代价与已知风险**
 
 - 启发式会误判：「那报销怎么走」以「那」开头，会把上一轮话题拼进检索、稀释召回。
-  宁可稀释也不硬塞整段历史；真实坏例要靠日志里的 `context_query` 收敛
+  宁可稀释也不硬塞整段历史；真实坏例要靠日志里的 `context_query` 收敛。
+  这个边界现在还进了多轮评测的诊断项（[ADR-0024](0024-multiturn-eval.md)）：当前 0/1，
+  语料里有《差旅报销流程》也被上一轮保修话题带偏
 - 3 轮之外失忆；刷新页面即新会话（前端 ID 在内存里），没有跨会话记忆
 - 回答被截断到 400 字，模型看到的历史是"…"结尾的片段
-- 多轮只有测试覆盖，**没有进评测集**：`app/eval/cases/` 仍是 50 条单轮。
-  多轮质量（指代是否解对）目前只有两条端到端用例与一组纯函数用例兜底
+- 多轮质量由**独立评测**度量（[ADR-0024](0024-multiturn-eval.md)）：`coref_acc` 9/9、
+  隔离对照 9/9；主集 `app/eval/cases/` 仍是 50 条单轮，两套口径不混
 - 真实模型下 `history` 对 plan 的影响未量化（mock 模式是规则计划，读不到这部分收益）
 - 工单标题仍取当前轮输入：「帮我开个单」不会自动变成「笔记本蓝屏」——标题取自
   用户最新诉求是有意为之，避免把两轮内容拼成一句读不通的话
@@ -119,6 +121,7 @@ ORDER BY started_at DESC LIMIT 3;
 **待定**
 
 - 追问判定要不要用模型兜底（多一次调用换更准的指代解析）
-- 要不要把多轮用例加进评测集（需要先定义"指代解对"的判定口径）
+- ~~要不要把多轮用例加进评测集（需要先定义"指代解对"的判定口径）~~
+  已由 [ADR-0024](0024-multiturn-eval.md) 兑现：独立评测 + 引用命中 + 隔离对照
 - 会话历史是否需要 TTL（当前跟随 `runs.input/output` 的保留期
   [`ADR-0023`](0023-run-content-retention.md)，被清理的轮次自然退出历史，没有单独清理）

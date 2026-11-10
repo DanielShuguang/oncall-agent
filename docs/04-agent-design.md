@@ -22,7 +22,7 @@ class AgentState(TypedDict, total=False):
     user: dict            # {id, roles[], session_id}
     messages: list        # 服务端注入的历史问答对（ADR-0020），finalize 追加本轮回答
     query: str            # 本轮输入
-    context_query: str    # 检索/选句实际用的查询；追问时 = 上一轮问题 + 本轮
+    context_query: str    # 检索/选句实际用的查询；追问时 = 最近几轮问题 + 本轮
     intent: str           # classify 结果
     incident_type: str    # hardware|network|software|account|other
     retrieved: list       # [{chunk_id, document_id, ord, title, content, score}]
@@ -45,7 +45,8 @@ class AgentState(TypedDict, total=False):
 （`output` 为 NULL，[ADR-0023](decisions/0023-run-content-retention.md)）自然不进历史；
 引用快照随行返回，用于按当前可见性过滤。三条边界：
 
-- **只用于理解指代**：`retrieve` 在判定为追问时把上一轮问题拼进 `context_query`；
+- **只用于理解指代**：`retrieve` 在判定为追问时把最近几轮问题拼进 `context_query`
+  （连续追问才累积，见 [ADR-0024](decisions/0024-multiturn-eval.md)）；
   `plan` 的 payload 带 `history`。引用仍然只能来自本轮 `retrieved`
 - **不进事件、不进引用**：历史不写进任何事件 payload，也不会出现在 `citations` 里
 - **按当前可见性过滤**：上一轮引用的文档被收权/删除后，该轮不再进历史（
@@ -54,6 +55,12 @@ class AgentState(TypedDict, total=False):
 
 追问判定是关键词启发式（`app/agent/history.py`）：≤ 30 字且含「那/再/它/刚才/呢…」。
 长句一律按新问题处理——宁可少用上下文，也不把上一个话题硬塞进能独立回答的问题。
+
+`context_query` 的拼装（`_context_anchor`）按时间累积最近 3 轮**用户问题**，总长仍受
+80 字预算约束：只拼紧邻一句时，连续追问第三步会把最初的话题丢掉（「VPN 下载」→
+「那接下来要做什么」→「那还要注意什么」的检索词里没有 VPN，召回为空）。预算不够时
+丢更早的轮次、保证最近一句完整；单轮与两轮的检索词与旧实现完全一致。
+多轮质量由独立评测度量（`make eval-multiturn`，[ADR-0024](decisions/0024-multiturn-eval.md)）。
 
 ## 3. 节点图
 

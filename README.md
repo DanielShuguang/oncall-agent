@@ -22,7 +22,7 @@
 
 1. **RAG 知识库**：混合检索（BM25 + 向量 + RRF）+ rerank + 引用溯源（可跳全文）+ 文档级可见范围（公开 / 指定角色，召回前过滤）+ 无命中兜底
 2. **工具层**：统一 `ToolSpec` 注册 + 治理；传输可替换（当前进程内调用，MCP/HTTP 传输未接）
-3. **Agent 运行时**：显式 8 节点状态机（LangGraph 可选），只有 2 个节点调 LLM（规则优先）；多轮上下文由服务端按会话注入（3 轮，追问自动拼检索词），客户端不传历史
+3. **Agent 运行时**：显式 8 节点状态机（LangGraph 可选），只有 2 个节点调 LLM（规则优先）；多轮上下文由服务端按会话注入（3 轮，追问自动拼最近几轮的检索词），客户端不传历史
 4. **工具治理**：白名单、会话级权限、单工具超时、错误分类重试、业务降级、保留字段拒绝
 5. **人工审批**：写操作必须确认，支持"本会话内允许"
 6. **模型网关**：多模型接入、规则路由、限流、每日预算、成本埋点
@@ -168,9 +168,9 @@ oncall/
 
 | 模块 | 状态 | 验证方式 |
 |---|---|---|
-| 文档（12 篇 + 23 篇 ADR + 评测基线） | ✅ 完成 | — |
+| 文档（12 篇 + 24 篇 ADR + 评测基线） | ✅ 完成 | — |
 | 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡 / 运行回放 / 成本页） | ✅ 可用 | `tsc --noEmit`、`oxlint 0`、`oxfmt --check` 通过；`vitest` 56/56；`pnpm build` 成功 |
-| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **316 passed + 24 skipped**；设 `ONCALL_TEST_DATABASE_URL` 后 **340 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约、引用快照与内容回收、计量一致性） |
+| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **346 passed + 24 skipped**；设 `ONCALL_TEST_DATABASE_URL` 后 **370 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约、引用快照与内容回收、计量一致性） |
 | 本地 JWT（W1 D2） | ✅ 已完成 | `tests/test_auth.py` 20 条：签发/验签、过期、alg=none、401 JSON、OpenAPI Bearer、run 归属隔离 |
 | 事件落库 + 断线续传（D4） | ✅ 已完成 | `alembic upgrade head` + `alembic check` 无漂移；`tests/test_store_contract.py`（内存 + Postgres 契约）、`tests/test_chat_stream.py`（落库、幂等回放、503 语义） |
 | 最小 Agent 运行时（W1 D5） | ✅ 已完成 | `tests/test_agent_runtime.py` 9 条：工具真实执行、检索引用、写操作挂起审批、工具失败降级、步数/时长上限 |
@@ -187,12 +187,14 @@ oncall/
 | 数据保留清理（W6 后补） | ✅ 已完成 | 终态 run 超过 `ONCALL_EVENT_RETENTION_DAYS`（默认 180 天）后按 run 整场删除事件并写 `events_pruned_at`（迁移 0010）；`model_calls` 按 `ONCALL_MODEL_CALL_RETENTION_DAYS` 删明细、`runs` 汇总保留；后台每 6 小时、单轮最多 10 批（事件与计量各 200 行/批）+ `make prune` / `prune --dry-run`；回放页标明事件已清理并从 `run.output` 兜底展示最终回答；`tests/test_retention.py`、`test_store_contract.py`（`_exercise_prune`）、`test_runs_api.py`、`test_metrics_pg.py`；[ADR-0021](docs/decisions/0021-data-retention.md) |
 | 回答内容回收（W6 后补） | ✅ 已完成 | 回答引用快照落 `runs.cited_document_ids`（迁移 0011，含存量回填）；读详情/事件/幂等重放/多轮历史时按**当前**可见性校验，任一篇不可见就整场回收（fail-closed，`admin` 除外，恢复范围自动恢复）；`tests/test_runs_content.py`、`test_runs_api.py`、`test_chat_stream.py`、`test_rag_acl.py`、`test_rag_pg.py`、`test_store_contract.py`；[ADR-0022](docs/decisions/0022-run-content-visibility.md) |
 | run 正文按时间保留（W6 后补） | ✅ 已完成 | 终态 run 超过 `ONCALL_RUN_CONTENT_RETENTION_DAYS`（默认 180 天）后清空 `runs.input/output` 并写 `content_pruned_at`（迁移 0012），只留状态/计量/失败归因/引用快照；强制正文保留期 ≥ 事件保留期（事件里是同一段正文）；详情返回空正文 + 标记、幂等重放 `410 CONTENT_EXPIRED`、多轮历史自然剔除；`tests/test_retention.py`、`test_store_contract.py`（`_exercise_prune_contents`）、`test_runs_api.py`、`test_chat_stream.py`、`test_runs_content.py`、`test_config.py`；[ADR-0023](docs/decisions/0023-run-content-retention.md) |
+| 多轮评测（W6 后补） | ✅ 已完成 | `make eval-multiturn`：`app/eval/multiturn.py` + 10 条用例（9 正例 + 1 诊断），只判最后一轮，引用命中标注文档且**空会话隔离对照**成立才算「指代解对」；门槛 `coref_acc ≥ 85%`，诊断项不计入；评测顺带修好连续追问丢话题锚点的 `context_query`（按时间累积最近 3 轮问题）；`tests/test_multiturn_eval.py`、`test_history.py`；[ADR-0024](docs/decisions/0024-multiturn-eval.md) |
 
 ### 评测与压测
 
 ```bash
 make eval        # 50 条：事实 15 / 排查 15 / 多跳 10 / 负样本 5 / 注入 5
 make eval-classify  # 50 条意图分类（knowledge 18 / asset 16 / ticket 16）
+make eval-multiturn  # 9 条多轮（追问指代 + 空会话隔离对照，ADR-0024）
 make loadtest    # 100 请求 / 20 并发 / 20 用户，打完整 SSE run
 make demo        # 三条剧本（第二条含审批）打到本机 API
 ```
@@ -205,6 +207,11 @@ W6 基线（3 轮均值，mock 规则路径，口径见 [baseline-v1](docs/eval/
 意图分类（D11，[classify-v1](docs/eval/classify-v1.md)）：50 条人工标注，
 规则路径 `intent` / `incident` 联合 **50/50**；同样属样本内，且只覆盖规则路径，
 模型兜底路径需要真实 provider 才能量化。
+
+多轮（[multiturn-v1](docs/eval/multiturn-v1.md)）：9 条追问用例，判定是「引用命中标注文档
+**且**同一句单独提问时不命中」；规则路径 `coref_acc` **9/9**、隔离对照 9/9；
+诊断项「那 + 新话题」0/1（被上一轮话题稀释，已知边界，不计入门槛）。
+同样属样本内，且只覆盖被追问启发式识别的句子。
 
 压测（2026-11-09，Windows 11 + WSL2 **16 vCPU / 15GiB**，Docker 29.1.3，
 单 API 容器 + Postgres/Redis 容器，mock 模式，100 请求 / 20 并发 / 20 用户）：
@@ -248,7 +255,12 @@ W6 基线（3 轮均值，mock 规则路径，口径见 [baseline-v1](docs/eval/
 - 工具 schema 在管理页只读；配置覆盖只到「启用/角色」，且多副本部署最长 2s 生效（[ADR-0014](docs/decisions/0014-tool-policy-overrides.md)）
 - 引用全文预览是按切片重组的正文，不是原始文件渲染（PDF 排版/表格样式会丢）；没有列表接口、只能凭已知
   `document_id` 打开（[ADR-0018](docs/decisions/0018-citation-fulltext-preview.md)）
-- 多轮上下文只有 3 轮 / 1200 字，追问判定是关键词启发式（「那 + 新话题」会被上一轮稀释召回）；刷新页面即新会话，没有跨会话记忆；上一轮引用的文档被收权后该轮会剔出历史（[ADR-0022](docs/decisions/0022-run-content-visibility.md)），但历史仍来自当时展示过的 `runs.output`；回答进历史时截断到 400 字；多轮没有进评测集（"指代解对"的口径未定，见 [docs/08 §3.2](docs/08-eval-metrics.md)）
+- 多轮上下文只有 3 轮 / 1200 字，追问判定是关键词启发式；连续追问的检索词按链累积（最多 80 字），
+  但「那 + 新话题」仍会被上一轮稀释召回（多轮评测诊断项 0/1，语料里有《差旅报销流程》也会被带偏，
+  见 [multiturn-v1](docs/eval/multiturn-v1.md)）；刷新页面即新会话，没有跨会话记忆；上一轮引用的
+  文档被收权后该轮会剔出历史（[ADR-0022](docs/decisions/0022-run-content-visibility.md)），但历史
+  仍来自当时展示过的 `runs.output`；回答进历史时截断到 400 字；多轮评测只覆盖被启发式识别的追问、
+  判定是文档级，样本内（[ADR-0024](docs/decisions/0024-multiturn-eval.md)）
 - 文档级可见性只有 `public` / `roles` 两档：没有按用户授权、部门继承、临时授权与密级；
   `admin` 是知识库所有者、可读全部正文（合规要求「管理员也不能看内容」时需要在部署层拆角色）；
   角色名不做白名单，拼错会让文档除管理员外谁都看不到（控制台可见并可改）。召回多一次

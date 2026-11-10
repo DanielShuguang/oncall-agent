@@ -25,6 +25,8 @@
 | `cite_acc` 引用准确率 | 引用片段确实支撑答案 | ≥ 90% |
 | `refusal_correct` 拒答正确率 | 知识库外（或调用方不可见）的负样本正确说"不知道" | ≥ 90% |
 | `tool_success_rate` 工具成功率 | `tool.result.status == ok` 占实际执行工具的比例（挂起审批不计入分母） | ≥ 95% |
+| `coref_acc` 指代解对率 | 多轮用例的追问轮引用命中标注文档，且同一句单独提问时**不**命中
+（隔离对照，见 §3.2） | ≥ 85% |
 | `injection_blocked` 注入拦截率 | 构造用例被拦截比例 | **100%** |
 
 ### 2.2 性能类
@@ -115,18 +117,45 @@ make eval-classify
   等 4 条多跳用例也降级成 knowledge，导致 RAG 评测丢失 `query_cmdb`、通过率跌到
   92%；现在「保修」分支只在没有个人指代/故障症状时降级，RAG 评测恢复 50/50
 
-### 3.2 多轮（不在评测集里）
+### 3.2 多轮（独立评测，ADR-0024）
 
 50 条 RAG 用例与 50 条分类用例都是**单轮**：`POST /chat/stream` 每轮独立、评测直接调检索器。
-多轮上下文（[ADR-0020](decisions/0020-multi-turn-context.md)）没有对应的指标，覆盖方式是：
+多轮上下文（[ADR-0020](decisions/0020-multi-turn-context.md)）另有一套独立评测，
+主集的召回/引用/延迟口径不变：
 
-- 纯函数用例 `tests/test_history.py`：预算截断、追问判定、`context_query` 拼装
-- 端到端 `tests/test_chat_stream.py::test_follow_up_inherits_previous_turn_context`：
-  同会话「那怎么办？」引用到 VPN 文档；换 `session_id` 的同样追问必须拒答
+```bash
+make eval-multiturn
+# 等价：cd server && uv run python -m app.eval.multiturn
+```
 
-**为什么先不进评测集**：现有用例的判定是「预期文档标题出现在 Top-5 / 引用命中关键词」，
-追问用例还要额外定义"指代解对"的口径（是引用同一篇文档，还是引用同一段落？）。口径没定
-之前加进去只会得到一组不可解释的通过率。这是明确缺口，不假装已经量化。
+- 用例：`server/app/eval/multiturn_cases.yaml`，**9 条正例 + 1 条诊断项**，每条至少两轮；
+  第 2 轮起必须能被追问启发式判定，否则加载直接报错（测的不是指代）
+- 判定：**只判最后一轮**——引用命中标注文档（文档级，不看段落）才算「指代解对」；
+  前面的轮次是 setup，setup 失败则整条用例失败
+- 隔离对照：同一句追问在**空会话**单独跑一次，不得命中同一篇文档；否则这句追问
+  本身就能检索到，用例没测到指代，判失败并写「隔离对照不成立」
+- 结果：`coref_acc` **100%（9/9）**、隔离对照 9/9、诊断项 0/1，
+  基线见 [eval/multiturn-v1.md](eval/multiturn-v1.md)
+- 门槛：`coref_acc ≥ 85%`；诊断项**不计入**，且 loader 强制诊断项只能判 `must_refuse`
+  （防止把失败用例标成诊断来绕开门槛）
+- 口径：mock 规则路径、**样本内**；只覆盖被追问启发式判定为追问的句子（≤ 30 字 +
+  指代词/承接词），启发式漏判的追问仍是单轮行为
+
+**为什么难点是口径**：追问句单独检索没有实词，命中文档既可能是"用上上下文"，也可能是
+"碰巧"（例如「那要等多久」单独就能命中《软件安装与权限申请流程》）。隔离对照让
+"多轮有效"可证伪；没有它，通过率不可解释。
+
+**为什么独立而不是主集加用例**：主集指标是单轮口径，评测直接调检索器、没有会话与历史；
+混入多轮会让基线不可比。纯函数与端到端覆盖仍在 `tests/test_history.py` 与
+`test_chat_stream.py`，评测只补「效果」这一层。
+
+**评测发现的缺陷**：三轮回合用例暴露 `context_query` 只拼紧邻上一句，连续追问会丢失
+最初的话题锚点（第三句检索词里没有 VPN，召回为空）。修复后按时间累积最近 3 轮问题，
+总长仍受 80 字预算约束；两轮与单轮行为不变（[ADR-0024](decisions/0024-multiturn-eval.md)）。
+
+**已知边界**：诊断项「那报销怎么走」在合并检索词后仍被上一轮保修话题带偏，而语料里
+其实有《差旅报销流程》。修法（双检索 RRF / 原句优先）需要主集回归与单独决策，
+见 [ADR-0024](decisions/0024-multiturn-eval.md) 的「待定」。
 
 ## 4. 执行方式
 
@@ -137,6 +166,9 @@ make eval
 # 单类（id 或 tag，逗号分隔）
 uv run python -m app.eval.runner --cases negative,injection
 
+# 多轮（追问指代 + 隔离对照）
+make eval-multiturn
+
 # 对比两次结果（改 prompt / 检索参数后必做）
 uv run python -m app.eval.runner --baseline eval-reports/<batch>.json
 ```
@@ -144,6 +176,7 @@ uv run python -m app.eval.runner --baseline eval-reports/<batch>.json
 W6 基线见 [eval/baseline-v1.md](eval/baseline-v1.md)：50 条、3 轮均值、`recall@5 100%`、
 `cite_acc 97.09%`、`refusal_correct 100%`、`injection_blocked 100%`、`tool_success_rate 100%`、
 `avg_steps 7`、`p95 81ms`。W2 的 20 条基线保留在 [eval/baseline-v0.md](eval/baseline-v0.md) 作历史对比。
+多轮基线见 [eval/multiturn-v1.md](eval/multiturn-v1.md)（`coref_acc 9/9`、隔离对照 9/9）。
 
 执行器伪代码：
 
@@ -203,8 +236,8 @@ async def run_case(case) -> CaseResult:
 
 | 场景 | 做法 |
 |---|---|
-| 首次建立 | 记录为 `baseline-v0`（W2 20 条）；W6 扩到 50 条后重建 `baseline-v1` |
-| 每次改 prompt/检索参数 | 必须对比，回归超过 -3pp 不许合并 |
+| 首次建立 | 记录为 `baseline-v0`（W2 20 条）；W6 扩到 50 条后重建 `baseline-v1`；多轮独立基线 `multiturn-v1` |
+| 每次改 prompt/检索参数 | 必须对比，回归超过 -3pp 不许合并（多轮看 `coref_acc`） |
 | 换模型 | 全量重跑，报告里注明模型与价格 |
 | 换知识库 | 用固定快照（`kb-YYYY-MM-DD`），否则不可比 |
 

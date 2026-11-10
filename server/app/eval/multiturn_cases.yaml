@@ -1,0 +1,127 @@
+# 多轮评测用例（ADR-0024）
+#
+# 每条用例至少两轮：前面的轮次只负责把上下文铺出来，**只有最后一轮**计入
+# coref_acc；setup 轮次失败会让整条用例失败（上下文不成立，追问无从谈起）。
+#
+# 字段：
+#   turns[].query              该轮用户输入；第 2 轮起必须能被追问启发式命中
+#                              （≤30 字且带指代词/承接词，否则加载直接报错）
+#   turns[].expected.must_cite_docs     引用要命中的文档（文档级，不看段落）
+#   turns[].expected.answer_must_contain 答案必须包含的结论（可省）
+#   turns[].expected.must_refuse        该拒答（诊断项用）
+#   diagnostic: true           诊断项：只观测、不计入 coref_acc 与门槛，且只能 must_refuse
+#
+# 追问句刻意避开文档里的实词（例如不用「那过期了怎么办」，因为「过期」单独也能
+# 检索到密码文档）——否则隔离对照不成立，用例测到的是单轮检索，不是指代。
+# 答案断言只在「上下文选对了才能给出这个结论」时加；抽取式回答挑错句是
+# `answer_acc` 的事（docs/08 §2.1），不在这里冒充指代指标。
+
+# —— 正例：追问应当回到上一轮的文档并给出结论 ——
+
+- id: mt-vpn-err502
+  note: ERR-502 追问「那要怎么解决」应回到 VPN 文档
+  turns:
+    - query: VPN 报错 ERR-502 怎么办
+      expected:
+        must_cite_docs: ["VPN 连接失败排查指南"]
+    - query: 那要怎么解决
+      expected:
+        must_cite_docs: ["VPN 连接失败排查指南"]
+
+- id: mt-vpn-install
+  note: 下载客户端之后追问「接下来要做什么」
+  turns:
+    - query: VPN 客户端在哪里下载
+      expected:
+        must_cite_docs: ["VPN 连接失败排查指南"]
+    - query: 那接下来要做什么
+      expected:
+        must_cite_docs: ["VPN 连接失败排查指南"]
+
+- id: mt-printer-offline
+  note: 打印机离线追问「具体怎么操作」，应继续用打印机文档
+  turns:
+    - query: 打印机显示离线怎么办
+      expected:
+        must_cite_docs: ["打印机离线排查指南"]
+    - query: 那具体怎么操作
+      expected:
+        must_cite_docs: ["打印机离线排查指南"]
+
+- id: mt-password-lock
+  note: 账号锁定追问「那怎么办」，应回到账号密码文档并给出锁定时长
+  turns:
+    - query: 账号被锁定了怎么解锁
+      expected:
+        must_cite_docs: ["账号密码重置与锁定处理"]
+    - query: 那怎么办
+      expected:
+        must_cite_docs: ["账号密码重置与锁定处理"]
+        answer_must_contain: ["解锁"]
+
+- id: mt-bluescreen
+  note: 蓝屏追问「这个怎么彻底解决」，应回到蓝屏文档
+  turns:
+    - query: 电脑蓝屏怎么排查
+      expected:
+        must_cite_docs: ["Windows 蓝屏与驱动问题"]
+    - query: 那这个怎么彻底解决
+      expected:
+        must_cite_docs: ["Windows 蓝屏与驱动问题"]
+
+- id: mt-software-request
+  note: 软件审批追问「大概要等几天」，应回到软件安装流程文档
+  turns:
+    - query: 安装软件需要谁审批
+      expected:
+        must_cite_docs: ["软件安装与权限申请流程"]
+    - query: 那大概要等几天
+      expected:
+        must_cite_docs: ["软件安装与权限申请流程"]
+
+- id: mt-monitor-signal
+  note: 显示器无信号追问「它怎么切」，应回到显示器文档
+  turns:
+    - query: 显示器提示无信号怎么办
+      expected:
+        must_cite_docs: ["显示器无信号与外接屏"]
+    - query: 那它怎么切
+      expected:
+        must_cite_docs: ["显示器无信号与外接屏"]
+
+- id: mt-email-attachment
+  note: 附件超限追问「那怎么办」，应回到邮箱文档并给出替代方案
+  turns:
+    - query: 邮件附件最大可以发多大
+      expected:
+        must_cite_docs: ["企业邮箱与 Outlook 收发故障"]
+    - query: 那怎么办
+      expected:
+        must_cite_docs: ["企业邮箱与 Outlook 收发故障"]
+        answer_must_contain: ["网盘"]
+
+- id: mt-three-turn-vpn
+  note: 三轮回合：下载 → 接下来做什么 → 注意事项，验证连续追问仍带着最初的话题锚点
+  turns:
+    - query: VPN 客户端在哪里下载
+      expected:
+        must_cite_docs: ["VPN 连接失败排查指南"]
+    - query: 那接下来要做什么
+      expected:
+        must_cite_docs: ["VPN 连接失败排查指南"]
+    - query: 那还要注意什么
+      expected:
+        must_cite_docs: ["VPN 连接失败排查指南"]
+
+# —— 诊断项：只观测，不计入 coref_acc ——
+
+- id: mt-topic-shift-expense
+  note: 「那 + 新话题」不应被上一轮保修话题带偏（ADR-0020 已知边界，诊断项）
+  diagnostic: true
+  turns:
+    - query: 公司笔记本整机保修几年
+      expected:
+        must_cite_docs: ["电脑保修与换新政策"]
+    - query: 那报销怎么走
+      expected:
+        must_refuse: true

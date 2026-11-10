@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 from app.agent.deps import AgentDeps
 from app.agent.nodes.finalize import compose_answer
-from app.agent.nodes.retrieve import retrieve_node
+from app.agent.nodes.retrieve import names_top_document, retrieve_node
 from app.agent.state import initial_state
 from app.rag.embed import HashingEmbedder
 from app.rag.memory import MemoryKnowledgeStore
 from app.rag.retrieve import KnowledgeBase
+from app.rag.types import Hit
 from app.tools.builtin import build_registry
 from app.tools.registry import ToolGuard
 
@@ -154,3 +157,110 @@ async def test_archived_top_hit_does_not_suppress_valid_citations() -> None:
     answer, citations = compose_answer(state)
     assert "内网软件库" in answer
     assert [citation["title"] for citation in citations] == ["VPN 连接失败排查指南"]
+
+
+def _hit(document_id: str, title: str, score: float) -> Hit:
+    return Hit(
+        chunk_id=hash((document_id, score)) % 10_000,
+        document_id=document_id,
+        ord=0,
+        title=title,
+        heading=title,
+        content="正文",
+        score=score,
+    )
+
+
+def test_names_top_document_needs_both_title_evidence_and_margin() -> None:
+    hits = [_hit("d1", "差旅报销流程", 0.63), _hit("d2", "团队建设经费", 0.42)]
+
+    assert names_top_document("那报销怎么走", hits)
+    # 话题头是空的：处理只是问法里的谓语
+    assert not names_top_document("那怎么处理", hits)
+    # 分数咬在一起：原句并没有点到哪一篇
+    close = [_hit("d1", "差旅报销流程", 0.63), _hit("d2", "团队建设经费", 0.55)]
+    assert not names_top_document("那报销怎么走", close)
+    # 同一篇文档的多个切片不算第二名
+    same_doc = [_hit("d1", "差旅报销流程", 0.63), _hit("d1", "差旅报销流程", 0.62)]
+    assert names_top_document("那报销怎么走", same_doc)
+    assert not names_top_document("那报销怎么走", [])
+
+
+def _history(topic: str) -> list[dict[str, str]]:
+    return [
+        {"role": "user", "content": topic},
+        {"role": "assistant", "content": "……"},
+    ]
+
+
+async def test_follow_up_naming_a_new_document_skips_the_history_anchor(
+    memory_kb: KnowledgeBase,
+) -> None:
+    """「那报销怎么走」是新话题：原句自己点到文档时不能拼上文（ADR-0025）。"""
+    deps = AgentDeps(guard=ToolGuard(build_registry()), retriever=memory_kb)
+    state = initial_state(
+        run_id="run",
+        user={"id": "u_102"},
+        query="那报销怎么走",
+        messages=_history("公司笔记本整机保修几年"),
+    )
+
+    state = {**state, **await retrieve_node(state, deps)}
+
+    assert state["context_query"] == "那报销怎么走"
+    titles = [citation["title"] for citation in state["citations"]]
+    assert "差旅报销流程" in titles
+    assert all("电脑保修" not in title for title in titles)
+
+
+async def test_generic_follow_up_keeps_the_history_anchor(memory_kb: KnowledgeBase) -> None:
+    """「那怎么申请」没有点名文档：多篇分数咬在一起，仍要用上一轮话题。"""
+    deps = AgentDeps(guard=ToolGuard(build_registry()), retriever=memory_kb)
+    state = initial_state(
+        run_id="run",
+        user={"id": "u_102"},
+        query="那怎么申请",
+        messages=_history("公司笔记本整机保修几年"),
+    )
+
+    state = {**state, **await retrieve_node(state, deps)}
+
+    assert state["context_query"] == "公司笔记本整机保修几年 那怎么申请"
+    assert "电脑保修与换新政策" in [citation["title"] for citation in state["citations"]]
+
+
+async def test_standalone_search_failure_falls_back_to_the_merged_query(
+    memory_kb: KnowledgeBase,
+) -> None:
+    """多一次检索不能让 run 更容易挂：原句探路失败仍然走合并查询。"""
+    inner = memory_kb
+
+    class _Flaky:
+        def __init__(self) -> None:
+            self.queries: list[str] = []
+
+        async def search(
+            self,
+            query: str,
+            top_k: int | None = None,
+            *,
+            viewer: Any = None,
+        ) -> list[Hit]:
+            self.queries.append(query)
+            if len(self.queries) == 1:
+                raise RuntimeError("embedding 服务不可用")
+            return await inner.search(query, top_k=top_k, viewer=viewer)
+
+    flaky = _Flaky()
+    deps = AgentDeps(guard=ToolGuard(build_registry()), retriever=cast(Any, flaky))
+    state = initial_state(
+        run_id="run",
+        user={"id": "u_102"},
+        query="那怎么办",
+        messages=_history("VPN 客户端在哪里下载"),
+    )
+
+    state = {**state, **await retrieve_node(state, deps)}
+
+    assert flaky.queries == ["那怎么办", "VPN 客户端在哪里下载 那怎么办"]
+    assert "VPN 连接失败排查指南" in [citation["title"] for citation in state["citations"]]

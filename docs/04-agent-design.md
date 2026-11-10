@@ -22,7 +22,7 @@ class AgentState(TypedDict, total=False):
     user: dict            # {id, roles[], session_id}
     messages: list        # 服务端注入的历史问答对（ADR-0020），finalize 追加本轮回答
     query: str            # 本轮输入
-    context_query: str    # 检索/选句实际用的查询；追问时 = 最近几轮问题 + 本轮
+    context_query: str    # 检索/选句实际用的查询；追问时可能是本轮原句（点名了新话题）或最近几轮问题 + 本轮
     intent: str           # classify 结果
     incident_type: str    # hardware|network|software|account|other
     retrieved: list       # [{chunk_id, document_id, ord, title, content, score}]
@@ -46,7 +46,8 @@ class AgentState(TypedDict, total=False):
 引用快照随行返回，用于按当前可见性过滤。四条边界：
 
 - **只用于理解指代**：`retrieve` 在判定为追问时把最近几轮问题拼进 `context_query`
-  （连续追问才累积，见 [ADR-0024](decisions/0024-multiturn-eval.md)）；
+  （连续追问才累积，见 [ADR-0024](decisions/0024-multiturn-eval.md)；
+  追问自己点名了新话题时不拼，见 [ADR-0025](decisions/0025-followup-original-first.md)）；
   `plan` 的 payload 带 `history`。引用仍然只能来自本轮 `retrieved`
 - **不进事件、不进引用**：历史不写进任何事件 payload，也不会出现在 `citations` 里
 - **按当前可见性过滤**：上一轮引用的文档被收权/删除后，该轮不再进历史（
@@ -60,7 +61,17 @@ class AgentState(TypedDict, total=False):
 80 字预算约束：只拼紧邻一句时，连续追问第三步会把最初的话题丢掉（「VPN 下载」→
 「那接下来要做什么」→「那还要注意什么」的检索词里没有 VPN，召回为空）。预算不够时
 丢更早的轮次、保证最近一句完整；单轮与两轮的检索词与旧实现完全一致。
-多轮质量由独立评测度量（`make eval-multiturn`，[ADR-0024](decisions/0024-multiturn-eval.md)）。
+
+**原句优先**（[ADR-0025](decisions/0025-followup-original-first.md)）：追问先按原句检索
+一次，如果这句话的话题头（疑问词之前那截，`topic_head`）出现在第一名文档的标题里、
+且第一名比第二名高出 ≥ 0.10，就直接用原句的结果，`context_query` 也记原句——
+「那报销怎么走」因此能答到《差旅报销流程》，而不是被上一轮的保修文档压住。
+两条证据缺一不可：只看分数，「那要多久」单独检索 0.764 会去答《软件安装流程》；
+只看标题，「那怎么申请」会去答《工位调整申请》。两条都不成立时退化为拼上文。
+
+多轮质量由独立评测度量（`make eval-multiturn`，[ADR-0024](decisions/0024-multiturn-eval.md)）：
+`coref_acc` 测追问指代，`shift_acc` 测新话题不被劫持，另有守卫用例反向钉住
+「原句优先」不要过度触发。
 
 ## 3. 节点图
 
@@ -239,6 +250,8 @@ run 也满足 `runs.token_in == sum(model_calls.token_in)`（`tests/test_metrics
 `retrieve`（W2）：
 - 只通过 `AgentDeps.retriever` 调 `search()`，节点里没有 SQL
 - 检索异常降级为空召回并记日志，由 finalize 走兜底话术；检索失败不能把 run 打挂
+- 追问可能调两次 `search()`（原句判自足 → 合并句兜底），日志里分
+  `retrieval_followup_standalone` / `retrieval_context_merged` 两条，坏例按日志收敛
 - 阈值在 `KnowledgeBase` 里（`ONCALL_RAG_MIN_SCORE`，默认 0.38）；低于阈值的候选不会进入 state
 
 `finalize`（W2）：

@@ -26,6 +26,7 @@
 | `refusal_correct` 拒答正确率 | 知识库外（或调用方不可见）的负样本正确说"不知道" | ≥ 90% |
 | `tool_success_rate` 工具成功率 | `tool.result.status == ok` 占实际执行工具的比例（挂起审批不计入分母） | ≥ 95% |
 | `coref_acc` 指代解对率 | 多轮追问轮的引用命中标注文档，且同一句单独提问时**不**命中（隔离对照，见 §3.2） | ≥ 85% |
+| `shift_acc` 话题切换正确率 | 新话题追问轮命中新文档、且不含上一轮话题的文档；同一句单独提问时必须能命中（前提，见 §3.2） | ≥ 85% |
 | `injection_blocked` 注入拦截率 | 构造用例被拦截比例 | **100%** |
 
 ### 2.2 性能类
@@ -116,7 +117,7 @@ make eval-classify
   等 4 条多跳用例也降级成 knowledge，导致 RAG 评测丢失 `query_cmdb`、通过率跌到
   92%；现在「保修」分支只在没有个人指代/故障症状时降级，RAG 评测恢复 50/50
 
-### 3.2 多轮（独立评测，ADR-0024）
+### 3.2 多轮（独立评测，ADR-0024 / ADR-0025）
 
 50 条 RAG 用例与 50 条分类用例都是**单轮**：`POST /chat/stream` 每轮独立、评测直接调检索器。
 多轮上下文（[ADR-0020](decisions/0020-multi-turn-context.md)）另有一套独立评测，
@@ -127,17 +128,28 @@ make eval-multiturn
 # 等价：cd server && uv run python -m app.eval.multiturn
 ```
 
-- 用例：`server/app/eval/multiturn_cases.yaml`，**9 条正例 + 1 条诊断项**，每条至少两轮；
-  第 2 轮起必须能被追问启发式判定；setup 轮次与正例都必须标 `must_cite_docs`，拒答类
-  只能进诊断项（`diagnostic: true` + `must_refuse`），加载期校验，否则直接报错
-- 判定：**只判最后一轮**——引用命中标注文档（文档级，不看段落）才算「指代解对」；
+多轮有**两个方向**，指标分开记，混在一起会让两边都说不清：
+
+| 方向 | 用例 | 判定 | 门槛 |
+|---|---|---|---|
+| 指代上一轮 | `kind: coref` | 追问轮引用命中标注文档，且同一句**单独提问时命不中**（隔离对照） | `coref_acc ≥ 85%` |
+| 新话题不被劫持 | `kind: shift` | 追问轮命中新话题文档、且**不得出现上一轮话题的文档**；单独提问必须自己就能命中（前提） | `shift_acc ≥ 85%` |
+| 都覆盖不了 | `diagnostic: true` | 只观测「该拒答的别答」，不计入两条指标与门槛 | — |
+
+- 用例：`server/app/eval/multiturn_cases.yaml`，**12 条指代 + 4 条切换 + 1 条诊断项**，
+  每条至少两轮；第 2 轮起必须能被追问启发式判定；setup 轮次与正例都必须标
+  `must_cite_docs`，shift 必须标 `must_not_cite_docs`，拒答类只能进诊断项
+  （`diagnostic: true` + `must_refuse`）；这些约束在加载期校验，否则直接报错
+- 判定：**只判最后一轮**——引用命中标注文档（文档级，不看段落）才算解对；
   前面的轮次是 setup，setup 失败则整条用例失败
-- 隔离对照：同一句追问在**空会话**单独跑一次，不得命中同一篇文档；否则这句追问
-  本身就能检索到，用例没测到指代，判失败并写「隔离对照不成立」
-- 结果：`coref_acc` **100%（9/9）**、隔离对照 9/9、诊断项 0/1，
-  基线见 [eval/multiturn-v1.md](eval/multiturn-v1.md)
-- 门槛：`coref_acc ≥ 85%`；诊断项**不计入**，且 loader 强制诊断项只能判 `must_refuse`
-  （防止把失败用例标成诊断来绕开门槛）
+- 隔离对照的方向相反：coref 要求同一句追问在**空会话**里命不中标注文档（否则这句话
+  本来就能检索到，用例没测到指代）；shift 要求空会话**命中**新话题（否则它是追问，
+  用例档位写错了）
+- 结果：`coref_acc` **100%（12/12）**、隔离对照 12/12、`shift_acc` **100%（4/4）**、
+  切换前提 4/4、诊断项 0/1，基线见 [eval/multiturn-v2.md](eval/multiturn-v2.md)
+  （[v1](eval/multiturn-v1.md) 是 ADR-0025 修复前的 9 条版本）
+- 门槛：`coref_acc ≥ 85%` 且 `shift_acc ≥ 85%`；诊断项**不计入**，loader 强制诊断项
+  只能判 `must_refuse`（防止把失败用例标成诊断来绕开门槛）
 - 口径：mock 规则路径、**样本内**；只覆盖被追问启发式判定为追问的句子（≤ 30 字 +
   指代词/承接词），启发式漏判的追问仍是单轮行为；只判**命中**不判引用精度（多余引用归
   主集 `cite_acc`）
@@ -150,13 +162,18 @@ make eval-multiturn
 混入多轮会让基线不可比。纯函数与端到端覆盖仍在 `tests/test_history.py` 与
 `test_chat_stream.py`，评测只补「效果」这一层。
 
-**评测发现的缺陷**：三轮回合用例暴露 `context_query` 只拼紧邻上一句，连续追问会丢失
-最初的话题锚点（第三句检索词里没有 VPN，召回为空）。修复后按时间累积最近 3 轮问题，
-总长仍受 80 字预算约束；两轮与单轮行为不变（[ADR-0024](decisions/0024-multiturn-eval.md)）。
+**评测发现的缺陷（ADR-0024）**：三轮回合用例暴露 `context_query` 只拼紧邻上一句，
+连续追问会丢失最初的话题锚点（第三句检索词里没有 VPN，召回为空）。修复后按时间累积
+最近 3 轮问题，总长仍受 80 字预算约束；两轮与单轮行为不变。
 
-**已知边界**：诊断项「那报销怎么走」在合并检索词后仍被上一轮保修话题带偏，而语料里
-其实有《差旅报销流程》。修法（双检索 RRF / 原句优先）需要主集回归与单独决策，
-见 [ADR-0024](decisions/0024-multiturn-eval.md) 的「待定」。
+**评测发现的缺陷（ADR-0025）**：「那报销怎么走」是新话题，却因为拼了上文被上一轮的
+保修文档带偏。修复为**原句优先**：追问先按原句检索一次，如果这句话的话题头（疑问词
+之前那截）出现在第一名文档的标题里、且第一名比第二名高出 ≥ 0.1，就不拼上文；
+守卫用例（「那怎么申请」「那流程是什么」「那怎么处理」）反向钉住不要过度触发。
+
+**已知边界**：没有点名任何文档的新话题（「那公司年会抽奖怎么规定」）仍会被上一轮稀释，
+诊断项 0/1——要修得让模型改写查询，见
+[ADR-0025](decisions/0025-followup-original-first.md) 的「待定」。
 
 ## 4. 执行方式
 
@@ -177,7 +194,7 @@ uv run python -m app.eval.runner --baseline eval-reports/<batch>.json
 W6 基线见 [eval/baseline-v1.md](eval/baseline-v1.md)：50 条、3 轮均值、`recall@5 100%`、
 `cite_acc 97.09%`、`refusal_correct 100%`、`injection_blocked 100%`、`tool_success_rate 100%`、
 `avg_steps 7`、`p95 81ms`。W2 的 20 条基线保留在 [eval/baseline-v0.md](eval/baseline-v0.md) 作历史对比。
-多轮基线见 [eval/multiturn-v1.md](eval/multiturn-v1.md)（`coref_acc 9/9`、隔离对照 9/9）。
+多轮基线见 [eval/multiturn-v2.md](eval/multiturn-v2.md)（`coref_acc 12/12`、隔离对照 12/12、`shift_acc 4/4`）；[eval/multiturn-v1.md](eval/multiturn-v1.md) 是 ADR-0025 修复前的 9 条历史基线。
 
 执行器伪代码：
 
@@ -237,8 +254,8 @@ async def run_case(case) -> CaseResult:
 
 | 场景 | 做法 |
 |---|---|
-| 首次建立 | 记录为 `baseline-v0`（W2 20 条）；W6 扩到 50 条后重建 `baseline-v1`；多轮独立基线 `multiturn-v1` |
-| 每次改 prompt/检索参数 | 必须对比，回归超过 -3pp 不许合并（多轮看 `coref_acc`） |
+| 首次建立 | 记录为 `baseline-v0`（W2 20 条）；W6 扩到 50 条后重建 `baseline-v1`；多轮独立基线由 `multiturn-v1` 演进到 `multiturn-v2`（ADR-0025 之后） |
+| 每次改 prompt/检索参数 | 必须对比，回归超过 -3pp 不许合并（多轮看 `coref_acc` 与 `shift_acc`） |
 | 换模型 | 全量重跑，报告里注明模型与价格 |
 | 换知识库 | 用固定快照（`kb-YYYY-MM-DD`），否则不可比 |
 

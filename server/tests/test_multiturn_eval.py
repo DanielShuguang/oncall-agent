@@ -1,4 +1,4 @@
-"""多轮评测（ADR-0024）：用例可加载、判定可解释、隔离对照能抓到假通过。"""
+"""多轮评测（ADR-0024 / ADR-0025）：用例可加载、判定可解释、两个方向的对照都能证伪。"""
 
 from __future__ import annotations
 
@@ -13,12 +13,14 @@ from app.agent.runtime import stream
 from app.eval import multiturn as multiturn_module
 from app.eval.multiturn import (
     CORE_ACC_FLOOR,
+    SHIFT_ACC_FLOOR,
     CaseOutcome,
     MultiTurnCase,
     TurnOutcome,
     TurnSpec,
     evaluate,
     judge_isolation,
+    judge_shift_isolation,
     judge_turn,
     load_cases,
     main,
@@ -75,12 +77,17 @@ def _outcome(
 def test_cases_load_and_every_follow_up_is_detected() -> None:
     cases = load_cases()
 
-    assert len(cases) == 10
+    assert len(cases) == 17
     assert sum(1 for case in cases if case.diagnostic) == 1
+    assert sum(1 for case in cases if case.kind == "shift") == 4
     assert {case.id for case in cases} >= {"mt-vpn-err502", "mt-three-turn-vpn"}
     assert all(len(case.turns) >= 2 for case in cases)
     assert all(case.judged.expected.get("must_cite_docs") for case in cases if not case.diagnostic)
     assert all(case.judged.expected.get("must_refuse") for case in cases if case.diagnostic)
+    # shift 必须写死"不得引用上一轮话题"，否则只要顺手带上一篇也会算过
+    forbidden = "must_not_cite_docs"
+    assert all(case.judged.expected.get(forbidden) for case in cases if case.kind == "shift")
+    assert all(not case.judged.expected.get(forbidden) for case in cases if case.kind == "coref")
 
 
 def test_loader_rejects_follow_up_that_the_heuristic_would_ignore(tmp_path: Path) -> None:
@@ -176,7 +183,7 @@ def test_loader_rejects_case_file_without_positive_cases(tmp_path: Path) -> None
         encoding="utf-8",
     )
 
-    with pytest.raises(SystemExit, match="没有正例用例"):
+    with pytest.raises(SystemExit, match="没有 coref 正例"):
         load_cases(path)
 
 
@@ -194,6 +201,96 @@ def test_loader_rejects_setup_turn_without_citation_assertion(tmp_path: Path) ->
     )
 
     with pytest.raises(SystemExit, match="setup）必须标 must_cite_docs"):
+        load_cases(path)
+
+
+def test_loader_rejects_shift_case_without_forbidden_docs(tmp_path: Path) -> None:
+    """shift 不写 must_not_cite_docs，等于只要"顺手"带上一篇旧话题的文档也会算过。"""
+    path = tmp_path / "cases.yaml"
+    path.write_text(
+        "- id: shift\n"
+        "  kind: shift\n"
+        "  turns:\n"
+        "    - query: 公司笔记本整机保修几年\n"
+        "      expected: {must_cite_docs: [电脑保修与换新政策]}\n"
+        "    - query: 那报销怎么走\n"
+        "      expected: {must_cite_docs: [差旅报销流程]}\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SystemExit, match="必须写 must_not_cite_docs"):
+        load_cases(path)
+
+
+def test_loader_rejects_forbidden_docs_on_coref_case(tmp_path: Path) -> None:
+    path = tmp_path / "cases.yaml"
+    path.write_text(
+        "- id: coref\n"
+        "  turns:\n"
+        "    - query: VPN 客户端在哪里下载\n"
+        "      expected: {must_cite_docs: [VPN 连接失败排查指南]}\n"
+        "    - query: 那接下来要做什么\n"
+        "      expected:\n"
+        "        must_cite_docs: [VPN 连接失败排查指南]\n"
+        "        must_not_cite_docs: [打印机离线排查指南]\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SystemExit, match="must_not_cite_docs 只用于 shift 用例"):
+        load_cases(path)
+
+
+def test_loader_rejects_shift_case_marked_as_diagnostic(tmp_path: Path) -> None:
+    path = tmp_path / "cases.yaml"
+    path.write_text(
+        "- id: shift-diag\n"
+        "  kind: shift\n"
+        "  diagnostic: true\n"
+        "  turns:\n"
+        "    - query: 公司笔记本整机保修几年\n"
+        "      expected: {must_cite_docs: [电脑保修与换新政策]}\n"
+        "    - query: 那报销怎么走\n"
+        "      expected:\n"
+        "        must_cite_docs: [差旅报销流程]\n"
+        "        must_not_cite_docs: [电脑保修]\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SystemExit, match="shift 用例不能标 diagnostic"):
+        load_cases(path)
+
+
+def test_loader_rejects_unknown_kind(tmp_path: Path) -> None:
+    path = tmp_path / "cases.yaml"
+    path.write_text(
+        "- id: weird\n"
+        "  kind: mixed\n"
+        "  turns:\n"
+        "    - query: VPN 客户端在哪里下载\n"
+        "      expected: {must_cite_docs: [VPN 连接失败排查指南]}\n"
+        "    - query: 那接下来要做什么\n"
+        "      expected: {must_cite_docs: [VPN 连接失败排查指南]}\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SystemExit, match="kind 只能是 coref 或 shift"):
+        load_cases(path)
+
+
+def test_loader_rejects_case_file_without_shift_cases(tmp_path: Path) -> None:
+    """没有 shift 用例时 shift_acc 是空指标，不能当成"通过"。"""
+    path = tmp_path / "cases.yaml"
+    path.write_text(
+        "- id: coref\n"
+        "  turns:\n"
+        "    - query: VPN 客户端在哪里下载\n"
+        "      expected: {must_cite_docs: [VPN 连接失败排查指南]}\n"
+        "    - query: 那接下来要做什么\n"
+        "      expected: {must_cite_docs: [VPN 连接失败排查指南]}\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SystemExit, match="没有 shift 用例"):
         load_cases(path)
 
 
@@ -222,6 +319,77 @@ def test_judge_isolation_detects_fake_pass() -> None:
     failures = judge_isolation(turn, [{"title": VPN_DOC}])
 
     assert failures and "隔离对照不成立" in failures[0]
+
+
+def test_judge_turn_flags_the_previous_topic_document() -> None:
+    """话题切换用例：把上一轮话题的文档带进引用，等于没切换过去。"""
+    turn = TurnSpec(
+        "那报销怎么走",
+        {"must_cite_docs": ["差旅报销流程"], "must_not_cite_docs": ["电脑保修"]},
+    )
+
+    assert judge_turn(turn, "按报销流程…", [{"title": "差旅报销流程"}]) == []
+    failures = judge_turn(
+        turn,
+        "按报销流程…",
+        [{"title": "差旅报销流程"}, {"title": "电脑保修与换新政策"}],
+    )
+
+    assert failures == ["引用了上一轮话题: ['电脑保修']"]
+
+
+def test_judge_shift_isolation_requires_the_new_topic_to_hit_on_its_own() -> None:
+    """shift 的前提：单句提问必须自己就能命中，否则它其实是追问。"""
+    turn = TurnSpec(
+        "那报销怎么走",
+        {"must_cite_docs": ["差旅报销流程"], "must_not_cite_docs": ["电脑保修"]},
+    )
+
+    assert judge_shift_isolation(turn, [{"title": "差旅报销流程"}]) == []
+    failures = judge_shift_isolation(turn, [{"title": "电脑保修与换新政策"}])
+
+    assert failures and "前提不成立" in failures[0]
+
+
+async def test_run_case_switches_topic_without_leaking_the_old_one() -> None:
+    case = MultiTurnCase(
+        id="shift",
+        kind="shift",
+        turns=[
+            TurnSpec("公司笔记本整机保修几年", {"must_cite_docs": ["电脑保修与换新政策"]}),
+            TurnSpec(
+                "那报销怎么走",
+                {"must_cite_docs": ["差旅报销流程"], "must_not_cite_docs": ["电脑保修"]},
+            ),
+        ],
+    )
+
+    outcome = await run_case(case, _deps())
+
+    assert outcome.passed, outcome.setup_failures + outcome.judged.failures
+    assert outcome.isolation_holds is True
+    titles = [str(citation.get("title") or "") for citation in outcome.judged.citations]
+    assert titles and all("电脑保修" not in title for title in titles)
+
+
+async def test_run_case_flags_shift_case_that_is_actually_a_follow_up() -> None:
+    """把追问标成"新话题"会让指标虚高，隔离对照的反向检查要拦住它。"""
+    case = MultiTurnCase(
+        id="mistyped",
+        kind="shift",
+        turns=[
+            TurnSpec("VPN 客户端在哪里下载", {"must_cite_docs": [VPN_DOC]}),
+            TurnSpec(
+                "那接下来要做什么",
+                {"must_cite_docs": [VPN_DOC], "must_not_cite_docs": ["打印机离线排查指南"]},
+            ),
+        ],
+    )
+
+    outcome = await run_case(case, _deps())
+
+    assert not outcome.passed
+    assert any("前提不成立" in failure for failure in outcome.judged.isolation_failures)
 
 
 async def test_run_case_uses_history_and_isolates_the_follow_up() -> None:
@@ -291,7 +459,7 @@ async def test_history_is_what_makes_the_follow_up_resolve() -> None:
     assert not any(VPN_DOC in str(citation.get("title") or "") for citation in without_history)
 
 
-def test_report_counts_only_coref_cases_in_the_gate() -> None:
+def test_report_keeps_coref_and_shift_metrics_apart() -> None:
     coref = MultiTurnCase(
         id="coref",
         turns=[
@@ -299,17 +467,29 @@ def test_report_counts_only_coref_cases_in_the_gate() -> None:
             TurnSpec("那接下来要做什么", {"must_cite_docs": [VPN_DOC]}),
         ],
     )
+    shift = MultiTurnCase(
+        id="shift",
+        kind="shift",
+        turns=[
+            TurnSpec("首轮", {"must_cite_docs": [VPN_DOC]}),
+            TurnSpec(
+                "那报销怎么走",
+                {"must_cite_docs": ["差旅报销流程"], "must_not_cite_docs": ["电脑保修"]},
+            ),
+        ],
+    )
     diagnostic = MultiTurnCase(
         id="diag",
         diagnostic=True,
         turns=[
             TurnSpec("首轮", {"must_cite_docs": [VPN_DOC]}),
-            TurnSpec("那报销怎么走", {"must_refuse": True}),
+            TurnSpec("那公司年会抽奖怎么规定", {"must_refuse": True}),
         ],
     )
     report = evaluate(
         [
             _outcome(coref, citations=[{"title": VPN_DOC}]),
+            _outcome(shift, citations=[{"title": "差旅报销流程"}]),
             _outcome(
                 diagnostic,
                 citations=[{"title": "电脑保修与换新政策"}],
@@ -319,20 +499,27 @@ def test_report_counts_only_coref_cases_in_the_gate() -> None:
     )
 
     assert report.coref_acc == 1.0
+    assert report.shift_acc == 1.0
     assert report.diagnostic_ok == 0
     markdown = render_report(report, cases_path=Path("cases.yaml"))
     assert "**100.00%**（1/1）" in markdown
     assert f"`coref_acc` ≥ {CORE_ACC_FLOOR:.0%}" in markdown
-    assert "| diag（诊断） |" in markdown
+    assert f"`shift_acc` ≥ {SHIFT_ACC_FLOOR:.0%}" in markdown
+    assert "| coref | 指代 |" in markdown
+    assert "| shift | 切换 |" in markdown
+    assert "| diag | 诊断 |" in markdown
     assert "被上一轮话题带偏了" in markdown
 
 
-async def test_baseline_meets_the_floor_and_isolates_every_follow_up() -> None:
+async def test_baseline_meets_both_floors_and_both_controls() -> None:
     report = await run_eval()
 
-    assert len(report.coref_cases) == 9
+    assert len(report.coref_cases) == 12
     assert report.coref_acc == 1.0
-    assert report.isolation_ok == report.isolation_total == 9
+    assert report.isolation_ok == report.isolation_total == 12
+    assert len(report.shift_cases) == 4
+    assert report.shift_acc == 1.0
+    assert report.shift_premise_ok == report.shift_premise_total == 4
     assert len(report.diagnostic_cases) == 1
     # 拒答类没有"必须命中的文档"，不该白跑一次隔离对照
     assert report.diagnostic_cases[0].judged.isolation_citations is None
@@ -344,5 +531,5 @@ def test_main_writes_markdown_and_json(tmp_path: Path) -> None:
     assert exit_code == 0
     reports = sorted(tmp_path.glob("multiturn-*.md"))
     assert len(reports) == 1
-    assert "多轮评测（ADR-0024）" in reports[0].read_text(encoding="utf-8")
+    assert "多轮评测（ADR-0024 / ADR-0025）" in reports[0].read_text(encoding="utf-8")
     assert sorted(tmp_path.glob("multiturn-*.json"))

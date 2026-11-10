@@ -15,6 +15,7 @@ from app.agent.history import (
     contextual_query,
     last_user_query,
     needs_context,
+    topic_head,
 )
 
 
@@ -164,3 +165,17 @@ def test_contextual_query_budget_keeps_the_most_recent_question() -> None:
     merged = contextual_query("那呢", messages)
 
     assert merged == "最近一问 那呢"
+
+
+def test_topic_head_keeps_the_topic_before_the_question_word() -> None:
+    assert topic_head("那报销怎么走") == "那报销"
+    assert topic_head("那会议室怎么订") == "那会议室"
+    assert topic_head("那蓝屏呢") == "那蓝屏"
+    assert topic_head("那 VPN 呢") == "那 VPN"
+
+
+def test_topic_head_is_empty_for_generic_follow_ups() -> None:
+    """「处理」「申请」是问法里的谓语，不是话题：不能拿它去点《…处理》《…申请》。"""
+    assert topic_head("那怎么处理") == "那"
+    assert topic_head("那怎么申请") == "那"
+    assert topic_head("那到底要怎么办") == "那到底要"

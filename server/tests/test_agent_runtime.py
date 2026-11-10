@@ -196,7 +196,11 @@ async def test_run_timeout_fails_before_first_step() -> None:
 
 
 async def test_follow_up_merges_previous_question_into_retrieval() -> None:
-    """追问只带"那怎么办"时，检索要把上一轮的问题拼进来（ADR-0020）。"""
+    """追问只带"那怎么办"时，检索要把上一轮的问题拼进来（ADR-0020）。
+
+    ADR-0025 之后先按原句探一次（原句优先），这一次探不出具体文档才拼上文，
+    所以记录里是「原句、合并句」两次，回答用的是后者。
+    """
     recorder = _RecordingRetriever()
     deps = replace(build_deps(), retriever=cast(Any, recorder))
 
@@ -212,7 +216,7 @@ async def test_follow_up_merges_previous_question_into_retrieval() -> None:
             history=[HistoryTurn("VPN 连不上怎么办", "先检查网络，再换节点。")],
         )
     ]
-    assert recorder.queries == ["VPN 连不上怎么办 那怎么办？"]
+    assert recorder.queries == ["那怎么办？", "VPN 连不上怎么办 那怎么办？"]
     assert events[-1][0] is EventType.RUN_COMPLETED
 
 

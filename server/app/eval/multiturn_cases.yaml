@@ -1,18 +1,21 @@
-# 多轮评测用例（ADR-0024）
+# 多轮评测用例（ADR-0024 / ADR-0025）
 #
-# 每条用例至少两轮：前面的轮次只负责把上下文铺出来，**只有最后一轮**计入
-# coref_acc；setup 轮次失败会让整条用例失败（上下文不成立，追问无从谈起）。
+# 每条用例至少两轮：前面的轮次只负责把上下文铺出来，**只有最后一轮**计入指标；
+# setup 轮次失败会让整条用例失败（上下文不成立，追问无从谈起）。
 #
 # 字段：
 #   turns[].query              该轮用户输入；第 2 轮起必须能被追问启发式命中
 #                              （≤30 字且带指代词/承接词，否则加载直接报错）
 #   turns[].expected.must_cite_docs     引用要命中的文档（文档级，不看段落）
+#   turns[].expected.must_not_cite_docs 不得出现的文档（只用于 shift 用例）
 #   turns[].expected.answer_must_contain 答案必须包含的结论（可省）
 #   turns[].expected.must_refuse        该拒答（诊断项用）
-#   diagnostic: true           诊断项：只观测、不计入 coref_acc 与门槛，且只能 must_refuse
+#   kind: coref | shift        指代上一轮 / 新话题不被上一轮劫持；默认 coref
+#   diagnostic: true           诊断项：只观测、不计入两条指标与门槛，且只能 must_refuse
 #
 # 追问句刻意避开文档里的实词（例如不用「那过期了怎么办」，因为「过期」单独也能
 # 检索到密码文档）——否则隔离对照不成立，用例测到的是单轮检索，不是指代。
+# shift 用例的前提相反：那句新话题**单独提问就必须命中**，否则说明它其实是追问。
 # 答案断言只在「上下文选对了才能给出这个结论」时加；抽取式回答挑错句是
 # `answer_acc` 的事（docs/08 §2.1），不在这里冒充指代指标。
 
@@ -113,15 +116,101 @@
       expected:
         must_cite_docs: ["VPN 连接失败排查指南"]
 
-# —— 诊断项：只观测，不计入 coref_acc ——
+# —— 守卫：泛化追问没有点名任何文档，仍必须用上一轮的上下文 ——
+# 这些用例守的是「原句优先」不要过度触发：单独检索也能捞到文档，但多篇分数咬在
+# 一起（《工位调整申请》《停车位申请说明》…），说明原句没有点到哪一篇。
+
+- id: mt-generic-apply
+  note: 「那怎么申请」不该被单独检索带偏到《工位调整申请》，应回到保修
+  turns:
+    - query: 公司笔记本整机保修几年
+      expected:
+        must_cite_docs: ["电脑保修与换新政策"]
+    - query: 那怎么申请
+      expected:
+        must_cite_docs: ["电脑保修与换新政策"]
+
+- id: mt-generic-process
+  note: 「那流程是什么」不该被《工牌补办流程》带偏，应回到打印机
+  turns:
+    - query: 打印机显示离线怎么办
+      expected:
+        must_cite_docs: ["打印机离线排查指南"]
+    - query: 那流程是什么
+      expected:
+        must_cite_docs: ["打印机离线排查指南"]
+
+- id: mt-generic-handle
+  note: 「那怎么处理」的话题头只有「那」——处理是问法谓语，不能拿它去点《…处理》
+  turns:
+    - query: 打印机显示离线怎么办
+      expected:
+        must_cite_docs: ["打印机离线排查指南"]
+    - query: 那怎么处理
+      expected:
+        must_cite_docs: ["打印机离线排查指南"]
+
+# —— 话题切换：点名了新话题，就不该再被上一轮稀释（ADR-0025）——
+# 判定 = 引用命中新话题 + 不得出现上一轮话题的文档；单独提问必须也能命中新话题，
+# 否则这句话其实是个追问，档位写错了。
 
 - id: mt-topic-shift-expense
-  note: 「那 + 新话题」不应被上一轮保修话题带偏（ADR-0020 已知边界，诊断项）
-  diagnostic: true
+  note: 保修之后问报销，不该继续答保修（ADR-0024 里的诊断项，ADR-0025 修好后转正）
+  kind: shift
   turns:
     - query: 公司笔记本整机保修几年
       expected:
         must_cite_docs: ["电脑保修与换新政策"]
     - query: 那报销怎么走
+      expected:
+        must_cite_docs: ["差旅报销流程"]
+        must_not_cite_docs: ["电脑保修"]
+
+- id: mt-topic-shift-meeting
+  note: 保修之后问会议室预订，不该继续答保修
+  kind: shift
+  turns:
+    - query: 公司笔记本整机保修几年
+      expected:
+        must_cite_docs: ["电脑保修与换新政策"]
+    - query: 那会议室怎么订
+      expected:
+        must_cite_docs: ["会议室预订规则"]
+        must_not_cite_docs: ["电脑保修"]
+
+- id: mt-topic-shift-bluescreen
+  note: VPN 排查之后问蓝屏，不能把 VPN 文档也带进引用
+  kind: shift
+  turns:
+    - query: VPN 报错 ERR-502 怎么办
+      expected:
+        must_cite_docs: ["VPN 连接失败排查指南"]
+    - query: 那蓝屏呢
+      expected:
+        must_cite_docs: ["Windows 蓝屏与驱动问题"]
+        must_not_cite_docs: ["VPN"]
+
+- id: mt-topic-shift-vpn
+  note: 打印机离线之后直接问 VPN，上一轮的打印机文档不能留在引用里
+  kind: shift
+  turns:
+    - query: 打印机显示离线怎么办
+      expected:
+        must_cite_docs: ["打印机离线排查指南"]
+    - query: 那VPN怎么连
+      expected:
+        must_cite_docs: ["VPN 连接失败排查指南"]
+        must_not_cite_docs: ["打印机"]
+
+# —— 诊断项：只观测，不计入 coref_acc / shift_acc ——
+
+- id: mt-topic-shift-unnamed
+  note: 没点名任何文档的新话题（年会抽奖）仍会被上一轮稀释，ADR-0025 已知边界
+  diagnostic: true
+  turns:
+    - query: 公司笔记本整机保修几年
+      expected:
+        must_cite_docs: ["电脑保修与换新政策"]
+    - query: 那公司年会抽奖怎么规定
       expected:
         must_refuse: true

@@ -416,12 +416,12 @@ ADR-0020 的「待定」也记着「需要先定义"指代解对"的口径」。
 |---|---|
 | 独立评测 | `app/eval/multiturn.py` + `multiturn_cases.yaml`，`make eval-multiturn`；9 条正例 + 1 条诊断项，只判最后一轮；setup 失败用例即失败；门槛 `coref_acc ≥ 85%`（诊断项不计入） |
 | 隔离对照 | 同一句追问在空会话再跑一次，不得命中同一篇文档；否则判「隔离对照不成立」（假通过） |
-| 用例约束 | 第 2 轮起必须被追问启发式识别（否则 loader 直接报错）；诊断项只能判 `must_refuse`，防止把失败用例标成诊断绕开门槛；追问句避开文档实词 |
+| 用例约束 | 第 2 轮起必须被追问启发式识别（否则 loader 直接报错）；setup 轮次与正例必须标 `must_cite_docs`、拒答类只能进诊断项且只能判 `must_refuse`（防止把失败用例标成诊断绕开门槛）；同一轮不能既要求命中又要求拒答；只剩诊断项直接报错；追问句避开文档实词 |
 | 发现的缺陷 | 三轮回合暴露 `context_query` 只拼紧邻上一句：第三句检索词里没有 VPN，召回为空。修复为按时间累积最近 3 轮用户问题（仍受 80 字预算），两轮/单轮行为不变 |
 | 基线 | `docs/eval/multiturn-v1.md`：`coref_acc 100%（9/9）`、隔离对照 9/9、诊断 0/1（「那报销怎么走」被保修话题带偏，已知边界） |
-| 回归 | `tests/test_multiturn_eval.py` 13 条 + `tests/test_history.py` 新增 3 条；主集 50 条不受影响 |
+| 回归 | `tests/test_multiturn_eval.py` 18 条 + `tests/test_history.py` 新增 3 条；主集 50 条不受影响 |
 
-验证：默认 **346 passed + 24 skipped**；带 Postgres **370 passed**（2026-11-10 本机
+验证：默认 **351 passed + 24 skipped**；带 Postgres **375 passed**（2026-11-10 本机
 WSL2 + Docker 复跑）；`ruff` / `ruff format --check`（153 files）/ `mypy`（96 files）通过；
 迁移无变化。重跑 RAG 评测：**50/50**、`cite_acc 97.09%`、`recall@5 100%`、`p95 83ms`，
 与基线一致（上下文链对单轮零影响）。

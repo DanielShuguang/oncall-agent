@@ -170,7 +170,7 @@ oncall/
 |---|---|---|
 | 文档（12 篇 + 24 篇 ADR + 评测基线） | ✅ 完成 | — |
 | 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡 / 运行回放 / 成本页） | ✅ 可用 | `tsc --noEmit`、`oxlint 0`、`oxfmt --check` 通过；`vitest` 56/56；`pnpm build` 成功 |
-| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **346 passed + 24 skipped**；设 `ONCALL_TEST_DATABASE_URL` 后 **370 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约、引用快照与内容回收、计量一致性） |
+| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **351 passed + 24 skipped**；设 `ONCALL_TEST_DATABASE_URL` 后 **375 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约、引用快照与内容回收、计量一致性） |
 | 本地 JWT（W1 D2） | ✅ 已完成 | `tests/test_auth.py` 20 条：签发/验签、过期、alg=none、401 JSON、OpenAPI Bearer、run 归属隔离 |
 | 事件落库 + 断线续传（D4） | ✅ 已完成 | `alembic upgrade head` + `alembic check` 无漂移；`tests/test_store_contract.py`（内存 + Postgres 契约）、`tests/test_chat_stream.py`（落库、幂等回放、503 语义） |
 | 最小 Agent 运行时（W1 D5） | ✅ 已完成 | `tests/test_agent_runtime.py` 9 条：工具真实执行、检索引用、写操作挂起审批、工具失败降级、步数/时长上限 |
@@ -194,7 +194,7 @@ oncall/
 ```bash
 make eval        # 50 条：事实 15 / 排查 15 / 多跳 10 / 负样本 5 / 注入 5
 make eval-classify  # 50 条意图分类（knowledge 18 / asset 16 / ticket 16）
-make eval-multiturn  # 9 条多轮（追问指代 + 空会话隔离对照，ADR-0024）
+make eval-multiturn  # 10 条多轮（9 正例 + 1 诊断；追问指代 + 空会话隔离对照，ADR-0024）
 make loadtest    # 100 请求 / 20 并发 / 20 用户，打完整 SSE run
 make demo        # 三条剧本（第二条含审批）打到本机 API
 ```
@@ -260,7 +260,7 @@ W6 基线（3 轮均值，mock 规则路径，口径见 [baseline-v1](docs/eval/
   见 [multiturn-v1](docs/eval/multiturn-v1.md)）；刷新页面即新会话，没有跨会话记忆；上一轮引用的
   文档被收权后该轮会剔出历史（[ADR-0022](docs/decisions/0022-run-content-visibility.md)），但历史
   仍来自当时展示过的 `runs.output`；回答进历史时截断到 400 字；多轮评测只覆盖被启发式识别的追问、
-  判定是文档级，样本内（[ADR-0024](docs/decisions/0024-multiturn-eval.md)）
+  判定是文档级，样本内（[ADR-0024](docs/decisions/0024-multiturn-eval.md)）。
 - 文档级可见性只有 `public` / `roles` 两档：没有按用户授权、部门继承、临时授权与密级；
   `admin` 是知识库所有者、可读全部正文（合规要求「管理员也不能看内容」时需要在部署层拆角色）；
   角色名不做白名单，拼错会让文档除管理员外谁都看不到（控制台可见并可改）。召回多一次

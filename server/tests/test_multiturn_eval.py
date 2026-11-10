@@ -10,6 +10,7 @@ from app.agent.deps import AgentDeps
 from app.agent.history import HistoryTurn
 from app.agent.nodes.finalize import REFUSAL
 from app.agent.runtime import stream
+from app.eval import multiturn as multiturn_module
 from app.eval.multiturn import (
     CORE_ACC_FLOOR,
     CaseOutcome,
@@ -78,11 +79,8 @@ def test_cases_load_and_every_follow_up_is_detected() -> None:
     assert sum(1 for case in cases if case.diagnostic) == 1
     assert {case.id for case in cases} >= {"mt-vpn-err502", "mt-three-turn-vpn"}
     assert all(len(case.turns) >= 2 for case in cases)
-    assert all(
-        turn.expected.get("must_cite_docs") or turn.expected.get("must_refuse")
-        for case in cases
-        for turn in case.turns[-1:]
-    )
+    assert all(case.judged.expected.get("must_cite_docs") for case in cases if not case.diagnostic)
+    assert all(case.judged.expected.get("must_refuse") for case in cases if case.diagnostic)
 
 
 def test_loader_rejects_follow_up_that_the_heuristic_would_ignore(tmp_path: Path) -> None:
@@ -131,6 +129,74 @@ def test_loader_rejects_single_turn_case(tmp_path: Path) -> None:
         load_cases(path)
 
 
+def test_loader_rejects_refusal_case_without_diagnostic_flag(tmp_path: Path) -> None:
+    """coref_acc 是「引用命中」的正例指标，拒答用例只能作为诊断项观测。"""
+    path = tmp_path / "cases.yaml"
+    path.write_text(
+        "- id: sneak\n"
+        "  turns:\n"
+        "    - query: VPN 客户端在哪里下载\n"
+        "      expected: {must_cite_docs: [VPN 连接失败排查指南]}\n"
+        "    - query: 那报销怎么走\n"
+        "      expected: {must_refuse: true}\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SystemExit, match="拒答用例必须标 diagnostic"):
+        load_cases(path)
+
+
+def test_loader_rejects_mixed_expectations(tmp_path: Path) -> None:
+    path = tmp_path / "cases.yaml"
+    path.write_text(
+        "- id: mixed\n"
+        "  turns:\n"
+        "    - query: VPN 客户端在哪里下载\n"
+        "      expected: {must_cite_docs: [VPN 连接失败排查指南]}\n"
+        "    - query: 那接下来要做什么\n"
+        "      expected: {must_cite_docs: [VPN 连接失败排查指南], must_refuse: true}\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SystemExit, match="不能同时要求命中文档和拒答"):
+        load_cases(path)
+
+
+def test_loader_rejects_case_file_without_positive_cases(tmp_path: Path) -> None:
+    """只剩诊断项时 coref_acc 是空指标，不能当成"通过"。"""
+    path = tmp_path / "cases.yaml"
+    path.write_text(
+        "- id: only-diag\n"
+        "  diagnostic: true\n"
+        "  turns:\n"
+        "    - query: 公司笔记本整机保修几年\n"
+        "      expected: {must_cite_docs: [电脑保修与换新政策]}\n"
+        "    - query: 那报销怎么走\n"
+        "      expected: {must_refuse: true}\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SystemExit, match="没有正例用例"):
+        load_cases(path)
+
+
+def test_loader_rejects_setup_turn_without_citation_assertion(tmp_path: Path) -> None:
+    """setup 轮次不判引用，它跑挂了只会让追问轮莫名其妙答不出来。"""
+    path = tmp_path / "cases.yaml"
+    path.write_text(
+        "- id: no-setup\n"
+        "  turns:\n"
+        "    - query: VPN 客户端在哪里下载\n"
+        "      expected: {}\n"
+        "    - query: 那接下来要做什么\n"
+        "      expected: {must_cite_docs: [VPN 连接失败排查指南]}\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SystemExit, match="setup）必须标 must_cite_docs"):
+        load_cases(path)
+
+
 def test_judge_turn_matches_document_by_title_or_heading() -> None:
     turn = TurnSpec("那怎么办", {"must_cite_docs": [VPN_DOC], "answer_must_contain": ["结论"]})
 
@@ -175,6 +241,27 @@ async def test_run_case_fails_when_the_follow_up_answers_on_its_own() -> None:
 
     assert not outcome.passed
     assert any("隔离对照不成立" in failure for failure in outcome.judged.failures)
+    assert outcome.judged.isolation_failures
+    assert outcome.isolation_holds is False
+
+
+async def test_run_case_flags_unfinished_isolation_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """空回答说明隔离 run 没跑完：不能因为"没命中"就当成对照成立。"""
+    calls = {"count": 0}
+
+    async def fake_run_turn(query: str, **_: object) -> tuple[str, list[dict[str, object]]]:
+        calls["count"] += 1
+        if calls["count"] == 3:  # 第 3 次是隔离对照
+            return "", []
+        return "答", [{"title": VPN_DOC}]
+
+    monkeypatch.setattr(multiturn_module, "_run_turn", fake_run_turn)
+    outcome = await run_case(_case("probe", "那接下来要做什么"), _deps())
+
+    assert not outcome.passed
+    assert any("隔离对照未完成" in failure for failure in outcome.judged.isolation_failures)
 
 
 async def test_history_is_what_makes_the_follow_up_resolve() -> None:
@@ -247,6 +334,8 @@ async def test_baseline_meets_the_floor_and_isolates_every_follow_up() -> None:
     assert report.coref_acc == 1.0
     assert report.isolation_ok == report.isolation_total == 9
     assert len(report.diagnostic_cases) == 1
+    # 拒答类没有"必须命中的文档"，不该白跑一次隔离对照
+    assert report.diagnostic_cases[0].judged.isolation_citations is None
 
 
 def test_main_writes_markdown_and_json(tmp_path: Path) -> None:

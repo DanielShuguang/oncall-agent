@@ -9,7 +9,7 @@ docs/08 §3.2 一直写着「多轮不在评测集里」。缺的不是用例，
    否则这条用例根本没测到指代，是假通过。
 
 只有两步都成立才算解对。这个对照让"多轮有效"变成可证伪的结论，而不是
-"跑了 9 条都过了"。
+"9 条正例都过了"。
 
 与 `runner.py` 的分工：
 - 50 条主评测仍是**单轮**，基线（`docs/eval/baseline-v1.md`）的召回/引用/延迟口径不变
@@ -90,6 +90,8 @@ class TurnOutcome:
     failures: list[str] = field(default_factory=list)
     #: 同一句单独提问（空会话）时的引用；只有被判定轮才有对照
     isolation_citations: list[dict[str, Any]] | None = None
+    #: 隔离对照不成立的原因；单独存一份，统计时不靠匹配 failures 里的文案
+    isolation_failures: list[str] = field(default_factory=list)
 
     @property
     def passed(self) -> bool:
@@ -112,11 +114,11 @@ class CaseOutcome:
         return not self.setup_failures and self.judged.passed
 
     @property
-    def isolation_ok(self) -> bool | None:
+    def isolation_holds(self) -> bool | None:
         """没有对照（诊断项/无 must_cite_docs）时返回 None，不计入分母。"""
         if not self.case.judged.expected.get("must_cite_docs"):
             return None
-        return not any("隔离对照不成立" in failure for failure in self.judged.failures)
+        return not self.judged.isolation_failures
 
 
 def load_cases(path: Path = CASES_PATH) -> list[MultiTurnCase]:
@@ -143,10 +145,21 @@ def load_cases(path: Path = CASES_PATH) -> list[MultiTurnCase]:
                     f"{case_id}: 第 {index + 1} 轮「{query}」不会被判定为追问"
                     "（需要 ≤30 字且带指代词/承接词，见 ADR-0020）"
                 )
-            if index == len(raw_turns) - 1 and not (
-                expected.get("must_cite_docs") or expected.get("must_refuse")
-            ):
-                raise SystemExit(f"{case_id}: 最后一轮必须是 must_cite_docs 或 must_refuse")
+            if index < len(raw_turns) - 1 and not expected.get("must_cite_docs"):
+                # setup 轮次不判引用的话，它跑挂了只会让追问轮"莫名其妙"答不出来
+                raise SystemExit(f"{case_id}: 第 {index + 1} 轮（setup）必须标 must_cite_docs")
+            if index == len(raw_turns) - 1:
+                cites = bool(expected.get("must_cite_docs"))
+                refuses = bool(expected.get("must_refuse"))
+                if cites and refuses:
+                    raise SystemExit(f"{case_id}: 最后一轮不能同时要求命中文档和拒答")
+                if not cites and not refuses:
+                    raise SystemExit(f"{case_id}: 最后一轮必须是 must_cite_docs 或 must_refuse")
+                if refuses and not bool(item.get("diagnostic")):
+                    raise SystemExit(
+                        f"{case_id}: 拒答用例必须标 diagnostic: true"
+                        "（coref_acc 只统计引用命中的正例）"
+                    )
             turns.append(TurnSpec(query=query, expected=expected))
         diagnostic = bool(item.get("diagnostic"))
         if diagnostic and not turns[-1].expected.get("must_refuse"):
@@ -162,6 +175,8 @@ def load_cases(path: Path = CASES_PATH) -> list[MultiTurnCase]:
         )
     if not cases:
         raise SystemExit(f"没有读到多轮用例: {path}")
+    if not any(not case.diagnostic for case in cases):
+        raise SystemExit(f"没有正例用例: {path}（coref_acc 会变成空指标）")
     return cases
 
 
@@ -256,16 +271,22 @@ async def run_case(case: MultiTurnCase, deps: AgentDeps) -> CaseOutcome:
             citations=citations,
             failures=judge_turn(turn, answer, citations),
         )
-        if index == last_index:
-            # 隔离对照：同样的追问句，不带历史再跑一遍
-            _, isolation_citations = await _run_turn(
+        if index == last_index and turn.expected.get("must_cite_docs"):
+            # 隔离对照：同样的追问句，不带历史再跑一遍。
+            # 拒答类（诊断项）没有"必须命中的文档"，对照无从谈起，不白跑一次
+            isolation_answer, isolation_citations = await _run_turn(
                 turn.query,
                 history=[],
                 deps=deps,
                 session_id=None,
             )
             outcome.isolation_citations = isolation_citations
-            outcome.failures += judge_isolation(turn, isolation_citations)
+            if not isolation_answer:
+                # 空回答说明这次 run 没跑完：对照不成立不能被当成"对照通过"
+                outcome.isolation_failures = ["隔离对照未完成：空会话的 run 没有产出回答"]
+            else:
+                outcome.isolation_failures = judge_isolation(turn, isolation_citations)
+            outcome.failures += outcome.isolation_failures
         if answer:
             history.append(HistoryTurn(query=turn.query, answer=answer))
         outcomes.append(outcome)
@@ -304,11 +325,11 @@ class Report:
 
     @property
     def isolation_total(self) -> int:
-        return sum(1 for outcome in self.coref_cases if outcome.isolation_ok is not None)
+        return sum(1 for outcome in self.coref_cases if outcome.isolation_holds is not None)
 
     @property
     def isolation_ok(self) -> int:
-        return sum(1 for outcome in self.coref_cases if outcome.isolation_ok)
+        return sum(1 for outcome in self.coref_cases if outcome.isolation_holds)
 
     @property
     def diagnostic_ok(self) -> int:
@@ -335,7 +356,7 @@ def _docs_text(citations: list[dict[str, Any]]) -> str:
 def _isolation_text(outcome: CaseOutcome) -> str:
     if outcome.case.judged.expected.get("must_refuse"):
         return "不适用（诊断项）"
-    if outcome.isolation_ok:
+    if outcome.isolation_holds:
         return "成立"
     return "不成立"
 

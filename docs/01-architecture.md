@@ -116,7 +116,7 @@ agent 决定 create_ticket
 | 超时 | 工具级超时 + run 级最大步数 + run 级总时长上限 |
 | 崩溃恢复 | 超过 stale 阈值的 `running` run 由后台回收为 `failed(RUN_INTERRUPTED)`；只收敛状态，不重放写操作（[ADR-0017](decisions/0017-stale-run-recovery.md)） |
 | 数据保留 | 终态 run 的事件超过保留期（默认 180 天）后按 run 整场删除并写 `runs.events_pruned_at`；正文（`input/output`）到期清空并写 `content_pruned_at`，只留摘要与计量；`model_calls` 只删过期明细（[ADR-0021](decisions/0021-data-retention.md)、[ADR-0023](decisions/0023-run-content-retention.md)） |
-| 预算 | 每次模型调用前 `INCRBY` 预扣，超预算直接拒绝 |
+| 预算 | 每次模型调用前预扣（全局 + 按用户两层账本），超预算直接拒绝（[ADR-0013](decisions/0013-model-gateway.md)、[ADR-0026](decisions/0026-user-daily-budget.md)） |
 | 限流 | 按用户滑动窗口（ZSET），超限在建 run 前返回 429 |
 
 > W4 实现：`gateway/` 已接入 classify 兜底与 plan；`core/limits.py` 用 Redis

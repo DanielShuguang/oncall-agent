@@ -469,6 +469,41 @@ WSL2 + Docker 复跑）；`ruff` / `ruff format --check`（153 files）/ `mypy`�
 
 ---
 
+## W6 后补：按用户日预算（ADR-0026）
+
+ADR-0013 定了单 run 与当日全局两层预算，「待定」里留着「按租户/按用户日预算要不要做成表」。
+缺口的后果很具体：全局额度花完后所有人一起停，一个大用户就能让全公司当天不能用；
+反过来也没法只给某个人开额度。企业现场要的是"成本能落到人头、改额度不重启"。
+
+难点在**账本语义**而不是表结构：预扣与结算必须落在同一个后端（ADR-0013 的老问题），
+全局与个人是两笔预扣、不是一次原子操作，个人被拒时要把已经扣掉的全局额度还回去。
+
+| 事项 | 落地 |
+|---|---|
+| 上限来源 | `ONCALL_USER_DAILY_BUDGET_CNY`（默认 0 = 不限）为默认值；`user_budgets`（迁移 0013）按用户覆盖；`0` 是显式不限，`DELETE` 才回默认值 |
+| 读取 | `UserBudgetPolicy`：整表读进 2s 缓存（与 ADR-0014 同一种取舍）；库故障保留上一份快照、不让聊天 500；管理页要求读真实值 |
+| 账本 | `UserBudgetLedger`（内存 / Redis）：key 带 `user_id` + UTC 日，复用全局账本的 Lua，上限每次传入（覆盖随时可改） |
+| 闸门 | 网关顺序：单 run 检查 → 全局预扣 → 个人预扣 → 调 provider；个人不足时先把全局预扣按 0 结算再失败；provider 失败时两笔都按 0 结算 |
+| 接口 | `GET/PUT/DELETE /admin/budgets[/{user_id}]`（admin）；PUT 回读一次返回库里的 `updated_at`；`daily_cents` 0–1,000,000 |
+| 展示 | 成本页新增「个人日预算」卡片；花费仍以 `model_calls` 为真相源，账本只做闸门 |
+
+验证：默认 **385 passed + 27 skipped**；带 Postgres + Redis **412 passed**（2026-11-11 本机
+WSL2 + Docker 复跑）；`ruff` / `ruff format --check`（147 files）/ `mypy app`（102 files）通过；
+迁移 0013 已 `upgrade → check → downgrade 0012 → upgrade` 往返，`alembic check` 无漂移；
+前端 `tsc --noEmit` / `oxlint` / `oxfmt --check` 通过、**58 tests / 11 files**、
+`pnpm build` 成功。检索与提示词未改：主集 **50/50**、`cite_acc 97.09%`、`recall@5 100%`、
+`p95 78ms`；未动 `history.py` 与检索参数，多轮基线不重跑（仍是 `coref 12/12`、
+隔离对照 12/12、`shift 4/4`、诊断 0/1）。
+
+已知边界：没有租户/部门维度（`Identity` 只有 `user_id` + `roles`，等接 IdP）；个人账本从
+配置生效后的第一次调用开始累计，当天此前已花的钱不计入额度（`model_calls` 有全量数据）；
+被拦下是 `run.failed(BUDGET_EXCEEDED)` 而不是 429（429 只用于请求限流）；mock 模式不经过
+网关，个人预算不生效；全局与个人是两笔独立预扣，进程崩在中间会留下全局预留——与
+ADR-0013 已知的"预扣泄漏"同类，日切自愈、偏保守。详见
+[ADR-0026](decisions/0026-user-daily-budget.md)。
+
+---
+
 ## 每周固定动作
 
 | 时点 | 动作 |

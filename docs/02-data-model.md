@@ -13,6 +13,7 @@ runs ──< run_events
   ├──< approvals
   └──< model_calls
 
+user_budgets（按用户日预算覆盖；user_id 来自 JWT，无外键）
 kb_documents ──< kb_chunks (embedding)
 assets（模拟 CMDB）
 tickets ──< ticket_events
@@ -295,6 +296,29 @@ multihop / negative / injection 拆分），执行结果写文件：
 结果体量小，跑一次生成一次报告即可，不需要在线查询。自动化的回归门槛是
 `make eval` 与 `docs/08` §6 的 -3pp 规则。
 
+### 2.9 预算（user_budgets）
+
+模型成本有三层口径（[ADR-0013](decisions/0013-model-gateway.md) /
+[ADR-0026](decisions/0026-user-daily-budget.md)）：单 run、当日全局、**当日按用户**。
+前两层在配置里，第三层允许按人覆盖：
+
+```sql
+CREATE TABLE user_budgets (
+  user_id     TEXT PRIMARY KEY,        -- 来自 JWT 的 sub；用户目录不在本库，故无外键
+  daily_cents INTEGER NOT NULL,        -- 日上限（分）；0 = 显式不限
+  updated_by  TEXT NOT NULL,           -- 最后修改人（完整历史看结构化日志）
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT ck_user_budgets_daily_cents CHECK (daily_cents >= 0)
+);
+```
+
+- 没有行 = 继承 `ONCALL_USER_DAILY_BUDGET_CNY`（默认 0 = 不限）；有行时覆盖优先；
+  `daily_cents = 0` 是"该用户不限"，与"没有行"不同——后者的默认值可能非零
+- 整表读进 `UserBudgetPolicy` 的 2s 缓存：改额度不重启，多副本最长 2s 生效
+- **账本不落库**：预扣与结算在 `core/limits.py` 的 Redis（或内存）账本里，按 UTC 日过期；
+  表里只存上限，花费的真相源仍是 `model_calls`（§2.4）
+- 金额一律「分」整数（R6）；读写要求 `ONCALL_ADMIN_ROLES`（`/api/admin/budgets`）
+
 ## 3. 事件与业务表的一致性规则
 
 1. **先写事件，再推流**：推送失败不影响数据完整性；前端靠补拉恢复
@@ -377,7 +401,7 @@ uv run alembic upgrade head --sql    # 无库环境渲染 DDL，评审用
 
 - 迁移文件在 `server/migrations/versions/`；`alembic.ini` 只放占位 DSN，真实 DSN 由 `migrations/env.py` 从环境变量读
 - 必须写 `downgrade`，并在空库上验证一次 `downgrade base && upgrade head`
-- 当前迁移链：`0001` runs/events → `0002` 幂等键按用户作用域 → `0003` kb（pgvector/tsvector）+ assets/tickets → `0004` approvals → `0005` 会话授权按用户隔离 → `0006` model_calls + failure_category → `0007` tool_settings → `0008` 文档可见性 → `0009` 会话索引 → `0010` 事件清理标记/部分索引 → `0011` 回答引用快照 → `0012` 正文清理标记/部分索引
+- 当前迁移链：`0001` runs/events → `0002` 幂等键按用户作用域 → `0003` kb（pgvector/tsvector）+ assets/tickets → `0004` approvals → `0005` 会话授权按用户隔离 → `0006` model_calls + failure_category → `0007` tool_settings → `0008` 文档可见性 → `0009` 会话索引 → `0010` 事件清理标记/部分索引 → `0011` 回答引用快照 → `0012` 正文清理标记/部分索引 → `0013` 按用户日预算覆盖（`user_budgets`）
 
 > `0003` 先 `CREATE EXTENSION IF NOT EXISTS vector`，否则 vector 类型与 HNSW 索引会失败；
 > 测试库由 fixture 建扩展后再 `create_all`（扩展是库级对象，`drop_all` 不会删）。

@@ -12,8 +12,9 @@
 
 from __future__ import annotations
 
+from app.budgets.policy import get_user_budget_policy
 from app.core.config import Settings, get_settings
-from app.core.limits import get_budget_ledger
+from app.core.limits import get_budget_ledger, get_user_budget_ledger
 from app.gateway.gateway import ModelGateway, build_gateway
 from app.gateway.meter import get_model_call_store
 from app.gateway.router import build_routes, default_model
@@ -44,6 +45,8 @@ def get_gateway() -> ModelGateway:
             routes=build_routes(settings),
             budget=get_budget_ledger(),
             meter=get_model_call_store(),
+            user_budget=get_user_budget_ledger(),
+            user_limits=get_user_budget_policy(),
         )
     return _gateway
 

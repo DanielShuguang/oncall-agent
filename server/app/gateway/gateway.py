@@ -17,8 +17,9 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from time import perf_counter
 
+from app.budgets.policy import BudgetLimitProvider
 from app.core.config import Settings
-from app.core.limits import BudgetLedger
+from app.core.limits import BudgetLedger, BudgetReservation, UserBudgetLedger
 from app.core.logging import get_logger
 from app.gateway.meter import ModelCallRecord, ModelCallStore
 from app.gateway.pricing import estimate_cost_cents, estimate_messages_tokens, estimate_tokens
@@ -50,12 +51,17 @@ class ModelGateway:
         meter: ModelCallStore,
         settings: Settings,
         provider_factory: ProviderFactory = build_provider,
+        user_budget: UserBudgetLedger | None = None,
+        user_limits: BudgetLimitProvider | None = None,
     ) -> None:
         self._routes = list(routes)
         self._budget = budget
         self._meter = meter
         self._settings = settings
         self._provider_factory = provider_factory
+        # 两个都配了才会检查个人预算：测试与最小部署可以不启用（ADR-0026）
+        self._user_budget = user_budget
+        self._user_limits = user_limits
 
     def default_model(self) -> str:
         ordered = order_for_purpose(self._routes, Purpose.PLAN)
@@ -94,10 +100,31 @@ class ModelGateway:
         if reservation is None:
             raise BudgetExceeded("当日模型预算已用尽")
 
+        # 个人日预算：先扣全局、再扣个人。个人额度不足时抛 BudgetExceeded，
+        # 下面的 finally 会把全局预扣按 0 结算还回去（ADR-0026）。
+        user_budget = self._user_budget
+        user_limits = self._user_limits
+        user_reservation: BudgetReservation | None = None
+
         temperature = 0.0 if purpose is not Purpose.ANSWER else self._settings.model_temperature
         last_error = ""
         settled = False
         try:
+            if user_budget is not None and user_limits is not None:
+                user_limit = await user_limits.limit_for(user_id)
+                if user_limit > 0:
+                    user_reservation = await user_budget.reserve(
+                        user_id, reserved, limit_cents=user_limit
+                    )
+                    if user_reservation is None:
+                        log.warning(
+                            "user_budget_exceeded",
+                            run_id=run_id,
+                            user_id=user_id,
+                            limit_cents=user_limit,
+                            reserved=reserved,
+                        )
+                        raise BudgetExceeded(f"当日个人模型预算已用尽（上限 {user_limit} 分）")
             for index, route in enumerate(routes):
                 provider = self._provider_factory(route)
                 started = perf_counter()
@@ -137,6 +164,8 @@ class ModelGateway:
                 )
                 cost_cents = estimate_cost_cents(route, token_in, token_out)
                 await self._budget.settle(reservation, cost_cents)
+                if user_budget is not None and user_reservation is not None:
+                    await user_budget.settle(user_reservation, cost_cents)
                 settled = True
 
                 completion = Completion(
@@ -189,6 +218,8 @@ class ModelGateway:
             if not settled:
                 # provider 抛非 ProviderError 时也要归还预扣，避免预算泄漏
                 await self._budget.settle(reservation, 0)
+                if user_budget is not None and user_reservation is not None:
+                    await user_budget.settle(user_reservation, 0)
 
         raise ModelUnavailable(f"所有模型 provider 均失败: {last_error}")
 
@@ -234,6 +265,8 @@ def build_gateway(
     budget: BudgetLedger,
     meter: ModelCallStore,
     provider_factory: ProviderFactory = build_provider,
+    user_budget: UserBudgetLedger | None = None,
+    user_limits: BudgetLimitProvider | None = None,
 ) -> ModelGateway:
     return ModelGateway(
         routes,
@@ -241,6 +274,8 @@ def build_gateway(
         meter=meter,
         settings=settings,
         provider_factory=provider_factory,
+        user_budget=user_budget,
+        user_limits=user_limits,
     )
 
 

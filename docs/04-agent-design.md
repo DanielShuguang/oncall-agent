@@ -169,6 +169,13 @@ W4 接网关后 `BUDGET_EXCEEDED` 生效：单 run 上限 `ONCALL_RUN_BUDGET_CEN
 每日上限 `ONCALL_DAILY_BUDGET_CNY`（默认 5 元）。预算不足时在模型调用前拒绝，
 不会先花钱再报错；`run.failed.payload.category=model`。
 
+W6 后补**按用户日预算**（[ADR-0026](decisions/0026-user-daily-budget.md)）：
+`ONCALL_USER_DAILY_BUDGET_CNY` 是默认上限（默认 0 = 不限），管理页可按用户覆盖。
+网关的顺序是「单 run 检查 → 全局预扣 → 个人预扣 → 调 provider」；个人额度不足时
+先把全局预扣按 0 结算还回去，再抛 `BudgetExceeded`——被拒的调用不花钱，也不占当天的
+全局额度；provider 失败时两笔预扣都归还。账本按 UTC 日过期，覆盖有 2s 缓存，
+改额度不重启。mock 模式不经过网关，成本恒为 0，个人预算不会触发。
+
 ## 7. LangGraph 落地（W4 评估后仍未启用）
 
 > W3 没有启用 LangGraph，W4 评估后仍未启用；实际用的是 §8 的显式转移表（ADR-0012）。

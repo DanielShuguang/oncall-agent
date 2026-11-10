@@ -73,6 +73,12 @@ export async function postForm<T>(path: string, form: FormData): Promise<T> {
   return (await res.json()) as T;
 }
 
+/** 无响应体的写操作（如 204 的删除）：不要试着解析 JSON。 */
+export async function del(path: string): Promise<void> {
+  const res = await fetch(`${PREFIX}${path}`, { method: 'DELETE', headers: authHeaders() });
+  if (!res.ok) throw await toApiError(res, path);
+}
+
 export interface HealthResponse {
   status: 'ok' | 'degraded';
   env: string;

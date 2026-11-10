@@ -113,10 +113,13 @@ ONCALL_LOCAL_MODEL=qwen2.5:7b
 # 预算与限流（单位：分 / 元 / 次）
 ONCALL_RUN_BUDGET_CENTS=50
 ONCALL_DAILY_BUDGET_CNY=5
+ONCALL_USER_DAILY_BUDGET_CNY=0
 ONCALL_RATE_LIMIT_PER_MIN=30
 ```
 
 > 价格单位是「分 / 百万 token」，不是美元；填错会直接体现在成本看板上。
+> `ONCALL_USER_DAILY_BUDGET_CNY=0` 表示不给每个用户单独设上限；设成非零后还可以在
+> 成本页按用户覆盖（[ADR-0026](decisions/0026-user-daily-budget.md)）。
 > 详见 [ADR-0013](decisions/0013-model-gateway.md)。
 
 > 目的：面试官/客户拿到仓库，`docker compose up` 就能看到完整链路，不需要 key、不需要联网。这是开源项目的第一印象分。

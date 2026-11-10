@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getJson, getToken, setToken } from './client';
+import { del, getJson, getToken, setToken } from './client';
 
 function stubStorage() {
   const data = new Map<string, string>();
@@ -68,5 +68,24 @@ describe('token', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     await expect(getJson('/admin/kb/documents')).rejects.toThrow('扫描件没有文本层');
+  });
+});
+
+describe('del', () => {
+  it('204 不解析响应体', async () => {
+    stubStorage();
+    const fetchMock = vi.fn<typeof fetch>();
+    fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(del('/admin/budgets/u_102')).resolves.toBeUndefined();
+    expect(fetchMock.mock.calls[0]?.[1]?.method).toBe('DELETE');
+  });
+
+  it('失败时抛 ApiError（不被空响应体掩盖）', async () => {
+    stubStorage();
+    stubFetch(403);
+
+    await expect(del('/admin/budgets/u_102')).rejects.toThrow('请求失败: /admin/budgets/u_102');
   });
 });

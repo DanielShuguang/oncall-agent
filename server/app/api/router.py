@@ -4,7 +4,17 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from app.api import admin_kb, admin_tools, approvals, chat, cost, health, kb, runs
+from app.api import (
+    admin_budgets,
+    admin_kb,
+    admin_tools,
+    approvals,
+    chat,
+    cost,
+    health,
+    kb,
+    runs,
+)
 from app.core.config import get_settings
 
 api_router = APIRouter(prefix=get_settings().api_prefix)
@@ -16,3 +26,4 @@ api_router.include_router(kb.router)
 api_router.include_router(admin_kb.router)
 api_router.include_router(admin_tools.router)
 api_router.include_router(cost.router)
+api_router.include_router(admin_budgets.router)

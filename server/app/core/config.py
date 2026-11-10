@@ -60,6 +60,8 @@ class Settings(BaseSettings):
     # 演示与限额
     mock_mode: bool = True
     daily_budget_cny: float = 5.0
+    #: 每用户日预算（元；0 = 不限制）。管理页可按用户覆盖，覆盖优先于这里
+    user_daily_budget_cny: float = 0.0
     rate_limit_per_min: int = 30
 
     # RAG（W2）。rag_backend=auto：store 用 Postgres 时走 pgvector，否则内存索引。
@@ -194,6 +196,8 @@ class Settings(BaseSettings):
             raise ValueError("ONCALL_RUN_BUDGET_CENTS 必须 >= 1")
         if self.daily_budget_cny <= 0:
             raise ValueError("ONCALL_DAILY_BUDGET_CNY 必须 > 0")
+        if self.user_daily_budget_cny < 0:
+            raise ValueError("ONCALL_USER_DAILY_BUDGET_CNY 不能为负数")
         if not self.mock_mode and not self.provider_names:
             raise ValueError("ONCALL_MOCK_MODE=false 时 ONCALL_MODEL_PROVIDERS 不能为空")
         return self
@@ -221,6 +225,13 @@ class Settings(BaseSettings):
     def daily_budget_cents(self) -> int:
         """每日预算统一按「分」计算，避免浮点累计误差（R6）。"""
         return max(1, round(self.daily_budget_cny * 100))
+
+    @property
+    def user_daily_budget_cents(self) -> int:
+        """0 表示不限。显式配了非零值就至少 1 分，否则等于没配（ADR-0026）。"""
+        if self.user_daily_budget_cny <= 0:
+            return 0
+        return max(1, round(self.user_daily_budget_cny * 100))
 
     @property
     def cloud_configured(self) -> bool:

@@ -27,6 +27,7 @@ import {
 } from '@/components/ui/table';
 import { getCostSummary, type CostGroupBy, type CostSummary } from '@/api/cost';
 import { formatCents } from '@/lib/format';
+import BudgetLimits from './BudgetLimits';
 
 const GROUP_OPTIONS: { value: CostGroupBy; label: string }[] = [
   { value: 'day', label: '按天' },
@@ -248,6 +249,8 @@ export default function CostPage() {
           </Table>
         </CardContent>
       </Card>
+
+      <BudgetLimits />
 
       <p className="text-[11px] text-muted-foreground">
         口径：聚合 <code>model_calls</code>，日期按 UTC 自然日，成本单位为分；与 run 详情里的

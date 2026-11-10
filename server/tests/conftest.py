@@ -11,11 +11,15 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.approvals.store import InMemoryApprovalStore, get_approval_store
+from app.budgets.policy import UserBudgetPolicy, set_user_budget_policy
+from app.budgets.store import InMemoryUserBudgetStore
 from app.core.limits import (
     InMemoryBudgetLedger,
     InMemoryRateLimiter,
+    InMemoryUserBudgetLedger,
     set_budget_ledger,
     set_rate_limiter,
+    set_user_budget_ledger,
 )
 from app.core.store import InMemoryRunStore, get_store
 from app.gateway.meter import InMemoryModelCallStore, set_model_call_store
@@ -84,12 +88,20 @@ def mem_model_calls() -> AsyncIterator[InMemoryModelCallStore]:
 
 @pytest.fixture(autouse=True)
 def mem_limits() -> Iterator[None]:
-    """限流/预算默认给足额度；需要边界的用例自己 set 更小的实现。"""
+    """限流/预算默认给足额度；需要边界的用例自己 set 更小的实现。
+
+    用户预算的覆盖表也换成内存实现（ADR-0026）：默认 0 = 不限，
+    否则测试会在没有 Postgres 的环境里读 `user_budgets` 表。
+    """
     set_rate_limiter(InMemoryRateLimiter(limit=0))
     set_budget_ledger(InMemoryBudgetLedger(limit_cents=10_000))
+    set_user_budget_ledger(InMemoryUserBudgetLedger())
+    set_user_budget_policy(UserBudgetPolicy(InMemoryUserBudgetStore(), default_cents=0, ttl_s=0))
     yield
     set_rate_limiter(None)
     set_budget_ledger(None)
+    set_user_budget_ledger(None)
+    set_user_budget_policy(None)
 
 
 @pytest.fixture

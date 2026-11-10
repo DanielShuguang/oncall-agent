@@ -21,7 +21,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 - 失败：`401 {"code":"UNAUTHORIZED","message":"缺少或无效的 token"}` + `WWW-Authenticate: Bearer`，**不建 SSE**
 - 归属：只能访问自己的 run；别人的 run 返回 `404`（不用 403，避免泄露 run 是否存在）
 - 前端：没有登录页，token 存在 `localStorage.oncall.token`，对话框入口在右上角「设置 Token」；接 SSO 时替换 `api/deps.get_identity` 与前端 token 获取（`api/client.ts`）
-- 管理接口（`/api/admin/kb/*` 与 `/api/admin/tools/*`、`/api/admin/perm-matrix`、`/api/admin/cost/*`）额外要求 `ONCALL_ADMIN_ROLES` 中的任一角色（默认 `admin`）；不满足返回 `403 {"code":"FORBIDDEN","message":"需要管理员角色"}`。工具/角色矩阵的覆盖存 `tool_settings`（ADR-0014）。
+- 管理接口（`/api/admin/kb/*`、`/api/admin/tools/*`、`/api/admin/perm-matrix`、`/api/admin/cost/*`、`/api/admin/budgets/*`）额外要求 `ONCALL_ADMIN_ROLES` 中的任一角色（默认 `admin`）；不满足返回 `403 {"code":"FORBIDDEN","message":"需要管理员角色"}`。工具/角色矩阵的覆盖存 `tool_settings`（ADR-0014），按用户日预算的覆盖存 `user_budgets`（ADR-0026）。
 - 例外是引用跳全文 `GET /api/kb/documents/{id}/preview`：它属于对话链路而不是管理面，只要求登录（与检索同一可见性，ADR-0018）。
 
 ## 1. 接口清单
@@ -48,6 +48,9 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | GET | `/admin/perm-matrix` | 角色 × 工具矩阵 | W3 D12 / W5 D23 |
 | PUT | `/admin/perm-matrix` | 更新矩阵（按工具部分更新） | W5 D23 |
 | GET | `/admin/cost/summary?from=&to=&group_by=day\|model\|user` | 成本聚合 | W4 D19 |
+| GET | `/admin/budgets` | 个人日预算默认值 + 覆盖列表 | W6 后补 |
+| PUT | `/admin/budgets/{user_id}` | 设置/更新某用户的日预算 | W6 后补 |
+| DELETE | `/admin/budgets/{user_id}` | 删除覆盖、回到默认值（204） | W6 后补 |
 | GET | `/admin/eval/report?batch_id=` | 评测报告 | W6 D26 |
 
 ## 2. 对话流
@@ -353,6 +356,34 @@ GET /api/admin/cost/summary?from=2026-11-01&to=2026-11-30&group_by=model
   默认最近 7 天，最长 366 天；`from > to` 返回 `422 INVALID_RANGE`
 - `group_by=day` 按时间正序返回趋势；`model` / `user` 按花费倒序
 - 聚合源是 `model_calls`，不是缓存的汇总表；与 `/runs/{id}` 的 token/cost 同源
+
+### 按用户日预算（ADR-0026）
+
+```http
+GET /api/admin/budgets
+```
+
+```json
+{
+  "default_cents": 0,
+  "overrides": [
+    { "user_id": "u_205", "daily_cents": 120, "updated_by": "admin_1", "updated_at": "2026-11-11T02:10:00Z" }
+  ]
+}
+```
+
+- `default_cents` 来自 `ONCALL_USER_DAILY_BUDGET_CNY`（0 = 不限）；`overrides` 按 `user_id` 排序
+- 写入：`PUT /api/admin/budgets/u_205`，body `{"daily_cents": 120}`；返回库里的行（含
+  `updated_at`）。`daily_cents` 取值 0–1,000,000（0 = 该用户不限），越界 422；
+  `user_id` 不允许空白
+- 删除：`DELETE /api/admin/budgets/u_205` → 204；删除不存在的覆盖也是 204（幂等）。
+  删除才回到默认值，写 0 是"显式不限"
+- 生效方式：网关在**每次模型调用前**读一次上限（2s 缓存）；额度不足时在调用前拒绝，
+  run 收敛到 `run.failed(BUDGET_EXCEEDED)`（`payload.category=model`），被拒的这次调用
+  不产生费用，也不占当天的全局额度。被拦下不是 429——429 只用于请求限流
+- 只在真实模型路径生效：mock 模式不经过网关、成本恒为 0，个人额度不会触发
+- 账本从配置生效后的第一次调用开始累计：当天此前已花的钱不计入个人额度（花费真相源
+  仍是 `/admin/cost/summary`，见 ADR-0026 的「待定」）
 
 ### 知识库上传与重建索引（W2 D7/D8）
 

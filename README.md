@@ -25,7 +25,7 @@
 3. **Agent 运行时**：显式 8 节点状态机（LangGraph 可选），只有 2 个节点调 LLM（规则优先）；多轮上下文由服务端按会话注入（3 轮，追问自动拼最近几轮的检索词），客户端不传历史
 4. **工具治理**：白名单、会话级权限、单工具超时、错误分类重试、业务降级、保留字段拒绝
 5. **人工审批**：写操作必须确认，支持"本会话内允许"
-6. **模型网关**：多模型接入、规则路由、限流、每日预算、成本埋点
+6. **模型网关**：多模型接入、规则路由、限流、每日预算（全局 + 按用户）、成本埋点
 7. **可观测与保留**：事件落库、断线续跑、按 run 回放、成本与质量看板；事件/计量/问答正文按保留期清理（默认 180 天），run 摘要保留；回答内容按**当前**文档可见性回收，撤权立即生效
 8. **私有化交付**：docker-compose + 离线镜像 + mock 模式（不填模型 key 也能演示）
 
@@ -168,9 +168,9 @@ oncall/
 
 | 模块 | 状态 | 验证方式 |
 |---|---|---|
-| 文档（12 篇 + 25 篇 ADR + 评测基线） | ✅ 完成 | — |
-| 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡 / 运行回放 / 成本页） | ✅ 可用 | `tsc --noEmit`、`oxlint 0`、`oxfmt --check` 通过；`vitest` 56/56；`pnpm build` 成功 |
-| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **366 passed + 24 skipped**；设 `ONCALL_TEST_DATABASE_URL` 后 **390 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约、引用快照与内容回收、计量一致性） |
+| 文档（12 篇 + 26 篇 ADR + 评测基线） | ✅ 完成 | — |
+| 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡 / 运行回放 / 成本页） | ✅ 可用 | `tsc --noEmit`、`oxlint 0`、`oxfmt --check` 通过；`vitest` 58/58；`pnpm build` 成功 |
+| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **385 passed + 27 skipped**；设 `ONCALL_TEST_DATABASE_URL`（+ 可选 `ONCALL_TEST_REDIS_URL`）后 **412 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约、引用快照与内容回收、个人预算账本、计量一致性） |
 | 本地 JWT（W1 D2） | ✅ 已完成 | `tests/test_auth.py` 20 条：签发/验签、过期、alg=none、401 JSON、OpenAPI Bearer、run 归属隔离 |
 | 事件落库 + 断线续传（D4） | ✅ 已完成 | `alembic upgrade head` + `alembic check` 无漂移；`tests/test_store_contract.py`（内存 + Postgres 契约）、`tests/test_chat_stream.py`（落库、幂等回放、503 语义） |
 | 最小 Agent 运行时（W1 D5） | ✅ 已完成 | `tests/test_agent_runtime.py` 9 条：工具真实执行、检索引用、写操作挂起审批、工具失败降级、步数/时长上限 |
@@ -188,6 +188,7 @@ oncall/
 | 回答内容回收（W6 后补） | ✅ 已完成 | 回答引用快照落 `runs.cited_document_ids`（迁移 0011，含存量回填）；读详情/事件/幂等重放/多轮历史时按**当前**可见性校验，任一篇不可见就整场回收（fail-closed，`admin` 除外，恢复范围自动恢复）；`tests/test_runs_content.py`、`test_runs_api.py`、`test_chat_stream.py`、`test_rag_acl.py`、`test_rag_pg.py`、`test_store_contract.py`；[ADR-0022](docs/decisions/0022-run-content-visibility.md) |
 | run 正文按时间保留（W6 后补） | ✅ 已完成 | 终态 run 超过 `ONCALL_RUN_CONTENT_RETENTION_DAYS`（默认 180 天）后清空 `runs.input/output` 并写 `content_pruned_at`（迁移 0012），只留状态/计量/失败归因/引用快照；强制正文保留期 ≥ 事件保留期（事件里是同一段正文）；详情返回空正文 + 标记、幂等重放 `410 CONTENT_EXPIRED`、多轮历史自然剔除；`tests/test_retention.py`、`test_store_contract.py`（`_exercise_prune_contents`）、`test_runs_api.py`、`test_chat_stream.py`、`test_runs_content.py`、`test_config.py`；[ADR-0023](docs/decisions/0023-run-content-retention.md) |
 | 多轮评测（W6 后补） | ✅ 已完成 | `make eval-multiturn`：`app/eval/multiturn.py` + 17 条用例（12 指代 + 4 话题切换 + 1 诊断），只判最后一轮；指代轮要求引用命中标注文档且**空会话隔离对照**成立，切换轮要求命中新话题且不含上一轮话题、单独提问必须也能命中；门槛 `coref_acc` / `shift_acc` 各 ≥ 85%，诊断项不计入；评测顺带修好连续追问丢话题锚点（按时间累积最近 3 轮问题）与「那 + 新话题」被稀释（追问原句优先，ADR-0025）；`tests/test_multiturn_eval.py`、`test_history.py`、`test_rag_retrieve.py`；[ADR-0024](docs/decisions/0024-multiturn-eval.md)、[ADR-0025](docs/decisions/0025-followup-original-first.md) |
+| 个人日预算（W6 后补） | ✅ 已完成 | `user_budgets` 表（迁移 0013）+ `GET/PUT/DELETE /admin/budgets`；网关在模型调用前先扣全局、再扣个人，个人不足时把全局预扣还回去再 `run.failed(BUDGET_EXCEEDED)`（不花钱、不占全局额度）；`ONCALL_USER_DAILY_BUDGET_CNY` 默认 0 = 不限，覆盖 2s 缓存、改完不重启；成本页新增「个人日预算」卡片；`tests/test_budgets.py`、`test_budgets_pg.py`；[ADR-0026](docs/decisions/0026-user-daily-budget.md) |
 
 ### 评测与压测
 
@@ -284,6 +285,11 @@ W6 基线（3 轮均值，mock 规则路径，口径见 [baseline-v1](docs/eval/
   `runs.input/output` 被**不可逆**清空，详情只剩摘要，那一轮也从多轮历史消失
   （[ADR-0023](docs/decisions/0023-run-content-retention.md)）。正文保留期不允许短于事件保留期
   ——事件里是同一段回答正文，想更早删正文要连事件一起调；按用户/租户的差异化保留期没有做
+- 成本控制有单 run / 当日全局 / **按用户**三层，但没有租户或部门维度（`Identity` 只有
+  `user_id` + `roles`）；个人额度按 UTC 日累计、**不从当天已花的历史回填**，被拦下是
+  `run.failed(BUDGET_EXCEEDED)` 而不是 429；mock 模式不经过网关，个人预算不生效
+  （[ADR-0026](docs/decisions/0026-user-daily-budget.md)）。全局与个人是两笔独立预扣，
+  进程崩在两次之间会留下全局预留（日切自愈，偏保守）
 - iframe + postMessage 嵌入形态（W5 D25）暂缓，需要来源白名单与 CSP 部署决策
 
 ## License

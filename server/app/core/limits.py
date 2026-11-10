@@ -52,6 +52,8 @@ class BudgetReservation:
     day: str | None = None
     #: Redis 预扣在 reservations hash 里的键；内存预扣为 None
     token: str | None = None
+    #: 按用户账本的预扣必须带上用户；全局账本为 None（ADR-0026）
+    user_id: str | None = None
 
 
 class BudgetLedger(Protocol):
@@ -60,6 +62,23 @@ class BudgetLedger(Protocol):
     async def settle(self, reservation: BudgetReservation, actual: int) -> None: ...
 
     async def spent(self) -> int: ...
+
+    async def close(self) -> None: ...
+
+
+class UserBudgetLedger(Protocol):
+    """按用户累计当日预扣；上限每次传入，因为覆盖表可以随时改（ADR-0026）。
+
+    调用方保证 `limit_cents > 0`：0 表示不限，网关不会拿 0 来预扣。
+    """
+
+    async def reserve(
+        self, user_id: str, cents: int, *, limit_cents: int
+    ) -> BudgetReservation | None: ...
+
+    async def settle(self, reservation: BudgetReservation, actual: int) -> None: ...
+
+    async def spent(self, user_id: str) -> int: ...
 
     async def close(self) -> None: ...
 
@@ -231,9 +250,7 @@ return 1
         return f"oncall:budget:reservations:{day or _utc_day()}"
 
     def _ttl(self) -> int:
-        now = datetime.now(UTC)
-        tomorrow = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-        return max(60, int((tomorrow - now).total_seconds()) + 3600)
+        return _budget_ttl()
 
     async def reserve(self, cents: int) -> BudgetReservation | None:
         day = _utc_day()
@@ -311,8 +328,169 @@ def _utc_day() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%d")
 
 
+def _budget_ttl() -> int:
+    """日账 key 的过期时间：跨过 UTC 零点再多留 1 小时，容忍时钟偏差。"""
+    now = datetime.now(UTC)
+    tomorrow = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    return max(60, int((tomorrow - now).total_seconds()) + 3600)
+
+
+class InMemoryUserBudgetLedger:
+    """按用户累计当日预扣；上限每次传入（覆盖表可以随时改，ADR-0026）。"""
+
+    def __init__(self) -> None:
+        self._spent: dict[str, int] = {}
+        self._day = _utc_day()
+        self._lock = asyncio.Lock()
+
+    async def reserve(
+        self, user_id: str, cents: int, *, limit_cents: int
+    ) -> BudgetReservation | None:
+        if cents <= 0:
+            return BudgetReservation(cents=0, backend="memory", day=_utc_day(), user_id=user_id)
+        async with self._lock:
+            self._rollover()
+            current = self._spent.get(user_id, 0)
+            if current + cents > limit_cents:
+                return None
+            self._spent[user_id] = current + cents
+            return BudgetReservation(
+                cents=cents,
+                backend="memory",
+                day=_utc_day(),
+                user_id=user_id,
+            )
+
+    async def settle(self, reservation: BudgetReservation, actual: int) -> None:
+        user_id = reservation.user_id
+        if user_id is None:  # 账本之间不能串用凭证
+            raise ValueError("用户预算凭证缺少 user_id")
+        async with self._lock:
+            self._rollover()
+            current = self._spent.get(user_id, 0)
+            self._spent[user_id] = max(0, current + actual - reservation.cents)
+
+    async def spent(self, user_id: str) -> int:
+        async with self._lock:
+            self._rollover()
+            return self._spent.get(user_id, 0)
+
+    def _rollover(self) -> None:
+        today = _utc_day()
+        if today != self._day:
+            self._day = today
+            self._spent = {}
+
+    async def close(self) -> None:
+        return None
+
+
+class RedisUserBudgetLedger:
+    """与全局账本同构的 Lua 脚本，只是 key 带用户；上限来自 ARGV。"""
+
+    def __init__(self, url: str) -> None:
+        self._url = url
+        self._client: Redis | None = None
+        self._fallback = InMemoryUserBudgetLedger()
+
+    def _redis(self) -> Redis:
+        if self._client is None:
+            from redis.asyncio import Redis
+
+            self._client = Redis.from_url(self._url, decode_responses=True)
+        return self._client
+
+    def _key(self, user_id: str, day: str | None = None) -> str:
+        return f"oncall:budget:user:{user_id}:{day or _utc_day()}"
+
+    def _reservations_key(self, user_id: str, day: str | None = None) -> str:
+        return f"oncall:budget:user:reservations:{user_id}:{day or _utc_day()}"
+
+    async def reserve(
+        self, user_id: str, cents: int, *, limit_cents: int
+    ) -> BudgetReservation | None:
+        day = _utc_day()
+        if cents <= 0:
+            return BudgetReservation(cents=0, backend="redis", day=day, user_id=user_id)
+        token = uuid.uuid4().hex
+        try:
+            result = await self._redis().eval(
+                RedisBudgetLedger._RESERVE_SCRIPT,
+                2,
+                self._key(user_id, day),
+                self._reservations_key(user_id, day),
+                limit_cents,
+                cents,
+                _budget_ttl(),
+                token,
+            )
+            if not int(result):
+                return None
+            return BudgetReservation(
+                cents=cents,
+                backend="redis",
+                day=day,
+                token=token,
+                user_id=user_id,
+            )
+        except Exception as exc:
+            log.warning("user_budget_redis_failed", error=str(exc), user_id=user_id)
+            # 内存预扣返回的凭证 backend=memory；结算不会再去碰 Redis
+            return await self._fallback.reserve(user_id, cents, limit_cents=limit_cents)
+
+    async def settle(self, reservation: BudgetReservation, actual: int) -> None:
+        user_id = reservation.user_id
+        if user_id is None:
+            raise ValueError("用户预算凭证缺少 user_id")
+        if reservation.backend == "memory":
+            await self._fallback.settle(reservation, actual)
+            return
+        day = reservation.day or _utc_day()
+        if reservation.token is None:
+            if actual <= 0:
+                return
+            try:
+                await self._redis().incrby(self._key(user_id, day), actual)
+                await self._redis().expire(self._key(user_id, day), _budget_ttl())
+            except Exception as exc:
+                log.warning("user_budget_settle_failed", error=str(exc), user_id=user_id)
+            return
+        try:
+            await self._redis().eval(
+                RedisBudgetLedger._SETTLE_SCRIPT,
+                2,
+                self._key(user_id, day),
+                self._reservations_key(user_id, day),
+                reservation.token,
+                actual,
+                _budget_ttl(),
+            )
+        except Exception as exc:
+            # 与全局账本同一种取舍：不降级到内存，最多让当天额度偏保守
+            log.warning(
+                "user_budget_settle_failed_left_reserved",
+                error=str(exc),
+                user_id=user_id,
+                reserved=reservation.cents,
+            )
+
+    async def spent(self, user_id: str) -> int:
+        try:
+            value = await self._redis().get(self._key(user_id))
+            return int(value or 0)
+        except Exception as exc:
+            log.warning("user_budget_read_failed", error=str(exc), user_id=user_id)
+            return await self._fallback.spent(user_id)
+
+    async def close(self) -> None:
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None
+
+
 _rate_limiter: RateLimiter | None = None
 _budget_ledger: BudgetLedger | None = None
+_user_budget_ledger: UserBudgetLedger | None = None
 
 
 def build_rate_limiter(settings: Settings) -> RateLimiter:
@@ -325,6 +503,12 @@ def build_budget_ledger(settings: Settings) -> BudgetLedger:
     if settings.store_backend == "postgres":
         return RedisBudgetLedger(settings.redis_url, settings.daily_budget_cents)
     return InMemoryBudgetLedger(settings.daily_budget_cents)
+
+
+def build_user_budget_ledger(settings: Settings) -> UserBudgetLedger:
+    if settings.store_backend == "postgres":
+        return RedisUserBudgetLedger(settings.redis_url)
+    return InMemoryUserBudgetLedger()
 
 
 def get_rate_limiter() -> RateLimiter:
@@ -355,3 +539,18 @@ def set_budget_ledger(value: BudgetLedger | None) -> None:
     """测试钩子。"""
     global _budget_ledger
     _budget_ledger = value
+
+
+def get_user_budget_ledger() -> UserBudgetLedger:
+    global _user_budget_ledger
+    if _user_budget_ledger is None:
+        from app.core.config import get_settings
+
+        _user_budget_ledger = build_user_budget_ledger(get_settings())
+    return _user_budget_ledger
+
+
+def set_user_budget_ledger(value: UserBudgetLedger | None) -> None:
+    """测试钩子。"""
+    global _user_budget_ledger
+    _user_budget_ledger = value

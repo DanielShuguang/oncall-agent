@@ -1,6 +1,8 @@
 # 02 · 数据模型
 
 > 原则：**事件表是唯一真相源**。业务表的当前态都可由事件重放推导；事件不可修改，只能追加。
+> 唯一例外是保留策略：超过保留期的事件会被清理任务**按 run 整场删除**（§4，
+> [ADR-0021](decisions/0021-data-retention.md)），删除后该 run 不可回放，但 `runs` 摘要仍在。
 
 ## 1. ER 概览
 
@@ -46,7 +48,7 @@ CREATE TABLE runs (
 );
 CREATE INDEX idx_runs_user_time         ON runs (user_id, started_at DESC);
 CREATE INDEX idx_runs_user_session_time ON runs (user_id, session_id, started_at DESC);
-CREATE INDEX idx_runs_finished_at       ON runs (finished_at);
+CREATE INDEX idx_runs_retention         ON runs (finished_at) WHERE events_pruned_at IS NULL;
 CREATE INDEX idx_runs_status            ON runs (status) WHERE status IN ('running','awaiting_approval');
 ```
 
@@ -56,8 +58,11 @@ CREATE INDEX idx_runs_status            ON runs (status) WHERE status IN ('runni
 > 多轮上下文按 `(user_id, session_id, started_at DESC)` 取最近几轮（迁移 0009、[ADR-0020](decisions/0020-multi-turn-context.md)）：
 > 只读 `input/output` 两列，不读事件；`idx_runs_user_time` 没有 `session_id` 前缀，不能替代。
 > `events_pruned_at` 非空表示这场 run 的事件已按保留策略整场删除（迁移 0010、
-> [ADR-0021](decisions/0021-data-retention.md)）：回放不可用，摘要/回答/计量仍保留。
-> `idx_runs_finished_at` 只服务保留清理的候选扫描，不参与在线请求。
+> [ADR-0021](decisions/0021-data-retention.md)）：**由清理任务写入，不是事件投影**；
+> 回放不可用，摘要/回答/计量仍保留。
+> `idx_runs_retention` 是部分索引，只含还没清理的 run：普通 `finished_at` 索引会从最老的
+> 行开始扫，而最老的行恰好全是已清理的，每轮都要越过整个历史；标记写入后部分索引
+> 立即移除条目。它只服务保留清理，不参与在线请求。
 
 ### 2.2 run_events（事件，只追加）
 
@@ -74,6 +79,10 @@ CREATE INDEX idx_events_type ON run_events (run_id, type);
 ```
 
 `seq` 生成：`INSERT ... SELECT COALESCE(MAX(seq),0)+1 FROM run_events WHERE run_id=$1`（同事务内加行锁），或使用 `pg_sequence` + 每 run 一个序列。**不要用时间戳排序**。
+
+> 保留期内只追加、不修改；超过 `ONCALL_EVENT_RETENTION_DAYS` 后由清理任务按 run
+> 整场删除，并写 `runs.events_pruned_at`（§4，[ADR-0021](decisions/0021-data-retention.md)）。
+> 删除前该 run 的所有事件必须一起删：只删一半会让回放从中间开始。
 
 > 实现选择：`SELECT ... FROM runs WHERE id=$1 FOR UPDATE` 锁住 run 行，再 `MAX(seq)+1`，与插入同事务。
 > 一个 run 只有一条写入流，串行成本可忽略；不需要为每个 run 建序列（见 ADR-0009）。
@@ -279,7 +288,7 @@ multihop / negative / injection 拆分），执行结果写文件：
 
 1. **先写事件，再推流**：推送失败不影响数据完整性；前端靠补拉恢复
 2. **业务表的当前态由事件驱动更新**，禁止直接 UPDATE 一个"说不清从哪来"的字段
-3. 事件只追加，不修改；纠错用新事件（`run.failed` + 重跑）
+3. 事件只追加，不修改；纠错用新事件（`run.failed` + 重跑）。保留策略的整场删除是唯一例外（§4）
 4. 一个 run 结束后，`runs` 的汇总字段（token/cost/step）与 `model_calls` 聚合必须相等——W4 已落测试
    `tests/test_metrics_pg.py`（失败 run 也覆盖），并在 `make test` 的 Postgres 套件里执行。
    **保留期外不再对账**：超过 `ONCALL_MODEL_CALL_RETENTION_DAYS` 的计量明细会被清理，
@@ -321,8 +330,10 @@ multihop / negative / injection 拆分），执行结果写文件：
 | 评测报告（文件） | 永久 | 不入库，体量小，是能力证明（§2.8） |
 
 > 执行者是 `app/runs/retention.py: RetentionSweeper`（[ADR-0021](decisions/0021-data-retention.md)）：
-> 后台每 `ONCALL_RETENTION_INTERVAL_S`（默认 6 小时）扫一批，单批 `ONCALL_RETENTION_BATCH`
-> （默认 200 场 run）；也可手动 `make prune` / `cd server && uv run python -m app.cli prune --dry-run`。
+> 后台每 `ONCALL_RETENTION_INTERVAL_S`（默认 6 小时）扫一轮：单批 `ONCALL_RETENTION_BATCH`
+> （默认 200 行），轮内最多 `ONCALL_RETENTION_MAX_BATCHES`（默认 10）批，取不满一批即停，
+> 跑满上限会记 `retention_backlog_remaining` warning；`prune --dry-run` 只预览第一批。
+> 也可手动 `make prune` / `cd server && uv run python -m app.cli prune --dry-run`。
 > 只清终态（completed / failed / interrupted）且 `finished_at` 早于阈值的 run；挂起审批、
 > 正在跑的 run 永远不清理。**上传文件不单独落盘**（解析后写 `kb_documents` / `kb_chunks`），
 > 早期文档里的「附件 30 天」没有对应表，已删除。

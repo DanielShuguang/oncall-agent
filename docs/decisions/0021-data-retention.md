@@ -40,6 +40,10 @@ docs/02 §4 从 W2 起就有一张保留表：`run_events` 30 天、`model_calls
   **且** `events_pruned_at IS NULL`。
 - 一次选中最多 `ONCALL_RETENTION_BATCH` 场 run，`DELETE FROM run_events WHERE run_id IN (...)`，
   同一事务内 `UPDATE runs SET events_pruned_at = now()`。删除与标记要么都成功，要么都回滚。
+- 候选索引是**部分索引** `idx_runs_retention (finished_at) WHERE events_pruned_at IS NULL`：
+  清理按 oldest-first 取候选，普通 `finished_at` 索引会从最老的行开始扫，而最老的行恰好
+  全是已清理的，每轮都要越过整个历史；部分索引在标记写入后立即移除条目，候选扫描
+  始终只落在未清理的窗口里。
 - `SELECT ... FOR UPDATE SKIP LOCKED`：多副本同时清理各拿各的批次，不互相等待；
   标记写入后下一轮不会再选中同一场 run。
 - **非终态 run 永远不清理**：等待审批的 run 可能长时间没有新事件，不能被当成"旧数据"。
@@ -75,12 +79,17 @@ docs/02 §4 从 W2 起就有一张保留表：`run_events` 30 天、`model_calls
 
 ### 5. 触发方式
 
-- API 进程 lifespan 后台任务，每 `ONCALL_RETENTION_INTERVAL_S`（默认 6 小时）扫一次；
+- API 进程 lifespan 后台任务，每 `ONCALL_RETENTION_INTERVAL_S`（默认 6 小时）扫一轮；
+- 一轮内按批循环：每批 `ONCALL_RETENTION_BATCH`（默认 200）行，最多
+  `ONCALL_RETENTION_MAX_BATCHES`（默认 10）批，两个来源都取不满一批时提前结束。
+  只删一批的话，6 小时间隔下每天最多清 800 场 run，跑量一上来就永远追不上；
+  加批次上限是为了让单次扫描的锁与事务量仍有上界；跑满上限时 `capped=True`
+  并记 warning，表示可能还有积压。
 - 运维命令 `make prune` / `python -m app.cli prune [--dry-run] [--limit N]`，
-  先 dry-run 看候选；`--limit` 覆盖单批上限，用于压小批次观察负载。
+  先 dry-run 看候选（只预览第一批）；`--limit` 覆盖单批上限，用于压小批次观察负载。
 
-启动即扫一次（不是等 6 小时），首轮就把存量过期数据收敛；失败只记
-`retention_sweep_failed` 日志，不让后台任务炸掉进程。
+启动即扫一次（不是等 6 小时），首轮就开始收敛存量过期数据；超过单轮上限的积压
+留给后续轮次（`capped=True`）。失败只记 `retention_sweep_failed` 日志，不让后台任务炸掉进程。
 
 ### 6. API 与前端表现
 
@@ -101,7 +110,11 @@ docs/02 §4 从 W2 起就有一张保留表：`run_events` 30 天、`model_calls
 **收益**
 
 - 保留期从文档承诺变成可执行、可 dry-run、可审计的运维动作；
-- 磁盘增长有上限：事件 ≈ 每 run 24 条，按日均 run 数 × 180 天估算；
+- 稳态下磁盘增长有上限：事件 ≈ 每 run 24 条，按日均 run 数 × 180 天估算；每轮最多
+  `batch × max_batches` 行（默认 2000），按 1–2 条计量/run 估算，约 4000–8000 run/天；
+  超出后积压会变多，需要按实际跑量调 `retention_batch` / `retention_max_batches` / 间隔。
+  跑满批次上限时结果 `capped=True`，后台记 `retention_backlog_remaining` warning——
+  「在追赶」与「清完了」不能混为一谈；
 - 回放语义保持二值：要么完整回放，要么明确"已清理"，不会出现半个 run；
 - 成本口径分两层：保留期内明细可核对，超出后仍有 `runs` 汇总。
 
@@ -111,9 +124,10 @@ docs/02 §4 从 W2 起就有一张保留表：`run_events` 30 天、`model_calls
   现场必须调大保留期或接受归档方案（未做）。
 - `run_events` 是"审计日志"，180 天是默认值，不是合规承诺；等保/行业要求更长时
   只能改配置，没有冷归档。
-- 清理任务没有压测：单批 200 场 run、6 小时间隔是保守默认值，没有测量对
-  在线请求的影响；大表上 `DELETE` 会产生 WAL 与 vacuum 压力，现场应先用
-  `prune --dry-run --limit` 观察再放量。
+- 清理任务没有压测：单批 200 行、每轮 10 批、6 小时间隔是保守默认值，
+  没有测量对在线请求的影响；大表上 `DELETE` 会产生 WAL 与 vacuum 压力，
+  现场应先用 `prune --dry-run --limit` 观察再放量。默认吞吐约 4000–8000 run/天，
+  超过后事件表仍会增长——这是容量参数，不是无限清理。
 - 多副本同时清理是安全的（SKIP LOCKED + 标记同事务），但没有测试并发下的
   批次分配；数据库层面由行锁保证不重复删除。
 - 删事件不影响多轮上下文：`recent_turns` 只读 `runs.input/output`（ADR-0020）。
@@ -135,13 +149,15 @@ docs/02 §4 从 W2 起就有一张保留表：`run_events` 30 天、`model_calls
 ## 验证
 
 - `tests/test_retention.py`：整场删除与标记、未到期不删、非终态不删、dry-run 不动数据、
-  幂等与批次、计量按时间删、阈值来自配置、非法 `limit` 拒绝。
+  单轮排空多批 / 批次上限后下一轮续上 / 每轮单批幂等、`capped` 标记、dry-run 只预览第一批、
+  计量按时间删、阈值来自配置、非法 `limit` / `max_batches` 拒绝。
 - `tests/test_store_contract.py` 新增 `_exercise_prune`：内存与 Postgres 共用同一组断言
   （未到期不动、dry-run 只列候选、删除后 `events_pruned_at` 有值且 `event_count=0`、
   事件删了多轮上下文仍可读、重复清理不再选中）。
 - `tests/test_runs_api.py`：清理后详情带 `events_pruned_at`、`output` 仍返回、
   事件接口 200 + 空数组、列表同字段。
 - `tests/test_metrics_pg.py`：`prune_calls` 只删过期行、dry-run 不删、`runs` 汇总不变。
-- `tests/test_config.py`：保留天数 / 间隔 / 批次配 0 在启动期拒绝；默认 180 天。
+- `tests/test_config.py`：保留天数 / 间隔 / 单批 / 每轮批数配 0 在启动期拒绝；默认 180 天。
 - 迁移 0010 已 `downgrade → upgrade` 往返，`alembic check` 无漂移；
+  部分索引 `idx_runs_retention` 的 `EXPLAIN` 走索引（`enable_seqscan=off` 下确认）。
   `python -m app.cli prune --dry-run` 在开发库上返回候选与截止时间。

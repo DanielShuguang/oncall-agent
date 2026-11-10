@@ -162,9 +162,10 @@ async def test_prune_is_idempotent_and_batched() -> None:
     future = datetime.now(UTC) + timedelta(days=31)
     sweeper = _sweeper(store)
 
-    one = await sweeper.sweep(now=future, limit=1)
-    two = await sweeper.sweep(now=future, limit=1)
-    three = await sweeper.sweep(now=future, limit=1)
+    # max_batches=1：这里验证的是「每轮只拿一批」的幂等，不是单轮排空
+    one = await sweeper.sweep(now=future, limit=1, max_batches=1)
+    two = await sweeper.sweep(now=future, limit=1, max_batches=1)
+    three = await sweeper.sweep(now=future, limit=1, max_batches=1)
 
     assert len(one.run_ids) == 1
     assert len(two.run_ids) == 1
@@ -173,6 +174,70 @@ async def test_prune_is_idempotent_and_batched() -> None:
     # 两场都已清完：第三轮没有候选，不会重复删
     assert three.run_ids == []
     assert three.events == 0
+
+
+async def test_sweep_drains_batches_within_one_round() -> None:
+    """默认单轮连续取批，直到取不满一批；否则 backlog 一大就永远追不上。"""
+    store = InMemoryRunStore()
+    run_ids = {await _finished_run(store) for _ in range(3)}
+    future = datetime.now(UTC) + timedelta(days=31)
+
+    result = await _sweeper(store).sweep(now=future, limit=1)
+
+    assert set(result.run_ids) == run_ids
+    assert result.events == 9
+    assert result.capped is False
+    for run_id in run_ids:
+        rec = await store.get(run_id)
+        assert rec is not None and rec.events_pruned_at is not None
+
+
+async def test_sweep_respects_max_batches_and_continues_next_round() -> None:
+    """批次上限让单次扫描的锁/事务量有上界，剩下的留给下一轮。"""
+    store = InMemoryRunStore()
+    run_ids = {await _finished_run(store) for _ in range(3)}
+    future = datetime.now(UTC) + timedelta(days=31)
+    sweeper = _sweeper(store)
+
+    first = await sweeper.sweep(now=future, limit=1, max_batches=2)
+    second = await sweeper.sweep(now=future, limit=1, max_batches=2)
+
+    assert len(first.run_ids) == 2
+    assert len(second.run_ids) == 1
+    assert set(first.run_ids) | set(second.run_ids) == run_ids
+
+
+async def test_sweep_marks_capped_when_batch_limit_hit() -> None:
+    """跑满批次上限说明可能还有积压，调用方要能看见（日志 warning / CLI capped）。"""
+    store = InMemoryRunStore()
+    for _ in range(3):
+        await _finished_run(store)
+    future = datetime.now(UTC) + timedelta(days=31)
+    sweeper = _sweeper(store)
+
+    first = await sweeper.sweep(now=future, limit=1, max_batches=2)
+    second = await sweeper.sweep(now=future, limit=1, max_batches=2)
+
+    assert first.capped is True
+    assert len(first.run_ids) == 2
+    assert second.capped is False
+    assert len(second.run_ids) == 1
+
+
+async def test_dry_run_previews_only_first_batch() -> None:
+    """dry-run 不写标记，循环会把同一批候选重复计数，所以只预览第一批。"""
+    store = InMemoryRunStore()
+    run_ids = [await _finished_run(store) for _ in range(3)]
+    future = datetime.now(UTC) + timedelta(days=31)
+
+    result = await _sweeper(store).sweep(now=future, limit=1, dry_run=True)
+
+    assert result.batch == 1
+    assert result.capped is True
+    assert len(result.run_ids) == 1
+    assert result.run_ids[0] in run_ids
+    for run_id in run_ids:
+        assert len(await store.events_after(run_id)) == 3
 
 
 async def test_prunes_model_calls_by_created_at() -> None:
@@ -210,3 +275,5 @@ async def test_sweep_cutoffs_follow_settings() -> None:
 async def test_invalid_limit_is_rejected() -> None:
     with pytest.raises(ValueError, match="limit"):
         await _sweeper(InMemoryRunStore()).sweep(limit=0)
+    with pytest.raises(ValueError, match="max_batches"):
+        await _sweeper(InMemoryRunStore()).sweep(max_batches=0)

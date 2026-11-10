@@ -92,6 +92,8 @@ def test_retention_params_are_validated() -> None:
         Settings(retention_interval_s=0)
     with pytest.raises(ValidationError, match="ONCALL_RETENTION_BATCH"):
         Settings(retention_batch=0)
+    with pytest.raises(ValidationError, match="ONCALL_RETENTION_MAX_BATCHES"):
+        Settings(retention_max_batches=0)
 
     settings = Settings(_env_file=None)  # 只看代码默认值，不读本机 .env
     assert settings.event_retention_days == 180

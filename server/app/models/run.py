@@ -73,8 +73,14 @@ class Run(Base):
         # 多轮上下文按会话取最近几轮（ADR-0020）；(user_id, started_at) 的前缀
         # 不支持 session_id 过滤，会话一多就要读该用户全部 run
         Index("idx_runs_user_session_time", "user_id", "session_id", text("started_at DESC")),
-        # 保留清理按「结束时间早于阈值」扫候选（ADR-0021）；没有它每轮清理都要扫整表
-        Index("idx_runs_finished_at", "finished_at"),
+        # 保留清理按「结束时间早于阈值」扫候选（ADR-0021）。用部分索引只索引
+        # events_pruned_at IS NULL 的 run：普通 finished_at 索引会从最老的行开始扫，
+        # 而最老的行恰好全是已清理的，每轮都要越过整个历史才能找到候选
+        Index(
+            "idx_runs_retention",
+            "finished_at",
+            postgresql_where=text("events_pruned_at IS NULL"),
+        ),
         Index(
             "idx_runs_status",
             "status",

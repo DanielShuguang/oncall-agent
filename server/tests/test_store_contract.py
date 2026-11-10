@@ -133,6 +133,10 @@ async def _exercise(store: RunStore) -> None:
     assert rec.finished_at is not None
     assert rec.event_count == 9
 
+    # 列表的事件条数必须和详情一致（内存靠 append 维护，Postgres 靠聚合）
+    listed = {item.run_id: item for item in await store.list_runs(user_id="u_102", limit=20)}
+    assert listed[run_id].event_count == 9
+
     # 续传语义：after_seq 严格大于；limit 生效
     all_events = await store.events_after(run_id)
     assert [e.seq for e in all_events] == list(range(1, 10))
@@ -342,6 +346,8 @@ async def _exercise_prune(store: RunStore) -> None:
     assert rec is not None
     assert rec.events_pruned_at is not None
     assert rec.event_count == 0
+    listed = {item.run_id: item for item in await store.list_runs(user_id="u_304", limit=20)}
+    assert listed[run_id].event_count == 0
     # 事件删了，多轮上下文仍可读（ADR-0020 只读 runs.input/output）
     assert [
         (turn.query, turn.answer)

@@ -14,7 +14,7 @@
 |---|---|---|
 | 模型能不能直接写库？ | 能，Demo 里很常见 | 不能。权限、写库、金额、审批全部由业务代码判定，模型只产出意图与参数 |
 | 工具调用失败怎么办？ | 加重试 | 按错误类型决定是否重试 + 指数退避 + 抖动 + 业务降级 |
-| 回答错了怎么查？ | 看日志 | 每个答案带原文引用；每次运行可完整回放 |
+| 回答错了怎么查？ | 看日志 | 每个答案带原文引用；运行可按事件完整回放（事件默认保留 180 天） |
 | 花了多少钱？ | 月底看账单 | 单次对话实时计量，按 run / 天 / 模型聚合 |
 | 能不能私有化？ | 依赖云 API | 本地模型（vLLM / Ollama）+ docker-compose 一键部署；资源目标 8C16G，当前只完成开发机链路验证 |
 
@@ -170,7 +170,7 @@ oncall/
 |---|---|---|
 | 文档（12 篇 + 21 篇 ADR + 评测基线） | ✅ 完成 | — |
 | 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡 / 运行回放 / 成本页） | ✅ 可用 | `tsc --noEmit`、`oxlint 0`、`oxfmt --check` 通过；`vitest` 55/55；`pnpm build` 成功 |
-| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **296 passed + 23 skipped**；设 `ONCALL_TEST_DATABASE_URL` 后 **319 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约、计量一致性） |
+| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **300 passed + 23 skipped**；设 `ONCALL_TEST_DATABASE_URL` 后 **323 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约、计量一致性） |
 | 本地 JWT（W1 D2） | ✅ 已完成 | `tests/test_auth.py` 20 条：签发/验签、过期、alg=none、401 JSON、OpenAPI Bearer、run 归属隔离 |
 | 事件落库 + 断线续传（D4） | ✅ 已完成 | `alembic upgrade head` + `alembic check` 无漂移；`tests/test_store_contract.py`（内存 + Postgres 契约）、`tests/test_chat_stream.py`（落库、幂等回放、503 语义） |
 | 最小 Agent 运行时（W1 D5） | ✅ 已完成 | `tests/test_agent_runtime.py` 9 条：工具真实执行、检索引用、写操作挂起审批、工具失败降级、步数/时长上限 |
@@ -184,7 +184,7 @@ oncall/
 | 引用跳全文（W5 D24 收尾） | ✅ 已完成 | 引用角标打开全文：`GET /kb/documents/{id}/preview` 登录即可（与检索同一可见性），`chunk_id` 优先/`ord` 兜底定位并高亮；`tests/test_rag_preview.py`、`test_kb_preview.py`（员工可读/404/401）；[ADR-0018](docs/decisions/0018-citation-fulltext-preview.md) |
 | 文档级可见性（W6 后补） | ✅ 已完成 | `visibility=public / roles` + `allowed_roles`（迁移 0008）；召回 SQL 在 `LIMIT` 前过滤、预览同一规则、不可见 404；上传带范围、`PATCH .../access` 只改范围（`chunk_id` 不变）；`tests/test_rag_acl.py`、`test_rag_pg.py`（4×6 可见性矩阵）、`test_kb_api.py`、`test_kb_preview.py`；[ADR-0019](docs/decisions/0019-document-level-access.md) |
 | 多轮上下文（W6 后补） | ✅ 已完成 | `RunStore.recent_turns` 按「用户 + `session_id`」取最近 3 轮（迁移 0009 索引），3 轮 / 1200 字预算；追问拼进 `context_query`，引用仍只来自本轮检索；「清空对话」换新 `session_id`；`tests/test_history.py`、`test_agent_runtime.py`、`test_store_contract.py`、`test_chat_stream.py`（同会话追问引用 VPN / 换会话拒答）；[ADR-0020](docs/decisions/0020-multi-turn-context.md) |
-| 数据保留清理（W6 后补） | ✅ 已完成 | 终态 run 超过 `ONCALL_EVENT_RETENTION_DAYS`（默认 180 天）后按 run 整场删除事件并写 `events_pruned_at`（迁移 0010）；`model_calls` 按 `ONCALL_MODEL_CALL_RETENTION_DAYS` 删明细、`runs` 汇总保留；后台每 6 小时 + `make prune` / `prune --dry-run`；回放页标明事件已清理并从 `run.output` 兜底展示最终回答；`tests/test_retention.py`、`test_store_contract.py`（`_exercise_prune`）、`test_runs_api.py`、`test_metrics_pg.py`；[ADR-0021](docs/decisions/0021-data-retention.md) |
+| 数据保留清理（W6 后补） | ✅ 已完成 | 终态 run 超过 `ONCALL_EVENT_RETENTION_DAYS`（默认 180 天）后按 run 整场删除事件并写 `events_pruned_at`（迁移 0010）；`model_calls` 按 `ONCALL_MODEL_CALL_RETENTION_DAYS` 删明细、`runs` 汇总保留；后台每 6 小时、单轮最多 10 批（事件与计量各 200 行/批）+ `make prune` / `prune --dry-run`；回放页标明事件已清理并从 `run.output` 兜底展示最终回答；`tests/test_retention.py`、`test_store_contract.py`（`_exercise_prune`）、`test_runs_api.py`、`test_metrics_pg.py`；[ADR-0021](docs/decisions/0021-data-retention.md) |
 
 ### 评测与压测
 
@@ -254,9 +254,9 @@ W6 基线（3 轮均值，mock 规则路径，口径见 [baseline-v1](docs/eval/
   （[ADR-0019](docs/decisions/0019-document-level-access.md)）
 - 保留清理只删事件与计量明细：超过 180 天的 run 只能看摘要，不能回放；没有冷归档，
   现场要留更久只能调大 `ONCALL_EVENT_RETENTION_DAYS`；`model_calls` 删除后，超出窗口的
-  区间成本明细不可再核对（`runs` 汇总仍在）；清理任务没有性能基准（单批 200 场、6 小时
-  间隔是保守默认值）；角色撤销后的旧回答仍留在 `runs.output`，run 级保留未做
-  （[ADR-0021](docs/decisions/0021-data-retention.md)）
+  区间成本明细不可再核对（`runs` 汇总仍在）；清理任务没有性能基准（单批 200 场、每轮
+  10 批、6 小时间隔是保守默认值，按 1–2 条计量/run 约 4000–8000 run/天）；角色撤销后的
+  旧回答仍留在 `runs.output`，run 级保留未做（[ADR-0021](docs/decisions/0021-data-retention.md)）
 - iframe + postMessage 嵌入形态（W5 D25）暂缓，需要来源白名单与 CSP 部署决策
 
 ## License

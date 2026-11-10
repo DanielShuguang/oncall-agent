@@ -10,9 +10,10 @@ Create Date: 2026-11-10
   「不是没有事件，是过了保留期」，避免让空数组冒充一场真的没有事件的 run。
 - 不删 `runs` 行，也不加级联：运行列表、成本口径与多轮上下文（ADR-0020）都依赖
   `runs.input/output`。只删 `run_events`，因此不需要新的外键或 CASCADE 调整。
-- `idx_runs_finished_at` 只服务保留清理的候选扫描（`status IN (...) AND
-  events_pruned_at IS NULL AND finished_at < cutoff`）。没有它每轮清理都要扫整表；
-  该索引不参与任何在线请求路径，删除时也只影响清理任务。
+- `idx_runs_retention` 是**部分索引**（`finished_at WHERE events_pruned_at IS NULL`），
+  只索引还没被清理的 run。若用普通 `finished_at` 索引，清理按 oldest-first 扫描，
+  最老的行恰好全是已清理的，每轮都要越过整个历史才能凑够一批；部分索引在标记写入后
+  立即移除条目，候选扫描始终只看未清理的窗口。该索引不参与任何在线请求路径。
 - 回填：已有 run 全部 `events_pruned_at = NULL`，语义是「还没清过」；上线后第一轮
   清理会按 `finished_at` 处理过期的 run。事件表只增不删的旧行为到此为止。
 """
@@ -36,13 +37,14 @@ def upgrade() -> None:
         sa.Column("events_pruned_at", sa.DateTime(timezone=True), nullable=True),
     )
     op.create_index(
-        "idx_runs_finished_at",
+        "idx_runs_retention",
         "runs",
         ["finished_at"],
         unique=False,
+        postgresql_where=sa.text("events_pruned_at IS NULL"),
     )
 
 
 def downgrade() -> None:
-    op.drop_index("idx_runs_finished_at", table_name="runs")
+    op.drop_index("idx_runs_retention", table_name="runs")
     op.drop_column("runs", "events_pruned_at")

@@ -783,7 +783,13 @@ class PostgresRunStore:
         before_run_id: str | None = None,
         status: str | None = None,
     ) -> list[RunRecord]:
-        stmt = select(Run).where(Run.user_id == user_id)
+        # 列表也要带事件条数：内存实现一直有值，Postgres 之前恒为 0，
+        # 两端不一致会让「清理后 event_count=0」失去参照。按 run 聚合一次即可（≤ limit 行）
+        stmt = (
+            select(Run, func.count(RunEventRow.seq))
+            .outerjoin(RunEventRow, RunEventRow.run_id == Run.id)
+            .where(Run.user_id == user_id)
+        )
         if status:
             stmt = stmt.where(Run.status == status)
         if before_started_at is not None and before_run_id:
@@ -798,10 +804,10 @@ class PostgresRunStore:
                         and_(Run.started_at == before_started_at, Run.id < before_id),
                     )
                 )
-        stmt = stmt.order_by(Run.started_at.desc(), Run.id.desc()).limit(limit)
+        stmt = stmt.group_by(Run.id).order_by(Run.started_at.desc(), Run.id.desc()).limit(limit)
         async with self._sessionmaker() as session:
-            rows = (await session.scalars(stmt)).all()
-        return [_record_from_row(row, event_count=0) for row in rows]
+            rows = (await session.execute(stmt)).all()
+        return [_record_from_row(row, event_count=int(count)) for row, count in rows]
 
     async def recent_turns(
         self,

@@ -89,9 +89,13 @@ class Settings(BaseSettings):
     event_retention_days: int = 180
     #: 模型调用计量的保留天数：成本看板的数据源，过期后只保留 runs 上的汇总
     model_call_retention_days: int = 180
-    #: 保留清理任务扫描间隔与单批上限（一次最多处理多少场 run / 多少条计量）
+    #: 保留清理任务扫描间隔
     retention_interval_s: float = 21600.0
+    #: 保留清理：单批行数与每轮最多跑几批。一次扫描只删一批的话，
+    #: 6 小时间隔下每天最多清 4 × batch 场 run（默认 800），跑量一大就追不上；
+    #: 轮内循环到「取不满一批」或达到批次上限为止。
     retention_batch: int = 200
+    retention_max_batches: int = 10
     #: 超过该时长没有任何事件的 running run 判定为进程中断（ADR-0017）。
     #: 必须明显大于单 run 时长上限（agent.state.RUN_TIMEOUT_S=120s），否则会误杀活着的 run。
     stale_run_min: int = 10
@@ -150,6 +154,8 @@ class Settings(BaseSettings):
             raise ValueError("ONCALL_RETENTION_INTERVAL_S 必须 > 0")
         if self.retention_batch < 1:
             raise ValueError("ONCALL_RETENTION_BATCH 必须 >= 1")
+        if self.retention_max_batches < 1:
+            raise ValueError("ONCALL_RETENTION_MAX_BATCHES 必须 >= 1")
         return self
 
     @model_validator(mode="after")

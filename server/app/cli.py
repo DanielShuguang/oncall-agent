@@ -124,6 +124,8 @@ async def _prune(args: argparse.Namespace) -> int:
                 "runs": len(result.run_ids),
                 "events": result.events,
                 "calls": result.calls,
+                "batch": result.batch,
+                "capped": result.capped,
                 "dry_run": result.dry_run,
             },
             ensure_ascii=False,

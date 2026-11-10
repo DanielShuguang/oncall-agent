@@ -94,6 +94,27 @@ describe('断线续传', () => {
     expect(lastSeq).toBe(202);
   });
 
+  it('补拉发现回答已回收时进入失败态，不无限转圈', async () => {
+    mockStream.mockImplementation(async (opts) => {
+      opts.onEvent(evt(1, 'run.started'));
+      throw new Error('network down');
+    });
+    mockGetEvents.mockResolvedValue({
+      events: [],
+      next_seq: 1,
+      run_status: 'completed',
+      content_redacted: true,
+    });
+
+    await useChat.getState().send('打印机离线');
+
+    const { runtime } = useChat.getState();
+    expect(runtime.phase).toBe('failed');
+    expect(runtime.error).toContain('不可见');
+    // 一次就够：不能当"还在跑"继续轮询
+    expect(mockGetEvents).toHaveBeenCalledTimes(1);
+  });
+
   it('abort 后旧补拉结果不再应用', async () => {
     let resolvePage!: (value: RunEventsResponse) => void;
     const pending = new Promise<RunEventsResponse>((resolve) => {

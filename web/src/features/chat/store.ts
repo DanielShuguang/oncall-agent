@@ -74,6 +74,20 @@ export const useChat = create<ChatStore>((set, get) => {
       // fetch 期间可能被 abort，或用户已经发了新消息
       if (signal.aborted || gen !== generation) return true;
 
+      // 引用文档被收权后事件整场不回放（ADR-0022）：这是确定结论，不是"还没好"，
+      // 继续轮询只会让转圈停不下来。与后端 200 + 空数组的语义配套。
+      if (res.content_redacted) {
+        set((s) => ({
+          runtime: {
+            ...s.runtime,
+            phase: 'failed',
+            error: '该回答引用的文档已不可见，内容不再展示',
+            messages: stopAssistantStreaming(s.runtime.messages),
+          },
+        }));
+        return true;
+      }
+
       for (const event of res.events) applyEvent(event, gen);
 
       // 满页说明可能还有下一页：即使 run_status 已是终态也要继续翻，

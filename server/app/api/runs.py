@@ -35,13 +35,6 @@ from app.tools.registry import Identity
 
 router = APIRouter(tags=["runs"])
 
-#: 回答引用快照只会在 message.completed 之后出现；非终态 run 不做可见性校验
-_CONTENT_GATED_STATUSES = {
-    RunStatus.COMPLETED.value,
-    RunStatus.FAILED.value,
-    RunStatus.INTERRUPTED.value,
-}
-
 
 def _not_found() -> HTTPException:
     return HTTPException(status_code=404, detail="run not found")
@@ -191,14 +184,12 @@ async def get_events(
     # 回答引用的文档已不可见时，事件里的 message.completed（带切片原文）也不能再回放
     # （ADR-0022）。和保留清理一样返回 200 + 空数组：run 本身存在、状态仍可读，
     # 具体原因看 /runs/{id} 的 content_redacted / events_pruned_at。
-    # 引用快照只会在 message.completed 之后出现，所以非终态 run 不付这次主键查询——
-    # 补拉会被客户端每秒轮询，运行中的 run 本来就没有引用可校验。
-    cited: list[str] = []
-    if run_status in _CONTENT_GATED_STATUSES:
-        latest = await store.cited_document_ids(run_id)
-        if latest is None:
-            raise _not_found()
-        cited = latest
+    # 这里不按状态放行：只多一次主键查询（没有引用就不会查知识库），换的是
+    # 「详情与事件同一条规则」——运行中但已有引用快照的 run（回答输出到一半崩掉）
+    # 也不能靠读接口绕过去。
+    cited = await store.cited_document_ids(run_id)
+    if cited is None:
+        raise _not_found()
     try:
         redacted = not await content_is_visible(cited_document_ids=cited, viewer=viewer, kb=kb)
     except SQLAlchemyError as exc:

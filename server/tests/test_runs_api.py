@@ -63,7 +63,7 @@ async def _seed_run(
             EventType.RUN_FAILED,
             {"error_code": "TOOL_ERROR", "message": "失败", "at_step": 4},
         )
-    else:
+    elif status != "running":
         await store.append(
             run_id,
             EventType.RUN_COMPLETED,
@@ -368,6 +368,27 @@ async def test_deleted_document_redacts_content(
     detail = (await client.get(f"/api/runs/{run_id}")).json()
     assert detail["content_redacted"] is True
     assert detail["output"] is None
+
+
+async def test_running_run_with_citations_is_also_gated(
+    client: AsyncClient, mem_store: InMemoryRunStore, memory_kb: KnowledgeBase
+) -> None:
+    """运行中但已有引用快照（回答输出后进程崩掉）也按同一规则回收。
+
+    不能按状态放行读接口：否则详情藏了、事件还漏着，等于给出一条绕过路径。
+    """
+    doc_id = await _index_doc(memory_kb)
+    run_id = await _seed_run(mem_store, status="running", citations=[{"document_id": doc_id}])
+    await memory_kb.set_access(doc_id, visibility=ROLES, allowed_roles=("hr",))
+
+    detail = (await client.get(f"/api/runs/{run_id}")).json()
+    assert detail["status"] == RunStatus.RUNNING.value
+    assert detail["content_redacted"] is True
+    assert detail["output"] is None
+
+    events = (await client.get(f"/api/runs/{run_id}/events")).json()
+    assert events["content_redacted"] is True
+    assert events["events"] == []
 
 
 async def test_events_pruned_and_redacted_together(

@@ -78,8 +78,9 @@ ADR-0019 把文档级可见性做进了**检索、引用预览与管理接口**�
   （与稀疏/稠密召回、引用预览同一条规则），内存实现用 `is_visible`；不存在的 id 不在结果里。
 - `tests/test_rag_acl.py` 与 `tests/test_rag_pg.py` 用同一张 (visibility × 角色) 矩阵断言
   批量结果与 `is_visible` 一致，规则改动会同时打红两边。
-- 每场 run 一次查询；多轮历史把 3 轮的 id 合并成一次查询；事件补拉只在终态 run 上取
-  引用快照、有引用时才查知识库（运行中的 run 还没有引用），不给每秒轮询的路径加固定开销。
+- 每场 run 一次查询；多轮历史把 3 轮的 id 合并成一次查询；事件补拉每次多一次主键
+  查询取引用快照，没有引用就不查知识库（同一秒轮询下只多一次 `runs` 主键读）。
+  不按 run 状态放行：详情与事件用同一条规则，运行中但已有引用快照的 run 也不能绕过。
 
 ### 5. 兼容与回填
 
@@ -107,6 +108,13 @@ ADR-0019 把文档级可见性做进了**检索、引用预览与管理接口**�
 - 只覆盖知识库引用：CMDB/工单工具结果、用户输入、审批载荷不在回收范围。审批快照
   （`approvals.state`）目前不返回给前端，但里面确实保留了当时的检索上下文，后续做
   审批侧回收时要一起看。
+- **停不下来的那半段**：引用快照来自 `message.completed`。若用户在回答流式输出中途断开，
+  run 可能只落了部分 `message.delta` 就变成 `interrupted`，没有引用可校验，这些半截
+  正文不会被回收。窗口极窄（必须在 finalize 输出中恰好断线），且用户当时已看到这部分内容；
+  要彻底覆盖需要把引用快照提前到检索阶段，另立决策。
+- **在途流不受影响**：回收针对已落库的 `output`/事件；SSE 在途输出仍按 token 有效期
+  鉴权（ADR-0010）。撤权后新 token 的请求会被拦截，但旧 token 到期前的实时流不在
+  本次范围。
 - 读详情/回放会多一次 `kb_documents` 查询（有引用时）；没有做延迟基准。批量查询按主键
   `= ANY`，规模是单场 run 的引用数（≤50）。
 - 角色是 JWT 里的标签（没有 roles 表）：撤权靠重新签发 token，旧 token 在有效期内仍按
@@ -128,14 +136,16 @@ ADR-0019 把文档级可见性做进了**检索、引用预览与管理接口**�
   未知 run 返回 None）。
 - `tests/test_runs_content.py` 6 条：无引用直接放行、admin 放行、任一不可见整体回收、
   重复 id 按集合比较、查不到按不可见、历史过滤只丢整轮且保持顺序。
-- `tests/test_runs_api.py` 7 条：可见时正常、收权后详情 `output=null` 且事件 200 + 空、
-  恢复可见后自动恢复、admin 与匹配角色可见、文档不存在也回收、事件清理与回收同时成立。
+- `tests/test_runs_api.py` 8 条：可见时正常、收权后详情 `output=null` 且事件 200 + 空、
+  恢复可见后自动恢复、admin 与匹配角色可见、文档不存在也回收、运行中但已有引用快照
+  同样回收、事件清理与回收同时成立。
 - `tests/test_chat_stream.py` 2 条：上一轮引用被收权后追问回到拒答；幂等重放返回
   `403 CONTENT_REDACTED`。
 - `tests/test_rag_acl.py` / `tests/test_rag_pg.py`：批量可见性与 `is_visible` 矩阵一致
   （内存 + SQL）。
-- 迁移 0011 已 `downgrade → upgrade` 往返，`alembic check` 无漂移；开发库回填 307/310
+- 迁移 0011 已 `downgrade → upgrade` 往返，`alembic check` 无漂移；开发库回填 308/311
   场 run（其余 3 场没有 `message.completed` 事件）。
-- 默认 **315 passed + 24 skipped**；带 Postgres **339 passed**（2026-11-10 本机 WSL2 + Docker 复跑）。
-- 前端 `RunDetailPage` 用 `content_redacted` 显示提示并隐藏回答与回放；`tsc --noEmit`、
-  `vitest 55/55`、`oxlint 0`、`oxfmt --check` 通过，`pnpm build` 成功。
+- 默认 **316 passed + 24 skipped**；带 Postgres **340 passed**（2026-11-10 本机 WSL2 + Docker 复跑）。
+- 前端 `RunDetailPage` 用 `content_redacted` 显示提示并隐藏回答与回放；断线补拉遇到
+  `content_redacted` 进入失败态而不是继续轮询；`tsc --noEmit`、`vitest 56/56`、
+  `oxlint 0`、`oxfmt --check` 通过，`pnpm build` 成功。

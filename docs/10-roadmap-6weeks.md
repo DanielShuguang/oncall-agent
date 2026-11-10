@@ -348,16 +348,17 @@ ADR-0019 的文档级可见性只管检索与预览，**已经产生的 run 不�
 | 不改存储 | 回收是读时判定：可见范围改回去，旧回答自动恢复；不重扫、不改写事件、不做分布式任务 |
 | 前端 | `/runs/:id` 用 `content_redacted` 显示「引用的文档已不可见」，隐藏回答与回放，摘要/计量/失败归因照常 |
 
-验证：默认 **315 passed + 24 skipped**；带 Postgres **339 passed**（2026-11-10 本机
-WSL2 + Docker 复跑）；前端 **55 tests / 11 files**；`ruff` / `ruff format --check` /
+验证：默认 **316 passed + 24 skipped**；带 Postgres **340 passed**（2026-11-10 本机
+WSL2 + Docker 复跑）；前端 **56 tests / 11 files**；`ruff` / `ruff format --check` /
 `mypy`（95 files）/ `tsc --noEmit` / `oxlint` / `oxfmt --check` 全绿，`pnpm build` 成功；
-迁移 0011 已 `downgrade → upgrade` 往返，`alembic check` 无漂移；开发库回填 307/310 场 run。
+迁移 0011 已 `downgrade → upgrade` 往返，`alembic check` 无漂移；开发库回填 308/311 场 run。
 
 重跑 RAG 评测：**50/50**、`cite_acc 97.09%`、`recall@5 100%`、`p95 81ms`，与基线一致
 （回收只影响读回放，不碰检索与提示词）。
 
 已知边界：**fail-closed**——重新上传会换 `document_id`，旧引用因此按不可见处理，正常维护
 知识库可能隐藏一批旧回答；回收只覆盖知识库引用（CMDB/工单/用户输入不在范围），
+回答流式中途断开的半截内容没有 `message.completed`、也就没有引用快照，不在回收范围；
 `runs.input/output` 的按时间保留（TTL）仍未做；读详情/回放多一次 `kb_documents` 查询，
 没有延迟基准。详见 [ADR-0022](decisions/0022-run-content-visibility.md)。
 

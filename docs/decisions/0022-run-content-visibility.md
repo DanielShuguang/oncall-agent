@@ -120,12 +120,14 @@ ADR-0019 把文档级可见性做进了**检索、引用预览与管理接口**�
 - 角色是 JWT 里的标签（没有 roles 表）：撤权靠重新签发 token，旧 token 在有效期内仍按
   旧角色判定（`ONCALL_TOKEN_TTL` 内），这是本地 JWT 的既有边界（ADR-0010）。
 - 事件已清理且引用快照为空的历史 run（迁移前数据）不会回收。
+- 与**按时间**清理共存（[ADR-0023](0023-run-content-retention.md)）：正文过期后
+  `content_redacted` 恒为 false，详情/事件都以「过期」表述——内容已经不存在，
+  不属于「按你的权限隐藏」。
 
 **待定**
 
 - run 内容的**按时间**保留（`runs.input/output` 的 TTL）：与权限正交，ADR-0021 的待定项，
-  已由 [ADR-0023](0023-run-content-retention.md) 兑现
-  只完成了"撤销角色后回收内容"这一半
+  已由 [ADR-0023](0023-run-content-retention.md) 兑现（ADR-0022 只负责「撤销角色后回收内容」）
 - 文档身份（source+checksum / 软删除归档）以消除重传导致的回收误伤
 - 审批快照（`approvals.state`）里的检索上下文如何处理
 - 读路径多一次查询的延迟基准

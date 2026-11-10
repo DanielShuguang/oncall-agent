@@ -160,7 +160,8 @@ class Settings(BaseSettings):
         if self.run_content_retention_days < self.event_retention_days:
             raise ValueError(
                 "ONCALL_RUN_CONTENT_RETENTION_DAYS 必须 >= ONCALL_EVENT_RETENTION_DAYS："
-                "事件里带着同一段回答正文，事件没清时清 runs 等于没清"
+                "事件里带着同一段回答正文，事件没清时清 runs 等于没清。"
+                "把正文保留期调到不短于事件保留期，或先把事件保留期一起调小"
             )
         if self.retention_interval_s <= 0:
             raise ValueError("ONCALL_RETENTION_INTERVAL_S 必须 > 0")

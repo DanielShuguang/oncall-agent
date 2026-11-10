@@ -2,7 +2,7 @@
 
 Revision ID: 0011
 Revises: 0010
-Create Date: 2026-11-11
+Create Date: 2026-11-10
 
 人工审过：
 - `runs.cited_document_ids` 是 `message.completed.citations[].document_id` 的投影，

@@ -1,7 +1,7 @@
 # 0023 · run 正文按时间保留：到期清空 `input/output`，只留摘要
 
 - 状态：已采纳（W6 后加固）
-- 日期：2026-11-11
+- 日期：2026-11-10
 - 相关：[docs/02-data-model.md](../02-data-model.md)、[docs/03-api-contract.md](../03-api-contract.md)、[docs/07-frontend-design.md](../07-frontend-design.md)、[docs/09-deploy-private.md](../09-deploy-private.md)、[ADR-0017](0017-stale-run-recovery.md)、[ADR-0020](0020-multi-turn-context.md)、[ADR-0021](0021-data-retention.md)、[ADR-0022](0022-run-content-visibility.md)
 
 ## 背景
@@ -110,6 +110,10 @@ ADR-0022 补上了「**谁能看**」：引用文档被改窄后，旧回答在�
 - 详情页的问题会显示为空，必须靠 `content_pruned_at` 解释；只用 `input` 判断会把
   「过期清理」误读成「用户发了空消息」。
 - 两个保留期形成约束：想更早删正文就要连事件保留期一起降，现场需要理解这个顺序。
+- **升级时要一起改配置**：现场若把 `ONCALL_EVENT_RETENTION_DAYS` 调到 180 天以上
+  （例如审计要求 365 天），必须同时把 `ONCALL_RUN_CONTENT_RETENTION_DAYS` 调到不短于它，
+  否则启动期直接拒绝——这是有意的：默认 180 会让正文比事件早删 185 天，事件里还留着
+  同一段正文。
 - 存量数据：迁移只加列，不回填；升级后第一轮清理按 `finished_at` 处理过期 run。
 - 没有性能基准：每轮多一次 `SELECT ... FOR UPDATE SKIP LOCKED` + 一次 `UPDATE`，
   与 ADR-0021 同样没有在真实体量上量过（见「待定」）。
@@ -130,10 +134,11 @@ ADR-0022 补上了「**谁能看**」：引用文档被改窄后，旧回答在�
   上一轮历史（回到拒答）。
 - `tests/test_runs_content.py`：正文已清空时 `content_is_redacted` 恒为 false。
 - `tests/test_config.py`：`ONCALL_RUN_CONTENT_RETENTION_DAYS` 配 0 拒绝；小于事件保留期拒绝；
-  默认 180。
+  事件保留期调大到 365 天、正文保留期仍是默认 180 时也拒绝（升级场景，不是静默延长正文的
+  删除时间）；默认两者都是 180。
 - 迁移 0012 已 `downgrade → upgrade` 往返，`alembic check` 无漂移；开发库上
   `python -m app.cli prune --dry-run` 输出含 `content_before` / `content_runs`。
-- 完整回归：默认 **329 passed + 24 skipped**；带 Postgres **353 passed**；前端 **56 tests**、
+- 完整回归：默认 **330 passed + 24 skipped**；带 Postgres **354 passed**；前端 **56 tests**、
   `tsc` / `oxlint` / `oxfmt` / `pnpm build` 全绿；`ruff` / `ruff format --check` / `mypy` 通过。
 
 ## 待定

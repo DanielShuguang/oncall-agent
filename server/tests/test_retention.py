@@ -308,6 +308,8 @@ async def test_prunes_expired_run_content() -> None:
     # 摘要仍在：状态、失败归因、事件清理标记、计量都不受正文清理影响
     assert rec.status == RunStatus.COMPLETED.value
     assert rec.events_pruned_at is not None
+    # 同一轮里事件先清、正文后清：正文不会比事件活得更久（ADR-0023 的顺序保证）
+    assert rec.events_pruned_at <= rec.content_pruned_at
     assert rec.token_in == 0
 
 
@@ -332,6 +334,25 @@ async def test_content_can_outlive_events() -> None:
     assert rec is not None
     assert second.content_run_ids == [run_id]
     assert rec.input == "" and rec.output is None
+
+
+async def test_prunes_failed_run_without_answer() -> None:
+    """失败的 run 没有回答，只有问题：正文清理照样要清掉 input（候选条件不是只看 output）。"""
+    store = InMemoryRunStore()
+    run_id = str(uuid.uuid4())
+    await store.create(run_id=run_id, user_id="u_701", session_id="sess_ret", message="帮我开单")
+    await store.append(run_id, EventType.RUN_STARTED, {})
+    await store.append(run_id, EventType.RUN_FAILED, {"error_code": "TOOL_ERROR"})
+    rec = await store.get(run_id)
+    assert rec is not None and rec.output is None
+
+    result = await _sweeper(store).sweep(now=datetime.now(UTC) + timedelta(days=61))
+
+    assert result.content_run_ids == [run_id]
+    rec = await store.get(run_id)
+    assert rec is not None
+    assert rec.input == ""
+    assert rec.failure_category == "tool"
 
 
 async def test_content_dry_run_previews_without_clearing() -> None:

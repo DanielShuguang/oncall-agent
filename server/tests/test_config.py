@@ -100,6 +100,10 @@ def test_retention_params_are_validated() -> None:
     # 事件里带着同一段回答正文：正文保留期短于事件保留期时，清了 runs 也白清
     with pytest.raises(ValidationError, match="必须 >= ONCALL_EVENT_RETENTION_DAYS"):
         Settings(event_retention_days=180, run_content_retention_days=90)
+    # 升级场景：现场把事件保留期调到 365 天、没动正文保留期（默认 180）时必须拒绝，
+    # 而不是静默把正文的删除时间从 180 推到 365
+    with pytest.raises(ValidationError, match="ONCALL_RUN_CONTENT_RETENTION_DAYS"):
+        Settings(event_retention_days=365)
 
     settings = Settings(_env_file=None)  # 只看代码默认值，不读本机 .env
     assert settings.event_retention_days == 180

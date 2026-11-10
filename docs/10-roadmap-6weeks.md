@@ -379,13 +379,13 @@ ADR-0021 补了事件与计量的执行者，但明确留下 `runs` 行：`input
 |---|---|
 | 到期清空 | `runs.content_pruned_at`（迁移 0012）+ `RunStore.prune_contents`：终态且 `finished_at` 早于 `ONCALL_RUN_CONTENT_RETENTION_DAYS`（默认 180 天）的 run，`input` 置空串、`output` 置 NULL，同一事务写标记；`SELECT ... FOR UPDATE SKIP LOCKED` 分批 |
 | 保留摘要 | 不删行、不动计量/失败归因/引用快照：运行列表、失败率、成本看板与 `model_calls` 对账照常 |
-| 配置约束 | `ONCALL_RUN_CONTENT_RETENTION_DAYS < ONCALL_EVENT_RETENTION_DAYS` 启动期拒绝（事件里是同一段正文） |
+| 配置约束 | `ONCALL_RUN_CONTENT_RETENTION_DAYS < ONCALL_EVENT_RETENTION_DAYS` 启动期拒绝（事件里是同一段正文）；现场把事件保留期调到 180 天以上时要同步调大正文保留期，错误信息给出两种改法 |
 | 读路径 | 详情 `input: ""`/`output: null` + `content_pruned_at`；幂等重放 `410 CONTENT_EXPIRED`；多轮历史按 `output` 非空自然剔除；`content_redacted` 短路为 false（过期优先于权限，也不再查知识库） |
 | 索引 | `idx_runs_content_retention (finished_at) WHERE content_pruned_at IS NULL`：事件先清，清完的行掉出 `idx_runs_retention`，正文清理不能复用 |
 | 执行顺序 | 事件 → 正文 → 计量；两个标记都幂等；CLI `prune` 输出新增 `content_before` / `content_runs` |
 | 前端 | `/runs/:id` 用 `content_pruned_at` 显示「正文已过保留期，已清空且不可恢复」，与 ADR-0022 的「不可见、可恢复」分开表述 |
 
-验证：默认 **329 passed + 24 skipped**；带 Postgres **353 passed**（2026-11-11 本机 WSL2 +
+验证：默认 **330 passed + 24 skipped**；带 Postgres **354 passed**（2026-11-10 本机 WSL2 +
 Docker 复跑）；前端 **56 tests / 11 files**；`ruff` / `ruff format --check` / `mypy`（95 files）/
 `tsc --noEmit` / `oxlint` / `oxfmt --check` 全绿，`pnpm build` 成功；迁移 0012 已
 `downgrade → upgrade` 往返，`alembic check` 无漂移；开发库 `prune --dry-run` 输出

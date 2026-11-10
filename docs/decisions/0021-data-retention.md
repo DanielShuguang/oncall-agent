@@ -72,7 +72,7 @@ docs/02 §4 从 W2 起就有一张保留表：`run_events` 30 天、`model_calls
 
 | 数据 | 原因 |
 |---|---|
-| `runs` | 运行列表、失败率、成本口径与多轮上下文都依赖；`input/output` 是产品数据，不是日志 |
+| `runs`（行） | 运行列表、失败率、成本口径与多轮上下文都依赖；不删行不等于永久留正文——`input/output` 到期由 [ADR-0023](0023-run-content-retention.md) 清空 |
 | `approvals` / `approval_grants` | 审批决议是治理证据，量小；保留期未定 |
 | `kb_documents` / `kb_chunks` | 知识库由管理员维护，删除是业务操作，不是保留策略 |
 | 上传的原始文件 | v1 不落盘（解析后只入 `kb_documents`），没有可清理的附件表；docs/02 §4 的这一行本次删除 |

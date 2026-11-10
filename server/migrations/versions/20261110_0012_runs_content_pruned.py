@@ -2,7 +2,7 @@
 
 Revision ID: 0012
 Revises: 0011
-Create Date: 2026-11-11
+Create Date: 2026-11-10
 
 人工审过：
 - 只加列 + 部分索引，不回填：`content_pruned_at IS NULL` 就是「正文还在」，

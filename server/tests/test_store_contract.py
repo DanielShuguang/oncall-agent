@@ -368,7 +368,11 @@ async def _exercise_prune_contents(store: RunStore) -> None:
         run_id=run_id, user_id="u_306", session_id="sess_content", message="打印机坏了"
     )
     await store.append(run_id, EventType.RUN_STARTED, {"model": "mock"})
-    await store.append(run_id, EventType.MESSAGE_COMPLETED, {"text": "重启打印服务"})
+    await store.append(
+        run_id,
+        EventType.MESSAGE_COMPLETED,
+        {"text": "重启打印服务", "citations": [{"document_id": "doc_x", "title": "打印机"}]},
+    )
     await store.append(run_id, EventType.RUN_COMPLETED, {"status": "completed"})
 
     # 还没到保留期：正文不能动
@@ -389,6 +393,8 @@ async def _exercise_prune_contents(store: RunStore) -> None:
     assert rec.input == ""
     assert rec.output is None
     assert rec.content_pruned_at is not None
+    # 引用快照是元数据，不随正文清理：详情仍能解释「这场引用过什么」
+    assert rec.cited_document_ids == ["doc_x"]
     # 回放读路径一次取到「引用快照 + 已过期」，不用再查知识库
     state = await store.content_state(run_id)
     assert state is not None

@@ -192,7 +192,7 @@ async def get_events(
 
     # 回答引用的文档已不可见时，事件里的 message.completed（带切片原文）也不能再回放
     # （ADR-0022）。和保留清理一样返回 200 + 空数组：run 本身存在、状态仍可读，
-    # 具体原因看 /runs/{id} 的 content_redacted / events_pruned_at。
+    # 具体原因看 /runs/{id} 的 content_redacted / events_pruned_at / content_pruned_at。
     # 这里不按状态放行：只多一次主键查询（没有引用就不会查知识库），换的是
     # 「详情与事件同一条规则」——运行中但已有引用快照的 run（回答输出到一半崩掉）
     # 也不能靠读接口绕过去。

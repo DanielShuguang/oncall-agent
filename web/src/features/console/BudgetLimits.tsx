@@ -16,9 +16,13 @@ import {
 import { clearBudget, listBudgets, setBudget, type UserBudget } from '@/api/budgets';
 import { formatCents, formatTime } from '@/lib/format';
 
+// 与后端 `app/schemas/budget.py` 的 MAX_DAILY_CENTS 一致（1 万元/天）
+const MAX_DAILY_CENTS = 1_000_000;
+
 export default function BudgetLimits() {
   const [defaultCents, setDefaultCents] = useState(0);
   const [items, setItems] = useState<UserBudget[]>([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [userId, setUserId] = useState('');
@@ -37,6 +41,8 @@ export default function BudgetLimits() {
         if (!cancelled) {
           setError(exc instanceof Error ? exc.message : '预算配置加载失败（需要 admin 角色）');
         }
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     };
     void fetchBudgets();
@@ -47,9 +53,11 @@ export default function BudgetLimits() {
 
   const save = async () => {
     const id = userId.trim();
-    const value = Number(cents);
-    if (!id || !Number.isInteger(value) || value < 0) {
-      setError('用户 id 不能为空，预算必须是 ≥ 0 的整数（单位：分）');
+    const raw = cents.trim();
+    const value = Number(raw);
+    // 空串会被 Number('') 变成 0（= 不限），必须显式拦住：静默放开额度比报错危险
+    if (!id || raw === '' || !Number.isInteger(value) || value < 0 || value > MAX_DAILY_CENTS) {
+      setError(`用户 id 不能为空；预算必须是 0–${MAX_DAILY_CENTS} 的整数（单位：分）`);
       return;
     }
     setSaving(true);
@@ -89,7 +97,9 @@ export default function BudgetLimits() {
         <CardTitle className="flex items-center gap-2 text-sm">
           个人日预算
           <Badge variant="secondary">
-            默认{defaultCents > 0 ? ` ${formatCents(defaultCents)}` : '不限'}
+            {loading
+              ? '加载中…'
+              : `默认${defaultCents > 0 ? ` ${formatCents(defaultCents)}` : '不限'}`}
           </Badge>
         </CardTitle>
       </CardHeader>
@@ -116,13 +126,20 @@ export default function BudgetLimits() {
               onChange={(event) => setCents(event.target.value)}
             />
           </div>
-          <Button size="sm" className="h-8" disabled={saving} onClick={() => void save()}>
+          <Button
+            size="sm"
+            className="h-8"
+            disabled={saving || loading}
+            onClick={() => void save()}
+          >
             保存
           </Button>
           {saving && <span className="text-xs text-muted-foreground">保存中…</span>}
         </div>
 
-        {items.length === 0 ? (
+        {loading ? (
+          <p className="text-xs text-muted-foreground">加载中…</p>
+        ) : items.length === 0 ? (
           <p className="text-xs text-muted-foreground">还没有按用户的覆盖：所有用户都按默认值。</p>
         ) : (
           <Table>

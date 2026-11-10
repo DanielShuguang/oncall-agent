@@ -487,12 +487,12 @@ ADR-0013 定了单 run 与当日全局两层预算，「待定」里留着「按
 | 接口 | `GET/PUT/DELETE /admin/budgets[/{user_id}]`（admin）；PUT 回读一次返回库里的 `updated_at`；`daily_cents` 0–1,000,000 |
 | 展示 | 成本页新增「个人日预算」卡片；花费仍以 `model_calls` 为真相源，账本只做闸门 |
 
-验证：默认 **385 passed + 27 skipped**；带 Postgres + Redis **412 passed**（2026-11-11 本机
+验证：默认 **390 passed + 27 skipped**；带 Postgres + Redis **417 passed**（2026-11-11 本机
 WSL2 + Docker 复跑）；`ruff` / `ruff format --check`（147 files）/ `mypy app`（102 files）通过；
 迁移 0013 已 `upgrade → check → downgrade 0012 → upgrade` 往返，`alembic check` 无漂移；
 前端 `tsc --noEmit` / `oxlint` / `oxfmt --check` 通过、**58 tests / 11 files**、
 `pnpm build` 成功。检索与提示词未改：主集 **50/50**、`cite_acc 97.09%`、`recall@5 100%`、
-`p95 78ms`；未动 `history.py` 与检索参数，多轮基线不重跑（仍是 `coref 12/12`、
+`p95 78ms`；未动 `history.py` 与检索参数，多轮基线重跑一次确认未变（`coref 12/12`、
 隔离对照 12/12、`shift 4/4`、诊断 0/1）。
 
 已知边界：没有租户/部门维度（`Identity` 只有 `user_id` + `roles`，等接 IdP）；个人账本从

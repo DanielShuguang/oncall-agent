@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Protocol
 
 from sqlalchemy import delete, select
@@ -47,10 +47,12 @@ class InMemoryUserBudgetStore:
         return dict(self._items)
 
     async def upsert(self, user_id: str, daily_cents: int, *, updated_by: str) -> None:
+        # 内存实现也要写时间：管理页的 PUT 会回读这一行，缺时间会显示成 "-"
         self._items[user_id] = UserBudgetOverride(
             user_id=user_id,
             daily_cents=daily_cents,
             updated_by=updated_by,
+            updated_at=datetime.now(UTC),
         )
 
     async def delete(self, user_id: str) -> None:

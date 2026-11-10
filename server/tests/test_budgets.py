@@ -15,7 +15,12 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.budgets.policy import UserBudgetPolicy, set_user_budget_policy
+from app.budgets.policy import (
+    UserBudgetPolicy,
+    build_user_budget_policy,
+    get_user_budget_policy,
+    set_user_budget_policy,
+)
 from app.budgets.store import InMemoryUserBudgetStore, UserBudgetOverride
 from app.core.config import Settings
 from app.core.limits import (
@@ -177,7 +182,11 @@ async def test_policy_default_override_and_clear() -> None:
     await policy.set_limit("u_1", 0, updated_by="admin_1")
     # 0 是显式的「该用户不限」，与「没有覆盖、继承 200」不同
     assert await policy.limit_for("u_1") == 0
-    assert (await policy.overrides())["u_1"] == UserBudgetOverride("u_1", 0, "admin_1")
+    override = (await policy.overrides())["u_1"]
+    assert override.daily_cents == 0
+    assert override.updated_by == "admin_1"
+    # 内存实现也要写时间：管理页 PUT 后直接回读，不能显示成 "-"
+    assert override.updated_at is not None
 
     await policy.set_limit("u_2", 50, updated_by="admin_1")
     assert await policy.limit_for("u_2") == 50
@@ -213,6 +222,12 @@ async def test_policy_keeps_stale_snapshot_on_store_failure() -> None:
     # 管理页不能把旧快照当现状
     with pytest.raises(RuntimeError):
         await policy.overrides(allow_stale=False)
+
+
+def test_build_policy_maps_settings() -> None:
+    """生产装配：环境默认值进策略、内存部署用内存存储（避免测试/演示连库）。"""
+    policy = build_user_budget_policy(_settings(store_backend="memory", user_daily_budget_cny=0.5))
+    assert policy.default_cents == 50
 
 
 # --------------------------------------------------------------------------- #
@@ -251,6 +266,22 @@ async def test_budget_api_set_list_and_clear(client: AsyncClient) -> None:
     assert (await client.get("/api/admin/budgets", headers=ADMIN)).json()["overrides"] == []
     # 删除不存在的覆盖也是 204（幂等）
     assert (await client.delete("/api/admin/budgets/u_205", headers=ADMIN)).status_code == 204
+
+
+async def test_budget_api_delete_falls_back_to_default(client: AsyncClient) -> None:
+    """删除覆盖回到默认值；写 0 是"显式不限"，两者不能混。"""
+    set_user_budget_policy(UserBudgetPolicy(InMemoryUserBudgetStore(), default_cents=120, ttl_s=0))
+    listed = (await client.get("/api/admin/budgets", headers=ADMIN)).json()
+    assert listed["default_cents"] == 120
+
+    saved = await client.put("/api/admin/budgets/u_205", json={"daily_cents": 30}, headers=ADMIN)
+    assert saved.json()["updated_at"] is not None
+    policy = get_user_budget_policy()
+    assert await policy.limit_for("u_205") == 30
+    assert await policy.limit_for("u_206") == 120
+
+    await client.delete("/api/admin/budgets/u_205", headers=ADMIN)
+    assert await get_user_budget_policy().limit_for("u_205") == 120
 
 
 @pytest.mark.parametrize("cents", [-1, 1_000_001])
@@ -430,3 +461,46 @@ async def test_user_budget_not_enforced_without_policy() -> None:
     await _chat(gateway)
     assert provider.calls == 1
     assert await ledger.spent() == 1
+
+
+async def test_gateway_uses_policy_default_limit() -> None:
+    """生产装配用的是 `UserBudgetPolicy`：默认值要能直接挡住第二次调用。"""
+    policy = UserBudgetPolicy(InMemoryUserBudgetStore(), default_cents=1, ttl_s=0)
+    ledger = InMemoryUserBudgetLedger()
+    provider = _FakeProvider(RawCompletion("ok", 100, 20))
+    gateway = ModelGateway(
+        [CLOUD],
+        budget=InMemoryBudgetLedger(1000),
+        meter=InMemoryModelCallStore(),
+        settings=_settings(),
+        provider_factory=lambda route: provider,
+        user_budget=ledger,
+        user_limits=policy,
+    )
+    await _chat(gateway)
+    with pytest.raises(BudgetExceeded):
+        await _chat(gateway)
+    assert await ledger.spent("u_102") == 1
+    assert provider.calls == 1
+
+
+async def test_policy_zero_override_means_unlimited_for_that_user() -> None:
+    """显式覆盖 0 = 该用户不限：默认值对他不再生效，也不用查个人账本。"""
+    policy = UserBudgetPolicy(InMemoryUserBudgetStore(), default_cents=1, ttl_s=0)
+    await policy.set_limit("u_102", 0, updated_by="admin_1")
+
+    budgets = _CountingUserLedger()
+    provider = _FakeProvider(RawCompletion("ok", 100, 20))
+    gateway = ModelGateway(
+        [CLOUD],
+        budget=InMemoryBudgetLedger(1000),
+        meter=InMemoryModelCallStore(),
+        settings=_settings(),
+        provider_factory=lambda route: provider,
+        user_budget=budgets,
+        user_limits=policy,
+    )
+    await _chat(gateway)
+    await _chat(gateway)
+    assert budgets.reserve_calls == 0
+    assert provider.calls == 2

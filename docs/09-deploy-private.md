@@ -118,9 +118,9 @@ ONCALL_RATE_LIMIT_PER_MIN=30
 ```
 
 > 价格单位是「分 / 百万 token」，不是美元；填错会直接体现在成本看板上。
-> `ONCALL_USER_DAILY_BUDGET_CNY=0` 表示不给每个用户单独设上限；设成非零后还可以在
-> 成本页按用户覆盖（[ADR-0026](decisions/0026-user-daily-budget.md)）。
-> 详见 [ADR-0013](decisions/0013-model-gateway.md)。
+> `ONCALL_USER_DAILY_BUDGET_CNY=0` 表示默认不给每个用户设上限；**无论默认值是多少**，
+> 都可以在成本页按用户单独覆盖（覆盖里的 0 = 该用户不限）。
+> 详见 [ADR-0013](decisions/0013-model-gateway.md)、[ADR-0026](decisions/0026-user-daily-budget.md)。
 
 > 目的：面试官/客户拿到仓库，`docker compose up` 就能看到完整链路，不需要 key、不需要联网。这是开源项目的第一印象分。
 

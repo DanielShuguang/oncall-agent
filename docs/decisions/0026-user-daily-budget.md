@@ -94,27 +94,32 @@
   「预扣泄漏」同类，最坏让当天预算偏保守，日切自愈。
 - 语义边界：没有租户/部门维度（`Identity` 只有 `user_id` + `roles`，等接 IdP 后再说）；
   个人额度按 UTC 日累计、不跨日结转；被拦下是 `run.failed` 而不是 `429`（与全局预算一致，
-  429 留给请求限流）。
+  429 留给请求限流）；个人额度配得比全局日预算还大时**永远不会先触发**（网关先扣全局），
+  管理页不阻止这种配置，文档里写明它等于没设。
 - 管理页多一次回读（PUT 后读一次库），为的是响应里的 `updated_at` 能直接填表格。
 
 ## 验证
 
-- 新增 `tests/test_budgets.py`（20 条）：内存账本的预扣/拒绝/结算/跨用户隔离/跨日重置、
+- 新增 `tests/test_budgets.py`（24 条）：内存账本的预扣/拒绝/结算/跨用户隔离/跨日重置、
   凭证缺 `user_id` 被拒、Redis 挂了退回内存账本且在内存结算、真实 Redis 往返（需
-  `ONCALL_TEST_REDIS_URL`）；策略的默认值/覆盖/显式 0/TTL 缓存/写后失效/库故障保留快照；
-  管理接口的鉴权、增删查、越界与空白 `user_id` 的 422、库故障 503；网关的个人额度闸门
-  （拒绝时释放全局预扣、按实际结算、跨用户隔离、上限 0 不查账本、provider 失败双账本归零、
-  未配置策略时零变化）。
+  `ONCALL_TEST_REDIS_URL`）；策略的默认值/覆盖/显式 0/TTL 缓存/写后失效/库故障保留快照、
+  装配时默认值来自配置；管理接口的鉴权、增删查、越界与空白 `user_id` 的 422、库故障 503、
+  PUT 回读的 `updated_at` 非空、DELETE 回到默认值；网关的个人额度闸门（拒绝时释放全局预扣、
+  按实际结算、跨用户隔离、上限 0 不查账本、真实策略的默认值生效、显式 0 覆盖不查账本、
+  provider 失败双账本归零、未配置策略时零变化）。
 - 新增 `tests/test_budgets_pg.py`（2 条，默认跳过）：Postgres 存储的 upsert/覆盖更新/
   删除，以及 `daily_cents >= 0` 的 CHECK。
+- `tests/test_config.py` +1：`ONCALL_USER_DAILY_BUDGET_CNY` 拒绝负数、0 = 不限、
+  显式非零至少 1 分。
 - 迁移 0013：在测试库上 `upgrade head → alembic check → downgrade 0012 → upgrade head → check`
   往返通过，无漂移。
-- 完整回归：默认 **385 passed + 27 skipped**；带 Postgres + Redis **412 passed**；
+- 完整回归：默认 **390 passed + 27 skipped**；带 Postgres + Redis **417 passed**；
   `ruff check` / `ruff format --check`（147 files）/ `mypy app`（102 files）通过。
 - 前端：`tsc --noEmit` / `oxlint` / `oxfmt --check` 通过；vitest **58 tests / 11 files**；
   `pnpm build` 成功（新增卡片按路由懒加载，进成本页 chunk）。
 - 检索与提示词未改：主集 50/50、`cite_acc 97.09%`、`recall@5 100%`；
-  `history.py` 与检索参数未动，多轮基线不重跑。
+  `history.py` 与检索参数未动，多轮基线重跑一次确认未变（`coref 12/12`、隔离 12/12、
+  `shift 4/4`、诊断 0/1）。
 
 ## 待定
 

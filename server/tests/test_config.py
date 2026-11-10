@@ -109,3 +109,13 @@ def test_retention_params_are_validated() -> None:
     assert settings.event_retention_days == 180
     assert settings.model_call_retention_days == 180
     assert settings.run_content_retention_days == 180
+
+
+def test_user_daily_budget_is_validated_and_converted_to_cents() -> None:
+    """与全局预算同口径：0 = 不限，显式非零至少 1 分（ADR-0026）。"""
+    with pytest.raises(ValidationError, match="ONCALL_USER_DAILY_BUDGET_CNY"):
+        Settings(user_daily_budget_cny=-0.1)
+    assert Settings(user_daily_budget_cny=0).user_daily_budget_cents == 0
+    assert Settings(user_daily_budget_cny=1.5).user_daily_budget_cents == 150
+    # 小于半分也至少按 1 分算：配了 0.001 元不该等于没配
+    assert Settings(user_daily_budget_cny=0.001).user_daily_budget_cents == 1

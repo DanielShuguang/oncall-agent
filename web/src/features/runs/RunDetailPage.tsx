@@ -33,6 +33,9 @@ function replay(events: RunEvent[]): Runtime {
 }
 
 function subtitle(run: RunDetail): string {
+  if (run.content_pruned_at) {
+    return `正文已过保留期清理（${formatTime(run.content_pruned_at)}）`;
+  }
   if (run.content_redacted) return '回答引用的文档已不可见，内容不再展示';
   if (run.events_pruned_at) return `事件已过保留期清理（${formatTime(run.events_pruned_at)}）`;
   return `${run.event_count} 条事件 · 重放自事件表`;
@@ -127,15 +130,23 @@ export default function RunDetailPage() {
         </Card>
       )}
 
-      {run.events_pruned_at && (
+      {run.content_pruned_at ? (
         <Card className="mb-4 border-line bg-panel">
           <CardContent className="p-3 text-xs text-muted-foreground">
-            {`事件已过保留期，于 ${formatTime(run.events_pruned_at)} 被清理：步骤时间线、工具调用与对话回放不再可用；运行摘要、模型计量与失败归因仍保留。`}
+            {`正文已过保留期，于 ${formatTime(run.content_pruned_at)} 被清空：问题与回答不再保留，回放也不可用；运行摘要、模型计量与失败归因仍然可查。这是保留策略，不是运行失败。`}
           </CardContent>
         </Card>
+      ) : (
+        run.events_pruned_at && (
+          <Card className="mb-4 border-line bg-panel">
+            <CardContent className="p-3 text-xs text-muted-foreground">
+              {`事件已过保留期，于 ${formatTime(run.events_pruned_at)} 被清理：步骤时间线、工具调用与对话回放不再可用；运行摘要、模型计量与失败归因仍保留。`}
+            </CardContent>
+          </Card>
+        )
       )}
 
-      {run.content_redacted && (
+      {!run.content_pruned_at && run.content_redacted && (
         <Card className="mb-4 border-line bg-panel">
           <CardContent className="p-3 text-xs text-muted-foreground">
             该回答引用的知识库文档已不可见（可见范围变更或已删除）：回答正文、对话回放与
@@ -152,11 +163,13 @@ export default function RunDetailPage() {
           <CardContent className="space-y-2">
             {runtime.steps.length === 0 && (
               <div className="text-xs text-muted-foreground">
-                {run.content_redacted
-                  ? '内容已按当前可见性回收，无法重建时间线'
-                  : run.events_pruned_at
-                    ? '事件已清理，无法重建时间线'
-                    : '没有步骤事件'}
+                {run.content_pruned_at
+                  ? '正文已过保留期，回放不可用'
+                  : run.content_redacted
+                    ? '内容已按当前可见性回收，无法重建时间线'
+                    : run.events_pruned_at
+                      ? '事件已清理，无法重建时间线'
+                      : '没有步骤事件'}
               </div>
             )}
             {runtime.steps.map((step) => (
@@ -185,11 +198,13 @@ export default function RunDetailPage() {
           <CardContent className="space-y-2">
             {runtime.tools.length === 0 && (
               <div className="text-xs text-muted-foreground">
-                {run.content_redacted
-                  ? '内容已按当前可见性回收，工具调用记录不可用'
-                  : run.events_pruned_at
-                    ? '事件已清理，工具调用记录不可用'
-                    : '没有工具调用'}
+                {run.content_pruned_at
+                  ? '正文已过保留期，工具调用记录不可用'
+                  : run.content_redacted
+                    ? '内容已按当前可见性回收，工具调用记录不可用'
+                    : run.events_pruned_at
+                      ? '事件已清理，工具调用记录不可用'
+                      : '没有工具调用'}
               </div>
             )}
             {runtime.tools.map((tool) => (
@@ -215,7 +230,9 @@ export default function RunDetailPage() {
         <CardContent className="space-y-3">
           <div className="text-xs">
             <div className="text-muted-foreground">用户</div>
-            <div className="mt-0.5">{run.input}</div>
+            <div className="mt-0.5">
+              {run.content_pruned_at ? '（内容已过保留期，不再保留）' : run.input}
+            </div>
           </div>
           {runtime.messages
             .filter((message) => message.role === 'assistant' && message.text)
@@ -245,9 +262,14 @@ export default function RunDetailPage() {
               <div className="mt-1 text-[11px] text-muted-foreground">引用角标随事件清理不可用</div>
             </div>
           )}
-          {run.content_redacted && (
+          {!run.content_pruned_at && run.content_redacted && (
             <div className="text-xs text-muted-foreground">
               助手回答引用的文档已不可见，正文不再展示；这不是运行失败。
+            </div>
+          )}
+          {run.content_pruned_at && (
+            <div className="text-xs text-muted-foreground">
+              问题与回答正文已过保留期清空，不再展示；这不是运行失败。
             </div>
           )}
         </CardContent>

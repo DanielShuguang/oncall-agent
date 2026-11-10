@@ -15,6 +15,10 @@
 `input` 不回收：那是用户自己敲进来的问题，不是知识库正文。管理端审批载荷
 （`approvals.state`）不返回给前端（docs/03 §5），也不在本次范围内。
 
+与**按时间**的正文清理（ADR-0023）正交：`runs.content_pruned_at` 非空表示正文已经
+被保留策略清空，此时没有任何内容可回收，`content_is_redacted` 直接返回 False，
+也不再查知识库（谁都不该看到的内容，谈不上「按你的权限隐藏」）。
+
 **fail-closed**：查不到的文档按不可见处理。管理员删掉一篇文档后，旧回答里由它
 生成的正文同样不该继续展示。代价是重新上传会换 `document_id`，旧引用因此被隐藏；
 这是有意的取舍，见 ADR-0022。
@@ -53,7 +57,13 @@ async def content_is_visible(
 
 
 async def content_is_redacted(record: RunRecord, *, viewer: Viewer, kb: KnowledgeBase) -> bool:
-    """`content_is_visible` 的反面；API 用它决定是否隐藏 output 与事件。"""
+    """`content_is_visible` 的反面；API 用它决定是否隐藏 output 与事件。
+
+    正文已被保留策略清空（ADR-0023）时恒为 False：内容已经不存在了，再按权限
+    判定只会让详情页把「过期清理」说成「文档不可见」，也会白跑一次知识库查询。
+    """
+    if record.content_pruned_at is not None:
+        return False
     return not await content_is_visible(
         cited_document_ids=record.cited_document_ids,
         viewer=viewer,

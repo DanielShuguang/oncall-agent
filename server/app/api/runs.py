@@ -8,6 +8,8 @@
 W4 D19 增加列表分页与计量明细；W4 D20 的回放直接复用事件接口。
 ADR-0022 在读取侧加一层按**当前**可见性的回收：详情不带 `output`、事件不回放、
 `content_redacted` 说明原因（列表没有正文，不需要）。
+ADR-0023 是**按时间**的正文清理（`content_pruned_at`）：到期后 `input/output` 不再返回，
+摘要、计量与失败归因照旧；两种原因同时存在时先说过期（正文已经不存在了）。
 """
 
 from __future__ import annotations
@@ -67,6 +69,8 @@ def _run_summary(rec: RunRecord) -> dict[str, Any]:
         "event_count": rec.event_count,
         # 事件过了保留期会被整场清理（ADR-0021）；有值表示回放不可用，摘要仍可信
         "events_pruned_at": rec.events_pruned_at,
+        # 正文过了保留期会被清空（ADR-0023）；有值表示 input/output 已不可读
+        "content_pruned_at": rec.content_pruned_at,
         "started_at": rec.started_at,
         "finished_at": rec.finished_at,
     }
@@ -139,6 +143,8 @@ async def get_run(
         raise ApiError(503, "DATABASE_UNAVAILABLE", "database unavailable") from exc
     return {
         **_run_summary(rec),
+        # 正文被保留策略清空后 input 是空串、output 是 null（ADR-0023）；
+        # 用 content_pruned_at 区分「本来就空」和「过期清理」
         "input": rec.input,
         "output": None if redacted else rec.output,
         "content_redacted": redacted,
@@ -181,22 +187,36 @@ async def get_events(
     if run_status is None:
         raise _not_found()
 
+    # 查询参数优先：显式传 0 表示"从头补"，不会被旧 header 覆盖
+    effective_after = after_seq if after_seq is not None else _parse_last_event_id(last_event_id)
+
     # 回答引用的文档已不可见时，事件里的 message.completed（带切片原文）也不能再回放
     # （ADR-0022）。和保留清理一样返回 200 + 空数组：run 本身存在、状态仍可读，
     # 具体原因看 /runs/{id} 的 content_redacted / events_pruned_at。
     # 这里不按状态放行：只多一次主键查询（没有引用就不会查知识库），换的是
     # 「详情与事件同一条规则」——运行中但已有引用快照的 run（回答输出到一半崩掉）
     # 也不能靠读接口绕过去。
-    cited = await store.cited_document_ids(run_id)
-    if cited is None:
+    #
+    # 正文过了保留期（ADR-0023）时事件早已按 ADR-0021 清掉，也没有「权限回收」可言：
+    # 直接返回同样形态的空数组，和详情的 `content_redacted: false` 保持一致口径
+    # （一次查询同时取引用快照与过期标记，不额外加一次往返）。
+    state = await store.content_state(run_id)
+    if state is None:
         raise _not_found()
+    if state.content_pruned_at is not None:
+        return {
+            "events": [],
+            "next_seq": effective_after,
+            "run_status": run_status,
+            "content_redacted": False,
+        }
     try:
-        redacted = not await content_is_visible(cited_document_ids=cited, viewer=viewer, kb=kb)
+        redacted = not await content_is_visible(
+            cited_document_ids=state.cited_document_ids, viewer=viewer, kb=kb
+        )
     except SQLAlchemyError as exc:
         raise ApiError(503, "DATABASE_UNAVAILABLE", "database unavailable") from exc
 
-    # 查询参数优先：显式传 0 表示"从头补"，不会被旧 header 覆盖
-    effective_after = after_seq if after_seq is not None else _parse_last_event_id(last_event_id)
     if redacted:
         return {
             "events": [],

@@ -101,15 +101,17 @@ async def _sweep_retention(stop: asyncio.Event) -> None:
     while not stop.is_set():
         try:
             result = await sweeper.sweep()
-            if result.run_ids or result.calls:
+            if result.run_ids or result.calls or result.content_run_ids:
                 log.info(
                     "retention_pruned",
                     runs=len(result.run_ids),
                     events=result.events,
                     calls=result.calls,
+                    content_runs=len(result.content_run_ids),
                     batch=result.batch,
                     events_before=result.events_before.isoformat(),
                     calls_before=result.calls_before.isoformat(),
+                    content_before=result.content_before.isoformat(),
                 )
             if result.capped:
                 # 跑到批次上限还有候选：清理在追赶，不是「已经清完」
@@ -119,6 +121,7 @@ async def _sweep_retention(stop: asyncio.Event) -> None:
                     runs=len(result.run_ids),
                     events=result.events,
                     calls=result.calls,
+                    content_runs=len(result.content_run_ids),
                 )
         except Exception as exc:  # 库没起来时不能让后台任务炸掉整个进程
             log.warning("retention_sweep_failed", error=str(exc))

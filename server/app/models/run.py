@@ -63,6 +63,9 @@ class Run(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     #: 事件已被保留策略清理的时间（ADR-0021）；有值时回放不可用，run 摘要仍保留
     events_pruned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: 正文（`input`/`output`）已被保留策略清空的时间（ADR-0023）。有值时只剩摘要；
+    #: 与按权限回收（ADR-0022）正交：那份是「当前看不到」，这份是「谁都不再留」
+    content_pruned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     #: 回答引用过的知识库文档 id（ADR-0022）。读回放时按**当前**可见性重新校验，
     #: 不能等到事件被清理后再算——那时 `message.completed` 里的引用已经没了
     cited_document_ids: Mapped[list[str]] = mapped_column(
@@ -85,6 +88,13 @@ class Run(Base):
             "idx_runs_retention",
             "finished_at",
             postgresql_where=text("events_pruned_at IS NULL"),
+        ),
+        # 正文清理单独一个部分索引（ADR-0023）：事件先清，清完的行会掉出
+        # `idx_runs_retention`，正文清理不能复用那个索引，否则每轮都要全表扫起
+        Index(
+            "idx_runs_content_retention",
+            "finished_at",
+            postgresql_where=text("content_pruned_at IS NULL"),
         ),
         Index(
             "idx_runs_status",

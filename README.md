@@ -26,7 +26,7 @@
 4. **工具治理**：白名单、会话级权限、单工具超时、错误分类重试、业务降级、保留字段拒绝
 5. **人工审批**：写操作必须确认，支持"本会话内允许"
 6. **模型网关**：多模型接入、规则路由、限流、每日预算、成本埋点
-7. **可观测与保留**：事件落库、断线续跑、按 run 回放、成本与质量看板；事件/计量按保留期清理（默认 180 天），run 摘要保留；回答内容按**当前**文档可见性回收，撤权立即生效
+7. **可观测与保留**：事件落库、断线续跑、按 run 回放、成本与质量看板；事件/计量/问答正文按保留期清理（默认 180 天），run 摘要保留；回答内容按**当前**文档可见性回收，撤权立即生效
 8. **私有化交付**：docker-compose + 离线镜像 + mock 模式（不填模型 key 也能演示）
 
 ## 架构
@@ -168,7 +168,7 @@ oncall/
 
 | 模块 | 状态 | 验证方式 |
 |---|---|---|
-| 文档（12 篇 + 22 篇 ADR + 评测基线） | ✅ 完成 | — |
+| 文档（12 篇 + 23 篇 ADR + 评测基线） | ✅ 完成 | — |
 | 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡 / 运行回放 / 成本页） | ✅ 可用 | `tsc --noEmit`、`oxlint 0`、`oxfmt --check` 通过；`vitest` 56/56；`pnpm build` 成功 |
 | 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **316 passed + 24 skipped**；设 `ONCALL_TEST_DATABASE_URL` 后 **340 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约、引用快照与内容回收、计量一致性） |
 | 本地 JWT（W1 D2） | ✅ 已完成 | `tests/test_auth.py` 20 条：签发/验签、过期、alg=none、401 JSON、OpenAPI Bearer、run 归属隔离 |
@@ -186,6 +186,7 @@ oncall/
 | 多轮上下文（W6 后补） | ✅ 已完成 | `RunStore.recent_turns` 按「用户 + `session_id`」取最近 3 轮（迁移 0009 索引），3 轮 / 1200 字预算；追问拼进 `context_query`，引用仍只来自本轮检索；「清空对话」换新 `session_id`；`tests/test_history.py`、`test_agent_runtime.py`、`test_store_contract.py`、`test_chat_stream.py`（同会话追问引用 VPN / 换会话拒答）；[ADR-0020](docs/decisions/0020-multi-turn-context.md) |
 | 数据保留清理（W6 后补） | ✅ 已完成 | 终态 run 超过 `ONCALL_EVENT_RETENTION_DAYS`（默认 180 天）后按 run 整场删除事件并写 `events_pruned_at`（迁移 0010）；`model_calls` 按 `ONCALL_MODEL_CALL_RETENTION_DAYS` 删明细、`runs` 汇总保留；后台每 6 小时、单轮最多 10 批（事件与计量各 200 行/批）+ `make prune` / `prune --dry-run`；回放页标明事件已清理并从 `run.output` 兜底展示最终回答；`tests/test_retention.py`、`test_store_contract.py`（`_exercise_prune`）、`test_runs_api.py`、`test_metrics_pg.py`；[ADR-0021](docs/decisions/0021-data-retention.md) |
 | 回答内容回收（W6 后补） | ✅ 已完成 | 回答引用快照落 `runs.cited_document_ids`（迁移 0011，含存量回填）；读详情/事件/幂等重放/多轮历史时按**当前**可见性校验，任一篇不可见就整场回收（fail-closed，`admin` 除外，恢复范围自动恢复）；`tests/test_runs_content.py`、`test_runs_api.py`、`test_chat_stream.py`、`test_rag_acl.py`、`test_rag_pg.py`、`test_store_contract.py`；[ADR-0022](docs/decisions/0022-run-content-visibility.md) |
+| run 正文按时间保留（W6 后补） | ✅ 已完成 | 终态 run 超过 `ONCALL_RUN_CONTENT_RETENTION_DAYS`（默认 180 天）后清空 `runs.input/output` 并写 `content_pruned_at`（迁移 0012），只留状态/计量/失败归因/引用快照；强制正文保留期 ≥ 事件保留期（事件里是同一段正文）；详情返回空正文 + 标记、幂等重放 `410 CONTENT_EXPIRED`、多轮历史自然剔除；`tests/test_retention.py`、`test_store_contract.py`（`_exercise_prune_contents`）、`test_runs_api.py`、`test_chat_stream.py`、`test_runs_content.py`、`test_config.py`；[ADR-0023](docs/decisions/0023-run-content-retention.md) |
 
 ### 评测与压测
 
@@ -260,8 +261,11 @@ W6 基线（3 轮均值，mock 规则路径，口径见 [baseline-v1](docs/eval/
   （[ADR-0021](docs/decisions/0021-data-retention.md)）
 - 回答内容按权限回收：引用文档被改窄/删除后，详情、事件、幂等重放与多轮历史都不再展示
   旧回答（[ADR-0022](docs/decisions/0022-run-content-visibility.md)）。代价是 fail-closed——
-  重新上传会换 `document_id`，旧引用因此按不可见处理；回收只覆盖知识库引用，
-  `runs.input/output` 的**按时间**保留（TTL）仍未做
+  重新上传会换 `document_id`，旧引用因此按不可见处理；回收只覆盖知识库引用
+- 问答正文按时间清理：超过 `ONCALL_RUN_CONTENT_RETENTION_DAYS`（默认 180 天）后
+  `runs.input/output` 被**不可逆**清空，详情只剩摘要，那一轮也从多轮历史消失
+  （[ADR-0023](docs/decisions/0023-run-content-retention.md)）。正文保留期不允许短于事件保留期
+  ——事件里是同一段回答正文，想更早删正文要连事件一起调；按用户/租户的差异化保留期没有做
 - iframe + postMessage 嵌入形态（W5 D25）暂缓，需要来源白名单与 CSP 部署决策
 
 ## License

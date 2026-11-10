@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -499,3 +500,51 @@ async def test_replay_does_not_reload_history() -> None:
 
     assert [e["seq"] for e in second] == [e["seq"] for e in first]
     assert store.history_calls == 1
+
+
+async def test_history_skips_turns_pruned_by_retention(
+    client: AsyncClient, mem_store: InMemoryRunStore
+) -> None:
+    """正文过了保留期（ADR-0023）：那一轮从多轮历史里消失，追问回到「没有上文」。"""
+    first = _parse(
+        await _stream(
+            client,
+            {
+                "session_id": "sess_pruned_hist",
+                "client_msg_id": "p1",
+                "message": "VPN 连不上怎么办",
+            },
+        )
+    )
+    assert _answer(first)[0] != REFUSAL
+
+    pruned = await mem_store.prune_contents(finished_before=datetime.now(UTC) + timedelta(days=365))
+    assert len(pruned.run_ids) == 1
+
+    follow = _parse(
+        await _stream(
+            client,
+            {"session_id": "sess_pruned_hist", "client_msg_id": "p2", "message": "那怎么办？"},
+        )
+    )
+    follow_answer, follow_citations = _answer(follow)
+    assert follow_answer == REFUSAL
+    assert follow_citations == []
+
+
+async def test_replay_of_expired_content_is_gone(
+    client: AsyncClient, mem_store: InMemoryRunStore
+) -> None:
+    """正文被保留策略清空后重放：410 而不是「成功但没有回答」的空流（ADR-0023）。"""
+    payload = {
+        "session_id": "sess_expired_replay",
+        "client_msg_id": "cmsg_expired_replay",
+        "message": "我电脑连不上打印机了",
+    }
+    await _stream(client, payload)
+    pruned = await mem_store.prune_contents(finished_before=datetime.now(UTC) + timedelta(days=365))
+    assert len(pruned.run_ids) == 1
+
+    res = await client.post("/api/chat/stream", json=payload)
+    assert res.status_code == 410
+    assert res.json()["code"] == "CONTENT_EXPIRED"

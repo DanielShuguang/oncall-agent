@@ -170,7 +170,7 @@ make loadtest
 | 指标 | `/metrics`（Prometheus 格式），至少暴露：run 数、失败率、p95、token 消耗 |
 | 备份 | `pg_dump` 每日 + 事件表按月归档 |
 | 孤儿 run | 后台默认每 60s（`ONCALL_RECOVERY_INTERVAL_S`）扫描；超过 `ONCALL_STALE_RUN_MIN`（默认 10 分钟）没有事件的 `running` run 追加 `run.failed(RUN_INTERRUPTED)`。立即处理先看候选：`cd server && uv run python -m app.cli reap --dry-run`（容器内 `docker compose exec api python -m app.cli reap --dry-run`），确认后 `make reap`。只收敛状态，不自动重试写工具（[ADR-0017](decisions/0017-stale-run-recovery.md)） |
-| 保留清理 | 后台默认每 6 小时（`ONCALL_RETENTION_INTERVAL_S`）清理超过 180 天（`ONCALL_EVENT_RETENTION_DAYS` / `ONCALL_MODEL_CALL_RETENTION_DAYS`）的 run 事件与计量明细；每轮最多 `ONCALL_RETENTION_MAX_BATCHES`（默认 10）批 × `ONCALL_RETENTION_BATCH`（默认 200）行；按 1–2 条计量/run 估算约 4000–8000 run/天，跑量更大要调这两个值；跑满上限时日志出现 `retention_backlog_remaining` 表示在追赶。立即处理或先看候选：`cd server && uv run python -m app.cli prune --dry-run`，确认后 `make prune`；事件按 run 整场删除并写 `runs.events_pruned_at`，`runs` 摘要/回答保留（[ADR-0021](decisions/0021-data-retention.md)） |
+| 保留清理 | 后台默认每 6 小时（`ONCALL_RETENTION_INTERVAL_S`）清理超过 180 天的数据：`ONCALL_EVENT_RETENTION_DAYS` 的 run 事件（按 run 整场删除并写 `runs.events_pruned_at`）、`ONCALL_RUN_CONTENT_RETENTION_DAYS` 的正文（清空 `runs.input/output` 并写 `content_pruned_at`，只留摘要/计量/失败归因）、`ONCALL_MODEL_CALL_RETENTION_DAYS` 的计量明细；每轮最多 `ONCALL_RETENTION_MAX_BATCHES`（默认 10）批 × `ONCALL_RETENTION_BATCH`（默认 200）行；按 1–2 条计量/run 估算约 4000–8000 run/天，跑量更大要调这两个值；跑满上限时日志出现 `retention_backlog_remaining` 表示在追赶。**清理是不可逆的**，现场要留更久只能调大保留天数。立即处理或先看候选：`cd server && uv run python -m app.cli prune --dry-run`（输出含 `content_before` / `content_runs`），确认后 `make prune`（[ADR-0021](decisions/0021-data-retention.md)、[ADR-0023](decisions/0023-run-content-retention.md)） |
 | 升级 | 先跑 alembic 迁移 → 再滚动重启 api |
 | 回滚 | 镜像 tag + 数据库迁移的 downgrade 脚本（每次迁移必须写 downgrade） |
 
@@ -182,6 +182,7 @@ make loadtest
 - [ ] 上传文件类型与大小限制；**PDF 解析目前在 API 进程内，子进程隔离尚未实现**（W6 已知缺口）
 - [ ] 提示词注入防护：检索内容包 `<document>` 并声明非指令
 - [ ] 审计日志保留 180 天（清理任务默认 180 天；调小 `ONCALL_EVENT_RETENTION_DAYS` 前确认合规要求，ADR-0021）
+- [ ] 问答正文保留期符合隐私要求（默认 180 天，`ONCALL_RUN_CONTENT_RETENTION_DAYS` 不得小于事件保留期；调小要连同事件一起调，ADR-0023）
 - [ ] `.env` 不入库，密钥不出现在日志
 - [ ] 依赖漏洞扫描（`uv pip audit` / `pnpm audit`）
 

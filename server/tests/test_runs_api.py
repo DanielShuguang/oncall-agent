@@ -412,3 +412,68 @@ async def test_events_pruned_and_redacted_together(
     # 列表与详情共用同一个 summary，标记也要出现在列表里
     listing = (await client.get("/api/runs")).json()
     assert listing["items"][0]["events_pruned_at"] is not None
+
+
+async def test_pruned_content_keeps_only_summary(
+    client: AsyncClient, mem_store: InMemoryRunStore
+) -> None:
+    """正文过保留期（ADR-0023）：详情只剩摘要，列表带标记，事件已先一步清掉。"""
+    run_id = await _seed_run(mem_store)
+    cutoff = datetime.now(UTC) + timedelta(days=365)
+    # 生产顺序：事件先清、正文后清（配置层保证正文不短于事件）
+    await mem_store.prune_events(finished_before=cutoff)
+    pruned = await mem_store.prune_contents(finished_before=cutoff)
+    assert pruned.run_ids == [run_id]
+
+    detail = (await client.get(f"/api/runs/{run_id}")).json()
+    assert detail["content_pruned_at"] is not None
+    assert detail["input"] == ""
+    assert detail["output"] is None
+    # 正文已经不存在，不是「按你的权限隐藏」：两种标记不能混着用
+    assert detail["content_redacted"] is False
+    assert detail["status"] == RunStatus.COMPLETED.value
+    assert detail["token_in"] == 12
+
+    listing = (await client.get("/api/runs")).json()
+    assert listing["items"][0]["content_pruned_at"] is not None
+
+    events = (await client.get(f"/api/runs/{run_id}/events")).json()
+    assert events["events"] == []
+
+
+async def test_pruned_content_wins_over_visibility(
+    client: AsyncClient, mem_store: InMemoryRunStore, memory_kb: KnowledgeBase
+) -> None:
+    """引用文档随后又被收权时，详情仍说过期而不是不可见：正文早就不在了。"""
+    doc_id = await _index_doc(memory_kb)
+    run_id = await _seed_run(mem_store, citations=[{"document_id": doc_id}])
+    await mem_store.prune_contents(finished_before=datetime.now(UTC) + timedelta(days=365))
+    await memory_kb.set_access(doc_id, visibility=ROLES, allowed_roles=("hr",))
+
+    detail = (await client.get(f"/api/runs/{run_id}")).json()
+    assert detail["content_pruned_at"] is not None
+    assert detail["content_redacted"] is False
+    assert detail["output"] is None
+
+
+async def test_events_after_content_prune_are_not_marked_redacted(
+    client: AsyncClient, mem_store: InMemoryRunStore, memory_kb: KnowledgeBase
+) -> None:
+    """正文过期 + 引用文档随后被收权：两个接口都把原因说成「过期」，不写「不可见」。
+
+    事件早已按 ADR-0021 清掉，没有「权限回收」可言；两个读接口的标记必须同一口径。
+    """
+    doc_id = await _index_doc(memory_kb)
+    run_id = await _seed_run(mem_store, citations=[{"document_id": doc_id}])
+    cutoff = datetime.now(UTC) + timedelta(days=365)
+    await mem_store.prune_events(finished_before=cutoff)
+    await mem_store.prune_contents(finished_before=cutoff)
+    await memory_kb.set_access(doc_id, visibility=ROLES, allowed_roles=("hr",))
+
+    events = (await client.get(f"/api/runs/{run_id}/events")).json()
+    assert events["events"] == []
+    assert events["content_redacted"] is False
+
+    detail = (await client.get(f"/api/runs/{run_id}")).json()
+    assert detail["content_redacted"] is False
+    assert detail["content_pruned_at"] is not None

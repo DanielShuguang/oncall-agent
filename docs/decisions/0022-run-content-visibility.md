@@ -123,7 +123,8 @@ ADR-0019 把文档级可见性做进了**检索、引用预览与管理接口**�
 
 **待定**
 
-- run 内容的**按时间**保留（`runs.input/output` 的 TTL）：与权限正交，ADR-0021 的待定项
+- run 内容的**按时间**保留（`runs.input/output` 的 TTL）：与权限正交，ADR-0021 的待定项，
+  已由 [ADR-0023](0023-run-content-retention.md) 兑现
   只完成了"撤销角色后回收内容"这一半
 - 文档身份（source+checksum / 软删除归档）以消除重传导致的回收误伤
 - 审批快照（`approvals.state`）里的检索上下文如何处理

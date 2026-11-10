@@ -104,3 +104,26 @@ async def test_filter_visible_turns_drops_only_invisible_turns() -> None:
     assert await filter_visible_turns(turns, viewer=Viewer(roles=frozenset({"hr"})), kb=kb) == turns
     assert await filter_visible_turns(turns, viewer=Viewer(unrestricted=True), kb=kb) == turns
     assert await filter_visible_turns([], viewer=employee, kb=kb) == []
+
+
+async def test_pruned_content_is_never_redacted() -> None:
+    """正文已按时间清空（ADR-0023）就不存在「按权限回收」：不能把过期说成越权。"""
+    from datetime import UTC, datetime
+
+    from app.core.store import RunRecord
+    from app.runs.content import content_is_redacted
+
+    kb = _kb()
+    hr_id = await _index(kb, visibility=ROLES, allowed_roles=("hr",))
+    record = RunRecord(
+        run_id=str(uuid.uuid4()),
+        user_id="u_102",
+        session_id="sess_1",
+        input="",
+        output=None,
+        content_pruned_at=datetime.now(UTC),
+        cited_document_ids=[hr_id],
+    )
+    employee = Viewer(roles=frozenset({"employee"}))
+
+    assert await content_is_redacted(record, viewer=employee, kb=kb) is False

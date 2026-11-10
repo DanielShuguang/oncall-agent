@@ -58,6 +58,8 @@ class RunRecord:
     finished_at: datetime | None = None
     #: 事件已被保留策略清理的时间（ADR-0021）；有值表示回放不可用，但 run 摘要仍在
     events_pruned_at: datetime | None = None
+    #: 正文（`input`/`output`）已被保留策略清空的时间（ADR-0023）；有值表示只剩摘要
+    content_pruned_at: datetime | None = None
     #: 回答引用过的知识库文档 id（ADR-0022）；读回放时按当前可见性重新校验
     cited_document_ids: list[str] = field(default_factory=list)
     event_count: int = 0
@@ -73,6 +75,29 @@ class PrunedEvents:
 
     run_ids: list[str]
     deleted: int = 0
+
+
+@dataclass(frozen=True)
+class PrunedContents:
+    """一次 run 正文清理的结果（ADR-0023）。
+
+    `run_ids` 是**真正**被清空正文的 run（dry-run 时是候选）；清理不改事件，
+    所以没有「删了多少行」的计数，运维看的是场次。
+    """
+
+    run_ids: list[str]
+
+
+@dataclass(frozen=True)
+class RunContentState:
+    """回放读路径要的两个事实（ADR-0022 / ADR-0023），一次查询取回。
+
+    分开查会让每秒轮询的事件补拉多一次往返；而这两件事必须**同时**看到，
+    否则过期清理与权限回收会给出互相矛盾的标记。
+    """
+
+    cited_document_ids: list[str]
+    content_pruned_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -267,11 +292,12 @@ class RunStore(Protocol):
         """run 的 user_id；不存在返回 None。路由层做归属校验用，不要为此跑 COUNT。"""
         ...
 
-    async def cited_document_ids(self, run_id: str) -> list[str] | None:
-        """回答引用过的知识库文档 id（ADR-0022）；run 不存在返回 None。
+    async def content_state(self, run_id: str) -> RunContentState | None:
+        """回放要用的内容状态（引用快照 + 是否已过保留期）；run 不存在返回 None。
 
-        回放与详情在读取时要用它按**当前**可见性重新校验。不复用 `get()`：
-        那个会顺便 COUNT 事件，而被每秒轮询的事件补拉不该付这个代价。
+        回放与详情在读取时要用引用快照按**当前**可见性重新校验（ADR-0022），
+        并区分正文是否已被保留策略清空（ADR-0023）。不复用 `get()`：那个会
+        顺便 COUNT 事件，而被每秒轮询的事件补拉不该付这个代价。
         """
         ...
 
@@ -344,6 +370,23 @@ class RunStore(Protocol):
         开始，前端归约器会得到一个没有 run.started 的时间线。删除事件与写
         `runs.events_pruned_at` 标记在同一事务内完成，多副本同时清理也只会有一次效果。
         非终态 run 永远不清理（等待审批的 run 可能长时间没有新事件）。
+        """
+        ...
+
+    async def prune_contents(
+        self,
+        *,
+        finished_before: datetime,
+        limit: int = 200,
+        dry_run: bool = False,
+    ) -> PrunedContents:
+        """清空已结束（completed/failed/interrupted）且早于阈值的 run 的正文（ADR-0023）。
+
+        只清 `input`（置空串）与 `output`（置 NULL），并写 `content_pruned_at`；
+        状态、计量、失败归因与引用快照都保留——运行列表、成本口径和失败率靠它们。
+        事件不动：保留天数要求正文不短于事件（`ONCALL_RUN_CONTENT_RETENTION_DAYS
+        >= ONCALL_EVENT_RETENTION_DAYS`），所以走到这里时回放早已不可用。
+        非终态 run 永远不清（等待审批的 run 可能长时间没有新事件）。
         """
         ...
 
@@ -439,13 +482,18 @@ class InMemoryRunStore:
         record = self._runs.get(rid)
         return record.user_id if record is not None else None
 
-    async def cited_document_ids(self, run_id: str) -> list[str] | None:
+    async def content_state(self, run_id: str) -> RunContentState | None:
         try:
             rid = str(uuid.UUID(run_id))
         except ValueError:
             return None
         record = self._runs.get(rid)
-        return list(record.cited_document_ids) if record is not None else None
+        if record is None:
+            return None
+        return RunContentState(
+            cited_document_ids=list(record.cited_document_ids),
+            content_pruned_at=record.content_pruned_at,
+        )
 
     async def append(
         self, run_id: str, event_type: EventType, payload: dict[str, Any] | None = None
@@ -621,6 +669,38 @@ class InMemoryRunStore:
                 record.event_count = 0
             return PrunedEvents(run_ids=run_ids, deleted=deleted)
 
+    async def prune_contents(
+        self,
+        *,
+        finished_before: datetime,
+        limit: int = 200,
+        dry_run: bool = False,
+    ) -> PrunedContents:
+        async with self._lock:
+            candidates = [
+                (record.finished_at, record.run_id)
+                for record in self._runs.values()
+                if record.status in _TERMINAL_STATUSES
+                and record.content_pruned_at is None
+                and record.finished_at is not None
+                and record.finished_at < finished_before
+                # 已经空了的 run 不再算候选（与 Postgres 实现同口径）：
+                # 否则 dry-run 会一直把它们列成「待清理」
+                and (record.input or record.output is not None)
+            ]
+            candidates.sort()
+            run_ids = [run_id for _, run_id in candidates[:limit]]
+            if dry_run:
+                return PrunedContents(run_ids=run_ids)
+
+            pruned_at = datetime.now(UTC)
+            for run_id in run_ids:
+                record = self._runs[run_id]
+                record.input = ""
+                record.output = None
+                record.content_pruned_at = pruned_at
+            return PrunedContents(run_ids=run_ids)
+
 
 async def append_event_in_session(
     session: AsyncSession,
@@ -746,14 +826,24 @@ class PostgresRunStore:
         async with self._sessionmaker() as session:
             return await session.scalar(select(Run.user_id).where(Run.id == rid))
 
-    async def cited_document_ids(self, run_id: str) -> list[str] | None:
+    async def content_state(self, run_id: str) -> RunContentState | None:
         try:
             rid = uuid.UUID(run_id)
         except ValueError:
             return None
         async with self._sessionmaker() as session:
-            row = await session.scalar(select(Run.cited_document_ids).where(Run.id == rid))
-        return list(row or []) if row is not None else None
+            row = (
+                await session.execute(
+                    select(Run.cited_document_ids, Run.content_pruned_at).where(Run.id == rid)
+                )
+            ).first()
+        if row is None:
+            return None
+        cited, pruned_at = row
+        return RunContentState(
+            cited_document_ids=list(cited or []),
+            content_pruned_at=pruned_at,
+        )
 
     async def append(
         self, run_id: str, event_type: EventType, payload: dict[str, Any] | None = None
@@ -958,6 +1048,45 @@ class PostgresRunStore:
             )
         return PrunedEvents(run_ids=[str(rid) for rid in ids], deleted=int(deleted or 0))
 
+    async def prune_contents(
+        self,
+        *,
+        finished_before: datetime,
+        limit: int = 200,
+        dry_run: bool = False,
+    ) -> PrunedContents:
+        stmt = (
+            select(Run.id)
+            .where(
+                Run.status.in_(tuple(_TERMINAL_STATUSES)),
+                Run.content_pruned_at.is_(None),
+                Run.finished_at.is_not(None),
+                Run.finished_at < finished_before,
+                # 只选还有正文的 run：手工清过（或迁移前就是空）的 run 不该
+                # 每轮都被当成候选，dry-run 也不该把它们列出来
+                or_(Run.input != "", Run.output.is_not(None)),
+            )
+            .order_by(Run.finished_at)
+            .limit(limit)
+        )
+        if dry_run:
+            async with self._sessionmaker() as session:
+                ids = (await session.scalars(stmt)).all()
+            return PrunedContents(run_ids=[str(rid) for rid in ids])
+
+        async with self._sessionmaker() as session, session.begin():
+            # SKIP LOCKED：多副本各清各的批次，不互相等待；标记写入后不会再被选中
+            ids = (await session.scalars(stmt.with_for_update(skip_locked=True))).all()
+            if not ids:
+                return PrunedContents(run_ids=[])
+            # input 是 NOT NULL 列：置空串而不是 NULL，避免为了删内容改列约束
+            await session.execute(
+                update(Run)
+                .where(Run.id.in_(ids))
+                .values(input="", output=None, content_pruned_at=datetime.now(UTC))
+            )
+        return PrunedContents(run_ids=[str(rid) for rid in ids])
+
     async def find_by_client_msg_id(self, user_id: str, client_msg_id: str) -> RunRecord | None:
         async with self._sessionmaker() as session:
             row = await session.scalar(
@@ -994,6 +1123,7 @@ def _record_from_row(row: Run, *, event_count: int) -> RunRecord:
         started_at=row.started_at,
         finished_at=row.finished_at,
         events_pruned_at=row.events_pruned_at,
+        content_pruned_at=row.content_pruned_at,
         cited_document_ids=list(row.cited_document_ids or []),
         event_count=event_count,
     )

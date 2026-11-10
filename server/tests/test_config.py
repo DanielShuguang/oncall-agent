@@ -94,7 +94,14 @@ def test_retention_params_are_validated() -> None:
         Settings(retention_batch=0)
     with pytest.raises(ValidationError, match="ONCALL_RETENTION_MAX_BATCHES"):
         Settings(retention_max_batches=0)
+    with pytest.raises(ValidationError, match="ONCALL_RUN_CONTENT_RETENTION_DAYS"):
+        Settings(run_content_retention_days=0)
+
+    # 事件里带着同一段回答正文：正文保留期短于事件保留期时，清了 runs 也白清
+    with pytest.raises(ValidationError, match="必须 >= ONCALL_EVENT_RETENTION_DAYS"):
+        Settings(event_retention_days=180, run_content_retention_days=90)
 
     settings = Settings(_env_file=None)  # 只看代码默认值，不读本机 .env
     assert settings.event_retention_days == 180
     assert settings.model_call_retention_days == 180
+    assert settings.run_content_retention_days == 180

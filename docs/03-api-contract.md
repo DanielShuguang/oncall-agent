@@ -70,7 +70,8 @@ Accept: text/event-stream
 
 - `client_msg_id` 是**幂等键**：同一用户重复提交返回同一个 `run_id`，不重复执行；空字符串按“未提供”处理
 - `session_id` 是**多轮上下文的作用域**：服务端按「当前用户 + `session_id`」取最近 3 轮已结束且有回答的
-  run（`runs.input/output`），把问答对作为 `messages` 注入本轮状态（[ADR-0020](decisions/0020-multi-turn-context.md)）。
+  run（`runs.input/output`），把问答对作为 `messages` 注入本轮状态（[ADR-0020](decisions/0020-multi-turn-context.md)）；
+  正文已被保留策略清空的轮次（[ADR-0023](decisions/0023-run-content-retention.md)）不进历史。
   历史只用于理解指代（「那怎么办」「它需要审批吗」），**不是证据**：`citations` 仍只能来自本轮检索。
   客户端不传历史、也不能改历史；前端「清空对话」必须换一个新的 `session_id`，否则新会话会带着上一段上下文
 - `options.model` 为空时由网关规则选模型（mock 模式是 `rule-engine`）；非空时只在**已配置的模型**
@@ -129,6 +130,7 @@ data: {"seq":7,"run_id":"01J...","type":"tool.call","ts":"2026-11-09T02:11:03.12
 | 请求限流 | `429 {"code":"RATE_LIMITED"}` + `Retry-After: 60`，**不建 SSE** | 提示稍后再试 |
 | 管理接口无权限 | `403 {"code":"FORBIDDEN","message":"需要管理员角色"}` | 提示切换有 admin 角色的 Token |
 | 幂等命中的 run 回答已回收 | `403 {"code":"CONTENT_REDACTED"}`，**不建 SSE**（[ADR-0022](decisions/0022-run-content-visibility.md)） | 不重试；打开运行详情看回收标记 |
+| 幂等命中的 run 正文已过保留期 | `410 {"code":"CONTENT_EXPIRED"}`，**不建 SSE**（[ADR-0023](decisions/0023-run-content-retention.md)） | 不重试；正文已按保留策略清空 |
 | 数据库不可用（建流前落库失败） | `503` JSON `{detail}` | 提示稍后重试，不要进入"假运行" |
 | 运行期失败（模型超时、工具全挂） | `200` + `run.failed` 事件 | 卡片显示失败 + 重试按钮 |
 | 连接断开 | 无 | 用 `lastEventId` 补拉 |
@@ -154,6 +156,9 @@ Last-Event-ID: 7
   "清理过"，看 `GET /runs/{run_id}` 的 `events_pruned_at`
 - 回答引用的文档已不可见（可见范围被改窄/文档被删除）时，事件整场不回放（[ADR-0022](decisions/0022-run-content-visibility.md)）：
   同样 `200` + `events: []`，但 `content_redacted: true`；原因与处理看详情的同名标记
+- 正文过保留期（[ADR-0023](decisions/0023-run-content-retention.md)）时事件早已按 ADR-0021 清掉，
+  同样是 `200` + `events: []`，且 `content_redacted: false`：正文已经不存在，不属于权限回收。
+  与详情同一口径（是否过期看 `content_pruned_at`）；字段形态不变（R1：只增不改）
 
 ### 3.1 运行列表
 
@@ -181,6 +186,7 @@ Authorization: Bearer <token>
       "failure_category": "tool",
       "event_count": 18,
       "events_pruned_at": null,
+      "content_pruned_at": null,
       "started_at": "2026-11-09T02:11:03.120Z",
       "finished_at": "2026-11-09T02:11:04.400Z"
     }
@@ -196,6 +202,8 @@ Authorization: Bearer <token>
 - `failure_category` 只对失败 run 有值，用来回答「失败在模型、工具、审批还是护栏」
 - `events_pruned_at` 非空表示事件已按保留策略清理（ADR-0021）：`event_count` 是
   当前仍保留的条数（清理后为 0），回放不可用，摘要与 `output` 仍可信
+- `content_pruned_at` 非空表示正文（`input`/`output`）已按保留策略清空（ADR-0023）：
+  列表不返回正文，这个标记只是让详情/前端能解释「为什么没有内容」
 
 ### 3.2 单次运行详情
 
@@ -220,6 +228,7 @@ GET /api/runs/{run_id}
   "failure_category": null,
   "event_count": 23,
   "events_pruned_at": null,
+  "content_pruned_at": null,
   "started_at": "2026-11-09T02:11:03.120Z",
   "finished_at": "2026-11-09T02:11:04.400Z",
   "input": "我电脑连不上打印机了",
@@ -254,6 +263,11 @@ GET /api/runs/{run_id}
 > 文档按**读取时**的角色重新校验，任何一篇不可见（改窄或删除）就整场回收——`output: null`、
 > 事件不回放、多轮历史剔除该轮；`input`、状态、计量、失败归因照常。回收不改存储，可见范围
 > 改回去后自动恢复。列表接口不返回 `output`，所以不带这个字段。
+>
+> `content_pruned_at`（[ADR-0023](decisions/0023-run-content-retention.md)）：正文过保留期后
+> `input` 返回**空串**、`output` 返回 `null`，状态/计量/失败归因/`events_pruned_at` 照常；
+> 此时 `content_redacted` 恒为 `false`——内容已经不存在，不属于「按你的权限隐藏」，
+> 两种原因同时成立时以过期为准。空串不会与正常输入混淆：`message` 的最小长度是 1。
 
 ## 4. 审批
 

@@ -20,14 +20,18 @@ from app.schemas.event import EventType, RunStatus
 
 
 def _settings(**overrides: object) -> Settings:
-    # 显式阈值：本机 .env 若覆盖保留天数，用例不能跟着漂
-    return Settings(
-        env="dev",
-        event_retention_days=30,
-        model_call_retention_days=90,
-        retention_batch=200,
-        **overrides,
-    )
+    # 显式阈值：本机 .env 若覆盖保留天数，用例不能跟着漂。
+    # 正文保留期比事件长（60 > 30）：既有用例验证「事件清了、摘要与回答还在」，
+    # 这个差值本身就是那条规则的前提（ADR-0023 要求正文 >= 事件）
+    base: dict[str, object] = {
+        "env": "dev",
+        "event_retention_days": 30,
+        "model_call_retention_days": 90,
+        "run_content_retention_days": 60,
+        "retention_batch": 200,
+    }
+    base.update(overrides)
+    return Settings(**base)
 
 
 def _sweeper(
@@ -43,9 +47,11 @@ def _sweeper(
     )
 
 
-async def _finished_run(store: InMemoryRunStore, *, user_id: str = "u_701") -> str:
+async def _finished_run(
+    store: InMemoryRunStore, *, user_id: str = "u_701", session_id: str = "sess_ret"
+) -> str:
     run_id = str(uuid.uuid4())
-    await store.create(run_id=run_id, user_id=user_id, session_id="sess_ret", message="打印不了")
+    await store.create(run_id=run_id, user_id=user_id, session_id=session_id, message="打印不了")
     await store.append(run_id, EventType.RUN_STARTED, {"model": "mock"})
     await store.append(run_id, EventType.MESSAGE_COMPLETED, {"text": "重启打印服务"})
     await store.append(run_id, EventType.RUN_COMPLETED, {"status": "completed"})
@@ -270,6 +276,7 @@ async def test_sweep_cutoffs_follow_settings() -> None:
 
     assert result.events_before == now - timedelta(days=30)
     assert result.calls_before == now - timedelta(days=90)
+    assert result.content_before == now - timedelta(days=60)
 
 
 async def test_invalid_limit_is_rejected() -> None:
@@ -277,3 +284,120 @@ async def test_invalid_limit_is_rejected() -> None:
         await _sweeper(InMemoryRunStore()).sweep(limit=0)
     with pytest.raises(ValueError, match="max_batches"):
         await _sweeper(InMemoryRunStore()).sweep(max_batches=0)
+
+
+# ---------------------------------------------------------------- 正文按时间清理（ADR-0023）
+
+
+async def test_prunes_expired_run_content() -> None:
+    """终态 run 过了正文保留期：正文清空、留标记，摘要与计量一概不动。"""
+    store = InMemoryRunStore()
+    run_id = await _finished_run(store)
+    settings = _settings(event_retention_days=30, run_content_retention_days=30)
+
+    result = await _sweeper(store, settings=settings).sweep(
+        now=datetime.now(UTC) + timedelta(days=31)
+    )
+
+    assert result.content_run_ids == [run_id]
+    rec = await store.get(run_id)
+    assert rec is not None
+    assert rec.input == ""
+    assert rec.output is None
+    assert rec.content_pruned_at is not None
+    # 摘要仍在：状态、失败归因、事件清理标记、计量都不受正文清理影响
+    assert rec.status == RunStatus.COMPLETED.value
+    assert rec.events_pruned_at is not None
+    assert rec.token_in == 0
+
+
+async def test_content_can_outlive_events() -> None:
+    """正文保留期长于事件时：回放先不可用，回答还留着（配置层强制正文 >= 事件）。"""
+    store = InMemoryRunStore()
+    run_id = await _finished_run(store)
+    sweeper = _sweeper(store)  # 事件 30 天 / 正文 60 天
+
+    first = await sweeper.sweep(now=datetime.now(UTC) + timedelta(days=31))
+
+    rec = await store.get(run_id)
+    assert rec is not None
+    assert first.run_ids == [run_id]
+    assert rec.events_pruned_at is not None
+    assert first.content_run_ids == []
+    assert rec.output == "重启打印服务"
+
+    second = await sweeper.sweep(now=datetime.now(UTC) + timedelta(days=61))
+
+    rec = await store.get(run_id)
+    assert rec is not None
+    assert second.content_run_ids == [run_id]
+    assert rec.input == "" and rec.output is None
+
+
+async def test_content_dry_run_previews_without_clearing() -> None:
+    store = InMemoryRunStore()
+    run_id = await _finished_run(store)
+
+    result = await _sweeper(store).sweep(now=datetime.now(UTC) + timedelta(days=61), dry_run=True)
+
+    assert result.content_run_ids == [run_id]
+    rec = await store.get(run_id)
+    assert rec is not None
+    assert rec.output == "重启打印服务"
+    assert rec.content_pruned_at is None
+
+
+async def test_non_terminal_runs_keep_content() -> None:
+    """等待审批的 run 可能挂很久，正文不能因为「够旧」被清掉。"""
+    store = InMemoryRunStore()
+    running_id = await _running_run(store)
+
+    result = await _sweeper(store).sweep(now=datetime.now(UTC) + timedelta(days=365))
+
+    assert result.content_run_ids == []
+    rec = await store.get(running_id)
+    assert rec is not None
+    assert rec.input == "长任务"
+    assert rec.content_pruned_at is None
+
+
+async def test_pruned_content_is_gone_from_multi_turn_history() -> None:
+    """多轮历史只认 output 非空：正文清空后那一轮自然消失，不需要额外过滤。"""
+    store = InMemoryRunStore()
+    await _finished_run(store, session_id="sess_content")
+    assert len(await store.recent_turns(user_id="u_701", session_id="sess_content")) == 1
+
+    await _sweeper(store).sweep(now=datetime.now(UTC) + timedelta(days=61))
+
+    assert await store.recent_turns(user_id="u_701", session_id="sess_content") == []
+
+
+async def test_content_prune_is_idempotent() -> None:
+    store = InMemoryRunStore()
+    run_id = await _finished_run(store)
+    sweeper = _sweeper(store)
+    future = datetime.now(UTC) + timedelta(days=61)
+
+    first = await sweeper.sweep(now=future)
+    second = await sweeper.sweep(now=future)
+
+    assert first.content_run_ids == [run_id]
+    # 标记写入后不再入选；空正文的 run 也不算候选
+    assert second.content_run_ids == []
+
+
+async def test_content_only_backlog_keeps_sweeping() -> None:
+    """事件都清完、只剩正文积压时单轮仍要继续取批：收手条件必须包含正文。"""
+    store = InMemoryRunStore()
+    run_ids = {await _finished_run(store) for _ in range(3)}
+    now = datetime.now(UTC)
+
+    # 第一轮只清事件（正文保留 1000 天），制造「只有正文积压」的局面
+    await _sweeper(store, settings=_settings(run_content_retention_days=1000)).sweep(
+        now=now + timedelta(days=31)
+    )
+
+    result = await _sweeper(store).sweep(now=now + timedelta(days=61), limit=1)
+
+    assert set(result.content_run_ids) == run_ids
+    assert result.capped is False

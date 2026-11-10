@@ -44,12 +44,14 @@ CREATE TABLE runs (
   started_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   finished_at     TIMESTAMPTZ,
   events_pruned_at TIMESTAMPTZ,            -- 事件被保留策略清理的时间（ADR-0021）
+  content_pruned_at TIMESTAMPTZ,           -- 正文被保留策略清空的时间（ADR-0023）
   cited_document_ids JSONB NOT NULL DEFAULT '[]',  -- 回答引用过的文档 id（ADR-0022）
   CONSTRAINT uq_runs_user_client_msg UNIQUE (user_id, client_msg_id)
 );
 CREATE INDEX idx_runs_user_time         ON runs (user_id, started_at DESC);
 CREATE INDEX idx_runs_user_session_time ON runs (user_id, session_id, started_at DESC);
 CREATE INDEX idx_runs_retention         ON runs (finished_at) WHERE events_pruned_at IS NULL;
+CREATE INDEX idx_runs_content_retention ON runs (finished_at) WHERE content_pruned_at IS NULL;
 CREATE INDEX idx_runs_status            ON runs (status) WHERE status IN ('running','awaiting_approval');
 ```
 
@@ -64,6 +66,10 @@ CREATE INDEX idx_runs_status            ON runs (status) WHERE status IN ('runni
 > `idx_runs_retention` 是部分索引，只含还没清理的 run：普通 `finished_at` 索引会从最老的
 > 行开始扫，而最老的行恰好全是已清理的，每轮都要越过整个历史；标记写入后部分索引
 > 立即移除条目。它只服务保留清理，不参与在线请求。
+> `content_pruned_at` 非空表示正文（`input`/`output`）已被保留策略清空（迁移 0012、
+> [ADR-0023](decisions/0023-run-content-retention.md)）：`input` 置空串、`output` 置 NULL，
+> 状态/计量/失败归因/引用快照保持；`idx_runs_content_retention` 是它自己的部分索引——
+> 事件先清，清完的行会掉出 `idx_runs_retention`，正文清理不能复用那个索引。
 > `cited_document_ids` 是 `message.completed.citations[]` 的投影（迁移 0011、
 > [ADR-0022](decisions/0022-run-content-visibility.md)）：读详情/事件/重放/多轮历史时
 > 用它按**当前**可见性校验，引用文档不可见就隐藏正文。落在 runs 而不是只读事件，
@@ -304,6 +310,10 @@ multihop / negative / injection 拆分），执行结果写文件：
 5. **内容回收是读时判定，不改写历史**：引用文档的可见性变化只影响读接口的展示
    （详情 `output`、事件回放、多轮历史），不会 `UPDATE runs.output` 或删事件；
    范围改回去内容自动恢复（[ADR-0022](decisions/0022-run-content-visibility.md)）。
+6. **按时间的正文清理是写时删除，不可恢复**：超过 `ONCALL_RUN_CONTENT_RETENTION_DAYS`
+   的终态 run，`runs.input/output` 被清空并写 `content_pruned_at`（§4、
+   [ADR-0023](decisions/0023-run-content-retention.md)）；它与第 5 条正交——第 5 条是
+   「当前谁看不到」，第 6 条是「谁都不再留」，详情页同时成立时按第 6 条表述。
 
 ### 3.1 事件 → `runs` 投影
 
@@ -332,7 +342,8 @@ multihop / negative / injection 拆分），执行结果写文件：
 |---|---|---|
 | run_events | 180 天 | `ONCALL_EVENT_RETENTION_DAYS`；按 **run 整场**清理，`runs.events_pruned_at` 标记，同事务 |
 | model_calls | 180 天 | `ONCALL_MODEL_CALL_RETENTION_DAYS`；只删计量明细，`runs` 上的 token/cost 汇总保留 |
-| runs | 不清理 | 运行列表、成本口径与多轮上下文都依赖 `input/output`；回答内容按**权限**回收见 [ADR-0022](decisions/0022-run-content-visibility.md)，按**时间**保留（TTL）仍待定 |
+| runs（行） | 不清理 | 运行列表、成本口径与失败率依赖它；删行会连带删审批与计量 |
+| runs.input / output | 180 天 | `ONCALL_RUN_CONTENT_RETENTION_DAYS`；到期清空正文并写 `runs.content_pruned_at`，只留摘要（[ADR-0023](decisions/0023-run-content-retention.md)）；必须 `>= ONCALL_EVENT_RETENTION_DAYS` |
 | approvals / approval_grants | 不清理 | 审批决议是治理证据，量小；保留期未定 |
 | kb_documents / kb_chunks | 不清理 | 知识库由管理员维护，删除是业务操作，不是保留策略 |
 | 评测报告（文件） | 永久 | 不入库，体量小，是能力证明（§2.8） |
@@ -345,6 +356,11 @@ multihop / negative / injection 拆分），执行结果写文件：
 > 只清终态（completed / failed / interrupted）且 `finished_at` 早于阈值的 run；挂起审批、
 > 正在跑的 run 永远不清理。**上传文件不单独落盘**（解析后写 `kb_documents` / `kb_chunks`），
 > 早期文档里的「附件 30 天」没有对应表，已删除。
+> 顺序是「事件 → 正文 → 计量」，且配置层强制正文保留期**不短于**事件保留期：
+> `message.delta` / `message.completed` 里是同一段回答正文，事件还在时清 runs 等于没清
+> （[ADR-0023](decisions/0023-run-content-retention.md)）。正文清理是**按时间**的删除，
+> 与 [ADR-0022](decisions/0022-run-content-visibility.md) 的**按权限**回收正交：前者删了就不再回来，
+> 后者改回可见范围即恢复。
 
 ## 5. 迁移
 
@@ -361,7 +377,7 @@ uv run alembic upgrade head --sql    # 无库环境渲染 DDL，评审用
 
 - 迁移文件在 `server/migrations/versions/`；`alembic.ini` 只放占位 DSN，真实 DSN 由 `migrations/env.py` 从环境变量读
 - 必须写 `downgrade`，并在空库上验证一次 `downgrade base && upgrade head`
-- 当前迁移链：`0001` runs/events → `0002` 幂等键按用户作用域 → `0003` kb（pgvector/tsvector）+ assets/tickets → `0004` approvals → `0005` 会话授权按用户隔离 → `0006` model_calls + failure_category → `0007` tool_settings → `0008` 文档可见性 → `0009` 会话索引 → `0010` 事件清理标记/部分索引 → `0011` 回答引用快照
+- 当前迁移链：`0001` runs/events → `0002` 幂等键按用户作用域 → `0003` kb（pgvector/tsvector）+ assets/tickets → `0004` approvals → `0005` 会话授权按用户隔离 → `0006` model_calls + failure_category → `0007` tool_settings → `0008` 文档可见性 → `0009` 会话索引 → `0010` 事件清理标记/部分索引 → `0011` 回答引用快照 → `0012` 正文清理标记/部分索引
 
 > `0003` 先 `CREATE EXTENSION IF NOT EXISTS vector`，否则 vector 类型与 HNSW 索引会失败；
 > 测试库由 fixture 建扩展后再 `create_all`（扩展是库级对象，`drop_all` 不会删）。

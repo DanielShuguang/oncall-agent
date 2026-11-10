@@ -9,6 +9,7 @@
 - 客户端断开即停止，并标记 interrupted，不产生"幽灵事件"
 - `client_msg_id` 命中时只回放已落库事件，不重复执行；仍在 running 时持续跟到终态
 - 幂等重放与多轮历史都要按当前可见性回收旧回答（ADR-0022）：前者 403，后者剔除整轮
+- 正文过了保留期（ADR-0023）后幂等重放返 410 `CONTENT_EXPIRED`，历史里那一轮自然消失
 - 空闲每 15s 发 `: heartbeat`，避免代理空闲超时
 """
 
@@ -173,6 +174,11 @@ async def chat_stream(
         raise HTTPException(status_code=503, detail="database unavailable") from exc
 
     if not created:
+        # 正文过了保留期被清空（ADR-0023）：重放没有任何内容可给，直接 410。
+        # 先判这个再判可见性——内容已经不存在，谈不上「按权限隐藏」
+        if rec.content_pruned_at is not None:
+            log.info("run_replay_expired", run_id=rec.run_id, user_id=identity.user_id)
+            raise ApiError(410, "CONTENT_EXPIRED", "该回答已过保留期，内容不再回放")
         # 幂等重放也要过可见性回收（ADR-0022）：否则撤权后重试同一个 client_msg_id
         # 就能把旧回答再流一遍。直接 403，而不是回放一个「成功但没有回答」的空流。
         try:

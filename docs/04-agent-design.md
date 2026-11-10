@@ -41,7 +41,9 @@ class AgentState(TypedDict, total=False):
 ### 2.1 多轮上下文（[ADR-0020](decisions/0020-multi-turn-context.md)）
 
 `messages` **不是**客户端传进来的 transcript，而是服务端按「当前用户 + `session_id`」
-从 `runs.input/output` 取到的最近 3 轮（总 1200 字）；引用快照随行返回，用于按当前
+从 `runs.input/output` 取到的最近 3 轮（总 1200 字）；正文过保留期被清空的轮次
+（`output` 为 NULL，[ADR-0023](decisions/0023-run-content-retention.md)）自然不进历史；
+引用快照随行返回，用于按当前
 可见性过滤。三条边界：
 
 - **只用于理解指代**：`retrieve` 在判定为追问时把上一轮问题拼进 `context_query`；

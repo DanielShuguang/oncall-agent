@@ -20,6 +20,7 @@ from sqlalchemy.pool import NullPool
 from app.core.store import (
     InMemoryRunStore,
     PostgresRunStore,
+    PrunedContents,
     PrunedEvents,
     RunNotFoundError,
     RunStore,
@@ -359,18 +360,68 @@ async def _exercise_prune(store: RunStore) -> None:
     assert run_id not in again.run_ids
 
 
+async def _exercise_prune_contents(store: RunStore) -> None:
+    """正文按时间清理（ADR-0023）：清空 input/output、留标记，摘要与列表照旧。"""
+    not_yet = datetime.now(UTC) - timedelta(days=1)
+    run_id = str(uuid.uuid4())
+    await store.create(
+        run_id=run_id, user_id="u_306", session_id="sess_content", message="打印机坏了"
+    )
+    await store.append(run_id, EventType.RUN_STARTED, {"model": "mock"})
+    await store.append(run_id, EventType.MESSAGE_COMPLETED, {"text": "重启打印服务"})
+    await store.append(run_id, EventType.RUN_COMPLETED, {"status": "completed"})
+
+    # 还没到保留期：正文不能动
+    assert await store.prune_contents(finished_before=not_yet) == PrunedContents(run_ids=[])
+
+    future = datetime.now(UTC) + timedelta(days=365)
+    preview = await store.prune_contents(finished_before=future, dry_run=True)
+    assert run_id in preview.run_ids
+    rec = await store.get(run_id)
+    assert rec is not None
+    assert rec.output == "重启打印服务"
+    assert rec.content_pruned_at is None
+
+    pruned = await store.prune_contents(finished_before=future)
+    assert run_id in pruned.run_ids
+    rec = await store.get(run_id)
+    assert rec is not None
+    assert rec.input == ""
+    assert rec.output is None
+    assert rec.content_pruned_at is not None
+    # 回放读路径一次取到「引用快照 + 已过期」，不用再查知识库
+    state = await store.content_state(run_id)
+    assert state is not None
+    assert state.content_pruned_at is not None
+    # 摘要与列表照常：状态、计量、事件清理标记都不受影响
+    assert rec.status == RunStatus.COMPLETED.value
+    assert rec.events_pruned_at is None
+    listed = {item.run_id: item for item in await store.list_runs(user_id="u_306", limit=20)}
+    assert listed[run_id].content_pruned_at is not None
+    # 多轮历史只认 output 非空：清空后这一轮不再进上下文
+    assert await store.recent_turns(user_id="u_306", session_id="sess_content") == []
+
+    # 幂等：标记写入后不再入选
+    again = await store.prune_contents(finished_before=future)
+    assert run_id not in again.run_ids
+
+
 async def _exercise_cited_documents(store: RunStore) -> None:
     """引用快照（ADR-0022）：`message.completed.citations` 投影到 runs，事件清了也还在。"""
     run_id = str(uuid.uuid4())
     await store.create(
         run_id=run_id, user_id="u_305", session_id="sess_cite", message="年终奖什么时候发"
     )
-    assert await store.cited_document_ids(run_id) == []
+    state = await store.content_state(run_id)
+    assert state is not None
+    assert state.cited_document_ids == []
+    assert state.content_pruned_at is None
 
     # 没有 citations 字段的事件不改字段（旧客户端/拒答都没有引用）
     await store.append(run_id, EventType.RUN_STARTED, {"model": "mock"})
     await store.append(run_id, EventType.MESSAGE_COMPLETED, {"text": "1 月发"})
-    assert await store.cited_document_ids(run_id) == []
+    state = await store.content_state(run_id)
+    assert state is not None and state.cited_document_ids == []
 
     # 去重保序；非字符串/空 id/非对象元素忽略
     await store.append(
@@ -388,7 +439,9 @@ async def _exercise_cited_documents(store: RunStore) -> None:
             ],
         },
     )
-    assert await store.cited_document_ids(run_id) == ["doc_b", "doc_a"]
+    state = await store.content_state(run_id)
+    assert state is not None
+    assert state.cited_document_ids == ["doc_b", "doc_a"]
     rec = await store.get(run_id)
     assert rec is not None
     assert rec.cited_document_ids == ["doc_b", "doc_a"]
@@ -402,10 +455,11 @@ async def _exercise_cited_documents(store: RunStore) -> None:
         EventType.MESSAGE_COMPLETED,
         {"text": "另一版回答", "citations": []},
     )
-    assert await store.cited_document_ids(run_id) == []
+    state = await store.content_state(run_id)
+    assert state is not None and state.cited_document_ids == []
 
     # 不存在的 run 返回 None（路由层据此 404），不是空数组
-    assert await store.cited_document_ids(str(uuid.uuid4())) is None
+    assert await store.content_state(str(uuid.uuid4())) is None
 
 
 async def test_memory_store_contract() -> None:
@@ -414,6 +468,7 @@ async def test_memory_store_contract() -> None:
     await _exercise_concurrent_seq(store)
     await _exercise_stale(store)
     await _exercise_prune(store)
+    await _exercise_prune_contents(store)
     await _exercise_cited_documents(store)
 
 
@@ -443,4 +498,5 @@ async def test_postgres_store_contract(pg_store: PostgresRunStore) -> None:
     await _exercise_concurrent_seq(pg_store)
     await _exercise_stale(pg_store)
     await _exercise_prune(pg_store)
+    await _exercise_prune_contents(pg_store)
     await _exercise_cited_documents(pg_store)

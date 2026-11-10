@@ -89,6 +89,11 @@ class Settings(BaseSettings):
     event_retention_days: int = 180
     #: 模型调用计量的保留天数：成本看板的数据源，过期后只保留 runs 上的汇总
     model_call_retention_days: int = 180
+    #: run 正文（`runs.input/output`）的保留天数（ADR-0023）。到点后清空正文并写
+    #: `runs.content_pruned_at`，只留运行摘要。必须 `>= event_retention_days`：
+    #: `message.delta`/`message.completed` 里是同一段回答正文，事件还在时清 runs
+    #: 等于没清（理由见 ADR-0023）；想更早删正文就同时调小事件保留期。
+    run_content_retention_days: int = 180
     #: 保留清理任务扫描间隔
     retention_interval_s: float = 21600.0
     #: 保留清理：单批行数与每轮最多跑几批。一次扫描只删一批的话，
@@ -150,6 +155,13 @@ class Settings(BaseSettings):
             raise ValueError("ONCALL_EVENT_RETENTION_DAYS 必须 >= 1")
         if self.model_call_retention_days < 1:
             raise ValueError("ONCALL_MODEL_CALL_RETENTION_DAYS 必须 >= 1")
+        if self.run_content_retention_days < 1:
+            raise ValueError("ONCALL_RUN_CONTENT_RETENTION_DAYS 必须 >= 1")
+        if self.run_content_retention_days < self.event_retention_days:
+            raise ValueError(
+                "ONCALL_RUN_CONTENT_RETENTION_DAYS 必须 >= ONCALL_EVENT_RETENTION_DAYS："
+                "事件里带着同一段回答正文，事件没清时清 runs 等于没清"
+            )
         if self.retention_interval_s <= 0:
             raise ValueError("ONCALL_RETENTION_INTERVAL_S 必须 > 0")
         if self.retention_batch < 1:

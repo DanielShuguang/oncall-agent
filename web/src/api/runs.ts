@@ -20,6 +20,8 @@ export interface RunSummary {
   event_count: number;
   // 事件过了保留期会被整场清理（ADR-0021）；有值表示回放不可用，摘要仍可信
   events_pruned_at: string | null;
+  // 正文过了保留期会被清空（ADR-0023）；有值表示 input/output 已不可读
+  content_pruned_at: string | null;
   started_at: string;
   finished_at: string | null;
 }
@@ -39,6 +41,7 @@ export interface ModelCall {
 }
 
 export interface RunDetail extends RunSummary {
+  // 正文被保留策略清空后是空串（ADR-0023）；用 content_pruned_at 区分「本来就空」
   input: string;
   output: string | null;
   // 回答引用的文档按当前可见性回收（ADR-0022）：为 true 时 output 为 null、事件不回放

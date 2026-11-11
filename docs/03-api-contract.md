@@ -289,8 +289,8 @@ GET /api/runs/{run_id}
 >
 > `citations`（[ADR-0031](decisions/0031-run-citations-replay.md)）：`message.completed`
 > 里引用快照的投影，供历史会话还原角标。只在 `output` 可见且正文未过期时返回；
-> `content_redacted` 或 `content_pruned_at` 非空时恒为 `[]`——引用片段是回答内容，
-> 不能比正文活得久。预览仍走 `/kb/preview`，按**当前**权限校验；列表接口不返回它。
+> `output` 缺失、`content_redacted` 或 `content_pruned_at` 非空时恒为 `[]`——引用片段
+> 是回答内容，不能比正文活得久。预览仍走 `/kb/preview`，按**当前**权限校验；列表接口不返回它。
 
 ### 3.3 会话列表（ADR-0030）
 

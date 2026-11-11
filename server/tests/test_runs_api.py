@@ -41,6 +41,7 @@ async def _seed_run(
     user_id: str = "u_102",
     status: str = "completed",
     citations: list[dict[str, Any]] | None = None,
+    text: str | None = "重启打印服务",
 ) -> str:
     run_id = str(uuid.uuid4())
     await store.create(
@@ -53,7 +54,7 @@ async def _seed_run(
     await store.append(run_id, EventType.RUN_STARTED, {"model": "mock", "max_steps": 12})
     await store.append(run_id, EventType.STEP_STARTED, {"node": "intake"})
     await store.append(run_id, EventType.STEP_COMPLETED, {"node": "intake"})
-    payload: dict[str, Any] = {"text": "重启打印服务"}
+    payload: dict[str, Any] = {"text": text}
     if citations is not None:
         payload["citations"] = citations
     await store.append(run_id, EventType.MESSAGE_COMPLETED, payload)
@@ -446,6 +447,22 @@ async def test_pruned_content_keeps_only_summary(
 
     events = (await client.get(f"/api/runs/{run_id}/events")).json()
     assert events["events"] == []
+
+
+async def test_missing_output_does_not_expose_citations(
+    client: AsyncClient, mem_store: InMemoryRunStore, memory_kb: KnowledgeBase
+) -> None:
+    """没有回答正文时引用快照也不返回：片段本身就是回答内容（ADR-0031）。"""
+    doc_id = await _index_doc(memory_kb)
+    run_id = await _seed_run(
+        mem_store, text=None, citations=[{"document_id": doc_id, "title": "薪酬"}]
+    )
+
+    detail = (await client.get(f"/api/runs/{run_id}")).json()
+    assert detail["output"] is None
+    assert detail["content_pruned_at"] is None
+    assert detail["content_redacted"] is False
+    assert detail["citations"] == []
 
 
 async def test_pruned_content_wins_over_visibility(

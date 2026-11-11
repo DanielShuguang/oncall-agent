@@ -255,6 +255,10 @@ def _int_or_none(value: Any) -> int | None:
 
 #: 引用快照上限：一次回答的引用本来就来自 top_k；这里只防脏 payload 把 JSONB 撑大
 MAX_CITED_DOCUMENTS = 50
+#: 快照里的文本字段上限：title/heading 只用于角标与预览标题，snippet 只用于兜底展示；
+#: 事件表里的 JSON 不能假设一定来自 runtime，超长字符串同样要截断
+MAX_CITATION_TITLE = 200
+MAX_CITATION_SNIPPET = 500
 
 
 def _cited_document_ids(raw: Any) -> list[str] | None:
@@ -283,8 +287,9 @@ def _citation_snapshot(raw: Any) -> list[dict[str, Any]] | None:
     """从 `message.completed.citations` 抽可回放的快照（ADR-0031）。
 
     与 `_cited_document_ids` 不同：这里要保住角标与预览所需的字段。类型不对的
-    字段退回默认值而不是整条丢弃；没有 `document_id` 的条目无法预览，直接跳过。
-    非数组返回 None（这次事件不改字段），空数组返回 `[]`（这轮明确没有引用）。
+    字段退回默认值而不是整条丢弃；没有 `document_id` 的条目无法预览，直接跳过；
+    文本字段超长截断，防止脏 payload 把 JSONB 撑大。非数组返回 None（这次事件
+    不改字段），空数组返回 `[]`（这轮明确没有引用）。
     """
     if not isinstance(raw, list):
         return None
@@ -303,17 +308,22 @@ def _citation_snapshot(raw: Any) -> list[dict[str, Any]] | None:
             "chunk_id": _as_int(item.get("chunk_id")),
             "document_id": document_id,
             "ord": _as_int(item.get("ord")),
-            "title": title if isinstance(title, str) else "",
-            "snippet": snippet if isinstance(snippet, str) else "",
+            "title": _clip_text(title, MAX_CITATION_TITLE),
+            "snippet": _clip_text(snippet, MAX_CITATION_SNIPPET),
         }
         if isinstance(heading, str):
-            citation["heading"] = heading
+            citation["heading"] = _clip_text(heading, MAX_CITATION_TITLE)
         if isinstance(page, int) and not isinstance(page, bool):
             citation["page"] = page
         items.append(citation)
         if len(items) >= MAX_CITED_DOCUMENTS:
             break
     return items
+
+
+def _clip_text(value: Any, limit: int) -> str:
+    """非字符串退空串，超长按上限截断；保的是「不会把脏 payload 写进库」。"""
+    return value[:limit] if isinstance(value, str) else ""
 
 
 def _as_int(value: Any) -> int:

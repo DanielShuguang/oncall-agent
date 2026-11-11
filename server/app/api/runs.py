@@ -198,9 +198,13 @@ async def get_run(
         "input": rec.input,
         "output": None if redacted else rec.output,
         "content_redacted": redacted,
-        # 引用快照供历史会话还原角标（ADR-0031）。正文被权限回收或按时间清空时
-        # 不再返回：片段是回答内容，不能比 output 活得更久。
-        "citations": [] if redacted or rec.content_pruned_at is not None else rec.citations,
+        # 引用快照供历史会话还原角标（ADR-0031）。正文没生成、被权限回收或按时间
+        # 清空时都不返回：没有可指的答案，片段也不能比 output 活得更久。
+        "citations": (
+            []
+            if redacted or rec.content_pruned_at is not None or rec.output is None
+            else rec.citations
+        ),
         "model_calls": [
             ModelCallOut(
                 step=item.step,

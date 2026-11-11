@@ -636,15 +636,15 @@ ADR-0030 的历史会话只有两段文字，引用角标没有还原——完�
 
 | 事项 | 落地 |
 |---|---|
-| 写入 | `message.completed` 投影时同时写 `runs.citations`（JSONB）：只保留 `chunk_id`/`document_id`/`ord`/`title`/`heading`/`snippet`/`page`，类型不对退回默认值，无 `document_id` 跳过，最多 50 条；空数组=明确无引用 |
-| 读取 | `GET /runs/{id}` 返回 `citations`；仅在 `output` 可见且正文未过期时；`content_redacted` 或 `content_pruned_at` 非空时返回 `[]` |
+| 写入 | `message.completed` 投影时同时写 `runs.citations`（JSONB）：只保留 `chunk_id`/`document_id`/`ord`/`title`/`heading`/`snippet`/`page`，类型不对退回默认值，无 `document_id` 跳过，文本字段截断（200/500），最多 50 条；空数组=明确无引用 |
+| 读取 | `GET /runs/{id}` 返回 `citations`；仅在 `output` 可见且正文未过期时；`output` 缺失、`content_redacted` 或 `content_pruned_at` 非空时返回 `[]` |
 | 保留 | 正文按 ADR-0023 清空时引用快照一起置空；`cited_document_ids` 不清（权限回收仍用）；迁移前历史 run 不回填 |
 | 前端 | `transcriptMessages` 只在回答可见时挂引用，复用现有角标与 `CitationPreviewDialog`；预览仍按当前角色校验，fail-closed |
 | 迁移 | `0014`：`runs.citations JSONB NOT NULL DEFAULT '[]'`，不建索引；`downgrade` 删列 |
 
-验证：默认 **419 passed + 31 skipped**；临时 Postgres 下 **447 passed + 3 skipped**，
+验证：默认 **422 passed + 31 skipped**；临时 Postgres 下 **450 passed + 3 skipped**，
 `alembic upgrade head` → `check` → `downgrade 0013` → `upgrade head` 往返无漂移；
-`ruff check` / `ruff format --check`（168 files）/ `mypy app`（103 files）通过；前端
+`ruff check` / `ruff format --check`（169 files）/ `mypy app`（103 files）通过；前端
 `tsc --noEmit`、**63 tests / 13 files**、`oxlint` 0/0、`oxfmt --check`（69 files）。检索、
 提示词、多轮判定未改，未重跑 RAG / 分类 / 多轮评测。
 

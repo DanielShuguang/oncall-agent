@@ -82,7 +82,8 @@ CREATE INDEX idx_runs_status            ON runs (status) WHERE status IN ('runni
 > 是因为事件 180 天后会被整场清理，而 `output` 还留着。
 > `citations` 是同一事件里**完整引用**的快照（`chunk_id`/`document_id`/`ord`/`title`/
 > `heading`/`snippet`/`page`，迁移 0014、[ADR-0031](decisions/0031-run-citations-replay.md)）：
-> 历史会话打开时直接还原角标，不需要回查事件。写入时只保留已知字段、最多 50 条；
+> 历史会话打开时直接还原角标，不需要回查事件。写入时只保留已知字段、文本字段截断
+> （`title`/`heading` 200、`snippet` 500）、最多 50 条；
 > 正文按 ADR-0023 清空时一起置为 `[]`——片段是回答内容，不能比正文活得久；
 > `cited_document_ids` 不清，权限回收仍需要。迁移前的历史 run 不回填。
 

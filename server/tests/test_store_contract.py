@@ -397,7 +397,7 @@ async def _exercise_prune_contents(store: RunStore) -> None:
     assert rec.input == ""
     assert rec.output is None
     assert rec.content_pruned_at is not None
-    # 引用快照是元数据，不随正文清理：详情仍能解释「这场引用过什么」
+    # `cited_document_ids` 是元数据，不随正文清理：详情仍能解释「这场引用过什么」
     assert rec.cited_document_ids == ["doc_x"]
     # 但引用片段属于回答内容：正文清空时快照一并清掉（ADR-0031）
     assert rec.citations == []

@@ -32,11 +32,12 @@ ADR-0030 让左侧会话列表可以回看历史，但 transcript 只有 `input`
 1. **写入**：`build_run_patch` 在 `message.completed` 时同时投影 `citations` 与
    `cited_document_ids`。快照只保留角标需要的字段（`chunk_id`、`document_id`、`ord`、
    `title`、`heading`、`snippet`、`page`），类型不对的字段退回默认值，没有
-   `document_id` 的条目跳过，最多 50 条。空数组表示「这轮明确没有引用」，与
+   `document_id` 的条目跳过，文本字段超长截断（`title`/`heading` 200、
+   `snippet` 500），最多 50 条。空数组表示「这轮明确没有引用」，与
    「事件没带这个字段」区分。
 2. **读取**：`GET /runs/{id}` 增加 `citations`。只有在 `output` 可见且正文未过期时返回；
-   `content_redacted` 或 `content_pruned_at` 非空时返回 `[]`——引用片段是回答内容，
-   不能比正文活得更久。
+   `output` 缺失、`content_redacted` 或 `content_pruned_at` 非空时返回 `[]`——引用片段
+   是回答内容，不能比正文活得更久。
 3. **保留**：正文按 ADR-0023 清空时，`citations` 一并置空；`cited_document_ids`
    不清，权限回收（ADR-0022）仍然需要它。清理是同一个 UPDATE，不新增后台任务。
 4. **前端**：`transcriptMessages` 只在回答可见时把 `citations` 挂到 assistant 消息上，
@@ -58,10 +59,11 @@ ADR-0030 让左侧会话列表可以回看历史，但 transcript 只有 `input`
 
 ## 验证
 
-- 默认 `uv run pytest`：**419 passed + 31 skipped**（新增断言，未新增测试函数）。
-- 真实 Postgres（pgserver 临时实例）：**447 passed + 3 skipped**；`alembic upgrade head`
+- 默认 `uv run pytest`：**422 passed + 31 skipped**（新增 3 条：快照清洗/上限、空数组与
+  非数组、`output` 缺失时不返回引用）。
+- 真实 Postgres（pgserver 临时实例）：**450 passed + 3 skipped**；`alembic upgrade head`
   → `alembic check` → `downgrade 0013` → `upgrade head` 往返无漂移。
-- `ruff check` / `ruff format --check`（168 files）/ `mypy app`（103 files）通过。
+- `ruff check` / `ruff format --check`（169 files）/ `mypy app`（103 files）通过。
 - 前端 `tsc --noEmit`、`pnpm test` **63 tests / 13 files**、`oxlint` 0/0、
   `oxfmt --check`（69 files）通过。
 - 检索、提示词、多轮判定未改，未重跑 RAG / 分类 / 多轮评测。

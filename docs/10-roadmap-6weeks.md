@@ -305,7 +305,7 @@ docs/02 §4 从 W2 起就写着事件保留 30 天、计量 180 天，但**只�
 |---|---|
 | 事件清理 | 终态（completed / failed / interrupted）且 `finished_at` 早于 180 天（`ONCALL_EVENT_RETENTION_DAYS`）的 run，按 **run 整场**删除事件，同事务写 `runs.events_pruned_at`；`FOR UPDATE SKIP LOCKED` 分批，多副本不重复；轮内最多 `ONCALL_RETENTION_MAX_BATCHES`（默认 10）批，取不满一批即停；挂起审批/运行中的 run 永不清理。迁移 0010 加列与部分索引 `idx_runs_retention` |
 | 计量清理 | `model_calls` 按 `created_at` 删过期明细（`ONCALL_MODEL_CALL_RETENTION_DAYS`，默认 180 天），`runs` 上的 token/cost 汇总保留；保留期内两表对账口径不变 |
-| 不清理 | `runs`（列表/成本/多轮上下文依赖）、审批记录、知识库；上传文件本来就不落盘，docs/02 的「附件 30 天」一行是 W2 设想，已删除 |
+| 不清理 | `runs`（列表/成本/多轮上下文依赖）、审批决议行、知识库；上传文件本来就不落盘，docs/02 的「附件 30 天」一行是 W2 设想，已删除。审批快照与过期授权后来由 [ADR-0027](decisions/0027-approval-snapshot-retention.md) 清理 |
 | API 语义 | `GET /runs/{id}` 与列表 summary 增加 `events_pruned_at`；`/runs/{id}/events` 对已清理 run 返回 200 + 空数组（run 没消失），由详情字段解释；`event_count` 表示当前仍保留的条数 |
 | 前端 | `/runs/:id` 在 `events_pruned_at` 有值时显示「事件已过保留期被清理」，时间线/工具调用标为不可用，摘要、计量、失败归因与 `run.output` 最终回答照常展示 |
 | 触发 | 后台每 6 小时（`ONCALL_RETENTION_INTERVAL_S`）扫一轮，单轮最多 10 批 × 200 行，跑满记 `retention_backlog_remaining` warning；`make prune` / `python -m app.cli prune --dry-run` 立即处理或先看候选（dry-run 只预览第一批，`--limit` 覆盖单批上限） |
@@ -501,6 +501,39 @@ WSL2 + Docker 复跑）；`ruff` / `ruff format --check`（147 files）/ `mypy a
 网关，个人预算不生效；全局与个人是两笔独立预扣，进程崩在中间会留下全局预留——与
 ADR-0013 已知的"预扣泄漏"同类，日切自愈、偏保守。详见
 [ADR-0026](decisions/0026-user-daily-budget.md)。
+
+---
+
+## W6 后补：审批快照与过期授权（ADR-0027）
+
+docs/02 §4 的保留表里，`approvals / approval_grants` 一直写着「不清理，保留期未定」，
+ADR-0021 的「待定」也记着同一件事。缺口的后果不是「行多」，而是**同一段内容有两个寿命**：
+ADR-0023 按 180 天清掉 `runs.input/output` 与事件，但 `approvals.state` 里还留着挂起瞬间的
+用户问题、检索命中与工具结果，永久可读；`approval_grants` 过期后也一直留着。
+
+难点是这两张表混了两类数据：决议（谁、何时、结论、理由、参数）是治理证据，应该长期保留；
+`state` 是执行工作副本，只服务「审批通过后恢复执行」，寿命应该跟内容走。
+
+| 事项 | 落地 |
+|---|---|
+| 快照 | `approvals.state` 清空为 `{}`：只清 `status != 'pending'` 且 `resolved_at` 早于 `ONCALL_RUN_CONTENT_RETENTION_DAYS` 的行；复用正文保留期，不新增环境变量；挂起的审批永不清理 |
+| 决议 | `args` / `risk_level` / `status` / `requested_by` / `resolved_by` / `reason` / `scope` / `resolved_at` 全部保留；接口本来就不返回 `state`，无可见变化 |
+| 无迁移 | `{}` 不是合法快照，清空即回收标记；幂等，不需要新列或索引（schema 仍到 0013） |
+| 授权 | `approval_grants` 中 `expires_at < now` 的行删除；过期授权本来就不再生效，审计在 `approvals` 的 `scope='session'` 决议行与 `approval.resolved` 事件里 |
+| 执行者 | `RetentionSweeper` 两个新步骤，顺序「事件 → 正文 → 审批快照 → 过期授权 → 计量」；收手条件包含新计数，只剩快照积压时单轮仍继续取批 |
+| 可观测 | `prune` CLI JSON 增加 `approval_snapshots` / `approval_grants`（dry-run 给候选数）；后台日志同名字段 |
+
+验证：默认 **395 passed + 28 skipped**；接真实 Postgres（`pgserver` 临时实例，PostgreSQL 16.2 +
+pgvector）后 **422 passed + 1 skipped**（本机没有 Redis，账本往返用例按既有条件跳过）；
+`ruff` / `ruff format --check`（162 files）/ `mypy app`（102 files）通过；空库
+`alembic upgrade head` 一次到 0013（本轮无新迁移）；`prune --dry-run` 输出
+`approval_snapshots` / `approval_grants`，真实清理后快照为空、参数与理由保留；前端未改动。
+检索、提示词、多轮判定均未改，未重跑评测。
+
+已知边界：超过保留期的审批仍可查参数与决议，但**不能再从快照恢复执行**（这只发生在决议前）；
+决议行永久保留，没有冷归档；清理时间按 `resolved_at`，通常比 run 正文晚一个审批 TTL 到几天；
+审批表很小、没有在真实体量上量过清理性能；不按人删审批（数据主体请求等接 IdP 后再做）。
+详见 [ADR-0027](decisions/0027-approval-snapshot-retention.md)。
 
 ---
 

@@ -141,6 +141,11 @@ CREATE TABLE approval_grants (
 > `state` 是审批恢复的关键：审批通过后只重放挂起的那次 `act`，不重跑
 > `intake/retrieve/plan`。否则等待审批期间知识库或工具配置一变，
 > 审批人看到的参数就与真正执行的参数不一致了（docs/06 §7）。
+>
+> `state` 只服务恢复执行：`resolved_at` 早于 `ONCALL_RUN_CONTENT_RETENTION_DAYS`
+> 的已决议审批会被清空为 `{}`（§4），参数、理由与决议人保留。`{}` 不是合法快照
+> （至少带 `run_id` / `node`），因此空对象就是「已回收」标记，不需要额外列
+> （[ADR-0027](decisions/0027-approval-snapshot-retention.md)）。
 
 ### 2.4 model_calls（计量）
 
@@ -368,7 +373,9 @@ CREATE TABLE user_budgets (
 | model_calls | 180 天 | `ONCALL_MODEL_CALL_RETENTION_DAYS`；只删计量明细，`runs` 上的 token/cost 汇总保留 |
 | runs（行） | 不清理 | 运行列表、成本口径与失败率依赖它；删行会连带删审批与计量 |
 | runs.input / output | 180 天 | `ONCALL_RUN_CONTENT_RETENTION_DAYS`；到期清空正文并写 `runs.content_pruned_at`，只留摘要（[ADR-0023](decisions/0023-run-content-retention.md)）；必须 `>= ONCALL_EVENT_RETENTION_DAYS` |
-| approvals / approval_grants | 不清理 | 审批决议是治理证据，量小；保留期未定 |
+| approvals.state（执行快照） | 180 天 | 复用 `ONCALL_RUN_CONTENT_RETENTION_DAYS`，按 `resolved_at` 清空为 `{}`；挂起的审批永不清理；决议证据（`args` / `reason` / `status` / `resolved_by` / `resolved_at`）保留（[ADR-0027](decisions/0027-approval-snapshot-retention.md)） |
+| approvals（决议行） | 不清理 | 审批决议是治理证据（批准了什么、谁批的、为什么），量小；冷归档见「待定」 |
+| approval_grants | 过期即删 | `expires_at < now` 的行由清理任务删除；过期授权本来就不再生效，删行不改变授权语义（[ADR-0027](decisions/0027-approval-snapshot-retention.md)） |
 | kb_documents / kb_chunks | 不清理 | 知识库由管理员维护，删除是业务操作，不是保留策略 |
 | 评测报告（文件） | 永久 | 不入库，体量小，是能力证明（§2.8） |
 
@@ -378,9 +385,11 @@ CREATE TABLE user_budgets (
 > 跑满上限会记 `retention_backlog_remaining` warning；`prune --dry-run` 只预览第一批。
 > 也可手动 `make prune` / `cd server && uv run python -m app.cli prune --dry-run`。
 > 只清终态（completed / failed / interrupted）且 `finished_at` 早于阈值的 run；挂起审批、
-> 正在跑的 run 永远不清理。**上传文件不单独落盘**（解析后写 `kb_documents` / `kb_chunks`），
+> 正在跑的 run 永远不清理。审批快照与过期授权不按 run 状态判断：快照看是否 pending 与
+> `resolved_at`，授权看 `expires_at`（§4、[ADR-0027](decisions/0027-approval-snapshot-retention.md)）。
+> **上传文件不单独落盘**（解析后写 `kb_documents` / `kb_chunks`），
 > 早期文档里的「附件 30 天」没有对应表，已删除。
-> 顺序是「事件 → 正文 → 计量」，且配置层强制正文保留期**不短于**事件保留期：
+> 顺序是「事件 → 正文 → 审批快照 → 过期授权 → 计量」，且配置层强制正文保留期**不短于**事件保留期：
 > `message.delta` / `message.completed` 里是同一段回答正文，事件还在时清 runs 等于没清
 > （[ADR-0023](decisions/0023-run-content-retention.md)）。正文清理是**按时间**的删除，
 > 与 [ADR-0022](decisions/0022-run-content-visibility.md) 的**按权限**回收正交：前者删了就不再回来，

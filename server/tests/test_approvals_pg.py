@@ -17,7 +17,7 @@ from typing import Any
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -25,7 +25,7 @@ from app.approvals.service import ApprovalService
 from app.approvals.store import PostgresApprovalStore
 from app.core.store import PostgresRunStore
 from app.core.store import append_event_in_session as real_append_event_in_session
-from app.models import Approval, Base
+from app.models import Approval, ApprovalGrant, Base
 from app.schemas.event import EventType
 from app.tools.registry import Identity
 from app.tools.tickets import InMemoryTicketRepository
@@ -252,3 +252,94 @@ async def test_pg_session_grant_is_user_scoped(
         user_id="u_555", session_id="sess_pg", tool_name="create_ticket", at=now
     )
     assert mem_tickets.count() == 1
+
+
+async def test_pg_prunes_resolved_snapshots_and_expired_grants(
+    pg_approvals: tuple[PostgresRunStore, PostgresApprovalStore, ApprovalService, Any],
+) -> None:
+    """ADR-0027：只清已决议且早于阈值的快照；过期授权删行，未过期的照常生效。"""
+    runs, approvals, _, sessionmaker = pg_approvals
+    run_id = uuid.UUID(await _new_run(runs))
+    now = datetime.now(UTC)
+    snapshot = {"run_id": str(run_id), "node": "act", "query": "打印机坏了"}
+    old_id = uuid.uuid4()
+    pending_id = uuid.uuid4()
+    async with sessionmaker() as session, session.begin():
+        session.add_all(
+            [
+                Approval(
+                    id=old_id,
+                    run_id=run_id,
+                    call_id="call_old",
+                    tool_name="create_ticket",
+                    args={"title": "打印机报修"},
+                    risk_level="medium",
+                    status="approved",
+                    requested_by="u_102",
+                    resolved_by="u_900",
+                    reason="确认开单",
+                    scope="once",
+                    state=dict(snapshot),
+                    expires_at=now - timedelta(days=90),
+                    created_at=now - timedelta(days=90),
+                    resolved_at=now - timedelta(days=90),
+                ),
+                Approval(
+                    id=pending_id,
+                    run_id=run_id,
+                    call_id="call_pending",
+                    tool_name="query_cmdb",
+                    args={},
+                    risk_level="low",
+                    status="pending",
+                    requested_by="u_102",
+                    state=dict(snapshot),
+                    expires_at=now + timedelta(minutes=30),
+                    created_at=now - timedelta(days=90),
+                ),
+                ApprovalGrant(
+                    user_id="u_102",
+                    session_id="sess_dead",
+                    tool_name="create_ticket",
+                    granted_by="u_900",
+                    expires_at=now - timedelta(days=1),
+                ),
+                ApprovalGrant(
+                    user_id="u_102",
+                    session_id="sess_live",
+                    tool_name="create_ticket",
+                    granted_by="u_900",
+                    expires_at=now + timedelta(hours=1),
+                ),
+            ]
+        )
+
+    cutoff = now - timedelta(days=60)
+    # dry-run 只计数
+    assert await approvals.prune_snapshots(resolved_before=cutoff, dry_run=True) == 1
+    kept = await approvals.get(str(old_id))
+    assert kept is not None and kept.state == snapshot
+
+    assert await approvals.prune_snapshots(resolved_before=cutoff) == 1
+    cleared = await approvals.get(str(old_id))
+    assert cleared is not None
+    # 快照清空、决议证据保留；挂起行即使很老也不清（恢复执行还要读快照）
+    assert cleared.state == {}
+    assert cleared.args == {"title": "打印机报修"}
+    assert cleared.reason == "确认开单"
+    pending = await approvals.get(str(pending_id))
+    assert pending is not None and pending.state == snapshot
+    # 幂等：空对象不是快照，下一轮不再入选
+    assert await approvals.prune_snapshots(resolved_before=cutoff) == 0
+
+    assert await approvals.prune_grants(expired_before=now, dry_run=True) == 1
+    assert await approvals.prune_grants(expired_before=now) == 1
+    assert await approvals.is_granted(
+        user_id="u_102", session_id="sess_live", tool_name="create_ticket", at=now
+    )
+    async with sessionmaker() as session:
+        remaining = await session.scalar(
+            select(func.count()).select_from(ApprovalGrant).where(ApprovalGrant.user_id == "u_102")
+        )
+    assert remaining == 1
+    assert await approvals.prune_grants(expired_before=now) == 0

@@ -13,7 +13,7 @@ from dataclasses import replace
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Protocol
 
-from sqlalchemy import select
+from sqlalchemy import delete, select, text, tuple_, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.approvals.types import ApprovalRecord
@@ -71,6 +71,37 @@ class ApprovalStore(Protocol):
     async def is_granted(
         self, *, user_id: str, session_id: str, tool_name: str, at: datetime
     ) -> bool: ...
+
+    async def prune_snapshots(
+        self,
+        *,
+        resolved_before: datetime,
+        limit: int = 200,
+        dry_run: bool = False,
+    ) -> int:
+        """清空已决议且早于阈值的 `state`，返回涉及条数（ADR-0027）。
+
+        只清非 pending 的行：挂起的审批还要靠快照恢复执行。清空后 `state` 是空对象，
+        它本身就是「已回收」的标记——合法快照至少带 `run_id` / `node`，不会是 `{}`，
+        因此不需要再加一列（迁移 0013 之后没有 0014）。决议证据（`args` / `reason` /
+        `resolved_by` / `resolved_at` / `status`）保留。`dry_run` 只计数。
+        """
+        ...
+
+    async def prune_grants(
+        self,
+        *,
+        expired_before: datetime,
+        limit: int = 200,
+        dry_run: bool = False,
+    ) -> int:
+        """删除 `expires_at` 早于阈值的授权，返回条数（ADR-0027）。
+
+        过期授权不再授予任何权限（`is_granted` 比的是 `expires_at > at`），删行不改变
+        授权语义；「谁在哪个会话授过权，授权了什么工具」仍在 `approvals` 里
+        （`scope='session'` 的决议行 + `approval.resolved` 事件）。
+        """
+        ...
 
 
 class InMemoryApprovalStore:
@@ -154,6 +185,51 @@ class InMemoryApprovalStore:
     ) -> bool:
         expires = self._grants.get((user_id, session_id, tool_name))
         return expires is not None and expires > at
+
+    async def prune_snapshots(
+        self,
+        *,
+        resolved_before: datetime,
+        limit: int = 200,
+        dry_run: bool = False,
+    ) -> int:
+        async with self._lock:
+            candidates = sorted(
+                (
+                    record
+                    for record in self._records.values()
+                    if not record.is_pending
+                    and record.state
+                    and record.resolved_at is not None
+                    and record.resolved_at < resolved_before
+                ),
+                key=lambda record: (record.resolved_at or record.created_at, record.id),
+            )[:limit]
+            if not dry_run:
+                for record in candidates:
+                    self._records[record.id] = replace(record, state={})
+            return len(candidates)
+
+    async def prune_grants(
+        self,
+        *,
+        expired_before: datetime,
+        limit: int = 200,
+        dry_run: bool = False,
+    ) -> int:
+        async with self._lock:
+            candidates = sorted(
+                (
+                    (key, expires)
+                    for key, expires in self._grants.items()
+                    if expires < expired_before
+                ),
+                key=lambda item: (item[1], item[0]),
+            )[:limit]
+            if not dry_run:
+                for key, _ in candidates:
+                    del self._grants[key]
+            return len(candidates)
 
 
 class PostgresApprovalStore:
@@ -288,6 +364,68 @@ class PostgresApprovalStore:
                 )
             )
         return expires is not None and expires > at
+
+    async def prune_snapshots(
+        self,
+        *,
+        resolved_before: datetime,
+        limit: int = 200,
+        dry_run: bool = False,
+    ) -> int:
+        stmt = (
+            select(Approval.id)
+            .where(
+                Approval.status != "pending",
+                Approval.resolved_at.is_not(None),
+                Approval.resolved_at < resolved_before,
+                # 空对象不是合法快照，清过的行不会再被选中（幂等，无需标记列）
+                Approval.state != text("'{}'::jsonb"),
+            )
+            .order_by(Approval.resolved_at)
+            .limit(limit)
+        )
+        if dry_run:
+            async with self._sessionmaker() as session:
+                return len((await session.scalars(stmt)).all())
+
+        async with self._sessionmaker() as session, session.begin():
+            # SKIP LOCKED：多副本各清各的批次，不互相等待
+            ids = (await session.scalars(stmt.with_for_update(skip_locked=True))).all()
+            if not ids:
+                return 0
+            await session.execute(update(Approval).where(Approval.id.in_(ids)).values(state={}))
+        return len(ids)
+
+    async def prune_grants(
+        self,
+        *,
+        expired_before: datetime,
+        limit: int = 200,
+        dry_run: bool = False,
+    ) -> int:
+        stmt = (
+            select(ApprovalGrant.user_id, ApprovalGrant.session_id, ApprovalGrant.tool_name)
+            .where(ApprovalGrant.expires_at < expired_before)
+            .order_by(ApprovalGrant.expires_at)
+            .limit(limit)
+        )
+        async with self._sessionmaker() as session:
+            if dry_run:
+                return len((await session.execute(stmt)).all())
+            async with session.begin():
+                rows = (await session.execute(stmt.with_for_update(skip_locked=True))).all()
+                if not rows:
+                    return 0
+                await session.execute(
+                    delete(ApprovalGrant).where(
+                        tuple_(
+                            ApprovalGrant.user_id,
+                            ApprovalGrant.session_id,
+                            ApprovalGrant.tool_name,
+                        ).in_([tuple(row) for row in rows])
+                    )
+                )
+        return len(rows)
 
 
 def _record_from_row(row: Approval) -> ApprovalRecord:

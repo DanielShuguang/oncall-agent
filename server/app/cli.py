@@ -9,9 +9,9 @@ v1 不接 SSO（ADR-0010）：给用户签发短期 token 由运维离线完成�
 
 `reap` 回收进程中断后停在 `running` 的 run（ADR-0017）：只追加
 `run.failed(RUN_INTERRUPTED)` 收敛状态，不会自动重放写工具。
-`prune` 执行保留策略（ADR-0021 / ADR-0023）：整场删除过期 run 的事件、
-清空过期 run 的正文（`input/output`）、按时间删除过期的模型计量行；
-先 `--dry-run` 看候选。
+`prune` 执行保留策略（ADR-0021 / ADR-0023 / ADR-0027）：整场删除过期 run 的事件、
+清空过期 run 的正文（`input/output`）与已决议审批的快照（`approvals.state`）、
+删除过期授权（`approval_grants`）、按时间删除过期的模型计量行；先 `--dry-run` 看候选。
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ import asyncio
 import json
 import sys
 
+from app.approvals.store import build_approval_store
 from app.core.config import get_settings
 from app.core.db import dispose as dispose_db
 from app.core.security import DEFAULT_TTL_MINUTES, create_token
@@ -53,7 +54,7 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="覆盖 ONCALL_STALE_RUN_MIN（分钟）；必须 >= 1",
     )
-    prune = sub.add_parser("prune", help="清理超过保留期的事件、run 正文与模型计量")
+    prune = sub.add_parser("prune", help="清理超过保留期的事件、正文、审批快照与计量")
     prune.add_argument("--dry-run", action="store_true", help="只列候选，不删除")
     prune.add_argument(
         "--limit",
@@ -108,6 +109,7 @@ async def _prune(args: argparse.Namespace) -> int:
     sweeper = RetentionSweeper(
         build_store(settings),
         build_model_call_store(settings),
+        build_approval_store(settings),
         settings=settings,
     )
     try:
@@ -127,6 +129,8 @@ async def _prune(args: argparse.Namespace) -> int:
                 "events": result.events,
                 "calls": result.calls,
                 "content_runs": len(result.content_run_ids),
+                "approval_snapshots": result.approval_snapshots,
+                "approval_grants": result.approval_grants,
                 "batch": result.batch,
                 "capped": result.capped,
                 "dry_run": result.dry_run,

@@ -126,7 +126,7 @@ Agent 层面：单个工具失败不中断整个 run，`tool.result` 记 `status
 | 过期 | 默认 10 分钟（`ONCALL_APPROVAL_TTL_MIN`），超时 → `expired` → run 失败并转人工 |
 | 幂等 | 重复 resolve 返回首次结果，不重复执行工具（存储层 `WHERE status='pending'` 原子迁移） |
 | 恢复 | 通过后从 `approvals.state` 快照恢复 `act`，只执行挂起的那一次调用 |
-| 审计 | 谁、何时、批了什么、理由、参数快照与上下文，全部落 `approvals` 表 |
+| 审计 | 谁、何时、批了什么、理由、参数快照与上下文，全部落 `approvals` 表；执行快照按正文保留期清空，决议行永久保留（[ADR-0027](decisions/0027-approval-snapshot-retention.md)） |
 
 **一致性边界**：决议状态（`approvals`）、`approval.resolved`、拒绝/超时的
 `run.failed` 现在写在**同一事务**里（存储层 `resolve(on_resolved=...)` 回调，
@@ -212,6 +212,8 @@ app/tools/
 用途：回答"这个功能上线后有没有人越权试过"——这类问题在企业交付里一定会被问。
 审计字段随 `run_events` 保留 180 天（`ONCALL_EVENT_RETENTION_DAYS`，可配）；审批决议
 另存于 `approvals` 表，不随事件清理删除（[ADR-0021](decisions/0021-data-retention.md)）。
+其中 `approvals.state` 的执行快照按正文保留期清空、`approval_grants` 过期即删，决议行与
+`approval.resolved` 事件保留（[ADR-0027](decisions/0027-approval-snapshot-retention.md)）。
 
 ## 10. 面试高频追问与答法
 

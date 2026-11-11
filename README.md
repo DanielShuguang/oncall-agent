@@ -168,9 +168,9 @@ oncall/
 
 | 模块 | 状态 | 验证方式 |
 |---|---|---|
-| 文档（12 篇 + 26 篇 ADR + 评测基线） | ✅ 完成 | — |
+| 文档（12 篇 + 27 篇 ADR + 评测基线） | ✅ 完成 | — |
 | 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡 / 运行回放 / 成本页） | ✅ 可用 | `tsc --noEmit`、`oxlint 0`、`oxfmt --check` 通过；`vitest` 58/58；`pnpm build` 成功 |
-| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **390 passed + 27 skipped**；设 `ONCALL_TEST_DATABASE_URL`（+ 可选 `ONCALL_TEST_REDIS_URL`）后 **417 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约、引用快照与内容回收、个人预算账本、计量一致性） |
+| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **395 passed + 28 skipped**；设 `ONCALL_TEST_DATABASE_URL`（指向一个可清空的库）后 **422 passed + 1 skipped**，再加 `ONCALL_TEST_REDIS_URL` 为 **423 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约与审批快照、引用快照与内容回收、个人预算账本、计量一致性） |
 | 本地 JWT（W1 D2） | ✅ 已完成 | `tests/test_auth.py` 20 条：签发/验签、过期、alg=none、401 JSON、OpenAPI Bearer、run 归属隔离 |
 | 事件落库 + 断线续传（D4） | ✅ 已完成 | `alembic upgrade head` + `alembic check` 无漂移；`tests/test_store_contract.py`（内存 + Postgres 契约）、`tests/test_chat_stream.py`（落库、幂等回放、503 语义） |
 | 最小 Agent 运行时（W1 D5） | ✅ 已完成 | `tests/test_agent_runtime.py` 9 条：工具真实执行、检索引用、写操作挂起审批、工具失败降级、步数/时长上限 |
@@ -189,6 +189,7 @@ oncall/
 | run 正文按时间保留（W6 后补） | ✅ 已完成 | 终态 run 超过 `ONCALL_RUN_CONTENT_RETENTION_DAYS`（默认 180 天）后清空 `runs.input/output` 并写 `content_pruned_at`（迁移 0012），只留状态/计量/失败归因/引用快照；强制正文保留期 ≥ 事件保留期（事件里是同一段正文）；详情返回空正文 + 标记、幂等重放 `410 CONTENT_EXPIRED`、多轮历史自然剔除；`tests/test_retention.py`、`test_store_contract.py`（`_exercise_prune_contents`）、`test_runs_api.py`、`test_chat_stream.py`、`test_runs_content.py`、`test_config.py`；[ADR-0023](docs/decisions/0023-run-content-retention.md) |
 | 多轮评测（W6 后补） | ✅ 已完成 | `make eval-multiturn`：`app/eval/multiturn.py` + 17 条用例（12 指代 + 4 话题切换 + 1 诊断），只判最后一轮；指代轮要求引用命中标注文档且**空会话隔离对照**成立，切换轮要求命中新话题且不含上一轮话题、单独提问必须也能命中；门槛 `coref_acc` / `shift_acc` 各 ≥ 85%，诊断项不计入；评测顺带修好连续追问丢话题锚点（按时间累积最近 3 轮问题）与「那 + 新话题」被稀释（追问原句优先，ADR-0025）；`tests/test_multiturn_eval.py`、`test_history.py`、`test_rag_retrieve.py`；[ADR-0024](docs/decisions/0024-multiturn-eval.md)、[ADR-0025](docs/decisions/0025-followup-original-first.md) |
 | 个人日预算（W6 后补） | ✅ 已完成 | `user_budgets` 表（迁移 0013）+ `GET/PUT/DELETE /admin/budgets`；网关在模型调用前先扣全局、再扣个人，个人不足时把全局预扣还回去再 `run.failed(BUDGET_EXCEEDED)`（不花钱、不占全局额度）；`ONCALL_USER_DAILY_BUDGET_CNY` 默认 0 = 不限，覆盖 2s 缓存、改完不重启；成本页新增「个人日预算」卡片；`tests/test_budgets.py`、`test_budgets_pg.py`；[ADR-0026](docs/decisions/0026-user-daily-budget.md) |
+| 审批快照保留（W6 后补） | ✅ 已完成 | 已决议审批的 `state` 按 `ONCALL_RUN_CONTENT_RETENTION_DAYS`（默认 180 天）清空为 `{}`，挂起的不清；参数/理由/决议人保留，无迁移、幂等；`approval_grants` 过期即删；清理任务与 `prune --dry-run` 输出 `approval_snapshots` / `approval_grants`；`tests/test_retention.py`、`test_approvals_pg.py`；[ADR-0027](docs/decisions/0027-approval-snapshot-retention.md) |
 
 ### 评测与压测
 
@@ -273,11 +274,13 @@ W6 基线（3 轮均值，mock 规则路径，口径见 [baseline-v1](docs/eval/
   角色名不做白名单，拼错会让文档除管理员外谁都看不到（控制台可见并可改）。召回多一次
   `kb_documents` join，v1 规模下既没验证执行计划、也没做延迟对比基准
   （[ADR-0019](docs/decisions/0019-document-level-access.md)）
-- 保留清理只删事件与计量明细：超过 180 天的 run 只能看摘要，不能回放；没有冷归档，
-  现场要留更久只能调大 `ONCALL_EVENT_RETENTION_DAYS`；`model_calls` 删除后，超出窗口的
+- 保留清理只删事件、正文、计量明细与审批快照：超过 180 天的 run 只能看摘要，不能回放；
+  已决议审批的 `state` 也被清空，参数/理由/决议人保留但不能再从快照恢复执行；没有冷归档，
+  现场要留更久只能调大保留天数；`model_calls` 删除后，超出窗口的
   区间成本明细不可再核对（`runs` 汇总仍在）；清理任务没有性能基准（单批 200 场、每轮
   10 批、6 小时间隔是保守默认值，按 1–2 条计量/run 约 4000–8000 run/天）
-  （[ADR-0021](docs/decisions/0021-data-retention.md)）
+  （[ADR-0021](docs/decisions/0021-data-retention.md)、[ADR-0023](docs/decisions/0023-run-content-retention.md)、
+  [ADR-0027](docs/decisions/0027-approval-snapshot-retention.md)）
 - 回答内容按权限回收：引用文档被改窄/删除后，详情、事件、幂等重放与多轮历史都不再展示
   旧回答（[ADR-0022](docs/decisions/0022-run-content-visibility.md)）。代价是 fail-closed——
   重新上传会换 `document_id`，旧引用因此按不可见处理；回收只覆盖知识库引用

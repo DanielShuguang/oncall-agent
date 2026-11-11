@@ -97,17 +97,27 @@ async def _sweep_stale_runs(stop: asyncio.Event) -> None:
 
 async def _sweep_retention(stop: asyncio.Event) -> None:
     settings = get_settings()
-    sweeper = RetentionSweeper(get_store(), get_model_call_store(), settings=settings)
+    sweeper = RetentionSweeper(
+        get_store(), get_model_call_store(), get_approval_store(), settings=settings
+    )
     while not stop.is_set():
         try:
             result = await sweeper.sweep()
-            if result.run_ids or result.calls or result.content_run_ids:
+            if (
+                result.run_ids
+                or result.calls
+                or result.content_run_ids
+                or result.approval_snapshots
+                or result.approval_grants
+            ):
                 log.info(
                     "retention_pruned",
                     runs=len(result.run_ids),
                     events=result.events,
                     calls=result.calls,
                     content_runs=len(result.content_run_ids),
+                    approval_snapshots=result.approval_snapshots,
+                    approval_grants=result.approval_grants,
                     batch=result.batch,
                     events_before=result.events_before.isoformat(),
                     calls_before=result.calls_before.isoformat(),
@@ -122,6 +132,8 @@ async def _sweep_retention(stop: asyncio.Event) -> None:
                     events=result.events,
                     calls=result.calls,
                     content_runs=len(result.content_run_ids),
+                    approval_snapshots=result.approval_snapshots,
+                    approval_grants=result.approval_grants,
                 )
         except Exception as exc:  # 库没起来时不能让后台任务炸掉整个进程
             log.warning("retention_sweep_failed", error=str(exc))

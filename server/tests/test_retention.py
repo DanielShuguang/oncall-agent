@@ -1,8 +1,9 @@
-"""数据保留清理（ADR-0021）。
+"""数据保留清理（ADR-0021 / ADR-0023 / ADR-0027）。
 
 docs/02 §4 写了保留期，但在此之前只有配置项、没有执行者：事件与计量只增不删。
 这里覆盖策略层：清理边界（只动终态、按 run 整场删）、dry-run、批次与幂等；
 内存与 Postgres 的行为一致性由 `test_store_contract.py` 的共享契约保证。
+审批快照与过期授权的口径见 ADR-0027：快照复用正文保留期，授权按过期时间删。
 """
 
 from __future__ import annotations
@@ -12,6 +13,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from app.approvals.store import InMemoryApprovalStore
+from app.approvals.types import ApprovalRecord
 from app.core.config import Settings
 from app.core.store import InMemoryRunStore
 from app.gateway.meter import InMemoryModelCallStore, ModelCallRecord
@@ -38,11 +41,13 @@ def _sweeper(
     store: InMemoryRunStore,
     calls: InMemoryModelCallStore | None = None,
     *,
+    approvals: InMemoryApprovalStore | None = None,
     settings: Settings | None = None,
 ) -> RetentionSweeper:
     return RetentionSweeper(
         store,
         calls or InMemoryModelCallStore(),
+        approvals or InMemoryApprovalStore(),
         settings=settings or _settings(),
     )
 
@@ -87,6 +92,35 @@ async def _call(
             error=None,
             created_at=created_at,
         )
+    )
+
+
+def _approval(
+    *,
+    status: str = "approved",
+    resolved_at: datetime | None = None,
+    created_at: datetime | None = None,
+    state: dict[str, object] | None = None,
+    session_id: str | None = None,
+) -> ApprovalRecord:
+    """直接构造审批行：保留清理只关心 status / resolved_at / state。"""
+    now = datetime.now(UTC)
+    return ApprovalRecord(
+        id=str(uuid.uuid4()),
+        run_id=str(uuid.uuid4()),
+        call_id="call_1",
+        tool_name="create_ticket",
+        args={"title": "打印机报修"},
+        risk_level="medium",
+        status=status,
+        requested_by="u_701",
+        expires_at=now + timedelta(minutes=30),
+        created_at=created_at or now,
+        resolved_by=None if status == "pending" else "u_900",
+        reason=None if status == "pending" else "确认开单",
+        session_id=session_id,
+        resolved_at=resolved_at,
+        state={"node": "act", "query": "打印机坏了"} if state is None else state,
     )
 
 
@@ -421,4 +455,135 @@ async def test_content_only_backlog_keeps_sweeping() -> None:
     result = await _sweeper(store).sweep(now=now + timedelta(days=61), limit=1)
 
     assert set(result.content_run_ids) == run_ids
+    assert result.capped is False
+
+
+# ------------------------------------------------------- 审批快照与过期授权（ADR-0027）
+
+
+async def test_clears_resolved_approval_snapshot_after_content_retention() -> None:
+    """已决议且过了正文保留期：只清快照，决议证据（参数/理由/结论）保留。"""
+    store = InMemoryRunStore()
+    approvals = InMemoryApprovalStore()
+    now = datetime.now(UTC)
+    old = _approval(resolved_at=now - timedelta(days=90))
+    recent = _approval(resolved_at=now - timedelta(days=10))
+    # 挂起的审批即使很老也不清：审批通过后 resume 要读快照
+    pending = _approval(status="pending", created_at=now - timedelta(days=90))
+    for record in (old, recent, pending):
+        await approvals.create(record)
+
+    result = await _sweeper(store, approvals=approvals).sweep(now=now)
+
+    assert result.approval_snapshots == 1
+    cleared = await approvals.get(old.id)
+    assert cleared is not None
+    # state 是执行用的工作副本，清空即「已回收」；决议证据不动
+    assert cleared.state == {}
+    assert cleared.args == {"title": "打印机报修"}
+    assert cleared.status == "approved"
+    assert cleared.resolved_by == "u_900"
+    assert cleared.reason == "确认开单"
+    assert cleared.resolved_at == old.resolved_at
+    kept_pending = await approvals.get(pending.id)
+    kept_recent = await approvals.get(recent.id)
+    assert kept_pending is not None and kept_pending.state
+    assert kept_recent is not None and kept_recent.state
+
+
+async def test_snapshot_cutoff_follows_content_retention() -> None:
+    """阈值复用正文保留期，而不是事件保留期：要留更久正文，快照也跟着留。"""
+    store = InMemoryRunStore()
+    approvals = InMemoryApprovalStore()
+    now = datetime.now(UTC)
+    old = _approval(resolved_at=now - timedelta(days=90))
+    await approvals.create(old)
+
+    result = await _sweeper(
+        store,
+        approvals=approvals,
+        settings=_settings(run_content_retention_days=200),
+    ).sweep(now=now)
+
+    assert result.approval_snapshots == 0
+    kept = await approvals.get(old.id)
+    assert kept is not None and kept.state
+
+
+async def test_approval_snapshot_cleanup_is_idempotent_and_dry_run_safe() -> None:
+    store = InMemoryRunStore()
+    approvals = InMemoryApprovalStore()
+    now = datetime.now(UTC)
+    old = _approval(resolved_at=now - timedelta(days=90))
+    await approvals.create(old)
+    sweeper = _sweeper(store, approvals=approvals)
+
+    preview = await sweeper.sweep(now=now, dry_run=True)
+    assert preview.approval_snapshots == 1
+    kept = await approvals.get(old.id)
+    assert kept is not None and kept.state
+
+    first = await sweeper.sweep(now=now)
+    second = await sweeper.sweep(now=now)
+    assert first.approval_snapshots == 1
+    # state 已空，下一轮不再入选：不需要额外标记列
+    assert second.approval_snapshots == 0
+
+
+async def test_prunes_expired_approval_grants_only() -> None:
+    """过期授权删掉、未过期的保留；删行不改变 is_granted 的判定。"""
+    store = InMemoryRunStore()
+    approvals = InMemoryApprovalStore()
+    now = datetime.now(UTC)
+    # 两个会话各一条授权：一条已过期，一条仍在有效期内
+    live = _approval(status="pending", session_id="sess_live")
+    dead = _approval(status="pending", session_id="sess_dead")
+    for record in (live, dead):
+        await approvals.create(record)
+    await approvals.resolve(
+        dead.id,
+        status="approved",
+        resolved_by="u_900",
+        reason=None,
+        scope="session",
+        at=now - timedelta(days=2),
+        grant_until=now - timedelta(days=1),
+    )
+    await approvals.resolve(
+        live.id,
+        status="approved",
+        resolved_by="u_900",
+        reason=None,
+        scope="session",
+        at=now,
+        grant_until=now + timedelta(hours=1),
+    )
+
+    result = await _sweeper(store, approvals=approvals).sweep(now=now)
+
+    assert result.approval_grants == 1
+    # 已过期的授权：过期后本来就不再授权，删掉只是清掉行
+    assert not await approvals.is_granted(
+        user_id="u_701", session_id="sess_dead", tool_name="create_ticket", at=now
+    )
+    # 未过期的授权照常生效
+    assert await approvals.is_granted(
+        user_id="u_701", session_id="sess_live", tool_name="create_ticket", at=now
+    )
+    # 第二轮不再有候选：过期的确实被删了，而不是"每轮都能数到"
+    again = await _sweeper(store, approvals=approvals).sweep(now=now + timedelta(minutes=1))
+    assert again.approval_grants == 0
+
+
+async def test_approval_only_backlog_keeps_sweeping() -> None:
+    """事件/正文/计量都没积压、只剩审批快照时，单轮仍要继续取批。"""
+    store = InMemoryRunStore()
+    approvals = InMemoryApprovalStore()
+    now = datetime.now(UTC)
+    for _ in range(3):
+        await approvals.create(_approval(resolved_at=now - timedelta(days=90)))
+
+    result = await _sweeper(store, approvals=approvals).sweep(now=now, limit=1)
+
+    assert result.approval_snapshots == 3
     assert result.capped is False

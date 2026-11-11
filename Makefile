@@ -21,7 +21,7 @@ help:
 	@echo "eval-classify 跑意图分类评测 (50 条)"
 	@echo "eval-multiturn 跑多轮评测（追问指代 + 话题切换 + 双向隔离对照，ADR-0024/0025）"
 	@echo "reap    回收进程中断的 run（只收敛状态，不重放写操作）"
-	@echo "prune   清理超过保留期的事件与模型计量（保留策略，ADR-0021）"
+	@echo "prune   清理超过保留期的事件、正文、审批快照与过期授权、模型计量（ADR-0021/0023/0027）"
 	@echo "loadtest 对 SSE 对话压测"
 	@echo "demo    跑三条演示剧本"
 	@echo "seed    灌演示数据"

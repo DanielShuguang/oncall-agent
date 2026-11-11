@@ -241,6 +241,17 @@ GET /api/runs/{run_id}
   "input": "我电脑连不上打印机了",
   "output": "你名下的笔记本…",
   "content_redacted": false,
+  "citations": [
+    {
+      "chunk_id": 1024,
+      "document_id": "doc_payroll",
+      "ord": 0,
+      "title": "薪酬制度",
+      "heading": "3.2 报销",
+      "snippet": "报销需在事项发生后 30 天内提交…",
+      "page": 3
+    }
+  ],
   "model_calls": [
     {
       "step": "plan",
@@ -275,6 +286,11 @@ GET /api/runs/{run_id}
 > `input` 返回**空串**、`output` 返回 `null`，状态/计量/失败归因/`events_pruned_at` 照常；
 > 此时 `content_redacted` 恒为 `false`——内容已经不存在，不属于「按你的权限隐藏」，
 > 两种原因同时成立时以过期为准。空串不会与正常输入混淆：`message` 的最小长度是 1。
+>
+> `citations`（[ADR-0031](decisions/0031-run-citations-replay.md)）：`message.completed`
+> 里引用快照的投影，供历史会话还原角标。只在 `output` 可见且正文未过期时返回；
+> `content_redacted` 或 `content_pruned_at` 非空时恒为 `[]`——引用片段是回答内容，
+> 不能比正文活得久。预览仍走 `/kb/preview`，按**当前**权限校验；列表接口不返回它。
 
 ### 3.3 会话列表（ADR-0030）
 

@@ -168,7 +168,7 @@ oncall/
 
 | 模块 | 状态 | 验证方式 |
 |---|---|---|
-| 文档（12 篇 + 30 篇 ADR + 评测基线） | ✅ 完成 | — |
+| 文档（12 篇 + 31 篇 ADR + 评测基线） | ✅ 完成 | — |
 | 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡 / 运行回放 / 成本页） | ✅ 可用 | `tsc --noEmit`、`oxlint 0`、`oxfmt --check` 通过；`vitest` 63/63；`pnpm build` 成功 |
 | 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **419 passed + 31 skipped**；设 `ONCALL_TEST_DATABASE_URL`（指向一个可清空的库）后 **447 passed + 3 skipped**，再加 `ONCALL_TEST_REDIS_URL` 为 **450 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约与审批快照、引用快照与内容回收、个人预算与账本快照、工单自助查询、会话列表、计量一致性） |
 | 本地 JWT（W1 D2） | ✅ 已完成 | `tests/test_auth.py` 20 条：签发/验签、过期、alg=none、401 JSON、OpenAPI Bearer、run 归属隔离 |
@@ -193,6 +193,7 @@ oncall/
 | 预算可观测性（W6 后补） | ✅ 已完成 | 全局与个人账本加只读快照；预扣时间戳写进同一个 reservations hash（旧副本无 ts → 年龄未知、不报 stale），用户用当日集合枚举；`GET /admin/budgets/usage` 返回已用、未结算笔数/金额与 300 秒判据下的卡住笔数，账本故障 503 不降级；成本页合并配置与账本（未知花费显示「—」）；`tests/test_budget_usage.py`；[ADR-0028](docs/decisions/0028-budget-observability.md) |
 | 工单自助查询（W6 后补） | ✅ 已完成 | `query_tickets` 注册为只读工具（2000ms、身份注入、只查 `requester=当前用户`，创建时间倒序取最近 N 条）；「我的工单/工单进度/修好了吗」等状态问法保持 `knowledge`（不再被「报修」误判成写操作），规则计划选中该工具，`finalize` 以工单表作答、不拼知识库引用；`tests/test_tickets.py`、`test_tools_guard.py`、`test_agent_graph.py`；[ADR-0029](docs/decisions/0029-ticket-self-service-query.md) |
 | 会话列表与历史会话继续（W6 后补） | ✅ 已完成 | 不建表，按 `runs.session_id` 投影（复用 `idx_runs_user_session_time`，无迁移）；`GET /sessions` 只读本人、标题取最早非空 `input`；左侧会话栏点开最近 20 条 run，拼只读 transcript（正文过期/引用回收/未结束/失败各有占位），继续对话沿用同一 `session_id`；`tests/test_sessions_api.py`、`test_store_contract.py`（`_exercise_sessions`）、`web/src/features/chat/history.test.ts`；[ADR-0030](docs/decisions/0030-session-list.md) |
+| 历史引用回放（W6 后补） | ✅ 已完成 | `runs.citations`（迁移 0014）存 `message.completed` 的完整引用快照，历史会话还原角标并复用现有全文预览；只保留已知字段、最多 50 条，正文按 ADR-0023 清空时一起置空，`content_redacted` / 过期时详情返回 `[]`；迁移前旧 run 不回填；`test_store_contract.py`、`test_runs_api.py`；[ADR-0031](docs/decisions/0031-run-citations-replay.md) |
 
 ### 评测与压测
 
@@ -304,10 +305,16 @@ W6 基线（3 轮均值，mock 规则路径，口径见 [baseline-v1](docs/eval/
   （单用户工单量小）
   （[ADR-0029](docs/decisions/0029-ticket-self-service-query.md)）
 - 会话列表只展示最近 20 个会话、每个会话最近 20 轮：没有游标翻页、重命名、删除与
-  虚拟滚动；只读 transcript 不回放工具结果、审批卡片与引用角标；窄屏（<640px）隐藏
+  虚拟滚动；只读 transcript 不回放工具结果与审批卡片；历史回答的引用角标已按
+  `runs.citations` 还原（[ADR-0031](docs/decisions/0031-run-citations-replay.md)），
+  但迁移前的旧 run 没有快照；窄屏（<640px）隐藏
   会话栏，暂没有抽屉入口；刷新不自动恢复最后一次会话（需在左侧点开）；正文按
   ADR-0023 清空后标题为 null，显示「无标题」但会话仍保留
   （[ADR-0030](docs/decisions/0030-session-list.md)）
+- 引用快照随正文一起保留 180 天，过期后历史角标消失、只留 `cited_document_ids`
+  供权限回收；仍不支持单条引用级权限（一篇不可见就整场回收，ADR-0022），迁移前的
+  run 也不能补出角标
+  （[ADR-0031](docs/decisions/0031-run-citations-replay.md)）
 - iframe + postMessage 嵌入形态（W5 D25）暂缓，需要来源白名单与 CSP 部署决策
 
 ## License

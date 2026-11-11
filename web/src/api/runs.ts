@@ -1,6 +1,6 @@
 /** 运行查询接口：列表、详情、断线补拉与回放。契约见 docs/03-api-contract.md 第 3 节。 */
 
-import type { RunEvent } from '@/features/chat/types';
+import type { Citation, RunEvent } from '@/features/chat/types';
 import { getJson } from './client';
 
 export interface RunSummary {
@@ -46,6 +46,8 @@ export interface RunDetail extends RunSummary {
   output: string | null;
   // 回答引用的文档按当前可见性回收（ADR-0022）：为 true 时 output 为 null、事件不回放
   content_redacted: boolean;
+  // 历史会话还原角标用的引用快照（ADR-0031）；正文被回收/过期清理时为空
+  citations: Citation[];
   model_calls: ModelCall[];
 }
 

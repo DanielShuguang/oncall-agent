@@ -47,6 +47,7 @@ CREATE TABLE runs (
   events_pruned_at TIMESTAMPTZ,            -- 事件被保留策略清理的时间（ADR-0021）
   content_pruned_at TIMESTAMPTZ,           -- 正文被保留策略清空的时间（ADR-0023）
   cited_document_ids JSONB NOT NULL DEFAULT '[]',  -- 回答引用过的文档 id（ADR-0022）
+  citations        JSONB NOT NULL DEFAULT '[]',  -- 回答引用快照，历史会话回放用（ADR-0031）
   CONSTRAINT uq_runs_user_client_msg UNIQUE (user_id, client_msg_id)
 );
 CREATE INDEX idx_runs_user_time         ON runs (user_id, started_at DESC);
@@ -79,6 +80,11 @@ CREATE INDEX idx_runs_status            ON runs (status) WHERE status IN ('runni
 > [ADR-0022](decisions/0022-run-content-visibility.md)）：读详情/事件/重放/多轮历史时
 > 用它按**当前**可见性校验，引用文档不可见就隐藏正文。落在 runs 而不是只读事件，
 > 是因为事件 180 天后会被整场清理，而 `output` 还留着。
+> `citations` 是同一事件里**完整引用**的快照（`chunk_id`/`document_id`/`ord`/`title`/
+> `heading`/`snippet`/`page`，迁移 0014、[ADR-0031](decisions/0031-run-citations-replay.md)）：
+> 历史会话打开时直接还原角标，不需要回查事件。写入时只保留已知字段、最多 50 条；
+> 正文按 ADR-0023 清空时一起置为 `[]`——片段是回答内容，不能比正文活得久；
+> `cited_document_ids` 不清，权限回收仍需要。迁移前的历史 run 不回填。
 
 ### 2.2 run_events（事件，只追加）
 
@@ -420,7 +426,7 @@ uv run alembic upgrade head --sql    # 无库环境渲染 DDL，评审用
 
 - 迁移文件在 `server/migrations/versions/`；`alembic.ini` 只放占位 DSN，真实 DSN 由 `migrations/env.py` 从环境变量读
 - 必须写 `downgrade`，并在空库上验证一次 `downgrade base && upgrade head`
-- 当前迁移链：`0001` runs/events → `0002` 幂等键按用户作用域 → `0003` kb（pgvector/tsvector）+ assets/tickets → `0004` approvals → `0005` 会话授权按用户隔离 → `0006` model_calls + failure_category → `0007` tool_settings → `0008` 文档可见性 → `0009` 会话索引 → `0010` 事件清理标记/部分索引 → `0011` 回答引用快照 → `0012` 正文清理标记/部分索引 → `0013` 按用户日预算覆盖（`user_budgets`）
+- 当前迁移链：`0001` runs/events → `0002` 幂等键按用户作用域 → `0003` kb（pgvector/tsvector）+ assets/tickets → `0004` approvals → `0005` 会话授权按用户隔离 → `0006` model_calls + failure_category → `0007` tool_settings → `0008` 文档可见性 → `0009` 会话索引 → `0010` 事件清理标记/部分索引 → `0011` 回答引用快照 → `0012` 正文清理标记/部分索引 → `0013` 按用户日预算覆盖（`user_budgets`）→ `0014` 回答引用快照（`runs.citations`，ADR-0031）
 
 > `0003` 先 `CREATE EXTENSION IF NOT EXISTS vector`，否则 vector 类型与 HNSW 索引会失败；
 > 测试库由 fixture 建扩展后再 `create_all`（扩展是库级对象，`drop_all` 不会删）。

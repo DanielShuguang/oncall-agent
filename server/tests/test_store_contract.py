@@ -385,6 +385,10 @@ async def _exercise_prune_contents(store: RunStore) -> None:
     assert rec is not None
     assert rec.output == "重启打印服务"
     assert rec.content_pruned_at is None
+    # 引用快照（ADR-0031）：角标字段在，事件清了也能回放
+    assert rec.citations == [
+        {"chunk_id": 0, "document_id": "doc_x", "ord": 0, "title": "打印机", "snippet": ""}
+    ]
 
     pruned = await store.prune_contents(finished_before=future)
     assert run_id in pruned.run_ids
@@ -395,6 +399,8 @@ async def _exercise_prune_contents(store: RunStore) -> None:
     assert rec.content_pruned_at is not None
     # 引用快照是元数据，不随正文清理：详情仍能解释「这场引用过什么」
     assert rec.cited_document_ids == ["doc_x"]
+    # 但引用片段属于回答内容：正文清空时快照一并清掉（ADR-0031）
+    assert rec.citations == []
     # 回放读路径一次取到「引用快照 + 已过期」，不用再查知识库
     state = await store.content_state(run_id)
     assert state is not None

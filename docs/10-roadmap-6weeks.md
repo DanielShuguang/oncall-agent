@@ -627,6 +627,33 @@ stale 阈值固定 300 秒。详见 [ADR-0028](decisions/0028-budget-observabili
 
 ---
 
+## W6 后补：历史引用回放（ADR-0031）
+
+ADR-0030 的历史会话只有两段文字，引用角标没有还原——完整引用在
+`message.completed.citations` 事件里，而事件 180 天后会被 ADR-0021 清掉；
+`runs.cited_document_ids` 又只有文档 id，不足以还原角标。这一轮把引用快照落到
+`runs`，让回看也能溯源。
+
+| 事项 | 落地 |
+|---|---|
+| 写入 | `message.completed` 投影时同时写 `runs.citations`（JSONB）：只保留 `chunk_id`/`document_id`/`ord`/`title`/`heading`/`snippet`/`page`，类型不对退回默认值，无 `document_id` 跳过，最多 50 条；空数组=明确无引用 |
+| 读取 | `GET /runs/{id}` 返回 `citations`；仅在 `output` 可见且正文未过期时；`content_redacted` 或 `content_pruned_at` 非空时返回 `[]` |
+| 保留 | 正文按 ADR-0023 清空时引用快照一起置空；`cited_document_ids` 不清（权限回收仍用）；迁移前历史 run 不回填 |
+| 前端 | `transcriptMessages` 只在回答可见时挂引用，复用现有角标与 `CitationPreviewDialog`；预览仍按当前角色校验，fail-closed |
+| 迁移 | `0014`：`runs.citations JSONB NOT NULL DEFAULT '[]'`，不建索引；`downgrade` 删列 |
+
+验证：默认 **419 passed + 31 skipped**；临时 Postgres 下 **447 passed + 3 skipped**，
+`alembic upgrade head` → `check` → `downgrade 0013` → `upgrade head` 往返无漂移；
+`ruff check` / `ruff format --check`（168 files）/ `mypy app`（103 files）通过；前端
+`tsc --noEmit`、**63 tests / 13 files**、`oxlint` 0/0、`oxfmt --check`（69 files）。检索、
+提示词、多轮判定未改，未重跑 RAG / 分类 / 多轮评测。
+
+已知边界：迁移前的历史 run 没有引用快照，打开时无角标；引用片段 180 天后随正文消失，
+只留 `cited_document_ids`；仍不支持单条引用级权限（一篇不可见就整场回收，ADR-0022）；
+不回放工具结果与审批卡片。详见 [ADR-0031](decisions/0031-run-citations-replay.md)。
+
+---
+
 ## 每周固定动作
 
 | 时点 | 动作 |

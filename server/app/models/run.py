@@ -71,6 +71,11 @@ class Run(Base):
     cited_document_ids: Mapped[list[str]] = mapped_column(
         JSONB, default=list, server_default=text("'[]'::jsonb"), nullable=False
     )
+    #: 回答引用快照（ADR-0031）：历史会话据此还原角标与预览。事件被 ADR-0021
+    #: 清理后仍可读；正文清理（ADR-0023）时一并清空，因为片段属于回答内容。
+    citations: Mapped[list[dict[str, object]]] = mapped_column(
+        JSONB, default=list, server_default=text("'[]'::jsonb"), nullable=False
+    )
 
     events: Mapped[list[RunEvent]] = relationship(back_populates="run", cascade="all, delete")
 

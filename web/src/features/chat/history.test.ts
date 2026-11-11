@@ -29,6 +29,7 @@ function run(overrides: Partial<RunDetail> & { run_id: string; started_at: strin
     input: '问题',
     output: '回答',
     content_redacted: false,
+    citations: [],
     model_calls: [],
     ...overrides,
   };
@@ -38,7 +39,15 @@ describe('transcriptMessages', () => {
   it('按时间排序并配对 user/assistant', () => {
     const messages = transcriptMessages([
       run({ run_id: 'b', started_at: '2026-11-08T00:01:00Z', input: '第二问', output: '第二答' }),
-      run({ run_id: 'a', started_at: '2026-11-08T00:00:00Z', input: '第一问', output: '第一答' }),
+      run({
+        run_id: 'a',
+        started_at: '2026-11-08T00:00:00Z',
+        input: '第一问',
+        output: '第一答',
+        citations: [
+          { chunk_id: 1, document_id: 'doc_a', ord: 0, title: '薪酬', snippet: '年终奖…' },
+        ],
+      }),
     ]);
     expect(messages.map((message) => message.role)).toEqual([
       'user',
@@ -54,6 +63,7 @@ describe('transcriptMessages', () => {
     ]);
     expect(messages[0]?.id).toBe('hist_a_u');
     expect(messages[1]?.id).toBe('hist_a_a');
+    expect(messages[1]?.citations).toHaveLength(1);
   });
 
   it('正文清理、引用回收、未结束与失败各有明确占位', () => {
@@ -70,6 +80,9 @@ describe('transcriptMessages', () => {
         started_at: '2026-11-08T00:01:00Z',
         output: null,
         content_redacted: true,
+        citations: [
+          { chunk_id: 1, document_id: 'doc_r', ord: 0, title: '薪酬', snippet: '年终奖…' },
+        ],
       }),
       run({ run_id: 'g', started_at: '2026-11-08T00:02:00Z', status: 'running', output: null }),
       run({
@@ -83,5 +96,7 @@ describe('transcriptMessages', () => {
     const answers = messages.filter((message) => message.role === 'assistant').map((m) => m.text);
     expect(answers).toEqual([PRUNED_NOTE, REDACTED_NOTE, RUNNING_NOTE, FAILED_NOTE]);
     expect(messages[0]?.text).toBe(PRUNED_NOTE);
+    // 正文被回收时不再挂引用角标：角标不能指向一段看不到的答案（ADR-0031）
+    expect(messages.find((message) => message.id === 'hist_r_a')?.citations).toBeUndefined();
   });
 });

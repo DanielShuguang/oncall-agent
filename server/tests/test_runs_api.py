@@ -292,6 +292,10 @@ async def test_cited_public_document_keeps_output(
     detail = (await client.get(f"/api/runs/{run_id}")).json()
     assert detail["content_redacted"] is False
     assert detail["output"] == "重启打印服务"
+    # 历史会话靠快照还原引用角标（ADR-0031）
+    assert detail["citations"] == [
+        {"chunk_id": 0, "document_id": doc_id, "ord": 0, "title": "薪酬", "snippet": ""}
+    ]
 
     events = (await client.get(f"/api/runs/{run_id}/events")).json()
     assert events["content_redacted"] is False
@@ -368,6 +372,8 @@ async def test_deleted_document_redacts_content(
     detail = (await client.get(f"/api/runs/{run_id}")).json()
     assert detail["content_redacted"] is True
     assert detail["output"] is None
+    # 引用片段不能比正文活得久：正文被回收时快照也不返回（ADR-0031）
+    assert detail["citations"] == []
 
 
 async def test_running_run_with_citations_is_also_gated(
@@ -429,6 +435,7 @@ async def test_pruned_content_keeps_only_summary(
     assert detail["content_pruned_at"] is not None
     assert detail["input"] == ""
     assert detail["output"] is None
+    assert detail["citations"] == []
     # 正文已经不存在，不是「按你的权限隐藏」：两种标记不能混着用
     assert detail["content_redacted"] is False
     assert detail["status"] == RunStatus.COMPLETED.value

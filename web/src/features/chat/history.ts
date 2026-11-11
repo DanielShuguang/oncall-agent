@@ -41,7 +41,14 @@ export function transcriptMessages(runs: RunDetail[]): ChatMessage[] {
     else if (run.status === 'running' || run.status === 'awaiting_approval') answer = RUNNING_NOTE;
     else if (run.status === 'failed' || run.error_code) answer = FAILED_NOTE;
     else answer = '（没有回答内容）';
-    messages.push({ id: `hist_${run.run_id}_a`, role: 'assistant', text: answer });
+    // 引用快照只在正文可见时还原（ADR-0031）；否则角标会指向一段看不到的答案
+    const citations = !run.content_redacted && run.output ? run.citations : [];
+    messages.push({
+      id: `hist_${run.run_id}_a`,
+      role: 'assistant',
+      text: answer,
+      citations: citations.length ? citations : undefined,
+    });
   }
   return messages;
 }

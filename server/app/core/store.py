@@ -62,6 +62,8 @@ class RunRecord:
     content_pruned_at: datetime | None = None
     #: 回答引用过的知识库文档 id（ADR-0022）；读回放时按当前可见性重新校验
     cited_document_ids: list[str] = field(default_factory=list)
+    #: 回答引用快照（ADR-0031）；正文被保留策略清空时一并清空（ADR-0023）
+    citations: list[dict[str, Any]] = field(default_factory=list)
     event_count: int = 0
 
 
@@ -162,6 +164,8 @@ class RunPatch:
     #: `message.completed` 的引用快照（ADR-0022）；空列表表示「这轮没有引用」，
     #: None 表示「这次事件不改这个字段」
     cited_document_ids: list[str] | None = None
+    #: 给历史会话还原角标用的完整快照（ADR-0031）；与 id 列表同一次事件写入
+    citations: list[dict[str, Any]] | None = None
 
 
 _TERMINAL_STATUSES = {
@@ -211,6 +215,7 @@ def build_run_patch(event_type: EventType, payload: dict[str, Any], at: datetime
         return RunPatch(
             output=text if isinstance(text, str) else None,
             cited_document_ids=_cited_document_ids(payload.get("citations")),
+            citations=_citation_snapshot(payload.get("citations")),
         )
 
     if event_type is EventType.RUN_COMPLETED:
@@ -272,6 +277,48 @@ def _cited_document_ids(raw: Any) -> list[str] | None:
         if len(ids) >= MAX_CITED_DOCUMENTS:
             break
     return ids
+
+
+def _citation_snapshot(raw: Any) -> list[dict[str, Any]] | None:
+    """从 `message.completed.citations` 抽可回放的快照（ADR-0031）。
+
+    与 `_cited_document_ids` 不同：这里要保住角标与预览所需的字段。类型不对的
+    字段退回默认值而不是整条丢弃；没有 `document_id` 的条目无法预览，直接跳过。
+    非数组返回 None（这次事件不改字段），空数组返回 `[]`（这轮明确没有引用）。
+    """
+    if not isinstance(raw, list):
+        return None
+    items: list[dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        document_id = item.get("document_id")
+        if not isinstance(document_id, str) or not document_id:
+            continue
+        title = item.get("title")
+        heading = item.get("heading")
+        snippet = item.get("snippet")
+        page = item.get("page")
+        citation: dict[str, Any] = {
+            "chunk_id": _as_int(item.get("chunk_id")),
+            "document_id": document_id,
+            "ord": _as_int(item.get("ord")),
+            "title": title if isinstance(title, str) else "",
+            "snippet": snippet if isinstance(snippet, str) else "",
+        }
+        if isinstance(heading, str):
+            citation["heading"] = heading
+        if isinstance(page, int) and not isinstance(page, bool):
+            citation["page"] = page
+        items.append(citation)
+        if len(items) >= MAX_CITED_DOCUMENTS:
+            break
+    return items
+
+
+def _as_int(value: Any) -> int:
+    """JSON 里的 bool 也是 int 子类；引用字段只认真正的整数。"""
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
 
 
 def _apply_patch(record: RunRecord, patch: RunPatch) -> None:
@@ -748,6 +795,9 @@ class InMemoryRunStore:
                 record = self._runs[run_id]
                 record.input = ""
                 record.output = None
+                # 引用片段属于回答内容：正文清空时一并清掉（ADR-0031）；
+                # 文档 id 留着给权限回收判定（ADR-0022）
+                record.citations = []
                 record.content_pruned_at = pruned_at
             return PrunedContents(run_ids=run_ids)
 
@@ -1190,7 +1240,12 @@ class PostgresRunStore:
             await session.execute(
                 update(Run)
                 .where(Run.id.in_(ids))
-                .values(input="", output=None, content_pruned_at=datetime.now(UTC))
+                .values(
+                    input="",
+                    output=None,
+                    citations=[],
+                    content_pruned_at=datetime.now(UTC),
+                )
             )
         return PrunedContents(run_ids=[str(rid) for rid in ids])
 
@@ -1232,6 +1287,7 @@ def _record_from_row(row: Run, *, event_count: int) -> RunRecord:
         events_pruned_at=row.events_pruned_at,
         content_pruned_at=row.content_pruned_at,
         cited_document_ids=list(row.cited_document_ids or []),
+        citations=list(row.citations or []),
         event_count=event_count,
     )
 

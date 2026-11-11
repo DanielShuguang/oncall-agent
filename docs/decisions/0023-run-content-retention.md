@@ -56,11 +56,12 @@ ADR-0022 补上了「**谁能看**」：引用文档被改窄后，旧回答在�
   事件先清，清完的行会掉出 `idx_runs_retention`，正文清理**不能复用**那个索引，否则每轮
   从最老的行开始扫、越过整个历史。
 
-### 2. 保留摘要：不删行，也不删引用快照
+### 2. 保留摘要：不删行，正文与引用片段一起清
 
 清理后 `runs` 仍是一行完整的摘要：`status` / `intent` / `model` / `step_count` /
 `token_*` / `cost_cents` / `error_code` / `failure_category` / `started_at` / `finished_at` /
-`events_pruned_at` / `cited_document_ids`。
+`events_pruned_at` / `cited_document_ids`。`citations`（ADR-0031）随正文一起置为 `[]`：
+引用片段是回答内容，不能比 `output` 活得久。
 
 - 运行列表、失败率、成本看板与 `model_calls` 对账都靠这些列，删行等于把观测口径一起删了。
 - `cited_document_ids` 是元数据（至多 50 个 id），不含正文；留着它，详情页仍能解释

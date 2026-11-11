@@ -38,8 +38,10 @@
    `requester = :me`，按 `created_at DESC, id DESC` 取前 N 条。查询别人的工单没有参数入口。
 3. **不新增意图**：`wants_ticket_status` 命中「我的工单 / 工单进度 / 报修进度 / 处理到哪 /
    修好了吗」等说法，且没有明确开单动作（`开单` / `帮我申请` / `提交申请` / `申请开通` /
-   `帮我报修`）时，`classify_intent` 落 `knowledge`；`needs_model` 也排除这类确定性问法，
-   不为它花一次模型调用。三意图契约保持不变。
+   `帮我报修` / `要报修`）时，`classify_intent` 落 `knowledge`；`needs_model` 也排除这类
+   确定性问法，分类阶段不再花一次模型调用（真实模式的 `plan` 仍会调一次模型，规则计划只是
+   兜底）。过去时的「开单了 / 开过单 / 开单后」不算开单动作；反过来，状态句里出现
+   「要报修 / 需要报修 / 想报修」仍按写操作走。三意图契约保持不变。
 4. **规则计划补一条**：`rule_plan` 在写操作分支之后加 `query_tickets`，保证 mock 模式、
    模型不可用与项目演示都能用；真实模式下工具已注册，模型可直接选。
 5. **回答以工单表为准**：`finalize` 检测到 `query_tickets` 结果时直接拼回答
@@ -65,8 +67,8 @@
 
 ## 验证
 
-- 后端默认：`uv run pytest -p no:warnings` → **411 passed, 31 skipped**（改前 402 + 30）。
-- 真实 Postgres（pgserver 临时实例）：**439 passed, 3 skipped**（改前 429 + 3）；
+- 后端默认：`uv run pytest -p no:warnings` → **413 passed, 31 skipped**（改前 402 + 30）。
+- 真实 Postgres（pgserver 临时实例）：**441 passed, 3 skipped**（改前 429 + 3）；
   跳过的 3 条都是 Redis 账本/快照用例（本机未启动 Redis）。
 - 新增测试：
   - `server/tests/test_tickets.py`：只返回本人、按创建时间倒序、limit、状态过滤；

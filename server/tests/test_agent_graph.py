@@ -179,6 +179,16 @@ def test_ticket_status_question_is_not_a_new_write() -> None:
     assert classify_intent("帮我开一张报修工单", "hardware") == "ticket_create"
 
 
+def test_past_tense_ticket_question_is_not_a_new_write() -> None:
+    # 「开单了」是过去时：问进度不能又被当成开新单
+    assert wants_ticket_status("我开单了，进度怎么查") is True
+    assert classify_intent("我开单了，进度怎么查", "other") == "knowledge"
+    assert classify_intent("开单了吗", "other") == "knowledge"
+
+    # 同一句里有明确请求（要报修）时仍按写操作走
+    assert classify_intent("我的工单里打印机又坏了，要报修", "hardware") == "ticket_create"
+
+
 async def test_rule_plan_queries_tickets_for_status_question() -> None:
     state = initial_state(run_id="r1", user={"id": "u_102"}, query="我的工单处理到哪了")
     state["intent"] = "knowledge"
@@ -232,3 +242,24 @@ def test_finalize_handles_empty_and_failed_ticket_query() -> None:
     failed["tool_results"] = [{"tool": "query_tickets", "status": "error", "result": None}]
     answer, _ = compose_answer(failed)
     assert "暂时没查到" in answer
+
+
+def test_finalize_caps_ticket_list_at_five() -> None:
+    state = initial_state(run_id="r1", user={"id": "u_102"}, query="我的工单")
+    tickets = [
+        {
+            "id": f"TCK-{index}",
+            "title": "打印机离线",
+            "priority": "P2",
+            "status": "open",
+            "created_at": "2026-11-11T09:00:00+00:00",
+        }
+        for index in range(6)
+    ]
+    state["tool_results"] = [
+        {"tool": "query_tickets", "status": "ok", "result": {"tickets": tickets, "count": 6}}
+    ]
+    answer, _ = compose_answer(state)
+    # 头部不能声称列了 6 张，正文只展示最近 5 张
+    assert "先列最近 5 张" in answer
+    assert answer.count("\n- ") == 5

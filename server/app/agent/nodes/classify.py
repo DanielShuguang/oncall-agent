@@ -53,7 +53,22 @@ TICKET_STATUS_KEYWORDS = (
 )
 
 #: 即使句子里有状态问法，这些明确动作仍按开单处理（R10：写操作必须明确表达）。
-EXPLICIT_CREATE_MARKERS = ("开单", "帮我申请", "提交申请", "申请开通", "帮我报修")
+EXPLICIT_CREATE_MARKERS = (
+    "开单",
+    "帮我申请",
+    "提交申请",
+    "申请开通",
+    "帮我报修",
+    "要报修",
+    "需要报修",
+    "想报修",
+)
+
+#: 过去时的「开单」是在问已经开好的单，不是新的写操作。
+PAST_TENSE_CREATE_MARKERS = ("开单了", "开过单", "开单后", "已经开单", "刚开单")
+
+#: 过去时 + 这些词 = 查处理进度，而不是又要开一张单。
+STATUS_QUESTION_HINTS = ("进度", "状态", "到哪", "怎么查", "了吗")
 
 #: 需要先查资产的关键词。`连不上` 这类泛化词不在此列：
 #: VPN/网络问题查资产没有意义，由 RAG 回答。
@@ -146,7 +161,22 @@ def wants_asset(query: str, incident: str) -> bool:
 
 def wants_ticket_status(query: str) -> bool:
     """问的是「我已有的工单处理到哪了」，不是要新开单。"""
-    return any(keyword in query for keyword in TICKET_STATUS_KEYWORDS)
+    if any(keyword in query for keyword in TICKET_STATUS_KEYWORDS):
+        return True
+    # 「我开单了，进度怎么查」「开单了吗」：过去的动作 + 进度词，仍是查单。
+    return any(marker in query for marker in PAST_TENSE_CREATE_MARKERS) and any(
+        hint in query for hint in STATUS_QUESTION_HINTS
+    )
+
+
+def wants_explicit_create(query: str) -> bool:
+    """句子里是否有「现在就要开单」的明确动作（过去时不算）。"""
+    for marker in EXPLICIT_CREATE_MARKERS:
+        if marker == "开单" and any(past in query for past in PAST_TENSE_CREATE_MARKERS):
+            continue
+        if marker in query:
+            return True
+    return False
 
 
 def asks_policy(query: str) -> bool:
@@ -160,9 +190,7 @@ def asks_policy(query: str) -> bool:
 def classify_intent(query: str, incident: str) -> str:
     # 查自己工单的问法常带「报修」二字（"我报修的打印机修好了吗"），
     # 不先排除就会被当成新的写操作。只有明确开单动作才保留写意图。
-    if wants_ticket_status(query) and not any(
-        marker in query for marker in EXPLICIT_CREATE_MARKERS
-    ):
+    if wants_ticket_status(query) and not wants_explicit_create(query):
         return INTENT_KNOWLEDGE
     if wants_write(query):
         return INTENT_TICKET

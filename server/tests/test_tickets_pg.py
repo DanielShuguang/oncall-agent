@@ -49,9 +49,12 @@ async def test_pg_lists_only_requesters_tickets_in_created_order(
 
     rows = await pg_tickets.list_for_requester("u_102", limit=5)
     assert {row["id"] for row in rows} == {first["id"], second["id"]}
+    # 按 created_at DESC, id DESC：后创建的第二张排在前面
+    assert next(row["id"] for row in rows) == second["id"]
     assert all(row["requester"] == "u_102" for row in rows)
     assert all(row["created_at"] is not None for row in rows)
 
     limited = await pg_tickets.list_for_requester("u_102", limit=1)
     assert len(limited) == 1
+    assert limited[0]["id"] == second["id"]
     assert await pg_tickets.list_for_requester("u_102", status="resolved") == []

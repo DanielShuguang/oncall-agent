@@ -123,10 +123,16 @@ def _tickets_answer(state: AgentState) -> str | None:
         return "工单信息暂时没查到，请稍后重试或联系 IT 服务台。"
     if not tickets:
         return "你名下暂时没有查到工单。"
-    lines = [f"你名下最近有 {len(tickets)} 张工单："]
-    for ticket in tickets[:5]:
-        if not isinstance(ticket, dict):
-            continue
+    # 工具允许 limit 到 20，回答只列最近 5 张；头部按实际展示数量说，别声称列了 20 张。
+    shown = [ticket for ticket in tickets[:5] if isinstance(ticket, dict)]
+    if not shown:
+        return "工单信息暂时没查到，请稍后重试或联系 IT 服务台。"
+    if len(shown) < len(tickets):
+        header = f"你名下最近有 {len(tickets)} 张工单，先列最近 {len(shown)} 张："
+    else:
+        header = f"你名下最近有 {len(tickets)} 张工单："
+    lines = [header]
+    for ticket in shown:
         status = str(ticket.get("status") or "")
         status_label = _TICKET_STATUS_LABELS.get(status, status or "未知")
         created = str(ticket.get("created_at") or "")[:10]

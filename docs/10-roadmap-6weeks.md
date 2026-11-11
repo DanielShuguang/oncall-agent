@@ -581,13 +581,13 @@ stale 阈值固定 300 秒。详见 [ADR-0028](decisions/0028-budget-observabili
 |---|---|
 | 工具 | `query_tickets(status?, limit?)`：读、2000ms、所有登录用户、`inject_identity=True`；`limit` 1–20 默认 5，`status` 枚举四态 |
 | 边界 | requester 由治理层注入，schema 不含身份字段；仓储层只查 `requester = 当前用户`，按 `created_at DESC, id DESC` 取最近 N 条 |
-| 意图 | 不新增意图：状态问法（「我的工单 / 工单进度 / 处理到哪 / 修好了吗」等）保持 `knowledge`，`needs_model` 排除，避免多花一次模型调用 |
-| 写操作 | 「我报修的…」不再触发 `create_ticket`；含「开单 / 帮我申请 / 提交申请 / 申请开通 / 帮我报修」时仍优先按写操作走（R10） |
+| 意图 | 不新增意图：状态问法（「我的工单 / 工单进度 / 处理到哪 / 修好了吗」等）保持 `knowledge`，`needs_model` 排除，分类阶段不再花模型调用（真实模式 `plan` 仍会调一次，规则计划兜底） |
+| 写操作 | 「我报修的…」「开单了…」不再触发 `create_ticket`；含「开单 / 帮我申请 / 提交申请 / 申请开通 / 帮我报修 / 要报修」时仍优先按写操作走（R10） |
 | 计划 | `rule_plan` 在写操作之后加 `query_tickets` 分支，mock/降级路径可用；真实模式模型可直接选 |
 | 回答 | `finalize` 以工单表为准：有单列单号/状态/优先级/标题/日期，空说「没有查到」，失败说「暂时没查到」；不拼知识库引用、不落拒答 |
 | 数据 | 工具结果补 `created_at` / `resolved_at`（ISO）；列本来就有，**无迁移**，`requester` 暂不加索引 |
 
-验证：默认 **411 passed + 31 skipped**；临时 Postgres 下 **439 passed + 3 skipped**
+验证：默认 **413 passed + 31 skipped**；临时 Postgres 下 **441 passed + 3 skipped**
 （跳过的 3 条都是 Redis 账本/快照用例，本机未启动 Redis）。`ruff check` / `ruff format --check`（166 files）/
 `mypy app`（103 files）通过；分类评测 **50/50**（规则改动未影响标注集）；前端未改、
 仍 **60 tests / 12 files**。检索/提示词/多轮历史未改，未重跑 RAG 与多轮评测。

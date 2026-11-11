@@ -431,6 +431,8 @@ GET /api/admin/budgets/usage
 - 只读账本：不读覆盖表；个人上限请与 `GET /admin/budgets` 合并。账本不可用返回
   503 `LEDGER_UNAVAILABLE`，**不**降级为内存账本（否则 Redis 故障会显示成没花钱）
 - `users` 只含当天有过预扣或花费的用户，按 `user_id` 排序；没有个人账本消费的人不出现
+- 旧格式预扣（滚动升级前写入、没有时间戳）：不计入 `stale_count`，也不参与
+  `oldest_age_s`；当天所有预扣都是旧格式时 `oldest_age_s` 为 null
 - admin only
 
 ### 知识库上传与重建索引（W2 D7/D8）

@@ -170,7 +170,7 @@ oncall/
 |---|---|---|
 | 文档（12 篇 + 28 篇 ADR + 评测基线） | ✅ 完成 | — |
 | 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡 / 运行回放 / 成本页） | ✅ 可用 | `tsc --noEmit`、`oxlint 0`、`oxfmt --check` 通过；`vitest` 60/60；`pnpm build` 成功 |
-| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **402 passed + 29 skipped**；设 `ONCALL_TEST_DATABASE_URL`（指向一个可清空的库）后 **429 passed + 2 skipped**，再加 `ONCALL_TEST_REDIS_URL` 为 **431 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约与审批快照、引用快照与内容回收、个人预算与账本快照、计量一致性） |
+| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **402 passed + 30 skipped**；设 `ONCALL_TEST_DATABASE_URL`（指向一个可清空的库）后 **429 passed + 3 skipped**，再加 `ONCALL_TEST_REDIS_URL` 为 **432 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约与审批快照、引用快照与内容回收、个人预算与账本快照、计量一致性） |
 | 本地 JWT（W1 D2） | ✅ 已完成 | `tests/test_auth.py` 20 条：签发/验签、过期、alg=none、401 JSON、OpenAPI Bearer、run 归属隔离 |
 | 事件落库 + 断线续传（D4） | ✅ 已完成 | `alembic upgrade head` + `alembic check` 无漂移；`tests/test_store_contract.py`（内存 + Postgres 契约）、`tests/test_chat_stream.py`（落库、幂等回放、503 语义） |
 | 最小 Agent 运行时（W1 D5） | ✅ 已完成 | `tests/test_agent_runtime.py` 9 条：工具真实执行、检索引用、写操作挂起审批、工具失败降级、步数/时长上限 |
@@ -294,8 +294,8 @@ W6 基线（3 轮均值，mock 规则路径，口径见 [baseline-v1](docs/eval/
   `run.failed(BUDGET_EXCEEDED)` 而不是 429；mock 模式不经过网关，个人预算不生效
   （[ADR-0026](docs/decisions/0026-user-daily-budget.md)）。全局与个人是两笔独立预扣，
   进程崩在两次之间会留下全局预留（日切自愈，偏保守）。预扣泄漏能在成本页看到，但报表只是
-  当前 UTC 日采样，不自动对账、没有历史趋势；旧格式预扣（升级前写入、无时间戳）显示「—」
-  年龄、不计 stale（[ADR-0028](docs/decisions/0028-budget-observability.md)）
+  当前 UTC 日采样，不自动对账、没有历史趋势；旧格式预扣（升级前写入、无时间戳）年龄未知，
+  `oldest_age_s` 为 null、不计 stale（[ADR-0028](docs/decisions/0028-budget-observability.md)）
 - iframe + postMessage 嵌入形态（W5 D25）暂缓，需要来源白名单与 CSP 部署决策
 
 ## License

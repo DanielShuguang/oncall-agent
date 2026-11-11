@@ -20,6 +20,7 @@ from app.core.limits import (
     InMemoryUserBudgetLedger,
     LedgerSnapshot,
     LedgerUnavailable,
+    RedisBudgetLedger,
     RedisUserBudgetLedger,
     ReservationSnapshot,
     budget_day,
@@ -120,17 +121,17 @@ async def test_budget_usage_returns_global_and_user_stats(client: AsyncClient) -
     assert body["stale_after_s"] == RESERVATION_STALE_S
     assert body["global_usage"]["spent_cents"] == 12
     assert body["global_usage"]["reservation_count"] == 1
-    assert body["users"] == [
-        {
-            "user_id": "u_1",
-            "spent_cents": 5,
-            "reserved_cents": 5,
-            "reservation_count": 1,
-            "stale_count": 0,
-            "stale_cents": 0,
-            "oldest_age_s": 0.0,
-        }
-    ]
+    assert len(body["users"]) == 1
+    user = body["users"][0]
+    assert user["user_id"] == "u_1"
+    assert user["spent_cents"] == 5
+    assert user["reserved_cents"] == 5
+    assert user["reservation_count"] == 1
+    assert user["stale_count"] == 0
+    assert user["stale_cents"] == 0
+    # age 是 now-created 的实测值；断言区间，避免调度延迟把 0.0 变成 0.1
+    assert user["oldest_age_s"] is not None
+    assert 0 <= user["oldest_age_s"] < 60
 
 
 class _BrokenGlobalLedger(InMemoryBudgetLedger):
@@ -187,4 +188,40 @@ async def test_redis_user_ledger_snapshot_roundtrip() -> None:
             ledger._reservations_key(user),
             ledger._users_key(),
         )
+        await ledger.close()
+
+
+@pytest.mark.skipif(
+    not os.environ.get("ONCALL_TEST_REDIS_URL"),
+    reason="需要 ONCALL_TEST_REDIS_URL 指向一个可清空的测试 redis",
+)
+async def test_redis_global_ledger_snapshot_and_legacy_reservation() -> None:
+    """全局账本走 2-key 的脚本路径；旧副本写的预扣没有 ts 时不能算 stale。"""
+    ledger = RedisBudgetLedger(os.environ["ONCALL_TEST_REDIS_URL"], limit_cents=100)
+    client = ledger._redis()
+    try:
+        reservation = await ledger.reserve(5)
+        assert reservation is not None
+        snapshot = await ledger.snapshot()
+        assert snapshot.spent_cents == 5
+        assert [item.token for item in snapshot.reservations] == [reservation.token]
+        assert snapshot.reservations[0].age_s is not None
+
+        # 模拟滚动升级里的旧副本：只写金额、不写 token:ts，spent 已由旧代码扣过
+        await client.hset(ledger._reservations_key(), "legacy-token", 7)
+        await client.incrby(ledger._key(), 7)
+        snapshot = await ledger.snapshot()
+        legacy = {item.token: item for item in snapshot.reservations}["legacy-token"]
+        assert legacy.cents == 7
+        assert legacy.age_s is None
+        stats = summarize(snapshot, stale_after_s=RESERVATION_STALE_S)
+        assert stats.reservation_count == 2
+        assert stats.stale_count == 0
+
+        await ledger.settle(reservation, 2)
+        snapshot = await ledger.snapshot()
+        assert snapshot.spent_cents == 9
+        assert [item.token for item in snapshot.reservations] == ["legacy-token"]
+    finally:
+        await client.delete(ledger._key(), ledger._reservations_key())
         await ledger.close()

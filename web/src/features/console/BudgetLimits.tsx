@@ -100,6 +100,13 @@ export default function BudgetLimits() {
   // usage 失败/未加载时传 null，表格显示「—」而不是 0；默认值未加载同理
   const usageUsers = usageState === 'ready' ? (usage?.users ?? []) : null;
   const rows = mergeBudgetRows(items, configLoaded ? defaultCents : null, usageUsers);
+  // 空表可能是「没有覆盖」也可能是「用量没取到」，不能都说成「今天没有模型调用」
+  const emptyHint =
+    usageState === 'ready'
+      ? '还没有覆盖，今天也还没有模型调用。'
+      : usageState === 'loading'
+        ? '还没有覆盖；今日用量加载中…'
+        : '还没有覆盖；今日用量暂不可用。';
 
   const save = async () => {
     const id = userId.trim();
@@ -213,7 +220,7 @@ export default function BudgetLimits() {
         {loading ? (
           <p className="text-xs text-muted-foreground">加载中…</p>
         ) : rows.length === 0 ? (
-          <p className="text-xs text-muted-foreground">还没有覆盖，今天也还没有模型调用。</p>
+          <p className="text-xs text-muted-foreground">{emptyHint}</p>
         ) : (
           <Table>
             <TableHeader>

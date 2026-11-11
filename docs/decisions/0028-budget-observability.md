@@ -64,7 +64,7 @@ redis.call('HDEL', KEYS[2], ARGV[1] .. ':ts')
 ```
 
 - **不新增 key**：结算仍是一次 EVAL，旧副本只删金额也不会让新字段成为独立对象。
-- **滚动升级兼容**：旧副本 `reserve` 不写 ts → `age_s = None`，报表显示「—」且**不计
+- **滚动升级兼容**：旧副本 `reserve` 不写 ts → `age_s = None`，该笔年龄未知、**不计
   stale**（宁可少报，不能把老副本的预扣误判成泄漏）；旧副本 `settle` 只删金额 →
   孤立 ts 字段读取时跳过、随 TTL 消失。
 - 时间取客户端 `int(time.time())`（`ARGV[5]`），与 reserve 的 TTL、UTC 日切口径一致；
@@ -159,31 +159,35 @@ Authorization: Bearer <admin token>
 - 预扣泄漏从「只有一条 warning」变成可查的笔数、金额与最老年龄；能回答「谁今天花了
   多少、上限多少、还剩多少、有几笔卡住」。
 - 账本口径与成本口径的差异被显式展示，不再要求管理员自己对齐 `model_calls`。
-- 旧格式（无 ts）的预扣显示「—」年龄、不计 stale，升级窗口内不会误报。
+- 旧格式（无 ts）的预扣年龄未知：`oldest_age_s` 为 null、不计 stale，升级窗口内不会误报。
 - 用户集合只在个人账本 reserve 时写入：如果某个用户当天只被全局账本扣（个人上限 0
   跳过），他不会出现在 `users` 里——个人报表只关心个人账本，这是正确的。
-- 多副本：快照是弱一致读（`pipeline(transaction=False)`），可能读到「金额已扣、ts
-  刚写」的中间态；结果是 `age_s=None`，不误报，下一次读取恢复。
+- 多副本：预扣的金额与 ts 在同一个 EVAL 里原子写入，不会出现「只有金额没有 ts」；
+  但 `snapshot()` 的 `GET`（spent）与 `HGETALL`（reservations）是两条命令，两者之间
+  可能有新的预扣/结算，所以 `spent_cents` 与 `reservations` 不是同一瞬间（弱一致读，
+  `pipeline(transaction=False)`）；报表只用于排障，不做审计。
 - 新增 Redis key `oncall:budget:users:{day}`（TTL 到次日 0 点 +1h）；**不需要迁移**，
   schema 仍到 0013。
 - 没有历史趋势、没有自动对账、没有按租户聚合；报表是当前 UTC 日的采样，不是审计账。
 
 ## 验证
 
-- `tests/test_budget_usage.py` 新增 8 条（7 pass + 1 条件跳过）：
+- `tests/test_budget_usage.py` 新增 9 条（7 pass + 2 条件跳过）：
   - 全局快照：reserve 30+20 → spent 50；settle 7 → spent 27、只剩一笔 20 的预扣；
   - 用户快照按用户分组、rollover 后清空（monkeypatch `_utc_day`）；
   - `summarize`：10@1s、20@301s、5@None → stale 1 笔 20 分，oldest 301.0；
-  - 非 admin 403；200 的字段、排序与 `stale_after_s=300`；
+  - 非 admin 403；200 的字段、排序与 `stale_after_s=300`（年龄断言用区间，避免调度抖动）；
   - 账本故障参数化两例（全局 / 用户）→ 503 `LEDGER_UNAVAILABLE`；
-  - Redis 快照 roundtrip（设 `ONCALL_TEST_REDIS_URL` 才跑）。
+  - Redis 用户账本 roundtrip（3-key 路径）与全局账本 roundtrip（2-key 路径，含旧格式
+    无 ts 的预扣 → `age_s=None`、不算 stale）。
 - `tests/test_budgets.py` 的 Redis 清理增加 `_users_key()`，避免测试残留。
-- 完整回归：默认 **402 passed + 29 skipped**；`ruff check` 通过、
-  `ruff format --check`（164 files）、`mypy app`（103 files）通过。
+- 完整回归：默认 **402 passed + 30 skipped**（本机无 Redis，两条 Redis 用例跳过）；
+  设 `ONCALL_TEST_REDIS_URL` 后 **405 passed + 27 skipped**；再加临时 Postgres 为
+  **432 passed**。`ruff check` 通过、`ruff format --check`（164 files）、`mypy app`
+  （103 files）通过。
 - 前端：`tsc --noEmit`、`pnpm test` **60 tests / 12 files**、`oxlint` 0/0、
   `oxfmt --check`（65 files）、`pnpm build` 成功。
-- 本机没有 Redis：Redis 快照用例按既有条件跳过，未跑真实 Redis；本轮没有 SQL/迁移
-  变化，默认套件覆盖内存实现。检索、提示词与多轮判定未改，未重跑评测。
+- 本轮没有 SQL/迁移变化（schema 仍到 0013）；检索、提示词与多轮判定未改，未重跑评测。
 
 ## 待定
 

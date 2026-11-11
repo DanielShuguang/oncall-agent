@@ -558,14 +558,15 @@ ADR-0026 把个人日预算做成了闸门，但它的两个「待定」都没�
 | 接口 | `GET /admin/budgets/usage`（admin）：全局与按用户的已用、未结算笔数/金额、最老年龄；只读账本，故障 503 `LEDGER_UNAVAILABLE` 不降级 |
 | 管理页 | 预算表合并配置与账本：用户 / 今日已用 / 日上限 / 剩余 / 来源 / 修改人；未知花费显示「—」而不是 0；全局摘要显示卡住的预扣 |
 
-验证：默认 **402 passed + 29 skipped**；`ruff check` / `ruff format --check`（164 files）/
-`mypy app`（103 files）通过；前端 `tsc --noEmit` / `oxlint` / `oxfmt --check` 通过、
-**60 tests / 12 files**、`pnpm build` 成功。本轮没有 SQL/迁移变化（schema 仍到 0013），
-本机没有 Redis，Redis 快照用例按既有条件跳过；检索、提示词与多轮判定未改，未重跑评测。
+验证：默认 **402 passed + 30 skipped**；设 `ONCALL_TEST_REDIS_URL` 后 **405 passed +
+27 skipped**，再加临时 Postgres 为 **432 passed**。`ruff check` / `ruff format --check`
+（164 files）/ `mypy app`（103 files）通过；前端 `tsc --noEmit` / `oxlint` /
+`oxfmt --check` 通过、**60 tests / 12 files**、`pnpm build` 成功。本轮没有 SQL/迁移变化
+（schema 仍到 0013）；检索、提示词与多轮判定未改，未重跑评测。
 
-已知边界：报表是当前 UTC 日的采样，没有历史趋势与自动对账；旧格式预扣（无 ts）显示
-「—」年龄、不计 stale，日切自愈；按租户聚合与 ADR-0026 同属待 IdP 的一类；stale 阈值
-固定 300 秒。详见 [ADR-0028](decisions/0028-budget-observability.md)。
+已知边界：报表是当前 UTC 日的采样，没有历史趋势与自动对账；旧格式预扣（无 ts）年龄未知，
+`oldest_age_s` 为 null、不计 stale，日切自愈；按租户聚合与 ADR-0026 同属待 IdP 的一类；
+stale 阈值固定 300 秒。详见 [ADR-0028](decisions/0028-budget-observability.md)。
 
 ---
 

@@ -468,6 +468,51 @@ async def _exercise_cited_documents(store: RunStore) -> None:
     assert await store.content_state(str(uuid.uuid4())) is None
 
 
+async def _exercise_sessions(store: RunStore) -> None:
+    """会话聚合（ADR-0030）：会话是 runs 的投影，按最近活动倒序，标题取最早非空输入。"""
+    user = "u_sessions"
+    other = "u_sessions_other"
+    await store.create(
+        run_id=str(uuid.uuid4()), user_id=user, session_id="sess_a", message="打印机离线"
+    )
+    await store.create(
+        run_id=str(uuid.uuid4()), user_id=user, session_id="sess_a", message="还是不行"
+    )
+    await asyncio.sleep(0.005)
+    second = str(uuid.uuid4())
+    await store.create(run_id=second, user_id=user, session_id="sess_b", message="第二个会话")
+    # 首条输入是空白时跳过，标题落到下一条；只有空白输入的会话标题为 None，但会话本身仍在
+    await store.create(run_id=str(uuid.uuid4()), user_id=user, session_id="sess_c", message="   ")
+    await store.create(
+        run_id=str(uuid.uuid4()), user_id=user, session_id="sess_c", message="真实问题"
+    )
+    await store.create(run_id=str(uuid.uuid4()), user_id=other, session_id="sess_x", message="别人")
+
+    sessions = await store.list_sessions(user_id=user, limit=10)
+    by_id = {item.session_id: item for item in sessions}
+    assert set(by_id) == {"sess_a", "sess_b", "sess_c"}
+    assert by_id["sess_a"].title == "打印机离线"
+    assert by_id["sess_a"].run_count == 2
+    assert by_id["sess_c"].title == "真实问题"
+    assert by_id["sess_c"].run_count == 2
+    # 最近活动的会话在前；sess_x 属于别人，不能出现
+    assert sessions[0].session_id in {"sess_c", "sess_b"}
+    assert "sess_x" not in by_id
+
+    # limit 截断的是「会话」而不是 run
+    limited = await store.list_sessions(user_id=user, limit=1)
+    assert len(limited) == 1
+    assert limited[0].session_id == "sess_c"
+
+    # 按会话过滤 run：own-only，且不返回其他会话
+    runs = await store.list_runs(user_id=user, session_id="sess_a", limit=10)
+    assert {item.session_id for item in runs} == {"sess_a"}
+    assert {item.input for item in runs} == {"打印机离线", "还是不行"}
+    assert await store.list_runs(user_id=user, session_id="sess_missing", limit=10) == []
+    other_runs = await store.list_runs(user_id=other, session_id="sess_a", limit=10)
+    assert other_runs == []
+
+
 async def test_memory_store_contract() -> None:
     store = InMemoryRunStore()
     await _exercise(store)
@@ -476,6 +521,7 @@ async def test_memory_store_contract() -> None:
     await _exercise_prune(store)
     await _exercise_prune_contents(store)
     await _exercise_cited_documents(store)
+    await _exercise_sessions(store)
 
 
 @pytest_asyncio.fixture
@@ -506,3 +552,4 @@ async def test_postgres_store_contract(pg_store: PostgresRunStore) -> None:
     await _exercise_prune(pg_store)
     await _exercise_prune_contents(pg_store)
     await _exercise_cited_documents(pg_store)
+    await _exercise_sessions(pg_store)

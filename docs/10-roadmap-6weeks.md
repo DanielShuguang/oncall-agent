@@ -598,6 +598,35 @@ stale 阈值固定 300 秒。详见 [ADR-0028](decisions/0028-budget-observabili
 
 ---
 
+## W6 后补：会话列表与历史会话继续（ADR-0030）
+
+`docs/07` §5 从 W4 起就写着「未实现：会话列表与消息虚拟滚动；v1 只有当前会话——刷新页面
+即新会话」。这带来一个真实的体验缺口：用户上午开的单，下午刷新就找不到那段对话了。
+底层数据其实一直都在——`runs.session_id` 与 `idx_runs_user_session_time` 早在 ADR-0020
+就存在，缺的只是一个聚合视图和入口。
+
+| 事项 | 落地 |
+|---|---|
+| 数据 | **不建 sessions 表**：按 `runs.session_id` 投影，`min/max(started_at)` + `count(*)`；会话随 run 生命周期存在，无清理任务、**无迁移** |
+| 接口 | `GET /sessions?limit=20`：只读本人、按最近活动倒序（同刻按 `session_id` 倒序）、`next_cursor` 固定 null；`GET /runs?session_id=` 取该会话的 run |
+| 标题 | 取**最早一条非空 `input`**，压成单行截 60；正文按 ADR-0023 清空后 title 为 null，前端显示「无标题」，会话不消失 |
+| 前端 | `SessionList` 左侧栏（新会话 + 最近会话）；点开先取最近 20 条 run，再并发取详情，`transcriptMessages` 拼只读对话 |
+| 占位 | 正文过期 →「正文已过保留期」；引用回收 →「文档已不可见」；未结束 / 失败各有说明；不回放工具与审批卡片 |
+| 继续 | `switchSession` 换 `session_id` 并灌入历史消息；后续 `/chat/stream` 沿用该 ID，服务端按 ADR-0020 续上下文 |
+| 边界 | 不落 localStorage（多设备/保留清理以服务端为准）；不做虚拟滚动、分页、重命名、删除 |
+
+验证：默认 **419 passed + 31 skipped**；临时 Postgres 下 **447 passed + 3 skipped**；
+`ruff check` / `ruff format --check`（167 files）/ `mypy app`（103 files）通过；前端
+`tsc --noEmit`、**63 tests / 13 files**、`oxlint` 0/0、`oxfmt --check`（69 files）、
+`pnpm build` 成功。无 SQL/迁移变化（schema 仍 0013）；检索/提示词/多轮历史未改，
+未重跑 RAG 与多轮评测。
+
+已知边界：只展示最近 20 个会话与每个会话最近 20 轮；更早的轮次、会话翻页、重命名/删除
+都未做；只读 transcript 不回放工具结果与审批卡片；刷新后不自动恢复上一次会话（需手动点）；
+没有管理员的跨用户审计入口。详见 [ADR-0030](decisions/0030-session-list.md)。
+
+---
+
 ## 每周固定动作
 
 | 时点 | 动作 |

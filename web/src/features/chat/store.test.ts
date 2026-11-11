@@ -27,6 +27,7 @@ const evt = (
 beforeEach(() => {
   useChat.setState({
     runtime: initialRuntime,
+    sessionId: 'sess_test',
     sending: false,
     lastSeq: 0,
     lastUserText: null,
@@ -255,5 +256,33 @@ describe('多轮上下文', () => {
     expect(sessionIds).toHaveLength(3);
     // "清空对话"之后再发，不能再续上一段的上下文
     expect(sessionIds[2]).not.toBe(sessionIds[0]);
+  });
+});
+
+describe('历史会话切换', () => {
+  it('switchSession 换 session、灌入只读 transcript 并清掉旧运行态', async () => {
+    useChat.setState({
+      runtime: { ...initialRuntime, phase: 'failed', error: '上一轮失败', runId: 'r_old' },
+    });
+    useChat.getState().switchSession('sess_hist', [
+      { id: 'h1', role: 'user', text: '旧问题' },
+      { id: 'h2', role: 'assistant', text: '旧回答' },
+    ]);
+    const { runtime, sessionId } = useChat.getState();
+    expect(sessionId).toBe('sess_hist');
+    expect(runtime.phase).toBe('idle');
+    expect(runtime.error).toBeNull();
+    expect(runtime.runId).toBeNull();
+    expect(runtime.messages.map((message) => message.text)).toEqual(['旧问题', '旧回答']);
+
+    // 继续发：沿用历史会话 ID，服务端按 session 取上下文
+    const seen: string[] = [];
+    mockStream.mockImplementation(async (opts) => {
+      seen.push(opts.sessionId);
+      opts.onEvent(evt(1, 'run.started'));
+      opts.onEvent(evt(2, 'run.completed', {}));
+    });
+    await useChat.getState().send('继续问');
+    expect(seen).toEqual(['sess_hist']);
   });
 });

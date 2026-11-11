@@ -129,6 +129,22 @@ class RunTurn:
 
 
 @dataclass(frozen=True)
+class SessionSummary:
+    """一个会话的聚合摘要（ADR-0030）。
+
+    会话不是独立实体：它由 `runs.session_id` 投影出来，排序用最近一次 run 的
+    `started_at`。标题取**最早一条非空 input**——正文被保留策略清空后为 None，
+    前端显示「无标题」而不是让整个会话消失。
+    """
+
+    session_id: str
+    title: str | None
+    run_count: int
+    started_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
 class RunPatch:
     """事件对 runs 汇总字段的投影。None 表示该字段不更新。"""
 
@@ -337,8 +353,17 @@ class RunStore(Protocol):
         before_started_at: datetime | None = None,
         before_run_id: str | None = None,
         status: str | None = None,
+        session_id: str | None = None,
     ) -> list[RunRecord]:
         """按 started_at 倒序；`(before_started_at, before_run_id)` 是上一页游标。"""
+        ...
+
+    async def list_sessions(self, *, user_id: str, limit: int = 20) -> list[SessionSummary]:
+        """按 `session_id` 聚合该用户最近的会话，按最近一次 run 倒序（ADR-0030）。
+
+        会话没有独立表：标题取最早一条非空 `input`，计数与时间来自 runs 投影。
+        没有 run 的会话不存在，因此不需要清理任务。
+        """
         ...
 
     async def recent_turns(
@@ -597,10 +622,13 @@ class InMemoryRunStore:
         before_started_at: datetime | None = None,
         before_run_id: str | None = None,
         status: str | None = None,
+        session_id: str | None = None,
     ) -> list[RunRecord]:
         rows = [record for record in self._runs.values() if record.user_id == user_id]
         if status:
             rows = [record for record in rows if record.status == status]
+        if session_id is not None:
+            rows = [record for record in rows if record.session_id == session_id]
         rows.sort(key=lambda record: (record.started_at, record.run_id), reverse=True)
         if before_started_at is not None and before_run_id is not None:
             rows = [
@@ -609,6 +637,28 @@ class InMemoryRunStore:
                 if (record.started_at, record.run_id) < (before_started_at, before_run_id)
             ]
         return rows[:limit]
+
+    async def list_sessions(self, *, user_id: str, limit: int = 20) -> list[SessionSummary]:
+        grouped: dict[str, list[RunRecord]] = {}
+        for record in self._runs.values():
+            if record.user_id == user_id:
+                grouped.setdefault(record.session_id, []).append(record)
+
+        summaries: list[SessionSummary] = []
+        for session_id, records in grouped.items():
+            records.sort(key=lambda record: (record.started_at, record.run_id))
+            title = next((record.input for record in records if record.input.strip()), None)
+            summaries.append(
+                SessionSummary(
+                    session_id=session_id,
+                    title=title,
+                    run_count=len(records),
+                    started_at=records[0].started_at,
+                    updated_at=records[-1].started_at,
+                )
+            )
+        summaries.sort(key=lambda item: (item.updated_at, item.session_id), reverse=True)
+        return summaries[:limit]
 
     async def recent_turns(
         self,
@@ -940,6 +990,7 @@ class PostgresRunStore:
         before_started_at: datetime | None = None,
         before_run_id: str | None = None,
         status: str | None = None,
+        session_id: str | None = None,
     ) -> list[RunRecord]:
         # 列表也要带事件条数：内存实现一直有值，Postgres 之前恒为 0，
         # 两端不一致会让「清理后 event_count=0」失去参照。按 run 聚合一次即可（≤ limit 行）
@@ -950,6 +1001,8 @@ class PostgresRunStore:
         )
         if status:
             stmt = stmt.where(Run.status == status)
+        if session_id is not None:
+            stmt = stmt.where(Run.session_id == session_id)
         if before_started_at is not None and before_run_id:
             try:
                 before_id = uuid.UUID(before_run_id)
@@ -966,6 +1019,60 @@ class PostgresRunStore:
         async with self._sessionmaker() as session:
             rows = (await session.execute(stmt)).all()
         return [_record_from_row(row, event_count=int(count)) for row, count in rows]
+
+    async def list_sessions(self, *, user_id: str, limit: int = 20) -> list[SessionSummary]:
+        agg = (
+            select(
+                Run.session_id,
+                func.min(Run.started_at).label("started_at"),
+                func.max(Run.started_at).label("updated_at"),
+                func.count().label("run_count"),
+            )
+            .where(Run.user_id == user_id)
+            .group_by(Run.session_id)
+            .order_by(func.max(Run.started_at).desc(), Run.session_id.desc())
+            .limit(limit)
+        )
+        async with self._sessionmaker() as session:
+            rows = (await session.execute(agg)).all()
+            if not rows:
+                return []
+            session_ids = [row.session_id for row in rows]
+            # 标题取最早一条非空 input；用窗口函数按会话取第一行，避免 N+1。
+            ranked = (
+                select(
+                    Run.session_id,
+                    Run.input,
+                    func.row_number()
+                    .over(
+                        partition_by=Run.session_id,
+                        order_by=(Run.started_at.asc(), Run.id.asc()),
+                    )
+                    .label("rn"),
+                )
+                .where(
+                    Run.user_id == user_id,
+                    Run.session_id.in_(session_ids),
+                    func.length(func.regexp_replace(Run.input, r"\s", "", "g")) > 0,
+                )
+                .subquery()
+            )
+            title_rows = (
+                await session.execute(
+                    select(ranked.c.session_id, ranked.c.input).where(ranked.c.rn == 1)
+                )
+            ).all()
+        titles = {session_id: title for session_id, title in title_rows}
+        return [
+            SessionSummary(
+                session_id=row.session_id,
+                title=titles.get(row.session_id),
+                run_count=int(row.run_count),
+                started_at=row.started_at,
+                updated_at=row.updated_at,
+            )
+            for row in rows
+        ]
 
     async def recent_turns(
         self,

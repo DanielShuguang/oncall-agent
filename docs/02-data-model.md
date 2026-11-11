@@ -61,6 +61,9 @@ CREATE INDEX idx_runs_status            ON runs (status) WHERE status IN ('runni
 > 幂等键按 **用户作用域**：不同用户撞 key 不会互相回放；空字符串视为未提供（迁移 0002）。
 > 多轮上下文按 `(user_id, session_id, started_at DESC)` 取最近几轮（迁移 0009、[ADR-0020](decisions/0020-multi-turn-context.md)）：
 > 只读 `runs` 的 `input/output` 与引用快照，不读事件；`idx_runs_user_time` 没有 `session_id` 前缀，不能替代。
+> 会话列表（[ADR-0030](decisions/0030-session-list.md)）同样由这张索引投影：
+> 按 `session_id` 分组取 `min/max(started_at)` 与 `count(*)`，标题取最早一条非空 `input`；
+> **没有 `sessions` 表，也没有新迁移**。正文按 ADR-0023 清空后标题为 `NULL`，会话仍会列出。
 > `events_pruned_at` 非空表示这场 run 的事件已按保留策略整场删除（迁移 0010、
 > [ADR-0021](decisions/0021-data-retention.md)）：**由清理任务写入，不是事件投影**；
 > 回放不可用，摘要/回答/计量仍保留。

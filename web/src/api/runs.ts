@@ -66,11 +66,13 @@ export function listRuns(params: {
   limit?: number;
   cursor?: string | null;
   status?: string | null;
+  sessionId?: string | null;
 }): Promise<RunListResponse> {
   const query = new URLSearchParams();
   if (params.limit) query.set('limit', String(params.limit));
   if (params.cursor) query.set('cursor', params.cursor);
   if (params.status) query.set('status', params.status);
+  if (params.sessionId) query.set('session_id', params.sessionId);
   return getJson<RunListResponse>(`/runs?${query.toString()}`);
 }
 

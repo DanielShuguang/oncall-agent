@@ -19,7 +19,7 @@ import { resolveApproval, type ApprovalDecision } from '@/api/approvals';
 import { getRunEvents, type RunEventsResponse } from '@/api/runs';
 import { initialRuntime, runtimeReducer, stopAssistantStreaming, type Runtime } from './machine';
 import { streamChat } from './stream';
-import type { RunEvent } from './types';
+import type { ChatMessage, RunEvent } from './types';
 
 const newSessionId = () => `sess_${Math.random().toString(36).slice(2, 10)}`;
 let sessionId = newSessionId();
@@ -31,6 +31,8 @@ let abortRef: AbortController | null = null;
 
 interface ChatStore {
   runtime: Runtime;
+  /** 当前多轮作用域；「继续对话」会切到历史会话，普通发送沿用 */
+  sessionId: string;
   sending: boolean;
   lastSeq: number;
   /** 最近一次发送的文本，失败后「重试」复用；不额外发 run 上下文 */
@@ -40,6 +42,8 @@ interface ChatStore {
   resolve: (decision: ApprovalDecision) => Promise<void>;
   abort: () => void;
   reset: () => void;
+  /** 切到历史会话：清掉当前运行态，用只读 transcript 填消息（ADR-0030） */
+  switchSession: (nextSessionId: string, messages: ChatMessage[]) => void;
 }
 
 export const useChat = create<ChatStore>((set, get) => {
@@ -114,6 +118,7 @@ export const useChat = create<ChatStore>((set, get) => {
 
   return {
     runtime: initialRuntime,
+    sessionId,
     sending: false,
     lastSeq: 0,
     lastUserText: null,
@@ -253,7 +258,28 @@ export const useChat = create<ChatStore>((set, get) => {
       abortRef = null;
       // 换会话 ID：服务端按它取历史，"清空对话"之后不能再续上一段的上下文
       sessionId = newSessionId();
-      set({ runtime: initialRuntime, lastSeq: 0, sending: false, lastUserText: null });
+      set({
+        runtime: initialRuntime,
+        sessionId,
+        lastSeq: 0,
+        sending: false,
+        lastUserText: null,
+      });
+    },
+
+    switchSession: (nextSessionId, messages) => {
+      if (!nextSessionId || nextSessionId === sessionId) return;
+      generation += 1;
+      abortRef?.abort();
+      abortRef = null;
+      sessionId = nextSessionId;
+      set({
+        runtime: { ...initialRuntime, messages },
+        sessionId: nextSessionId,
+        lastSeq: 0,
+        sending: false,
+        lastUserText: null,
+      });
     },
   };
 });

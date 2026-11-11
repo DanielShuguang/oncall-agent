@@ -10,6 +10,7 @@ ADR-0022 在读取侧加一层按**当前**可见性的回收：详情不带 `ou
 `content_redacted` 说明原因（列表没有正文，不需要）。
 ADR-0023 是**按时间**的正文清理（`content_pruned_at`）：到期后 `input/output` 不再返回，
 摘要、计量与失败归因照旧；两种原因同时存在时先说过期（正文已经不存在了）。
+ADR-0030 的会话列表也是 runs 的投影：`GET /sessions` 按 `session_id` 聚合，不建表。
 """
 
 from __future__ import annotations
@@ -102,6 +103,7 @@ async def list_runs(
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     cursor: Annotated[str | None, Query()] = None,
     status: Annotated[RunStatus | None, Query()] = None,
+    session_id: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
 ) -> dict[str, Any]:
     before_started_at: datetime | None = None
     before_run_id: str | None = None
@@ -114,12 +116,57 @@ async def list_runs(
             before_started_at=before_started_at,
             before_run_id=before_run_id,
             status=status.value if status else None,
+            session_id=session_id,
         )
     except SQLAlchemyError as exc:
         raise ApiError(503, "DATABASE_UNAVAILABLE", "database unavailable") from exc
 
     next_cursor = _encode_cursor(records[-1]) if len(records) == limit else None
     return {"items": [_run_summary(rec) for rec in records], "next_cursor": next_cursor}
+
+
+def _session_title(raw: str | None) -> str | None:
+    """会话标题取首条输入的第一行，给侧边栏留 60 字符。
+
+    正文被保留策略清空后 `input` 为 None（ADR-0023），会话仍然存在——标题返回
+    None，由前端显示「无标题」，不能因此把会话藏掉。
+    """
+    if not raw:
+        return None
+    text = " ".join(raw.split())
+    if not text:
+        return None
+    return text[:60] + ("…" if len(text) > 60 else "")
+
+
+@router.get("/sessions")
+async def list_sessions(
+    store: Annotated[RunStore, Depends(get_store)],
+    identity: Annotated[Identity, Depends(get_identity)],
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+) -> dict[str, Any]:
+    """当前用户最近的会话（ADR-0030）。
+
+    会话是 `runs.session_id` 的投影，没有独立表、也没有游标：v1 只取最近 20 个，
+    更早的会话等真有需求再加。`next_cursor` 固定为 null，保持与 `/runs` 相同形状。
+    """
+    try:
+        sessions = await store.list_sessions(user_id=identity.user_id, limit=limit)
+    except SQLAlchemyError as exc:
+        raise ApiError(503, "DATABASE_UNAVAILABLE", "database unavailable") from exc
+    return {
+        "items": [
+            {
+                "session_id": item.session_id,
+                "title": _session_title(item.title),
+                "run_count": item.run_count,
+                "started_at": item.started_at,
+                "updated_at": item.updated_at,
+            }
+            for item in sessions
+        ],
+        "next_cursor": None,
+    }
 
 
 @router.get("/runs/{run_id}")

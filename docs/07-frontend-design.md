@@ -97,6 +97,7 @@ token 来源：v1 没有登录页，token 存在 `localStorage.oncall.token`，�
 
 ```
 ChatPage
+|-- SessionList            会话侧栏：新会话 + 最近会话，点击回看并继续（ADR-0030）
 ├─ MessageList             直接渲染（未做虚拟滚动）
 │  ├─ UserMessage
 │  ├─ AssistantMessage
@@ -113,8 +114,8 @@ ChatPage
 └─ ConnectionBanner        断线提示 + "正在恢复…"
 ```
 
-> 未实现：会话列表（`ConversationList`）与消息虚拟滚动。v1 只有当前会话——刷新页面即新会话，
-> 上下文作用域跟随 `session_id`（[ADR-0020](decisions/0020-multi-turn-context.md)）；长会话直接渲染。
+> 已实现会话列表（ADR-0030）：左侧列出最近会话，点开可回看只读 transcript 并继续对话；
+> 仍未做消息虚拟滚动，长会话直接渲染（后续可加）。
 
 通用样式原语（Button / Tag / Card / Alert / Tabs）在 `src/components/ui.tsx`，页面只做组合，不重复写按钮/标签样式（见 §11）。
 
@@ -141,7 +142,7 @@ ConsolePage（Tabs，路径 /console/:panel）
 | 断线 | 顶部条"连接已断开，正在恢复"，自动重连 + 补拉 |
 | 引用 | 角标 hover 显示片段；点击打开 Dialog：按切片顺序展示全文、引用段高亮并滚到视野中央（`chunk_id` 优先、`ord` 兜底），加载失败退回片段并说明「不是全文」；只有登录要求，与检索同一可见性（[ADR-0018](decisions/0018-citation-fulltext-preview.md)）。受限文档返回 404，前端走同一个「文档不存在或已更新」兜底，不区分「无权限」与「没这篇」（[ADR-0019](decisions/0019-document-level-access.md)） |
 | 长会话 | 消息虚拟滚动；事件时间线按需折叠（默认收起中间步骤） |
-| 多轮 | `session_id` 是一段对话的上下文作用域：`reset()`（清空对话）生成新的 ID，否则新会话的第一句会带着上一段的上下文（[ADR-0020](decisions/0020-multi-turn-context.md)）。刷新页面等于新会话；后端按「用户 + session」取最近 3 轮，客户端不传历史 |
+| 多轮 | `session_id` 是一段对话的上下文作用域：`reset()`（新会话）生成新的 ID，否则新会话的第一句会带着上一段的上下文（[ADR-0020](decisions/0020-multi-turn-context.md)）。刷新页面会开一个当前会话，**历史在左侧列表**，点开即可回看并沿用同一个 `session_id` 继续；v1 不自动恢复最后一次会话。后端按「用户 + session」取最近 3 轮，客户端不传历史 |
 
 ### 6.1 断线续传的实现（W1 D4）
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { cn } from 'cn';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -31,6 +31,9 @@ export default function ChatPage() {
   const [sessionsLoading, setSessionsLoading] = useState(true);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
+  // 历史会话请求可能乱序返回（连点两个会话、加载中又点了新会话）：
+  // 用自增 token 只接受最后一次请求的结果，避免旧的响应把界面切回去。
+  const historyRequest = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -47,6 +50,7 @@ export default function ChatPage() {
       });
     return () => {
       cancelled = true;
+      historyRequest.current += 1;
     };
   }, []);
 
@@ -67,24 +71,41 @@ export default function ChatPage() {
   const onSend = async () => {
     const value = text.trim();
     if (!value) return;
+    // 发送会沿用当前会话：取消还在路上的历史会话切换，避免它回来后把本轮 UI 覆盖掉
+    historyRequest.current += 1;
+    setHistoryLoading(false);
     setText('');
     await send(value);
     refreshSessions();
   };
 
   const onSelectSession = async (nextSessionId: string) => {
-    if (sending || nextSessionId === sessionId) return;
+    if (sending || historyLoading || nextSessionId === sessionId) return;
+    const requestId = ++historyRequest.current;
     setHistoryLoading(true);
     setSessionsError(null);
     try {
       const list = await listRuns({ sessionId: nextSessionId, limit: 20 });
       const details = await Promise.all(list.items.map((item) => getRun(item.run_id)));
+      if (requestId !== historyRequest.current) return;
+      setActiveCitation(null);
+      setText('');
       switchSession(nextSessionId, transcriptMessages(details));
     } catch (err) {
-      setSessionsError(err instanceof Error ? err.message : '历史会话加载失败');
+      if (requestId === historyRequest.current) {
+        setSessionsError(err instanceof Error ? err.message : '历史会话加载失败');
+      }
     } finally {
-      setHistoryLoading(false);
+      if (requestId === historyRequest.current) setHistoryLoading(false);
     }
+  };
+
+  const onNewSession = () => {
+    historyRequest.current += 1;
+    setHistoryLoading(false);
+    setActiveCitation(null);
+    setText('');
+    reset();
   };
 
   return (
@@ -94,8 +115,9 @@ export default function ChatPage() {
         activeSessionId={sessionId}
         loading={sessionsLoading}
         error={sessionsError}
+        busy={historyLoading}
         onSelect={(id) => void onSelectSession(id)}
-        onNew={reset}
+        onNew={onNewSession}
         onRetry={refreshSessions}
       />
       <div className="flex min-h-0 flex-1 flex-col">
@@ -267,7 +289,7 @@ export default function ChatPage() {
             ) : (
               <Button onClick={() => void onSend()}>发送</Button>
             )}
-            <Button variant="outline" onClick={reset} disabled={sending}>
+            <Button variant="outline" onClick={onNewSession} disabled={sending}>
               新会话
             </Button>
           </div>

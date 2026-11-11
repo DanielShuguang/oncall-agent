@@ -70,14 +70,16 @@ async def test_sessions_title_falls_back_and_truncates(
     await _run(mem_store, "sess_blank", "真实问题")
     await _run(mem_store, "sess_none", "   ")
     await _run(mem_store, "sess_long", "打" * 100)
+    await _run(mem_store, "sess_exact", "字" * 60)
 
     response = await client.get("/api/sessions")
     items = {item["session_id"]: item for item in response.json()["items"]}
     assert items["sess_blank"]["title"] == "真实问题"
     assert items["sess_none"]["title"] is None
     assert items["sess_long"]["title"] is not None
-    assert len(items["sess_long"]["title"]) == 61
+    assert len(items["sess_long"]["title"]) == 60
     assert items["sess_long"]["title"].endswith("…")
+    assert items["sess_exact"]["title"] == "字" * 60
 
 
 async def test_runs_can_be_filtered_by_session(

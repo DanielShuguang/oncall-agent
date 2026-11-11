@@ -126,9 +126,9 @@ async def list_runs(
 
 
 def _session_title(raw: str | None) -> str | None:
-    """会话标题取首条输入的第一行，给侧边栏留 60 字符。
+    """会话标题取最早一条输入，空白折叠成单行，最多 60 字符（含省略号）。
 
-    正文被保留策略清空后 `input` 为 None（ADR-0023），会话仍然存在——标题返回
+    正文被保留策略清空后 `input` 为空串（ADR-0023），会话仍然存在——标题返回
     None，由前端显示「无标题」，不能因此把会话藏掉。
     """
     if not raw:
@@ -136,7 +136,9 @@ def _session_title(raw: str | None) -> str | None:
     text = " ".join(raw.split())
     if not text:
         return None
-    return text[:60] + ("…" if len(text) > 60 else "")
+    if len(text) <= 60:
+        return text
+    return text[:59] + "…"
 
 
 @router.get("/sessions")
@@ -147,8 +149,9 @@ async def list_sessions(
 ) -> dict[str, Any]:
     """当前用户最近的会话（ADR-0030）。
 
-    会话是 `runs.session_id` 的投影，没有独立表、也没有游标：v1 只取最近 20 个，
-    更早的会话等真有需求再加。`next_cursor` 固定为 null，保持与 `/runs` 相同形状。
+    会话是 `runs.session_id` 的投影，没有独立表、也没有游标：默认取最近 20 个、
+    最多 50 个，更早的会话等真有需求再加。`next_cursor` 固定为 null，保持与
+    `/runs` 相同形状。
     """
     try:
         sessions = await store.list_sessions(user_id=identity.user_id, limit=limit)

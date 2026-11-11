@@ -304,8 +304,9 @@ W6 基线（3 轮均值，mock 规则路径，口径见 [baseline-v1](docs/eval/
   （单用户工单量小）
   （[ADR-0029](docs/decisions/0029-ticket-self-service-query.md)）
 - 会话列表只展示最近 20 个会话、每个会话最近 20 轮：没有游标翻页、重命名、删除与
-  虚拟滚动；只读 transcript 不回放工具结果/审批卡片；刷新不自动恢复最后一次会话（需在
-  左侧点开）；正文按 ADR-0023 清空后标题为 null，显示「无标题」但会话仍保留
+  虚拟滚动；只读 transcript 不回放工具结果、审批卡片与引用角标；窄屏（<640px）隐藏
+  会话栏，暂没有抽屉入口；刷新不自动恢复最后一次会话（需在左侧点开）；正文按
+  ADR-0023 清空后标题为 null，显示「无标题」但会话仍保留
   （[ADR-0030](docs/decisions/0030-session-list.md)）
 - iframe + postMessage 嵌入形态（W5 D25）暂缓，需要来源白名单与 CSP 部署决策
 

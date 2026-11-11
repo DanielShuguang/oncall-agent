@@ -9,6 +9,8 @@ interface SessionListProps {
   activeSessionId: string;
   loading: boolean;
   error: string | null;
+  /** 历史会话正在加载：暂时锁住列表项，避免连点导致后到的响应覆盖前一次选择 */
+  busy: boolean;
   onSelect: (sessionId: string) => void;
   onNew: () => void;
   onRetry: () => void;
@@ -30,6 +32,7 @@ export function SessionList({
   activeSessionId,
   loading,
   error,
+  busy,
   onSelect,
   onNew,
   onRetry,
@@ -64,8 +67,9 @@ export function SessionList({
               <button
                 type="button"
                 aria-current={active ? 'true' : undefined}
+                disabled={busy}
                 className={cn(
-                  'w-full rounded-md px-2 py-1.5 text-left text-xs hover:bg-canvas',
+                  'w-full rounded-md px-2 py-1.5 text-left text-xs hover:bg-canvas disabled:cursor-default disabled:opacity-60',
                   active && 'bg-canvas font-medium',
                 )}
                 onClick={() => onSelect(session.session_id)}

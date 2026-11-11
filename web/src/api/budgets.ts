@@ -14,8 +14,41 @@ export interface UserBudgetList {
   overrides: UserBudget[];
 }
 
+/** 账本快照里的预扣统计（ADR-0028）；oldest_age_s 为 null 表示没有可读时间戳。 */
+export interface ReservationStats {
+  reserved_cents: number;
+  reservation_count: number;
+  stale_count: number;
+  stale_cents: number;
+  oldest_age_s: number | null;
+}
+
+export interface GlobalBudgetUsage extends ReservationStats {
+  /** 配置的全局日上限（分）；0 = 不限 */
+  limit_cents: number;
+  /** 含未结算预扣，口径不是 model_calls 的实际成本 */
+  spent_cents: number;
+}
+
+export interface UserBudgetUsage extends ReservationStats {
+  user_id: string;
+  spent_cents: number;
+}
+
+export interface BudgetUsage {
+  day: string;
+  stale_after_s: number;
+  global_usage: GlobalBudgetUsage;
+  /** 只含有过预扣/花费的用户；表格需要再与覆盖列表 union */
+  users: UserBudgetUsage[];
+}
+
 export function listBudgets(): Promise<UserBudgetList> {
   return getJson<UserBudgetList>('/admin/budgets');
+}
+
+export function getBudgetUsage(): Promise<BudgetUsage> {
+  return getJson<BudgetUsage>('/admin/budgets/usage');
 }
 
 export function setBudget(userId: string, dailyCents: number): Promise<UserBudget> {

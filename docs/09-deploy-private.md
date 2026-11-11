@@ -120,7 +120,10 @@ ONCALL_RATE_LIMIT_PER_MIN=30
 > 价格单位是「分 / 百万 token」，不是美元；填错会直接体现在成本看板上。
 > `ONCALL_USER_DAILY_BUDGET_CNY=0` 表示默认不给每个用户设上限；**无论默认值是多少**，
 > 都可以在成本页按用户单独覆盖（覆盖里的 0 = 该用户不限）。
-> 详见 [ADR-0013](decisions/0013-model-gateway.md)、[ADR-0026](decisions/0026-user-daily-budget.md)。
+> 预算账本与成本看板口径不同：成本页的「今日已用」读账本（含未结算预扣），超过 300 秒
+> 仍未结算的预扣会标红；实际花费仍看成本汇总（`model_calls`，ADR-0028）。
+> 详见 [ADR-0013](decisions/0013-model-gateway.md)、[ADR-0026](decisions/0026-user-daily-budget.md)、
+> [ADR-0028](decisions/0028-budget-observability.md)。
 
 > 目的：面试官/客户拿到仓库，`docker compose up` 就能看到完整链路，不需要 key、不需要联网。这是开源项目的第一印象分。
 
@@ -188,6 +191,7 @@ make loadtest
 - [ ] 审计日志保留 180 天（清理任务默认 180 天；调小 `ONCALL_EVENT_RETENTION_DAYS` 前确认合规要求，ADR-0021）
 - [ ] 问答正文保留期符合隐私要求（默认 180 天，`ONCALL_RUN_CONTENT_RETENTION_DAYS` 不得小于事件保留期；调小要连同事件一起调，ADR-0023）
 - [ ] 审批快照随正文保留期清空、决议证据永久保留；过期会话授权由清理任务删除（ADR-0027）
+- [ ] 预算账本读取失败时管理页返回 503，而不是显示成「今天没花钱」；预扣泄漏能在成本页看到笔数与金额（ADR-0028）
 - [ ] `.env` 不入库，密钥不出现在日志
 - [ ] 依赖漏洞扫描（`uv pip audit` / `pnpm audit`）
 
@@ -198,4 +202,5 @@ make loadtest
 - [ ] 断网 10s 恢复不丢消息
 - [ ] 越权用例 100% 拦截
 - [ ] 成本看板数据与 `model_calls` 一致
+- [ ] 成本页个人预算的「今日已用」与账本一致；预扣泄漏能看到笔数与金额（ADR-0028）
 - [ ] 备份恢复演练通过

@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from app.budgets.observability import ReservationStats, summarize
 from app.budgets.policy import (
     BUDGET_POLICY_TTL_S,
     BudgetLimitProvider,
@@ -25,9 +26,11 @@ __all__ = [
     "BudgetLimitProvider",
     "InMemoryUserBudgetStore",
     "PostgresUserBudgetStore",
+    "ReservationStats",
     "UserBudgetOverride",
     "UserBudgetPolicy",
     "UserBudgetStore",
     "get_user_budget_policy",
     "set_user_budget_policy",
+    "summarize",
 ]

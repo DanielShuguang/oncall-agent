@@ -126,7 +126,7 @@ ConsolePage（Tabs，路径 /console/:panel）
 ├─ ToolsPage      工具卡片、Schema 查看（只读）、启用开关、试调用
 ├─ PermsPage      角色 × 工具矩阵（勾选即保存）
 ├─ ApprovalsPage  待办/已办可筛，逐条决议（理由 + 授权范围）
-└─ CostPage       日/模型/用户三段聚合 + 趋势图 + Top 花费 run
+└─ CostPage       日/模型/用户三段聚合 + 趋势图 + Top 花费 run + 个人日预算配置与今日账本用量（ADR-0026/0028）
 ```
 
 ## 6. 交互细节（这些才是"体验"）

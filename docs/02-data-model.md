@@ -321,7 +321,13 @@ CREATE TABLE user_budgets (
   `daily_cents = 0` 是"该用户不限"，与"没有行"不同——后者的默认值可能非零
 - 整表读进 `UserBudgetPolicy` 的 2s 缓存：改额度不重启，多副本最长 2s 生效
 - **账本不落库**：预扣与结算在 `core/limits.py` 的 Redis（或内存）账本里，按 UTC 日过期；
-  表里只存上限，花费的真相源仍是 `model_calls`（§2.4）
+  表里只存上限，花费的真相源仍是 `model_calls`（§2.4）；账本侧「今日已用」是另一个口径，
+  由 `GET /admin/budgets/usage` 读快照（[ADR-0028](decisions/0028-budget-observability.md)）
+- 账本的 Redis key（[ADR-0028](decisions/0028-budget-observability.md)）：全局
+  `oncall:budget:{day}` / `oncall:budget:reservations:{day}`；按用户
+  `oncall:budget:user:{user}:{day}` / `oncall:budget:user:reservations:{user}:{day}`；
+  另有当日集合 `oncall:budget:users:{day}` 用于报表枚举用户。预扣时间戳是 reservations
+  hash 里的 `<token>:ts` 字段，不新增 key；管理页只读快照，不改账本。**无迁移**
 - 金额一律「分」整数（R6）；读写要求 `ONCALL_ADMIN_ROLES`（`/api/admin/budgets`）
 
 ## 3. 事件与业务表的一致性规则

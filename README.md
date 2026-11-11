@@ -168,9 +168,9 @@ oncall/
 
 | 模块 | 状态 | 验证方式 |
 |---|---|---|
-| 文档（12 篇 + 27 篇 ADR + 评测基线） | ✅ 完成 | — |
-| 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡 / 运行回放 / 成本页） | ✅ 可用 | `tsc --noEmit`、`oxlint 0`、`oxfmt --check` 通过；`vitest` 58/58；`pnpm build` 成功 |
-| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **395 passed + 28 skipped**；设 `ONCALL_TEST_DATABASE_URL`（指向一个可清空的库）后 **422 passed + 1 skipped**，再加 `ONCALL_TEST_REDIS_URL` 为 **423 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约与审批快照、引用快照与内容回收、个人预算账本、计量一致性） |
+| 文档（12 篇 + 28 篇 ADR + 评测基线） | ✅ 完成 | — |
+| 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡 / 运行回放 / 成本页） | ✅ 可用 | `tsc --noEmit`、`oxlint 0`、`oxfmt --check` 通过；`vitest` 60/60；`pnpm build` 成功 |
+| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **402 passed + 29 skipped**；设 `ONCALL_TEST_DATABASE_URL`（指向一个可清空的库）后 **429 passed + 2 skipped**，再加 `ONCALL_TEST_REDIS_URL` 为 **431 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约与审批快照、引用快照与内容回收、个人预算与账本快照、计量一致性） |
 | 本地 JWT（W1 D2） | ✅ 已完成 | `tests/test_auth.py` 20 条：签发/验签、过期、alg=none、401 JSON、OpenAPI Bearer、run 归属隔离 |
 | 事件落库 + 断线续传（D4） | ✅ 已完成 | `alembic upgrade head` + `alembic check` 无漂移；`tests/test_store_contract.py`（内存 + Postgres 契约）、`tests/test_chat_stream.py`（落库、幂等回放、503 语义） |
 | 最小 Agent 运行时（W1 D5） | ✅ 已完成 | `tests/test_agent_runtime.py` 9 条：工具真实执行、检索引用、写操作挂起审批、工具失败降级、步数/时长上限 |
@@ -190,6 +190,7 @@ oncall/
 | 多轮评测（W6 后补） | ✅ 已完成 | `make eval-multiturn`：`app/eval/multiturn.py` + 17 条用例（12 指代 + 4 话题切换 + 1 诊断），只判最后一轮；指代轮要求引用命中标注文档且**空会话隔离对照**成立，切换轮要求命中新话题且不含上一轮话题、单独提问必须也能命中；门槛 `coref_acc` / `shift_acc` 各 ≥ 85%，诊断项不计入；评测顺带修好连续追问丢话题锚点（按时间累积最近 3 轮问题）与「那 + 新话题」被稀释（追问原句优先，ADR-0025）；`tests/test_multiturn_eval.py`、`test_history.py`、`test_rag_retrieve.py`；[ADR-0024](docs/decisions/0024-multiturn-eval.md)、[ADR-0025](docs/decisions/0025-followup-original-first.md) |
 | 个人日预算（W6 后补） | ✅ 已完成 | `user_budgets` 表（迁移 0013）+ `GET/PUT/DELETE /admin/budgets`；网关在模型调用前先扣全局、再扣个人，个人不足时把全局预扣还回去再 `run.failed(BUDGET_EXCEEDED)`（不花钱、不占全局额度）；`ONCALL_USER_DAILY_BUDGET_CNY` 默认 0 = 不限，覆盖 2s 缓存、改完不重启；成本页新增「个人日预算」卡片；`tests/test_budgets.py`、`test_budgets_pg.py`；[ADR-0026](docs/decisions/0026-user-daily-budget.md) |
 | 审批快照保留（W6 后补） | ✅ 已完成 | 已决议审批的 `state` 按 `ONCALL_RUN_CONTENT_RETENTION_DAYS`（默认 180 天）清空为 `{}`，挂起的不清；参数/理由/决议人保留，无迁移、幂等；`approval_grants` 过期即删；清理任务与 `prune --dry-run` 输出 `approval_snapshots` / `approval_grants`；`tests/test_retention.py`、`test_approvals_pg.py`；[ADR-0027](docs/decisions/0027-approval-snapshot-retention.md) |
+| 预算可观测性（W6 后补） | ✅ 已完成 | 全局与个人账本加只读快照；预扣时间戳写进同一个 reservations hash（旧副本无 ts → 年龄未知、不报 stale），用户用当日集合枚举；`GET /admin/budgets/usage` 返回已用、未结算笔数/金额与 300 秒判据下的卡住笔数，账本故障 503 不降级；成本页合并配置与账本（未知花费显示「—」）；`tests/test_budget_usage.py`；[ADR-0028](docs/decisions/0028-budget-observability.md) |
 
 ### 评测与压测
 
@@ -292,7 +293,9 @@ W6 基线（3 轮均值，mock 规则路径，口径见 [baseline-v1](docs/eval/
   `user_id` + `roles`）；个人额度按 UTC 日累计、**不从当天已花的历史回填**，被拦下是
   `run.failed(BUDGET_EXCEEDED)` 而不是 429；mock 模式不经过网关，个人预算不生效
   （[ADR-0026](docs/decisions/0026-user-daily-budget.md)）。全局与个人是两笔独立预扣，
-  进程崩在两次之间会留下全局预留（日切自愈，偏保守）
+  进程崩在两次之间会留下全局预留（日切自愈，偏保守）。预扣泄漏能在成本页看到，但报表只是
+  当前 UTC 日采样，不自动对账、没有历史趋势；旧格式预扣（升级前写入、无时间戳）显示「—」
+  年龄、不计 stale（[ADR-0028](docs/decisions/0028-budget-observability.md)）
 - iframe + postMessage 嵌入形态（W5 D25）暂缓，需要来源白名单与 CSP 部署决策
 
 ## License

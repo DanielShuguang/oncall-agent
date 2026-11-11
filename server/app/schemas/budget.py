@@ -29,3 +29,35 @@ class UserBudgetUpdateRequest(BaseModel):
 
     #: 日上限（分）；0 是显式的不限
     daily_cents: int = Field(ge=0, le=MAX_DAILY_CENTS)
+
+
+class ReservationStatsOut(BaseModel):
+    """未结算预扣统计；`oldest_age_s` 为 None 表示没有可读时间戳的预扣。"""
+
+    reserved_cents: int
+    reservation_count: int
+    stale_count: int
+    stale_cents: int
+    oldest_age_s: float | None = None
+
+
+class GlobalBudgetUsageOut(ReservationStatsOut):
+    #: 配置里的全局日上限（分）；0 表示不限
+    limit_cents: int
+    #: 含未结算预扣：这是账本口径，不是 model_calls 的实际成本
+    spent_cents: int
+
+
+class UserBudgetUsageOut(ReservationStatsOut):
+    user_id: str
+    spent_cents: int
+
+
+class BudgetUsageResponse(BaseModel):
+    #: 账本所属的 UTC 日（yyyy-mm-dd）
+    day: str
+    #: 超过多少秒仍未结算算「卡住」；目前固定 300 秒（ADR-0028）
+    stale_after_s: float
+    global_usage: GlobalBudgetUsageOut
+    #: 只含有过预扣/花费的用户；管理页再与覆盖表做 union
+    users: list[UserBudgetUsageOut]

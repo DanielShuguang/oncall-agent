@@ -144,7 +144,11 @@ async def test_redis_user_ledger_roundtrip() -> None:
         assert await ledger.spent(user) == 2
     finally:
         client = ledger._redis()
-        await client.delete(ledger._key(user), ledger._reservations_key(user))
+        await client.delete(
+            ledger._key(user),
+            ledger._reservations_key(user),
+            ledger._users_key(),
+        )
         await ledger.close()
 
 

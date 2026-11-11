@@ -51,6 +51,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | GET | `/admin/budgets` | 个人日预算默认值 + 覆盖列表 | W6 后补 |
 | PUT | `/admin/budgets/{user_id}` | 设置/更新某用户的日预算 | W6 后补 |
 | DELETE | `/admin/budgets/{user_id}` | 删除覆盖、回到默认值（204） | W6 后补 |
+| GET | `/admin/budgets/usage` | 今日账本用量（已用、未结算预扣、卡住笔数） | W6 后补 |
 | GET | `/admin/eval/report?batch_id=` | 评测报告 | W6 D26 |
 
 ## 2. 对话流
@@ -385,7 +386,52 @@ GET /api/admin/budgets
   不产生费用，也不占当天的全局额度。被拦下不是 429——429 只用于请求限流
 - 只在真实模型路径生效：mock 模式不经过网关、成本恒为 0，个人额度不会触发
 - 账本从配置生效后的第一次调用开始累计：当天此前已花的钱不计入个人额度（花费真相源
-  仍是 `/admin/cost/summary`，见 ADR-0026 的「待定」）
+  仍是 `/admin/cost/summary`；账本侧的今日已用见下面的 `/admin/budgets/usage`，
+  两个口径不同，见 ADR-0026 / ADR-0028 的「待定」）
+
+### 预算今日用量（ADR-0028）
+
+```http
+GET /api/admin/budgets/usage
+```
+
+```json
+{
+  "day": "2026-11-11",
+  "stale_after_s": 300.0,
+  "global_usage": {
+    "limit_cents": 500,
+    "spent_cents": 120,
+    "reserved_cents": 20,
+    "reservation_count": 1,
+    "stale_count": 0,
+    "stale_cents": 0,
+    "oldest_age_s": 2.1
+  },
+  "users": [
+    {
+      "user_id": "u_205",
+      "spent_cents": 40,
+      "reserved_cents": 10,
+      "reservation_count": 1,
+      "stale_count": 0,
+      "stale_cents": 0,
+      "oldest_age_s": 2.1
+    }
+  ]
+}
+```
+
+- **账本口径**：`spent_cents` 含未结算预扣，是网关判断额度时看到的数字；不是
+  `model_calls` 的实际成本。三个口径互不替代：配置看 `/admin/budgets`、账本看本接口、
+  实际成本看 `/admin/cost/summary`
+- `stale_after_s` 目前固定 300 秒；预扣年龄超过它的计入 `stale_count` / `stale_cents`，
+  说明进程可能崩在 reserve 与 settle 之间（UTC 日切后账本 TTL 自愈）。报表只提示，
+  不自动回冲
+- 只读账本：不读覆盖表；个人上限请与 `GET /admin/budgets` 合并。账本不可用返回
+  503 `LEDGER_UNAVAILABLE`，**不**降级为内存账本（否则 Redis 故障会显示成没花钱）
+- `users` 只含当天有过预扣或花费的用户，按 `user_id` 排序；没有个人账本消费的人不出现
+- admin only
 
 ### 知识库上传与重建索引（W2 D7/D8）
 

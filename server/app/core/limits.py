@@ -15,6 +15,7 @@ import asyncio
 import time
 import uuid
 from collections import defaultdict, deque
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Literal, Protocol
@@ -30,6 +31,64 @@ log = get_logger(__name__)
 RATE_LIMIT_WINDOW_S = 60.0
 
 BudgetBackend = Literal["redis", "memory"]
+
+#: 预扣超过这个时间仍未结算，就认为它泄漏了：模型请求超时是 20s（ADR-0013），
+#: 留 15 倍余量。不新增环境变量，避免运维在报表里看到第二套阈值（ADR-0028）。
+RESERVATION_STALE_S = 300.0
+
+#: Redis reservations hash 里时间戳字段的后缀：`<token>:ts`。与金额写进同一个
+#: hash，保证「预扣 + 时间」一次落盘；旧格式没有该字段，快照里 age 为 None。
+_TS_SUFFIX = ":ts"
+
+
+class LedgerUnavailable(RuntimeError):
+    """账本快照读不到（Redis 故障）。
+
+    管理页必须显式报错，不能拿内存兜底冒充现状：那会把「Redis 挂了」
+    显示成「今天没花钱」。
+    """
+
+
+@dataclass(frozen=True, slots=True)
+class ReservationSnapshot:
+    """一笔仍挂在账上的预扣；`age_s` 为 None 表示旧格式没有时间戳。"""
+
+    token: str
+    cents: int
+    age_s: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class LedgerSnapshot:
+    """某个 UTC 日的账本只读视图：已花费（含未结算预扣）+ 未结算明细。"""
+
+    spent_cents: int
+    reservations: tuple[ReservationSnapshot, ...]
+
+
+def _snapshot_from_rows(
+    spent_cents: int, rows: Sequence[tuple[str, int, float | None]]
+) -> LedgerSnapshot:
+    """按 token 排序，保证同一份账本两次快照的 JSON 顺序稳定（便于测试与 diff）。"""
+    return LedgerSnapshot(
+        spent_cents=spent_cents,
+        reservations=tuple(
+            ReservationSnapshot(token=token, cents=cents, age_s=age)
+            for token, cents, age in sorted(rows, key=lambda row: row[0])
+        ),
+    )
+
+
+def _parse_redis_snapshot(spent_raw: str | None, raw: dict[str, str]) -> LedgerSnapshot:
+    now = time.time()
+    rows: list[tuple[str, int, float | None]] = []
+    for field, value in raw.items():
+        if field.endswith(_TS_SUFFIX):
+            continue
+        ts_raw = raw.get(field + _TS_SUFFIX)
+        age = None if ts_raw is None else max(0.0, now - float(ts_raw))
+        rows.append((field, int(value), age))
+    return _snapshot_from_rows(int(spent_raw or 0), rows)
 
 
 class RateLimiter(Protocol):
@@ -63,6 +122,8 @@ class BudgetLedger(Protocol):
 
     async def spent(self) -> int: ...
 
+    async def snapshot(self) -> LedgerSnapshot: ...
+
     async def close(self) -> None: ...
 
 
@@ -79,6 +140,8 @@ class UserBudgetLedger(Protocol):
     async def settle(self, reservation: BudgetReservation, actual: int) -> None: ...
 
     async def spent(self, user_id: str) -> int: ...
+
+    async def snapshot(self) -> dict[str, LedgerSnapshot]: ...
 
     async def close(self) -> None: ...
 
@@ -167,6 +230,8 @@ class InMemoryBudgetLedger:
         self._limit = limit_cents
         self._spent = 0
         self._day = _utc_day()
+        #: token -> (预扣金额, 预扣时的 epoch 秒)，只用于管理页快照（ADR-0028）
+        self._reservations: dict[str, tuple[int, float]] = {}
         self._lock = asyncio.Lock()
 
     async def reserve(self, cents: int) -> BudgetReservation | None:
@@ -177,11 +242,15 @@ class InMemoryBudgetLedger:
             if self._spent + cents > self._limit:
                 return None
             self._spent += cents
-            return BudgetReservation(cents=cents, backend="memory", day=_utc_day())
+            token = uuid.uuid4().hex
+            self._reservations[token] = (cents, time.time())
+            return BudgetReservation(cents=cents, backend="memory", day=_utc_day(), token=token)
 
     async def settle(self, reservation: BudgetReservation, actual: int) -> None:
         async with self._lock:
             self._rollover()
+            if reservation.token is not None:
+                self._reservations.pop(reservation.token, None)
             self._spent = max(0, self._spent + actual - reservation.cents)
 
     async def spent(self) -> int:
@@ -189,11 +258,22 @@ class InMemoryBudgetLedger:
             self._rollover()
             return self._spent
 
+    async def snapshot(self) -> LedgerSnapshot:
+        async with self._lock:
+            self._rollover()
+            now = time.time()
+            rows = [
+                (token, cents, now - created)
+                for token, (cents, created) in self._reservations.items()
+            ]
+            return _snapshot_from_rows(self._spent, rows)
+
     def _rollover(self) -> None:
         today = _utc_day()
         if today != self._day:
             self._day = today
             self._spent = 0
+            self._reservations.clear()
 
     async def close(self) -> None:
         return None
@@ -206,11 +286,17 @@ local limit = tonumber(ARGV[1])
 local amount = tonumber(ARGV[2])
 local ttl = tonumber(ARGV[3])
 local token = ARGV[4]
+local now = ARGV[5]
 if current + amount > limit then return 0 end
 redis.call('INCRBY', KEYS[1], amount)
 redis.call('HSET', KEYS[2], token, amount)
+redis.call('HSET', KEYS[2], token .. ':ts', now)
 redis.call('EXPIRE', KEYS[1], ttl)
 redis.call('EXPIRE', KEYS[2], ttl)
+if KEYS[3] then
+  redis.call('SADD', KEYS[3], ARGV[6])
+  redis.call('EXPIRE', KEYS[3], ttl)
+end
 return 1
 """
 
@@ -220,7 +306,8 @@ return 1
 local reserved = tonumber(redis.call('HGET', KEYS[2], ARGV[1]) or '0')
 local actual = tonumber(ARGV[2])
 local ttl = tonumber(ARGV[3])
-if reserved > 0 then redis.call('HDEL', KEYS[2], ARGV[1]) end
+redis.call('HDEL', KEYS[2], ARGV[1])
+redis.call('HDEL', KEYS[2], ARGV[1] .. ':ts')
 local delta = actual - reserved
 if delta ~= 0 then redis.call('INCRBY', KEYS[1], delta) end
 local current = tonumber(redis.call('GET', KEYS[1]) or '0')
@@ -267,6 +354,7 @@ return 1
                 cents,
                 self._ttl(),
                 token,
+                int(time.time()),
             )
             if not int(result):
                 return None
@@ -318,6 +406,17 @@ return 1
             log.warning("budget_read_failed", error=str(exc))
             return await self._fallback.spent()
 
+    async def snapshot(self) -> LedgerSnapshot:
+        try:
+            pipe = self._redis().pipeline(transaction=False)
+            pipe.get(self._key())
+            pipe.hgetall(self._reservations_key())
+            spent_raw, raw = await pipe.execute()
+        except Exception as exc:
+            log.warning("budget_snapshot_failed", error=str(exc))
+            raise LedgerUnavailable("预算账本暂不可用") from exc
+        return _parse_redis_snapshot(spent_raw, raw)
+
     async def close(self) -> None:
         if self._client is not None:
             await self._client.aclose()
@@ -326,6 +425,11 @@ return 1
 
 def _utc_day() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%d")
+
+
+def budget_day() -> str:
+    """管理页展示用的当前 UTC 日；账本内部仍用 `_utc_day()`。"""
+    return _utc_day()
 
 
 def _budget_ttl() -> int:
@@ -340,6 +444,8 @@ class InMemoryUserBudgetLedger:
 
     def __init__(self) -> None:
         self._spent: dict[str, int] = {}
+        #: token -> (user_id, 预扣金额, 预扣时的 epoch 秒)，只用于管理页快照（ADR-0028）
+        self._reservations: dict[str, tuple[str, int, float]] = {}
         self._day = _utc_day()
         self._lock = asyncio.Lock()
 
@@ -354,10 +460,13 @@ class InMemoryUserBudgetLedger:
             if current + cents > limit_cents:
                 return None
             self._spent[user_id] = current + cents
+            token = uuid.uuid4().hex
+            self._reservations[token] = (user_id, cents, time.time())
             return BudgetReservation(
                 cents=cents,
                 backend="memory",
                 day=_utc_day(),
+                token=token,
                 user_id=user_id,
             )
 
@@ -367,6 +476,8 @@ class InMemoryUserBudgetLedger:
             raise ValueError("用户预算凭证缺少 user_id")
         async with self._lock:
             self._rollover()
+            if reservation.token is not None:
+                self._reservations.pop(reservation.token, None)
             current = self._spent.get(user_id, 0)
             self._spent[user_id] = max(0, current + actual - reservation.cents)
 
@@ -375,11 +486,27 @@ class InMemoryUserBudgetLedger:
             self._rollover()
             return self._spent.get(user_id, 0)
 
+    async def snapshot(self) -> dict[str, LedgerSnapshot]:
+        async with self._lock:
+            self._rollover()
+            now = time.time()
+            users = set(self._spent) | {user for user, _, _ in self._reservations.values()}
+            snapshots: dict[str, LedgerSnapshot] = {}
+            for user_id in sorted(users):
+                rows = [
+                    (token, cents, now - created)
+                    for token, (owner, cents, created) in self._reservations.items()
+                    if owner == user_id
+                ]
+                snapshots[user_id] = _snapshot_from_rows(self._spent.get(user_id, 0), rows)
+            return snapshots
+
     def _rollover(self) -> None:
         today = _utc_day()
         if today != self._day:
             self._day = today
             self._spent = {}
+            self._reservations.clear()
 
     async def close(self) -> None:
         return None
@@ -406,6 +533,10 @@ class RedisUserBudgetLedger:
     def _reservations_key(self, user_id: str, day: str | None = None) -> str:
         return f"oncall:budget:user:reservations:{user_id}:{day or _utc_day()}"
 
+    def _users_key(self, day: str | None = None) -> str:
+        """当日有预扣的用户集合；管理页用它枚举用户，避免 SCAN 误匹配 reservations key。"""
+        return f"oncall:budget:users:{day or _utc_day()}"
+
     async def reserve(
         self, user_id: str, cents: int, *, limit_cents: int
     ) -> BudgetReservation | None:
@@ -416,13 +547,16 @@ class RedisUserBudgetLedger:
         try:
             result = await self._redis().eval(
                 RedisBudgetLedger._RESERVE_SCRIPT,
-                2,
+                3,
                 self._key(user_id, day),
                 self._reservations_key(user_id, day),
+                self._users_key(day),
                 limit_cents,
                 cents,
                 _budget_ttl(),
                 token,
+                int(time.time()),
+                user_id,
             )
             if not int(result):
                 return None
@@ -481,6 +615,26 @@ class RedisUserBudgetLedger:
         except Exception as exc:
             log.warning("user_budget_read_failed", error=str(exc), user_id=user_id)
             return await self._fallback.spent(user_id)
+
+    async def snapshot(self) -> dict[str, LedgerSnapshot]:
+        day = _utc_day()
+        try:
+            raw_users = await self._redis().smembers(self._users_key(day))
+            users = sorted(user.decode() if isinstance(user, bytes) else user for user in raw_users)
+            if not users:
+                return {}
+            pipe = self._redis().pipeline(transaction=False)
+            for user_id in users:
+                pipe.get(self._key(user_id, day))
+                pipe.hgetall(self._reservations_key(user_id, day))
+            results = await pipe.execute()
+        except Exception as exc:
+            log.warning("user_budget_snapshot_failed", error=str(exc))
+            raise LedgerUnavailable("用户预算账本暂不可用") from exc
+        snapshots: dict[str, LedgerSnapshot] = {}
+        for index, user_id in enumerate(users):
+            snapshots[user_id] = _parse_redis_snapshot(results[index * 2], results[index * 2 + 1])
+        return snapshots
 
     async def close(self) -> None:
         if self._client is not None:

@@ -500,7 +500,8 @@ WSL2 + Docker 复跑）；`ruff` / `ruff format --check`（147 files）/ `mypy a
 被拦下是 `run.failed(BUDGET_EXCEEDED)` 而不是 429（429 只用于请求限流）；mock 模式不经过
 网关，个人预算不生效；全局与个人是两笔独立预扣，进程崩在中间会留下全局预留——与
 ADR-0013 已知的"预扣泄漏"同类，日切自愈、偏保守。详见
-[ADR-0026](decisions/0026-user-daily-budget.md)。
+[ADR-0026](decisions/0026-user-daily-budget.md)。预扣泄漏的观测与个人「已用/上限」的展示
+在 [ADR-0028](decisions/0028-budget-observability.md) 里补齐。
 
 ---
 
@@ -535,6 +536,36 @@ pgvector）后 **422 passed + 1 skipped**（本机没有 Redis，账本往返用
 前者不晚于后者，差的是一次恢复执行的耗时；
 审批表很小、没有在真实体量上量过清理性能；不按人删审批（数据主体请求等接 IdP 后再做）。
 详见 [ADR-0027](decisions/0027-approval-snapshot-retention.md)。
+
+---
+
+## W6 后补：预算可观测性（ADR-0028）
+
+ADR-0026 把个人日预算做成了闸门，但它的两个「待定」都没有出口：预扣泄漏（进程崩在
+`reserve` 与 `settle` 之间）只有 `budget_reserve_leaked` warning 日志；成本页只有配置
+（默认值与覆盖表），看不到某个人今天用了多少、还剩多少。后果是账本与成本看板对不上时
+没人能解释，预扣卡住也只能翻日志。
+
+难点是三个口径不能混：配置回答「应该花多少」，账本回答「闸门现在扣了多少（含未结算）」，
+成本看板回答「已经落库的实际花费」。报表必须说明自己是哪一个。
+
+| 事项 | 落地 |
+|---|---|
+| 快照 | 两本账加只读 `snapshot()`；`LedgerSnapshot(spent_cents, reservations)`，年龄在读取时计算 |
+| 时间戳 | 预扣时间写进同一个 reservations hash 的 `<token>:ts`，结算时同时删；旧副本不写 ts → 年龄未知、不报 stale；不新增 key，滚动升级兼容 |
+| 用户枚举 | 当日集合 `oncall:budget:users:{day}` 在 reserve 的 Lua 里 `SADD`，避免 SCAN 误匹配 `...:reservations:*` |
+| 判据 | `RESERVATION_STALE_S=300`（模型超时 20s 的 15 倍）固定，不加环境变量；只提示，不自动回冲 |
+| 接口 | `GET /admin/budgets/usage`（admin）：全局与按用户的已用、未结算笔数/金额、最老年龄；只读账本，故障 503 `LEDGER_UNAVAILABLE` 不降级 |
+| 管理页 | 预算表合并配置与账本：用户 / 今日已用 / 日上限 / 剩余 / 来源 / 修改人；未知花费显示「—」而不是 0；全局摘要显示卡住的预扣 |
+
+验证：默认 **402 passed + 29 skipped**；`ruff check` / `ruff format --check`（164 files）/
+`mypy app`（103 files）通过；前端 `tsc --noEmit` / `oxlint` / `oxfmt --check` 通过、
+**60 tests / 12 files**、`pnpm build` 成功。本轮没有 SQL/迁移变化（schema 仍到 0013），
+本机没有 Redis，Redis 快照用例按既有条件跳过；检索、提示词与多轮判定未改，未重跑评测。
+
+已知边界：报表是当前 UTC 日的采样，没有历史趋势与自动对账；旧格式预扣（无 ts）显示
+「—」年龄、不计 stale，日切自愈；按租户聚合与 ADR-0026 同属待 IdP 的一类；stale 阈值
+固定 300 秒。详见 [ADR-0028](decisions/0028-budget-observability.md)。
 
 ---
 

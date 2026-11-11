@@ -253,3 +253,30 @@ async def test_reserved_approval_fields_are_rejected(
     assert res.decision is Decision.DENIED
     assert res.error_kind == ToolErrorKind.PERMISSION.value
     assert mem_tickets.count() == 0
+
+
+async def test_query_tickets_only_returns_callers_tickets(
+    mem_tickets: InMemoryTicketRepository,
+) -> None:
+    own = await mem_tickets.create(
+        title="打印机离线", category="hardware", priority="P2", requester="u_102"
+    )
+    await mem_tickets.create(
+        title="VPN 连不上", category="network", priority="P1", requester="u_205"
+    )
+    guard = ToolGuard(default_registry())
+    res = await guard.execute("query_tickets", {"limit": 5}, EMPLOYEE, call_id="c13")
+    assert res.status is ToolStatus.OK
+    assert isinstance(res.result, dict)
+    tickets = res.result["tickets"]
+    assert [ticket["id"] for ticket in tickets] == [own["id"]]
+    assert tickets[0]["requester"] == "u_102"
+
+
+async def test_query_tickets_rejects_forged_requester(
+    mem_tickets: InMemoryTicketRepository,
+) -> None:
+    guard = ToolGuard(default_registry())
+    res = await guard.execute("query_tickets", {"requester": "u_205"}, EMPLOYEE, call_id="c14")
+    assert res.decision is Decision.DENIED
+    assert mem_tickets.count() == 0

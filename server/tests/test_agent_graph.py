@@ -6,8 +6,15 @@ from dataclasses import replace
 
 from app.agent.deps import AgentDeps
 from app.agent.graph import NODES, next_node
-from app.agent.nodes.classify import classify_incident, classify_intent, classify_node
-from app.agent.nodes.plan import plan_node
+from app.agent.nodes.classify import (
+    classify_incident,
+    classify_intent,
+    classify_node,
+    needs_model,
+    wants_ticket_status,
+)
+from app.agent.nodes.finalize import compose_answer
+from app.agent.nodes.plan import plan_node, rule_plan
 from app.agent.nodes.verify import verify_node
 from app.agent.runtime import stream
 from app.agent.state import initial_state
@@ -159,3 +166,69 @@ async def test_runtime_replans_once_then_degrades() -> None:
         payload["text"] for etype, payload in events if etype.value == "message.completed"
     )
     assert "数据可能过期" in answer
+
+
+def test_ticket_status_question_is_not_a_new_write() -> None:
+    # 「我报修的」是过去时：问进度不能被 WRITE_KEYWORDS 里的「报修」误判成开单
+    assert wants_ticket_status("我报修的打印机修好了吗") is True
+    assert classify_intent("我报修的打印机修好了吗", "hardware") == "knowledge"
+    assert needs_model("我的工单处理到哪了") is False
+
+    # 明确的开单动作仍然优先
+    assert classify_intent("帮我报修打印机", "hardware") == "ticket_create"
+    assert classify_intent("帮我开一张报修工单", "hardware") == "ticket_create"
+
+
+async def test_rule_plan_queries_tickets_for_status_question() -> None:
+    state = initial_state(run_id="r1", user={"id": "u_102"}, query="我的工单处理到哪了")
+    state["intent"] = "knowledge"
+    plan = rule_plan(state)
+    assert [call["tool"] for call in plan] == ["query_tickets"]
+    assert plan[0]["args"] == {"limit": 5}
+
+    write_state = initial_state(run_id="r2", user={"id": "u_102"}, query="帮我报修打印机")
+    write_state["intent"] = "ticket_create"
+    assert [call["tool"] for call in rule_plan(write_state)] == ["create_ticket"]
+
+
+def test_finalize_answers_ticket_status_from_tool_result() -> None:
+    state = initial_state(run_id="r1", user={"id": "u_102"}, query="我的工单到哪了")
+    state["tool_results"] = [
+        {
+            "tool": "query_tickets",
+            "status": "ok",
+            "result": {
+                "tickets": [
+                    {
+                        "id": "TCK-1A2B3C4D",
+                        "title": "打印机离线",
+                        "priority": "P2",
+                        "status": "in_progress",
+                        "created_at": "2026-11-11T09:00:00+00:00",
+                    }
+                ],
+                "count": 1,
+            },
+        }
+    ]
+    answer, citations = compose_answer(state)
+    assert "TCK-1A2B3C4D" in answer
+    assert "处理中" in answer
+    # 查自己的工单不需要知识库引用，也不能落成「知识库没有」的拒答
+    assert citations == []
+    assert "知识库里没有检索到" not in answer
+
+
+def test_finalize_handles_empty_and_failed_ticket_query() -> None:
+    empty = initial_state(run_id="r1", user={"id": "u_102"}, query="我的工单")
+    empty["tool_results"] = [
+        {"tool": "query_tickets", "status": "ok", "result": {"tickets": [], "count": 0}}
+    ]
+    answer, citations = compose_answer(empty)
+    assert "没有查到工单" in answer
+    assert citations == []
+
+    failed = initial_state(run_id="r2", user={"id": "u_102"}, query="我的工单")
+    failed["tool_results"] = [{"tool": "query_tickets", "status": "error", "result": None}]
+    answer, _ = compose_answer(failed)
+    assert "暂时没查到" in answer

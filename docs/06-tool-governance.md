@@ -190,9 +190,11 @@ app/tools/
 > `create_ticket` 在 W3 D14 接通审批后真正落 `tickets` 表（`server/app/tools/tickets.py`），
 > requester 由治理层注入；`query_cmdb` 仍是进程内假数据，后续接真实 CMDB 时只替换
 > handler 与 `input_schema`，`ToolGuard` 不改（R3）。
-> 清单里的 `query_tickets` / `search_kb` / `run_diagnostic` 尚未注册：`search_kb`
-> 当前是 `retrieve` 节点（不是工具），另两个随接真实系统时再加，避免先写假工具
-> 再改一遍治理用例。
+> `query_tickets` 已按 [ADR-0029](decisions/0029-ticket-self-service-query.md) 注册：只读、
+> 身份由治理层注入、仓储层只查 `requester = 当前用户`，按创建时间倒序取最近 N 条；
+> 用户问「我的工单到哪了」时由 `plan` 的规则分支选中，`finalize` 用工单表直接作答。
+> 清单里的 `search_kb` 当前是 `retrieve` 节点（不是工具），`run_diagnostic` 随接真实
+> 系统时再加，避免先写假工具再改一遍治理用例。
 
 ## 9. 审计与可观测
 

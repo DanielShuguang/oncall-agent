@@ -168,14 +168,14 @@ oncall/
 
 | 模块 | 状态 | 验证方式 |
 |---|---|---|
-| 文档（12 篇 + 28 篇 ADR + 评测基线） | ✅ 完成 | — |
+| 文档（12 篇 + 29 篇 ADR + 评测基线） | ✅ 完成 | — |
 | 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡 / 运行回放 / 成本页） | ✅ 可用 | `tsc --noEmit`、`oxlint 0`、`oxfmt --check` 通过；`vitest` 60/60；`pnpm build` 成功 |
-| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **402 passed + 30 skipped**；设 `ONCALL_TEST_DATABASE_URL`（指向一个可清空的库）后 **429 passed + 3 skipped**，再加 `ONCALL_TEST_REDIS_URL` 为 **432 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约与审批快照、引用快照与内容回收、个人预算与账本快照、计量一致性） |
+| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **411 passed + 31 skipped**；设 `ONCALL_TEST_DATABASE_URL`（指向一个可清空的库）后 **439 passed + 3 skipped**，再加 `ONCALL_TEST_REDIS_URL` 为 **442 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约与审批快照、引用快照与内容回收、个人预算与账本快照、工单自助查询、计量一致性） |
 | 本地 JWT（W1 D2） | ✅ 已完成 | `tests/test_auth.py` 20 条：签发/验签、过期、alg=none、401 JSON、OpenAPI Bearer、run 归属隔离 |
 | 事件落库 + 断线续传（D4） | ✅ 已完成 | `alembic upgrade head` + `alembic check` 无漂移；`tests/test_store_contract.py`（内存 + Postgres 契约）、`tests/test_chat_stream.py`（落库、幂等回放、503 语义） |
 | 最小 Agent 运行时（W1 D5） | ✅ 已完成 | `tests/test_agent_runtime.py` 9 条：工具真实执行、检索引用、写操作挂起审批、工具失败降级、步数/时长上限 |
 | RAG 全链路（W2 D6–D10） | ✅ 已完成 | 50 篇 seed 知识库（含过期版本/冲突/噪声）；解析→切分→pgvector+tsvector→RRF→阈值→引用；`tests/test_rag_parse.py`、`test_rag_retrieve.py`、`test_rag_pg.py`、`test_kb_api.py`；评测基线 [docs/eval/baseline-v1](docs/eval/baseline-v1.md)（50 条，recall@5 100%、cite_acc 97.1%） |
-| 工具治理五道闸门 + 超时重试 | ✅ 已实现 | `tests/test_tools_guard.py` 20 条：权限/保留字段/入参白名单/enum/超时重试/身份注入/伪造身份 |
+| 工具治理五道闸门 + 超时重试 | ✅ 已实现 | `tests/test_tools_guard.py` 22 条：权限/保留字段/入参白名单/enum/超时重试/身份注入/伪造身份/工单只查本人 |
 | 8 节点图 + 审批闭环（W3 D11–D15） | ✅ 已完成 | `tests/test_agent_graph.py`、`test_approvals.py`（审批/越权/幂等/超时/503）、`test_approvals_pg.py`（含并发与授权隔离）、`test_playbooks.py`、`test_classify_eval.py`（50 条意图分类，规则路径 50/50，样本内）；审批通过后工单真正落库 |
 | 模型网关 + 成本看板 + 回放（W4 D16–D20） | ✅ 已完成 | `gateway/` 规则路由 / OpenAI 兼容 + Ollama / failover；`model_calls` 与 `runs` 同事务计量；`tests/test_gateway.py`、`test_agent_llm.py`、`test_metrics_pg.py`；前端 `/runs`、`/runs/:id`、`/console/cost` |
 | 管理后台（W5 D21–D24） | ✅ 已完成 | 知识库上传/切片/重建索引；工具启用/试调用；角色矩阵；审批中心；`tool_settings`（迁移 0007）与 `tools/policy.py`；`tests/test_admin_tools.py`、`test_tools_policy_pg.py` |
@@ -191,6 +191,7 @@ oncall/
 | 个人日预算（W6 后补） | ✅ 已完成 | `user_budgets` 表（迁移 0013）+ `GET/PUT/DELETE /admin/budgets`；网关在模型调用前先扣全局、再扣个人，个人不足时把全局预扣还回去再 `run.failed(BUDGET_EXCEEDED)`（不花钱、不占全局额度）；`ONCALL_USER_DAILY_BUDGET_CNY` 默认 0 = 不限，覆盖 2s 缓存、改完不重启；成本页新增「个人日预算」卡片；`tests/test_budgets.py`、`test_budgets_pg.py`；[ADR-0026](docs/decisions/0026-user-daily-budget.md) |
 | 审批快照保留（W6 后补） | ✅ 已完成 | 已决议审批的 `state` 按 `ONCALL_RUN_CONTENT_RETENTION_DAYS`（默认 180 天）清空为 `{}`，挂起的不清；参数/理由/决议人保留，无迁移、幂等；`approval_grants` 过期即删；清理任务与 `prune --dry-run` 输出 `approval_snapshots` / `approval_grants`；`tests/test_retention.py`、`test_approvals_pg.py`；[ADR-0027](docs/decisions/0027-approval-snapshot-retention.md) |
 | 预算可观测性（W6 后补） | ✅ 已完成 | 全局与个人账本加只读快照；预扣时间戳写进同一个 reservations hash（旧副本无 ts → 年龄未知、不报 stale），用户用当日集合枚举；`GET /admin/budgets/usage` 返回已用、未结算笔数/金额与 300 秒判据下的卡住笔数，账本故障 503 不降级；成本页合并配置与账本（未知花费显示「—」）；`tests/test_budget_usage.py`；[ADR-0028](docs/decisions/0028-budget-observability.md) |
+| 工单自助查询（W6 后补） | ✅ 已完成 | `query_tickets` 注册为只读工具（2000ms、身份注入、只查 `requester=当前用户`，创建时间倒序取最近 N 条）；「我的工单/工单进度/修好了吗」等状态问法保持 `knowledge`（不再被「报修」误判成写操作），规则计划选中该工具，`finalize` 以工单表作答、不拼知识库引用；`tests/test_tickets.py`、`test_tools_guard.py`、`test_agent_graph.py`；[ADR-0029](docs/decisions/0029-ticket-self-service-query.md) |
 
 ### 评测与压测
 
@@ -296,6 +297,10 @@ W6 基线（3 轮均值，mock 规则路径，口径见 [baseline-v1](docs/eval/
   进程崩在两次之间会留下全局预留（日切自愈，偏保守）。预扣泄漏能在成本页看到，但报表只是
   当前 UTC 日采样，不自动对账、没有历史趋势；旧格式预扣（升级前写入、无时间戳）年龄未知，
   `oldest_age_s` 为 null、不计 stale（[ADR-0028](docs/decisions/0028-budget-observability.md)）
+- 工单自助查询只覆盖「本人 + 最近 N 张」的摘要：没有详情、分页、时间范围与按资产筛选；
+  IT 管理员不能查他人（需要新的权限模型）；状态中文映射写死在 `finalize`；关键词规则仍可能
+  把「报修进度怎么查」之类误伤成写操作；`requester` 列暂未加索引（单用户工单量小）
+  （[ADR-0029](docs/decisions/0029-ticket-self-service-query.md)）
 - iframe + postMessage 嵌入形态（W5 D25）暂缓，需要来源白名单与 CSP 部署决策
 
 ## License

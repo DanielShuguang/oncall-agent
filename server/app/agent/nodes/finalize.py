@@ -100,6 +100,45 @@ def _ticket_prefix(state: AgentState) -> str | None:
     return None
 
 
+_TICKET_STATUS_LABELS = {
+    "open": "待处理",
+    "in_progress": "处理中",
+    "resolved": "已解决",
+    "closed": "已关闭",
+}
+
+
+def _tickets_answer(state: AgentState) -> str | None:
+    """用 query_tickets 的结果直接回答「我的工单到哪了」。
+
+    自述数据以账本/工单表为准，不再拼知识库步骤：用户问的是自己那张单的
+    状态，检索到的「如何报修」流程反而是噪声。
+    """
+    call = _first_tool(state, "query_tickets")
+    if call is None:
+        return None
+    result = call.get("result")
+    tickets = result.get("tickets") if isinstance(result, dict) else None
+    if not isinstance(tickets, list):
+        return "工单信息暂时没查到，请稍后重试或联系 IT 服务台。"
+    if not tickets:
+        return "你名下暂时没有查到工单。"
+    lines = [f"你名下最近有 {len(tickets)} 张工单："]
+    for ticket in tickets[:5]:
+        if not isinstance(ticket, dict):
+            continue
+        status = str(ticket.get("status") or "")
+        status_label = _TICKET_STATUS_LABELS.get(status, status or "未知")
+        created = str(ticket.get("created_at") or "")[:10]
+        suffix = f"（{created}）" if created else ""
+        title = str(ticket.get("title") or "未命名")[:60]
+        lines.append(
+            f"- {ticket.get('id', '-')}（{status_label} / "
+            f"{ticket.get('priority', 'P2')}）：{title}{suffix}"
+        )
+    return "\n".join(lines) + "\n"
+
+
 def _select_hits(retrieved: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """选出最多 3 条引用：先保每篇文档的最佳切片，再用高分切片补满。
 
@@ -158,6 +197,11 @@ def compose_answer(state: AgentState) -> tuple[str, list[dict[str, Any]]]:
     ticket_prefix = _ticket_prefix(state)
     if ticket_prefix:
         parts.append(ticket_prefix)
+    tickets_answer = _tickets_answer(state)
+    if tickets_answer is not None:
+        parts.append(tickets_answer)
+        # 查自己工单：以工具结果为准，不再用知识库步骤凑答案，也不产生引用
+        return "".join(parts), []
 
     retrieved = state.get("retrieved", [])
     citation_by_chunk = {

@@ -78,6 +78,22 @@ async def create_ticket(
     )
 
 
+async def query_tickets(
+    *,
+    status: str | None = None,
+    limit: int = 5,
+    identity: Identity,
+) -> dict[str, Any]:
+    """查当前用户名下的工单（只读）。
+
+    requester 恒为服务端注入的 identity：模型无法查别人的工单（R9）。
+    """
+    rows = await get_ticket_repository().list_for_requester(
+        identity.user_id, status=status, limit=limit
+    )
+    return {"tickets": rows, "count": len(rows)}
+
+
 def build_registry() -> ToolRegistry:
     """注册 v1 工具。每个进程一份即可（工具无状态）。"""
     registry = ToolRegistry()
@@ -98,6 +114,35 @@ def build_registry() -> ToolRegistry:
             is_write=False,
             timeout_ms=2000,
             roles=(),
+        )
+    )
+
+    registry.register(
+        ToolSpec(
+            name="query_tickets",
+            description="查当前用户名下的工单：单号、标题、优先级、状态、创建时间",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "description": "按状态筛选",
+                        "enum": ["open", "in_progress", "resolved", "closed"],
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "最多返回几条（1-20）",
+                        "minimum": 1,
+                        "maximum": 20,
+                    },
+                },
+                "additionalProperties": False,
+            },
+            handler=query_tickets,
+            is_write=False,
+            timeout_ms=2000,
+            roles=(),
+            inject_identity=True,
         )
     )
 

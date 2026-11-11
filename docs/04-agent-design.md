@@ -130,6 +130,10 @@ class AgentState(TypedDict, total=False):
 > `{calls}`，服务端逐条校验工具名/参数并注入身份；mock 模式与模型不可用时退回规则计划。
 > `verify` 只对可恢复错误（timeout/network/internal）重规划一次；`not_found` /
 > `permission` / `invalid_args` 换计划也不会变好，直接降级。
+>
+> 「我的工单到哪了」这类状态问法：classify 保持 `knowledge`（避免「报修」二字误触
+> 写操作），plan 的规则分支选中 `query_tickets`，finalize 以工单表作答、不拼知识库
+> 引用（[ADR-0029](decisions/0029-ticket-self-service-query.md)）。
 
 ## 4. 为什么 plan 用 LLM 而 act 不用
 

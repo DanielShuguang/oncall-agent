@@ -37,6 +37,24 @@ INCIDENT_TYPES = {"hardware", "network", "software", "account", "other"}
 #: 只收「明确要开单」的说法；“申请/审批”单独出现时多是政策咨询，交给 RAG。
 WRITE_KEYWORDS = ("开单", "报修", "帮我申请", "提交申请", "申请开通")
 
+#: 「我的工单到哪一步了」这类查自己工单的问法。含「报修」但不含明确开单动作时，
+#: 不能被 WRITE_KEYWORDS 误判成新的写操作（否则用户只是问进度却又开一张单）。
+TICKET_STATUS_KEYWORDS = (
+    "我的工单",
+    "我提交的工单",
+    "我报修的",
+    "工单进度",
+    "报修进度",
+    "报修单进度",
+    "申请进度",
+    "处理到哪",
+    "修好了吗",
+    "修好没",
+)
+
+#: 即使句子里有状态问法，这些明确动作仍按开单处理（R10：写操作必须明确表达）。
+EXPLICIT_CREATE_MARKERS = ("开单", "帮我申请", "提交申请", "申请开通", "帮我报修")
+
 #: 需要先查资产的关键词。`连不上` 这类泛化词不在此列：
 #: VPN/网络问题查资产没有意义，由 RAG 回答。
 ASSET_KEYWORDS = (
@@ -126,6 +144,11 @@ def wants_asset(query: str, incident: str) -> bool:
     return incident == "hardware" or any(keyword in query for keyword in ASSET_KEYWORDS)
 
 
+def wants_ticket_status(query: str) -> bool:
+    """问的是「我已有的工单处理到哪了」，不是要新开单。"""
+    return any(keyword in query for keyword in TICKET_STATUS_KEYWORDS)
+
+
 def asks_policy(query: str) -> bool:
     """问政策/流程，而不是报修或查我这台设备的保修状态。"""
     if any(marker in query for marker in POLICY_MARKERS):
@@ -135,6 +158,12 @@ def asks_policy(query: str) -> bool:
 
 
 def classify_intent(query: str, incident: str) -> str:
+    # 查自己工单的问法常带「报修」二字（"我报修的打印机修好了吗"），
+    # 不先排除就会被当成新的写操作。只有明确开单动作才保留写意图。
+    if wants_ticket_status(query) and not any(
+        marker in query for marker in EXPLICIT_CREATE_MARKERS
+    ):
+        return INTENT_KNOWLEDGE
     if wants_write(query):
         return INTENT_TICKET
     # 先排除政策问法：「公司电脑保修几年」虽含设备名，但应走 RAG
@@ -150,6 +179,7 @@ def needs_model(query: str) -> bool:
     return (
         len(query.strip()) >= MODEL_FALLBACK_MIN_CHARS
         and not wants_write(query)
+        and not wants_ticket_status(query)
         and classify_incident(query) == "other"
         and not any(keyword in query for keyword in ASSET_KEYWORDS)
     )

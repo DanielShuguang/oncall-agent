@@ -21,6 +21,7 @@ from app.agent.nodes.classify import (
     INTENT_KNOWLEDGE,
     INTENT_TICKET,
     classify_incident,
+    wants_ticket_status,
 )
 from app.agent.nodes.json_utils import extract_json_object
 from app.agent.prompts import load_prompt
@@ -65,6 +66,14 @@ def rule_plan(state: AgentState) -> list[dict[str, Any]]:
                 "tool": "query_cmdb",
                 "args": {"owner_id": state.get("user", {}).get("id", "")},
                 "reason": "先确认名下资产状态，再给排查建议",
+            }
+        )
+    elif "query_tickets" not in blocked and wants_ticket_status(query):
+        plan.append(
+            {
+                "tool": "query_tickets",
+                "args": {"limit": 5},
+                "reason": "用户问自己工单的处理进度，查自己名下的工单",
             }
         )
     return plan

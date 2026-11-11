@@ -43,7 +43,7 @@ async def test_list_tools_includes_governance_metadata(client: AsyncClient) -> N
     res = await client.get("/api/admin/tools", headers=ADMIN)
     assert res.status_code == 200
     tools = {item["name"]: item for item in res.json()["items"]}
-    assert set(tools) == {"query_cmdb", "create_ticket"}
+    assert set(tools) == {"query_cmdb", "query_tickets", "create_ticket"}
     assert tools["query_cmdb"]["is_write"] is False
     assert tools["query_cmdb"]["enabled"] is True
     assert tools["create_ticket"]["is_write"] is True
@@ -155,7 +155,11 @@ async def test_perm_matrix_lists_roles_and_tools(client: AsyncClient) -> None:
     assert res.status_code == 200
     body = res.json()
     assert set(body["roles"]) >= {"employee", "approver", "admin"}
-    assert {tool["name"] for tool in body["tools"]} == {"query_cmdb", "create_ticket"}
+    assert {tool["name"] for tool in body["tools"]} == {
+        "query_cmdb",
+        "query_tickets",
+        "create_ticket",
+    }
 
 
 async def test_perm_matrix_update_restricts_tool_to_admin(

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Protocol
 
 from sqlalchemy import select
@@ -32,6 +33,12 @@ class TicketRepository(Protocol):
     ) -> dict[str, Any]: ...
 
     async def get(self, ticket_id: str) -> dict[str, Any] | None: ...
+
+    async def list_for_requester(
+        self, requester: str, *, status: str | None = None, limit: int = 5
+    ) -> list[dict[str, Any]]:
+        """查某人自己的工单，按创建时间倒序；只读，不返回别人的工单。"""
+        ...
 
 
 def _new_ticket_id() -> str:
@@ -60,6 +67,8 @@ class InMemoryTicketRepository:
             "status": "open",
             "requester": requester,
             "asset_id": asset_id,
+            "created_at": datetime.now(UTC).isoformat(),
+            "resolved_at": None,
         }
         async with self._lock:
             self._tickets[ticket["id"]] = ticket
@@ -68,6 +77,20 @@ class InMemoryTicketRepository:
     async def get(self, ticket_id: str) -> dict[str, Any] | None:
         ticket = self._tickets.get(ticket_id)
         return dict(ticket) if ticket is not None else None
+
+    async def list_for_requester(
+        self, requester: str, *, status: str | None = None, limit: int = 5
+    ) -> list[dict[str, Any]]:
+        async with self._lock:
+            rows = [
+                ticket
+                for ticket in self._tickets.values()
+                if ticket["requester"] == requester
+                and (status is None or ticket["status"] == status)
+            ]
+        # ISO-8601 UTC 字符串可直接按字典序倒排；id 兜底保证同一微秒内顺序稳定
+        rows.sort(key=lambda ticket: (ticket["created_at"], ticket["id"]), reverse=True)
+        return [dict(ticket) for ticket in rows[:limit]]
 
     def count(self) -> int:
         return len(self._tickets)
@@ -104,6 +127,17 @@ class PostgresTicketRepository:
             row = await session.scalar(select(Ticket).where(Ticket.id == ticket_id))
         return _ticket_dict(row) if row is not None else None
 
+    async def list_for_requester(
+        self, requester: str, *, status: str | None = None, limit: int = 5
+    ) -> list[dict[str, Any]]:
+        query = select(Ticket).where(Ticket.requester == requester)
+        if status is not None:
+            query = query.where(Ticket.status == status)
+        query = query.order_by(Ticket.created_at.desc(), Ticket.id.desc()).limit(limit)
+        async with self._sessionmaker() as session:
+            rows = (await session.scalars(query)).all()
+        return [_ticket_dict(row) for row in rows]
+
 
 def _ticket_dict(row: Ticket) -> dict[str, Any]:
     return {
@@ -114,6 +148,8 @@ def _ticket_dict(row: Ticket) -> dict[str, Any]:
         "status": row.status,
         "requester": row.requester,
         "asset_id": row.asset_id,
+        "created_at": row.created_at.isoformat() if row.created_at is not None else None,
+        "resolved_at": row.resolved_at.isoformat() if row.resolved_at is not None else None,
     }
 
 

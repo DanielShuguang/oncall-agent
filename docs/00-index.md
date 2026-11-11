@@ -22,7 +22,7 @@
 | — | [eval/multiturn-v2](eval/multiturn-v2.md) | 多轮评测基线（指代 + 话题切换 + 隔离对照，ADR-0024/0025） | 改 history / 检索参数前 |
 | — | [eval/multiturn-v1](eval/multiturn-v1.md) | 多轮历史基线（ADR-0025 修复前，9 条） | 只看历史对比 |
 | — | [eval/baseline-v0](eval/baseline-v0.md) | W2 历史基线（20 条） | 只看历史对比 |
-| — | [decisions/](decisions/) | 28 篇 ADR：为什么 React / Python / LangGraph / pgvector / SSE / Tailwind+oxc / 依赖版本 / shadcn / Postgres 存储 / 本地 JWT / 离线 RAG 向量化 / 显式调度 / 自研模型网关 / 工具覆盖存库 / 私有化交付 / 审批事务 / 孤儿 run 回收 / 引用全文预览 / 文档级可见性 / 多轮上下文 / 数据保留 / 回答内容回收 / 正文按时间保留 / 多轮评测 / 追问原句优先 / 按用户日预算 / 审批快照保留 / 预算可观测性 | 面试前重读 |
+| — | [decisions/](decisions/) | 29 篇 ADR：为什么 React / Python / LangGraph / pgvector / SSE / Tailwind+oxc / 依赖版本 / shadcn / Postgres 存储 / 本地 JWT / 离线 RAG 向量化 / 显式调度 / 自研模型网关 / 工具覆盖存库 / 私有化交付 / 审批事务 / 孤儿 run 回收 / 引用全文预览 / 文档级可见性 / 多轮上下文 / 数据保留 / 回答内容回收 / 正文按时间保留 / 多轮评测 / 追问原句优先 / 按用户日预算 / 审批快照保留 / 预算可观测性 / 工单自助查询 | 面试前重读 |
 
 ## ADR（Architecture Decision Record）
 
@@ -56,6 +56,7 @@
 | [0026](decisions/0026-user-daily-budget.md) | 按用户日预算 | 默认值 + `user_budgets` 表覆盖；独立个人账本（UTC 日、Redis/内存）；网关在调用前拒绝，个人不足时把全局预扣还回去 |
 | [0027](decisions/0027-approval-snapshot-retention.md) | 审批快照保留 | 已决议审批的 `state` 按正文保留期清空为 `{}`（无迁移、幂等），参数/理由/决议人永久保留；`approval_grants` 过期即删 |
 | [0028](decisions/0028-budget-observability.md) | 预算可观测性 | 两本账暴露只读快照（预扣时间戳放同一 hash、用户用当日集合枚举）；`/admin/budgets/usage` 出账本口径，管理页与配置拼表；账本故障 503 不降级 |
+| [0029](decisions/0029-ticket-self-service-query.md) | 工单自助查询 | `query_tickets` 只读、身份注入、只查本人；状态问法不新增意图，规则计划选中、`finalize` 以工单表作答（不拼知识库引用）；无迁移 |
 
 > ADR 的写法：背景 → 方案对比 → 决策 → 后果。面试被问"为什么这么做"时，直接念 ADR。
 

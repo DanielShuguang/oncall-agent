@@ -47,7 +47,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     sweeper = asyncio.create_task(_sweep_expired_approvals(sweeper_stop))
     # 进程中断回收：崩溃后永远停在 running 的 run 也要收敛（ADR-0017）
     recovery = asyncio.create_task(_sweep_stale_runs(sweeper_stop))
-    # 保留清理：过期事件与计量行按保留期删除（ADR-0021）
+    # 保留清理：事件、正文、审批快照、过期授权与计量行按保留期删除（ADR-0021/0023/0027）
     retention = asyncio.create_task(_sweep_retention(sweeper_stop))
     yield
     sweeper_stop.set()

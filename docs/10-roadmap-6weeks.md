@@ -519,7 +519,7 @@ ADR-0023 按 180 天清掉 `runs.input/output` 与事件，但 `approvals.state`
 | 快照 | `approvals.state` 清空为 `{}`：只清 `status != 'pending'` 且 `resolved_at` 早于 `ONCALL_RUN_CONTENT_RETENTION_DAYS` 的行；复用正文保留期，不新增环境变量；挂起的审批永不清理 |
 | 决议 | `args` / `risk_level` / `status` / `requested_by` / `resolved_by` / `reason` / `scope` / `resolved_at` 全部保留；接口本来就不返回 `state`，无可见变化 |
 | 无迁移 | `{}` 不是合法快照，清空即回收标记；幂等，不需要新列或索引（schema 仍到 0013） |
-| 授权 | `approval_grants` 中 `expires_at < now` 的行删除；过期授权本来就不再生效，审计在 `approvals` 的 `scope='session'` 决议行与 `approval.resolved` 事件里 |
+| 授权 | `approval_grants` 中 `expires_at < now` 的行删除；过期授权本来就不再生效，审计在 `approvals` 的 `scope='session'` 决议行里（`approval.resolved` 事件随 run 事件按 ADR-0021 到期删除） |
 | 执行者 | `RetentionSweeper` 两个新步骤，顺序「事件 → 正文 → 审批快照 → 过期授权 → 计量」；收手条件包含新计数，只剩快照积压时单轮仍继续取批 |
 | 可观测 | `prune` CLI JSON 增加 `approval_snapshots` / `approval_grants`（dry-run 给候选数）；后台日志同名字段 |
 
@@ -531,7 +531,8 @@ pgvector）后 **422 passed + 1 skipped**（本机没有 Redis，账本往返用
 检索、提示词、多轮判定均未改，未重跑评测。
 
 已知边界：超过保留期的审批仍可查参数与决议，但**不能再从快照恢复执行**（这只发生在决议前）；
-决议行永久保留，没有冷归档；清理时间按 `resolved_at`，通常比 run 正文晚一个审批 TTL 到几天；
+决议行永久保留，没有冷归档；快照按 `resolved_at` 计时、正文按 `finished_at` 计时，
+前者不晚于后者，差的是一次恢复执行的耗时；
 审批表很小、没有在真实体量上量过清理性能；不按人删审批（数据主体请求等接 IdP 后再做）。
 详见 [ADR-0027](decisions/0027-approval-snapshot-retention.md)。
 

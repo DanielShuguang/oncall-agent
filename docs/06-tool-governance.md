@@ -212,8 +212,9 @@ app/tools/
 用途：回答"这个功能上线后有没有人越权试过"——这类问题在企业交付里一定会被问。
 审计字段随 `run_events` 保留 180 天（`ONCALL_EVENT_RETENTION_DAYS`，可配）；审批决议
 另存于 `approvals` 表，不随事件清理删除（[ADR-0021](decisions/0021-data-retention.md)）。
-其中 `approvals.state` 的执行快照按正文保留期清空、`approval_grants` 过期即删，决议行与
-`approval.resolved` 事件保留（[ADR-0027](decisions/0027-approval-snapshot-retention.md)）。
+其中 `approvals.state` 的执行快照按正文保留期清空、`approval_grants` 过期即删；决议行与
+`args` / `reason` 永久保留，`approval.resolved` 事件仍随 run 事件到期删除
+（[ADR-0027](decisions/0027-approval-snapshot-retention.md)）。
 
 ## 10. 面试高频追问与答法
 

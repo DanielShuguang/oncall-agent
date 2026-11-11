@@ -68,19 +68,20 @@ AND state != '{}'::jsonb
 `reason`、`scope`、`expires_at`、`created_at`、`resolved_at`。
 
 这正是「批准了什么、谁批的、为什么」的全部证据；`GET /approvals` 本来就不返回 `state`
-（docs/03 §5），所以对接口没有任何可见变化。
+（docs/03 §4），所以对接口没有任何可见变化。
 
 ### 3. 不需要新列，也不需要迁移
 
 `state` 清空后是 `{}`。**空对象本身就是「已回收」标记**：
 
-- 合法的快照一定非空：`runtime` 在挂起时写入 `run_id`、`node`、`query` 等字段，
-  空状态没法恢复执行，正常路径不会产生；
+- 合法的快照一定非空：`runtime.py` 的 `_snapshot()` 固定返回 `run_id`、`node`、`query`
+  等一组键，即使某些值为 `null`，对象也不会是 `{}`；空状态也没法恢复执行，正常路径
+  不会产生；
 - 因此 `state != '{}'` 天然幂等，重复执行是空操作，不需要像 `runs` 那样加
   `events_pruned_at` 一类的标记列（`runs` 需要标记，是因为 `output IS NULL` 有合法含义）。
 
 表也小：审批只在写操作挂起时产生，行数远小于事件与计量；`resolved_at` 不建索引，
-与迁移 0013 的取舍一致（见「待定」）。
+按当前体量让清理扫小表，真实数据量下再量（见「待定」）。
 
 ### 4. 过期授权按当前时间删除
 
@@ -89,7 +90,8 @@ AND state != '{}'::jsonb
 - `is_granted` 比的是 `expires_at > at`，过期授权**本来就不再授予任何权限**，删行不改变
   判定结果，只是把无用的行清掉；
 - 「谁在哪个会话授过什么工具」仍在 `approvals`（`scope='session'` 的决议行，含
-  `requested_by` / `resolved_by` / `resolved_at`）与 `approval.resolved` 事件里；
+  `requested_by` / `resolved_by` / `resolved_at`）里；`approval.resolved` 事件也带这些字段，
+  但它按 ADR-0021 随 run 事件到期删除，长期证据以决议行为准；
 - **不跟内容保留期**：它不是内容，也不是证据，是缓存；过期即无效，没有等的理由。
 
 ### 5. 执行者、顺序与收手条件
@@ -124,8 +126,9 @@ AND state != '{}'::jsonb
 - 超过保留期的审批：参数、理由、决议人与时间仍可查，但**不能再从快照恢复执行**。这本来
   只发生在决议之前，清理永远晚于决议一个保留期。
 - `resume` 不受影响：它只读「pending → approved」的快照；清理只作用于已决议且早于阈值的行。
-- 清理时间不完全对齐：快照按 `resolved_at`、正文按 `finished_at`，同一场 run 的快照通常比
-  正文晚一个审批 TTL 到几天（取决于审批人多晚处理），但不会比正文更早消失。
+- 清理时间不完全对齐：快照按 `resolved_at`（不再需要快照的时刻）、正文按 `finished_at`
+  （决议后恢复执行完成）。`resolved_at` 不晚于 `finished_at`，所以同一场 run 的快照会比
+  正文早「恢复执行耗时」进入可清理窗口，而不是更晚；两者都远小于 180 天，实际差异可忽略。
 - 与 ADR-0022 正交：权限回收是读时的、可恢复的；这次是写时的、不可逆。
 - 升级不需要迁移，也不需要改配置：默认按 180 天的正文保留期生效；如果现场调过
   `ONCALL_RUN_CONTENT_RETENTION_DAYS`，快照跟着它走。

@@ -54,7 +54,7 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="覆盖 ONCALL_STALE_RUN_MIN（分钟）；必须 >= 1",
     )
-    prune = sub.add_parser("prune", help="清理超过保留期的事件、正文、审批快照与计量")
+    prune = sub.add_parser("prune", help="清理超过保留期的事件、正文、审批快照、过期授权与计量")
     prune.add_argument("--dry-run", action="store_true", help="只列候选，不删除")
     prune.add_argument(
         "--limit",

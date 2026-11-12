@@ -543,6 +543,48 @@ async def _exercise_sessions(store: RunStore) -> None:
     assert other_runs == []
 
 
+async def _exercise_session_titles(store: RunStore) -> None:
+    """自定义会话标题（ADR-0040）：显示优先、搜索双匹配、清除恢复默认。"""
+    user = "u_session_titles"
+    other = "u_session_titles_other"
+    await store.create(
+        run_id=str(uuid.uuid4()), user_id=user, session_id="sess_t", message="打印机离线"
+    )
+    await store.create(
+        run_id=str(uuid.uuid4()),
+        user_id=other,
+        session_id="sess_secret",
+        message="别人的会话",
+    )
+
+    assert (
+        await store.rename_session(user_id=user, session_id="sess_t", title="办公室打印机") is True
+    )
+    sessions = {item.session_id: item for item in await store.list_sessions(user_id=user, limit=10)}
+    assert sessions["sess_t"].title == "办公室打印机"
+
+    # 改名后新标题能搜到，旧的首条问题也仍能搜到
+    assert [
+        item.session_id for item in await store.list_sessions(user_id=user, limit=10, query="办公")
+    ] == ["sess_t"]
+    assert [
+        item.session_id for item in await store.list_sessions(user_id=user, limit=10, query="打印")
+    ] == ["sess_t"]
+
+    # 别人的会话不能改名，也不出现在自己的列表里
+    assert await store.rename_session(user_id=user, session_id="sess_secret", title="偷改") is False
+    assert await store.rename_session(user_id=user, session_id="sess_missing", title="无") is False
+    assert "sess_secret" not in {
+        item.session_id for item in await store.list_sessions(user_id=user, limit=10)
+    }
+
+    # null 清除自定义标题，恢复首条问题
+    assert await store.rename_session(user_id=user, session_id="sess_t", title=None) is True
+    restored = {item.session_id: item for item in await store.list_sessions(user_id=user, limit=10)}
+    assert restored["sess_t"].title == "打印机离线"
+    assert await store.list_sessions(user_id=user, limit=10, query="办公") == []
+
+
 async def _exercise_events_for_runs(store: RunStore) -> None:
     """批量取事件（ADR-0036）：按 run 分组、组内 seq 升序、每个 run 独立截断。"""
     user = "u_events_batch"
@@ -581,6 +623,7 @@ async def test_memory_store_contract() -> None:
     await _exercise_prune_contents(store)
     await _exercise_cited_documents(store)
     await _exercise_sessions(store)
+    await _exercise_session_titles(store)
     await _exercise_events_for_runs(store)
 
 

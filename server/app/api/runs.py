@@ -11,6 +11,8 @@ ADR-0022 在读取侧加一层按**当前**可见性的回收：详情不带 `ou
 ADR-0023 是**按时间**的正文清理（`content_pruned_at`）：到期后 `input/output` 不再返回，
 摘要、计量与失败归因照旧；两种原因同时存在时先说过期（正文已经不存在了）。
 ADR-0030 的会话列表也是 runs 的投影：`GET /sessions` 按 `session_id` 聚合，不建表。
+ADR-0040 允许用户给这个投影改显示标题（`PATCH /sessions/{session_id}`），
+标题存在旁挂的 `session_titles` 表里，搜索同时匹配自定义标题与首条问题。
 ADR-0035 在详情里投影只读运行过程（工具调用/审批），事件仍是唯一真相。
 """
 
@@ -23,7 +25,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, Response
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.deps import get_identity, get_viewer
@@ -37,6 +39,7 @@ from app.runs.content import content_is_redacted, content_is_visible, redacted_r
 from app.runs.timeline import build_timeline
 from app.schemas.cost import ModelCallOut
 from app.schemas.event import RunStatus
+from app.schemas.session import SessionRenameRequest
 from app.tools.registry import Identity
 
 router = APIRouter(tags=["runs"])
@@ -263,6 +266,37 @@ async def list_sessions(
         ],
         "next_cursor": next_cursor,
     }
+
+
+@router.patch("/sessions/{session_id}", status_code=204)
+async def rename_session(
+    session_id: Annotated[str, Path(min_length=1, max_length=64)],
+    body: SessionRenameRequest,
+    store: Annotated[RunStore, Depends(get_store)],
+    identity: Annotated[Identity, Depends(get_identity)],
+) -> Response:
+    """改会话显示标题（ADR-0040）；`title: null` 恢复默认（首条非空问题）。
+
+    只改展示，不碰 runs 与事件；标题最长 60 字符（和列表截断口径一致），
+    首尾空白裁掉，裁完为空返回 422——要恢复默认请显式传 `null`。
+    别人的会话与不存在的会话都返回 404，不泄露会话是否存在。
+    """
+    title = body.title.strip() if body.title is not None else None
+    if title is not None and not title:
+        raise ApiError(422, "INVALID_TITLE", "标题不能为空；恢复默认标题请传 null")
+    if title is not None and len(title) > 60:
+        raise ApiError(422, "INVALID_TITLE", "标题最多 60 个字符")
+    try:
+        renamed = await store.rename_session(
+            user_id=identity.user_id,
+            session_id=session_id,
+            title=title,
+        )
+    except SQLAlchemyError as exc:
+        raise ApiError(503, "DATABASE_UNAVAILABLE", "database unavailable") from exc
+    if not renamed:
+        raise _session_not_found()
+    return Response(status_code=204)
 
 
 @router.get("/sessions/{session_id}/runs")

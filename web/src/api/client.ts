@@ -79,6 +79,16 @@ export async function del(path: string): Promise<void> {
   if (!res.ok) throw await toApiError(res, path);
 }
 
+/** 无响应体的 PATCH（如 204 的会话改名，ADR-0040）：同样不要解析 JSON。 */
+export async function patch(path: string, body: unknown): Promise<void> {
+  const res = await fetch(`${PREFIX}${path}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw await toApiError(res, path);
+}
+
 export interface HealthResponse {
   status: 'ok' | 'degraded';
   env: string;

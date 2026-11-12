@@ -420,3 +420,60 @@ async def test_session_runs_redacts_only_the_restricted_run(
     assert items[hidden]["citations"] == []
     assert items[hidden]["timeline"] == []
     assert items[hidden]["timeline_available"] is False
+
+
+async def test_rename_session_changes_title_and_search(
+    client: AsyncClient, mem_store: InMemoryRunStore
+) -> None:
+    await _run(mem_store, "sess_rename", "打印机离线")
+
+    renamed = await client.patch("/api/sessions/sess_rename", json={"title": "  办公室打印机  "})
+    assert renamed.status_code == 204
+
+    items = {
+        item["session_id"]: item for item in (await client.get("/api/sessions")).json()["items"]
+    }
+    assert items["sess_rename"]["title"] == "办公室打印机"
+
+    # 改名后新标题能搜到，旧的首条问题也仍能搜到
+    by_new = await client.get("/api/sessions", params={"q": "办公"})
+    assert [item["session_id"] for item in by_new.json()["items"]] == ["sess_rename"]
+    by_old = await client.get("/api/sessions", params={"q": "打印机"})
+    assert [item["session_id"] for item in by_old.json()["items"]] == ["sess_rename"]
+
+    restored = await client.patch("/api/sessions/sess_rename", json={"title": None})
+    assert restored.status_code == 204
+    items = (await client.get("/api/sessions")).json()["items"]
+    assert items[0]["title"] == "打印机离线"
+    assert (await client.get("/api/sessions", params={"q": "办公"})).json()["items"] == []
+
+
+async def test_rename_session_validation_and_ownership(
+    client: AsyncClient, mem_store: InMemoryRunStore
+) -> None:
+    await _run(mem_store, "sess_foreign", "别人的问题", user_id="u_205")
+
+    assert (
+        await client.patch("/api/sessions/sess_missing", json={"title": "新标题"})
+    ).status_code == 404
+    assert (
+        await client.patch("/api/sessions/sess_foreign", json={"title": "新标题"})
+    ).status_code == 404
+
+    blank = await client.patch("/api/sessions/sess_missing", json={"title": "   "})
+    assert blank.status_code == 422
+    assert blank.json()["code"] == "INVALID_TITLE"
+
+    too_long = await client.patch("/api/sessions/sess_missing", json={"title": "字" * 61})
+    assert too_long.status_code == 422
+    assert too_long.json()["code"] == "INVALID_TITLE"
+
+
+async def test_rename_session_database_failure_is_503(
+    client: AsyncClient, mem_store: InMemoryRunStore
+) -> None:
+    mem_store.rename_session = AsyncMock(side_effect=SQLAlchemyError("boom"))  # type: ignore[method-assign]
+
+    res = await client.patch("/api/sessions/sess_any", json={"title": "新标题"})
+    assert res.status_code == 503
+    assert res.json()["code"] == "DATABASE_UNAVAILABLE"

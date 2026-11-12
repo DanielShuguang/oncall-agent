@@ -6,7 +6,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
-import { getSessionRuns, listSessions, type SessionSummary } from '@/api/sessions';
+import { getSessionRuns, listSessions, renameSession, type SessionSummary } from '@/api/sessions';
 import { CitationPreviewDialog } from './CitationPreviewDialog';
 import { SessionList } from './SessionList';
 import { Timeline } from './Timeline';
@@ -46,6 +46,9 @@ export default function ChatPage() {
   // 已提交的标题搜索词；空串表示不过滤（ADR-0039）
   const [sessionQuery, setSessionQuery] = useState('');
   const [sessionDraftQuery, setSessionDraftQuery] = useState('');
+  // 行内改会话标题（ADR-0040）；renamingId 一次只允许一个
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState('');
   const [historyLoading, setHistoryLoading] = useState(false);
   // 当前会话内更早轮次的 keyset 游标；null 表示没有更早的页（ADR-0033）
   const [historyCursor, setHistoryCursor] = useState<string | null>(null);
@@ -129,6 +132,35 @@ export default function ChatPage() {
     refreshSessions(next);
   };
 
+  const onRenameStart = (session: SessionSummary) => {
+    setRenamingId(session.session_id);
+    setRenameDraft(session.title ?? '');
+  };
+
+  const onRenameCancel = () => {
+    setRenamingId(null);
+    setRenameDraft('');
+  };
+
+  const onRenameSubmit = async () => {
+    if (!renamingId) return;
+    const title = renameDraft.trim();
+    if (title.length > 60) {
+      setSessionsError('标题最多 60 个字符');
+      return;
+    }
+    setSessionsError(null);
+    try {
+      // 留空 = 恢复默认标题（首条问题）
+      await renameSession(renamingId, title || null);
+      setRenamingId(null);
+      setRenameDraft('');
+      refreshSessions();
+    } catch (err) {
+      setSessionsError(err instanceof Error ? err.message : '会话重命名失败');
+    }
+  };
+
   const onSend = async () => {
     const value = text.trim();
     if (!value) return;
@@ -152,6 +184,8 @@ export default function ChatPage() {
       if (requestId !== historyRequest.current) return;
       setActiveCitation(null);
       setText('');
+      setRenamingId(null);
+      setRenameDraft('');
       setHistoryCursor(page.next_cursor);
       switchSession(nextSessionId, transcriptMessages(page.items));
     } catch (err) {
@@ -187,6 +221,8 @@ export default function ChatPage() {
     setHistoryLoading(false);
     setHistoryOlderLoading(false);
     setHistoryCursor(null);
+    setRenamingId(null);
+    setRenameDraft('');
     setActiveCitation(null);
     setText('');
     reset();
@@ -210,6 +246,12 @@ export default function ChatPage() {
         onNew={onNewSession}
         onRetry={() => refreshSessions()}
         onLoadMore={() => void loadMoreSessions()}
+        renamingId={renamingId}
+        renameDraft={renameDraft}
+        onRenameStart={onRenameStart}
+        onRenameDraftChange={setRenameDraft}
+        onRenameSubmit={() => void onRenameSubmit()}
+        onRenameCancel={onRenameCancel}
       />
       <div className="flex min-h-0 flex-1 flex-col">
         <div aria-live="polite" className="flex flex-1 flex-col gap-3 overflow-y-auto p-4">

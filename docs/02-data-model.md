@@ -12,7 +12,8 @@ tools（代码注册） ──< tool_settings（环境覆盖：启用/角色）
 runs ──< run_events
   │
   ├──< approvals
-  └──< model_calls
+  ├──< model_calls
+  └──< session_titles（用户改的显示标题；主键 user_id+session_id，无外键）
 
 user_budgets（按用户日预算覆盖；user_id 来自 JWT，无外键）
 kb_documents ──< kb_chunks (embedding)
@@ -64,15 +65,18 @@ CREATE INDEX idx_runs_status            ON runs (status) WHERE status IN ('runni
 > 多轮上下文按 `(user_id, session_id, started_at DESC)` 取最近几轮（迁移 0009、[ADR-0020](decisions/0020-multi-turn-context.md)）：
 > 只读 `runs` 的 `input/output` 与引用快照，不读事件；`idx_runs_user_time` 没有 `session_id` 前缀，不能替代。
 > 会话列表（[ADR-0030](decisions/0030-session-list.md)）也从这些列投影：
-> 按 `session_id` 分组取 `min/max(started_at)` 与 `count(*)`，标题取最早一条非空 `input`；
+> 按 `session_id` 分组取 `min/max(started_at)` 与 `count(*)`，显示标题优先取自定义标题
+> （`session_titles`，[ADR-0040](decisions/0040-session-rename.md)），否则取最早一条非空 `input`；
 > 复用 `idx_runs_user_session_time` 的 `user_id` 前缀筛选，跨会话排序仍需要聚合——
-> **没有 `sessions` 表，也没有新迁移**。正文按 ADR-0023 清空后标题为 `NULL`，会话仍会列出。
+> 除了旁挂的标题表，**没有 `sessions` 表**。正文按 ADR-0023 清空且没改过名时标题为 `NULL`，会话仍会列出。
 > 翻页用 keyset 游标 `(max(started_at), session_id)`，`HAVING` 过滤后取下一批
 > （[ADR-0033](decisions/0033-session-history-pagination.md)）；没有新索引，也不承诺
 > 翻页期间新 run 不造成重复/跳过。
 > 标题搜索（[ADR-0039](decisions/0039-session-search.md)）也走同一投影：先用窗口函数取
-> 每个会话最早的非空 `input`，再用 `strpos(lower(input), lower(q))` 做子串过滤；
-> **无新表/索引/迁移**，但正文被清空后标题为 `NULL`，该会话搜不到。
+> 每个会话最早的非空 `input`，再用 `strpos(lower(input), lower(q))` 做子串过滤；改过名的
+> 会话同时匹配 `session_titles.title` 与首条问题，新旧关键词都能命中
+> （[ADR-0040](decisions/0040-session-rename.md)）。正文被清空且没改过名时标题为 `NULL`，
+> 该会话搜不到。
 > 会话详情的一页读取由 `GET /sessions/{session_id}/runs` 一次投影
 > （[ADR-0036](decisions/0036-session-detail-batch.md)）：按 `(started_at, run_id)`
 > 取一页 run，引用可见性合并成一次知识库查询，事件按 run 批量取；**没有新列/新表**。
@@ -96,6 +100,23 @@ CREATE INDEX idx_runs_status            ON runs (status) WHERE status IN ('runni
 > （`title`/`heading` 200、`snippet` 500）、最多 50 条；
 > 正文按 ADR-0023 清空时一起置为 `[]`——片段是回答内容，不能比正文活得久；
 > `cited_document_ids` 不清，权限回收仍需要。迁移前的历史 run 不回填。
+
+### 2.1.1 session_titles（会话显示标题）
+
+```sql
+CREATE TABLE session_titles (
+  user_id    TEXT NOT NULL,               -- 来自 JWT，会话作用域
+  session_id TEXT NOT NULL,               -- 客户端生成，1–64 字符
+  title      VARCHAR(60) NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, session_id)
+);
+```
+
+> 只存在用户改过的显示标题（[ADR-0040](decisions/0040-session-rename.md)，迁移 `0016`）：
+> 没有 `sessions` 生命周期表，也没有外键——没有 run 的会话本来就不存在。
+> 主键即点查索引，不另加索引；`title` 由 API 限制 1–60 字符（不截断）。
+> run 全部被保留策略清掉后标题行不会自动删除，当前也没有按用户删数据的入口（已知边界）。
 
 ### 2.2 run_events（事件，只追加）
 
@@ -458,7 +479,7 @@ uv run alembic upgrade head --sql    # 无库环境渲染 DDL，评审用
 
 - 迁移文件在 `server/migrations/versions/`；`alembic.ini` 只放占位 DSN，真实 DSN 由 `migrations/env.py` 从环境变量读
 - 必须写 `downgrade`，并在空库上验证一次 `downgrade base && upgrade head`
-- 当前迁移链：`0001` runs/events → `0002` 幂等键按用户作用域 → `0003` kb（pgvector/tsvector）+ assets/tickets → `0004` approvals → `0005` 会话授权按用户隔离 → `0006` model_calls + failure_category → `0007` tool_settings → `0008` 文档可见性 → `0009` 会话索引 → `0010` 事件清理标记/部分索引 → `0011` 回答引用快照 → `0012` 正文清理标记/部分索引 → `0013` 按用户日预算覆盖（`user_budgets`）→ `0014` 回答引用快照（`runs.citations`，ADR-0031）→ `0015` 工具配置变更历史（`tool_setting_changes`，ADR-0037）
+- 当前迁移链：`0001` runs/events → `0002` 幂等键按用户作用域 → `0003` kb（pgvector/tsvector）+ assets/tickets → `0004` approvals → `0005` 会话授权按用户隔离 → `0006` model_calls + failure_category → `0007` tool_settings → `0008` 文档可见性 → `0009` 会话索引 → `0010` 事件清理标记/部分索引 → `0011` 回答引用快照 → `0012` 正文清理标记/部分索引 → `0013` 按用户日预算覆盖（`user_budgets`）→ `0014` 回答引用快照（`runs.citations`，ADR-0031）→ `0015` 工具配置变更历史（`tool_setting_changes`，ADR-0037）→ `0016` 会话显示标题（`session_titles`，ADR-0040）
 
 > `0003` 先 `CREATE EXTENSION IF NOT EXISTS vector`，否则 vector 类型与 HNSW 索引会失败；
 > 测试库由 fixture 建扩展后再 `create_all`（扩展是库级对象，`drop_all` 不会删）。

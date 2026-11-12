@@ -32,6 +32,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | POST | `/chat/stream` | 发起一次对话，返回 SSE 流 | W1 D3 |
 | GET | `/runs` | 运行列表（分页、按状态/会话筛选） | W4 D19 / W6 后补 |
 | GET | `/sessions` | 当前用户的会话列表（keyset 游标，按活动倒序；可选 `q` 按标题搜索） | W6 后补 |
+| PATCH | `/sessions/{session_id}` | 改会话显示标题；`title: null` 恢复默认 | W6 后补 |
 | GET | `/sessions/{session_id}/runs` | 一页会话详情（正文/引用/运行过程，一次返回） | W6 后补 |
 | GET | `/runs/{run_id}` | 单次运行详情（含指标与模型调用明细） | W1 D4 / W4 D19 |
 | GET | `/runs/{run_id}/events?after_seq=` | 补拉事件（断线续传，兼容 `Last-Event-ID`） | W1 D4 |
@@ -331,7 +332,7 @@ GET /api/runs/{run_id}
 > 为保护内部治理信息，审批卡不返回 `resolved_by` 与 `scope`。列表接口不返回这些字段；
 > 历史过程只读，不提供重试/批准/拒绝。
 
-### 3.3 会话列表（ADR-0030 / ADR-0033 / ADR-0039）
+### 3.3 会话列表（ADR-0030 / ADR-0033 / ADR-0039 / ADR-0040）
 
 ```http
 GET /api/sessions?limit=20
@@ -365,21 +366,24 @@ GET /api/sessions?limit=20&cursor=eyJ0IjoiMjAyNi0xMS0wOVQwMjoyNjo0MS4wMDgrMDA6MD
 GET /api/sessions?limit=20&q=打印机
 ```
 
-- 会话不是独立实体：按 `runs.session_id` 聚合投影，没有 `sessions` 表，也**没有迁移**；
+- 会话不是独立实体：按 `runs.session_id` 聚合投影，没有 `sessions` 生命周期表；
+  用户改过的显示标题存在旁挂的 `session_titles`（ADR-0040，迁移 `0016`），
   没有 run 的会话不存在，不需要清理任务
 - 只返回当前用户的会话；按 `updated_at`（最近一次 run 的 `started_at`）倒序，
   同一时刻按 `session_id` 倒序，避免顺序抖动
-- `title` 取**最早一条非空 `input`**，压成单行并截到 60 字符；正文按 ADR-0023 过期清空后
-  为 `null`，前端显示「无标题」，**会话本身仍会返回**（不能因为标题没了就藏掉历史）
+- `title` 优先取自定义标题（ADR-0040），否则取**最早一条非空 `input`**，压成单行并截到
+  60 字符；正文按 ADR-0023 过期清空且没改过名时为 `null`，前端显示「无标题」，
+  **会话本身仍会返回**（不能因为标题没了就藏掉历史）
 - `limit` 默认 20、上限 50；`next_cursor` 是 keyset 游标，当前页取满就会返回；
   下一页没有数据时返回空列表且 `next_cursor` 为 `null`（恰好取满时会多一次空请求）。
   游标对前端不透明（base64url JSON，带 `updated_at` 与 `session_id`，最多 512 字符），
   非法游标返回 `400 {"code":"INVALID_CURSOR"}`，不要静默从头开始
 - 游标不签名：伪造游标只能改变自己的起点，不会越权读到别人的会话（ADR-0033）
-- `q` 只匹配投影标题（最早一条非空 `input`），不搜回答正文、工具结果与审批理由；标题被
-  正文保留期清空后（`title` 为 `null`）也搜不到。搜索作用于首条问题的**完整原文**，列表里
-  展示的标题仍截到 60 字符——第 60 字之后的关键词能命中，但标题里看不到那段文字。搜索与
-  分页共用 keyset 游标，翻页期间新 run 仍可能让会话重复/跳过（ADR-0039）
+- `q` 同时匹配自定义标题与投影标题（最早一条非空 `input`），不搜回答正文、工具结果与
+  审批理由；正文被清空且没改过名的会话（`title` 为 `null`）也搜不到。搜索作用于首条问题
+  的**完整原文**，列表里展示的标题仍截到 60 字符——第 60 字之后的关键词能命中，但标题里
+  看不到那段文字。搜索与分页共用 keyset 游标，翻页期间新 run 仍可能让会话重复/跳过
+  （ADR-0039 / ADR-0040）
 - 翻页期间有新 run 时，会话可能被挤到前面，出现重复或跳过一页；刷新即从第一页重置，
   v1 不保证快照一致性（ADR-0033）
 - 库不可用时返回 `503 {"code":"DATABASE_UNAVAILABLE"}`，不会静默返回空列表
@@ -431,6 +435,26 @@ Authorization: Bearer <token>
   同页其他 run 正常返回；被回收时 `output=null`、`citations=[]`、`timeline=[]`
 - `timeline` 只对回答可见且事件未清理的 run 生成（ADR-0035）；`timeline_available=false`
   表示「过程不可用」，不是「没调工具」
+- 库不可用时返回 `503 {"code":"DATABASE_UNAVAILABLE"}`
+
+### 3.5 会话重命名（ADR-0040）
+
+```http
+PATCH /api/sessions/sess_01H...
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{"title": "A 楼 3 层打印"}
+```
+
+- 只改会话列表里的显示标题，不碰 `runs` 与事件；`run_count`、`updated_at` 与排序都不变
+  （排序仍按最近一次 run 活动）
+- `title` 裁掉首尾空白后 1–60 字符；空串返回 `422 {"code":"INVALID_TITLE"}`——
+  要恢复默认标题请显式传 `null`
+- `{"title": null}` 清除自定义标题，显示回退到最早一条非空 `input`
+- 成功返回 `204 No Content`（无响应体，不要解析 JSON）
+- 只允许本人：别人的会话与不存在的会话都返回 `404 {"detail":"session not found"}`
+- 搜索 `q` 同时匹配自定义标题与首条问题（ADR-0039 / ADR-0040）；改名后旧关键词仍可命中
 - 库不可用时返回 `503 {"code":"DATABASE_UNAVAILABLE"}`
 
 ## 4. 审批

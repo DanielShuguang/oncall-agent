@@ -18,11 +18,13 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Protocol
 
 from sqlalchemy import and_, delete, func, or_, select, tuple_, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 
 from app.core.logging import get_logger
 from app.models.run import Run
 from app.models.run import RunEvent as RunEventRow
+from app.models.session_title import SessionTitle as SessionTitleRow
 from app.schemas.event import EventType, RunEvent, RunStatus
 from app.schemas.failure import FailureCategory, categorize
 
@@ -136,8 +138,8 @@ class SessionSummary:
     """一个会话的聚合摘要（ADR-0030）。
 
     会话不是独立实体：它由 `runs.session_id` 投影出来，排序用最近一次 run 的
-    `started_at`。标题取**最早一条非空 input**——正文被保留策略清空后为 None，
-    前端显示「无标题」而不是让整个会话消失。
+    `started_at`。标题优先取用户自定义标题（ADR-0040），否则取**最早一条非空
+    input**——正文被保留策略清空后为 None，前端显示「无标题」而不是让整个会话消失。
     """
 
     session_id: str
@@ -145,6 +147,11 @@ class SessionSummary:
     run_count: int
     started_at: datetime
     updated_at: datetime
+
+
+def _matches_session_query(needle: str, *candidates: str | None) -> bool:
+    """会话搜索：任一候选标题包含 `needle`（调用方已 lower）。"""
+    return any(candidate is not None and needle in candidate.lower() for candidate in candidates)
 
 
 @dataclass(frozen=True)
@@ -444,6 +451,15 @@ class RunStore(Protocol):
 
         `query` 只按投影标题做大小写不敏感的子串匹配（ADR-0039）：不搜回答正文、
         不搜被保留策略清空的历史；标题来自首条非空问题，不是最后一轮。
+        自定义标题（ADR-0040）覆盖展示标题，搜索同时匹配自定义标题与首条问题。
+        """
+        ...
+
+    async def rename_session(self, *, user_id: str, session_id: str, title: str | None) -> bool:
+        """设置或清除会话的自定义标题（ADR-0040）。
+
+        `title=None` 表示恢复默认（首条非空问题）。返回 False 表示这个用户没有
+        该会话（没有任何 run）——调用方翻成 404，不泄露别人的会话是否存在。
         """
         ...
 
@@ -504,6 +520,8 @@ class InMemoryRunStore:
         self._runs: dict[str, RunRecord] = {}
         self._events: dict[str, list[RunEvent]] = {}
         self._client_index: dict[tuple[str, str], str] = {}
+        #: 用户改过的显示标题；没有行时回落到首条非空 input（ADR-0040）
+        self._session_titles: dict[tuple[str, str], str] = {}
         self._lock = asyncio.Lock()
         self._started_at: datetime | None = None
 
@@ -748,13 +766,17 @@ class InMemoryRunStore:
                 grouped.setdefault(record.session_id, []).append(record)
 
         summaries: list[SessionSummary] = []
+        #: 首条非空 input 的原文；搜索同时匹配它和自定义标题（ADR-0040）
+        generated: dict[str, str | None] = {}
         for session_id, records in grouped.items():
             records.sort(key=lambda record: (record.started_at, record.run_id))
-            title = next((record.input for record in records if record.input.strip()), None)
+            first_input = next((record.input for record in records if record.input.strip()), None)
+            generated[session_id] = first_input
+            custom = self._session_titles.get((user_id, session_id))
             summaries.append(
                 SessionSummary(
                     session_id=session_id,
-                    title=title,
+                    title=custom if custom is not None else first_input,
                     run_count=len(records),
                     started_at=records[0].started_at,
                     updated_at=records[-1].started_at,
@@ -762,7 +784,11 @@ class InMemoryRunStore:
             )
         if query:
             needle = query.lower()
-            summaries = [item for item in summaries if item.title and needle in item.title.lower()]
+            summaries = [
+                item
+                for item in summaries
+                if _matches_session_query(needle, item.title, generated.get(item.session_id))
+            ]
         summaries.sort(key=lambda item: (item.updated_at, item.session_id), reverse=True)
         if before_updated_at is not None and before_session_id is not None:
             summaries = [
@@ -771,6 +797,21 @@ class InMemoryRunStore:
                 if (item.updated_at, item.session_id) < (before_updated_at, before_session_id)
             ]
         return summaries[:limit]
+
+    async def rename_session(self, *, user_id: str, session_id: str, title: str | None) -> bool:
+        async with self._lock:
+            # 只有「这个用户确实有这个会话」才允许改；别人的会话与不存在的会话
+            # 在调用方统一表现为 False → 404，不泄露存在性。
+            if not any(
+                record.user_id == user_id and record.session_id == session_id
+                for record in self._runs.values()
+            ):
+                return False
+            if title is None:
+                self._session_titles.pop((user_id, session_id), None)
+            else:
+                self._session_titles[(user_id, session_id)] = title
+            return True
 
     async def recent_turns(
         self,
@@ -1185,8 +1226,9 @@ class PostgresRunStore:
         before_session_id: str | None = None,
         query: str | None = None,
     ) -> list[SessionSummary]:
-        # 标题取最早一条非空 input；用窗口函数按会话取第一行，避免 N+1。
-        # 搜索与标题查询共用这个子查询，保证「搜到的」和「显示的」是同一个标题（ADR-0039）。
+        # 标题优先自定义标题（ADR-0040），否则取最早一条非空 input；用窗口函数
+        # 按会话取第一行，避免 N+1。搜索同时匹配自定义标题与首条问题：改名后
+        # 旧关键词仍然找得到，不会出现「自己刚改的名字搜不到、原来的问题也搜不到」。
         ranked = (
             select(
                 Run.session_id,
@@ -1205,20 +1247,34 @@ class PostgresRunStore:
             .subquery()
         )
         first_input = select(ranked.c.session_id, ranked.c.input).where(ranked.c.rn == 1).subquery()
+        title = func.coalesce(SessionTitleRow.title, first_input.c.input).label("title")
         agg = (
             select(
                 Run.session_id,
                 func.min(Run.started_at).label("started_at"),
                 func.max(Run.started_at).label("updated_at"),
                 func.count().label("run_count"),
+                title,
             )
             .where(Run.user_id == user_id)
-            .group_by(Run.session_id)
+            .outerjoin(first_input, first_input.c.session_id == Run.session_id)
+            .outerjoin(
+                SessionTitleRow,
+                and_(
+                    SessionTitleRow.user_id == Run.user_id,
+                    SessionTitleRow.session_id == Run.session_id,
+                ),
+            )
+            .group_by(Run.session_id, SessionTitleRow.title, first_input.c.input)
         )
         if query:
             # strpos 而不是 LIKE：用户输入里的 % 和 _ 不应变成通配符。
-            agg = agg.join(first_input, first_input.c.session_id == Run.session_id).where(
-                func.strpos(func.lower(first_input.c.input), query.lower()) > 0
+            needle = query.lower()
+            agg = agg.where(
+                or_(
+                    func.strpos(func.lower(func.coalesce(SessionTitleRow.title, "")), needle) > 0,
+                    func.strpos(func.lower(func.coalesce(first_input.c.input, "")), needle) > 0,
+                )
             )
         if before_updated_at is not None and before_session_id is not None:
             # keyset 作用在聚合结果上：HAVING + max(started_at)/session_id 比较。
@@ -1234,27 +1290,47 @@ class PostgresRunStore:
         agg = agg.order_by(func.max(Run.started_at).desc(), Run.session_id.desc()).limit(limit)
         async with self._sessionmaker() as session:
             rows = (await session.execute(agg)).all()
-            if not rows:
-                return []
-            session_ids = [row.session_id for row in rows]
-            title_rows = (
-                await session.execute(
-                    select(first_input.c.session_id, first_input.c.input).where(
-                        first_input.c.session_id.in_(session_ids)
-                    )
-                )
-            ).all()
-        titles = {session_id: title for session_id, title in title_rows}
         return [
             SessionSummary(
                 session_id=row.session_id,
-                title=titles.get(row.session_id),
+                title=row.title,
                 run_count=int(row.run_count),
                 started_at=row.started_at,
                 updated_at=row.updated_at,
             )
             for row in rows
         ]
+
+    async def rename_session(self, *, user_id: str, session_id: str, title: str | None) -> bool:
+        async with self._sessionmaker() as session:
+            exists = await session.scalar(
+                select(Run.id).where(Run.user_id == user_id, Run.session_id == session_id).limit(1)
+            )
+            if exists is None:
+                return False
+            if title is None:
+                await session.execute(
+                    delete(SessionTitleRow).where(
+                        SessionTitleRow.user_id == user_id,
+                        SessionTitleRow.session_id == session_id,
+                    )
+                )
+            else:
+                stmt = (
+                    pg_insert(SessionTitleRow)
+                    .values(
+                        user_id=user_id,
+                        session_id=session_id,
+                        title=title,
+                    )
+                    .on_conflict_do_update(
+                        index_elements=[SessionTitleRow.user_id, SessionTitleRow.session_id],
+                        set_={"title": title, "updated_at": func.now()},
+                    )
+                )
+                await session.execute(stmt)
+            await session.commit()
+        return True
 
     async def recent_turns(
         self,

@@ -415,11 +415,20 @@ class RunStore(Protocol):
         """按 started_at 倒序；`(before_started_at, before_run_id)` 是上一页游标。"""
         ...
 
-    async def list_sessions(self, *, user_id: str, limit: int = 20) -> list[SessionSummary]:
+    async def list_sessions(
+        self,
+        *,
+        user_id: str,
+        limit: int = 20,
+        before_updated_at: datetime | None = None,
+        before_session_id: str | None = None,
+    ) -> list[SessionSummary]:
         """按 `session_id` 聚合该用户最近的会话，按最近一次 run 倒序（ADR-0030）。
 
         会话没有独立表：标题取最早一条非空 `input`，计数与时间来自 runs 投影。
-        没有 run 的会话不存在，因此不需要清理任务。
+        没有 run 的会话不存在，因此不需要清理任务。`(before_updated_at,
+        before_session_id)` 是上一页游标（ADR-0033）；新 run 会把会话移到更前，
+        翻页途中可能重复或跳过一页，刷新列表即重置。
         """
         ...
 
@@ -695,7 +704,14 @@ class InMemoryRunStore:
             ]
         return rows[:limit]
 
-    async def list_sessions(self, *, user_id: str, limit: int = 20) -> list[SessionSummary]:
+    async def list_sessions(
+        self,
+        *,
+        user_id: str,
+        limit: int = 20,
+        before_updated_at: datetime | None = None,
+        before_session_id: str | None = None,
+    ) -> list[SessionSummary]:
         grouped: dict[str, list[RunRecord]] = {}
         for record in self._runs.values():
             if record.user_id == user_id:
@@ -715,6 +731,12 @@ class InMemoryRunStore:
                 )
             )
         summaries.sort(key=lambda item: (item.updated_at, item.session_id), reverse=True)
+        if before_updated_at is not None and before_session_id is not None:
+            summaries = [
+                item
+                for item in summaries
+                if (item.updated_at, item.session_id) < (before_updated_at, before_session_id)
+            ]
         return summaries[:limit]
 
     async def recent_turns(
@@ -1080,7 +1102,14 @@ class PostgresRunStore:
             rows = (await session.execute(stmt)).all()
         return [_record_from_row(row, event_count=int(count)) for row, count in rows]
 
-    async def list_sessions(self, *, user_id: str, limit: int = 20) -> list[SessionSummary]:
+    async def list_sessions(
+        self,
+        *,
+        user_id: str,
+        limit: int = 20,
+        before_updated_at: datetime | None = None,
+        before_session_id: str | None = None,
+    ) -> list[SessionSummary]:
         agg = (
             select(
                 Run.session_id,
@@ -1090,9 +1119,19 @@ class PostgresRunStore:
             )
             .where(Run.user_id == user_id)
             .group_by(Run.session_id)
-            .order_by(func.max(Run.started_at).desc(), Run.session_id.desc())
-            .limit(limit)
         )
+        if before_updated_at is not None and before_session_id is not None:
+            # keyset 作用在聚合结果上：HAVING + max(started_at)/session_id 比较。
+            agg = agg.having(
+                or_(
+                    func.max(Run.started_at) < before_updated_at,
+                    and_(
+                        func.max(Run.started_at) == before_updated_at,
+                        Run.session_id < before_session_id,
+                    ),
+                )
+            )
+        agg = agg.order_by(func.max(Run.started_at).desc(), Run.session_id.desc()).limit(limit)
         async with self._sessionmaker() as session:
             rows = (await session.execute(agg)).all()
             if not rows:

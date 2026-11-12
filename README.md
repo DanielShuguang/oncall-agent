@@ -168,9 +168,9 @@ oncall/
 
 | 模块 | 状态 | 验证方式 |
 |---|---|---|
-| 文档（12 篇 + 32 篇 ADR + 评测基线） | ✅ 完成 | — |
-| 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡 / 运行回放 / 成本页） | ✅ 可用 | `tsc --noEmit`、`oxlint 0`、`oxfmt --check` 通过；`vitest` 63/63；`pnpm build` 成功 |
-| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **425 passed + 31 skipped**；设 `ONCALL_TEST_DATABASE_URL`（指向一个可清空的库）后 **453 passed + 3 skipped**，再加 `ONCALL_TEST_REDIS_URL` 为 **456 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约与审批快照、引用快照与内容回收、个人预算与账本快照、工单自助查询、会话列表、计量一致性） |
+| 文档（12 篇 + 33 篇 ADR + 评测基线） | ✅ 完成 | — |
+| 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡 / 运行回放 / 成本页） | ✅ 可用 | `tsc --noEmit`、`oxlint 0`、`oxfmt --check` 通过；`vitest` 64/64；`pnpm build` 成功 |
+| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **428 passed + 31 skipped**；设 `ONCALL_TEST_DATABASE_URL`（指向一个可清空的库）后 **456 passed + 3 skipped**，再加 `ONCALL_TEST_REDIS_URL` 为 **459 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约与审批快照、引用快照与内容回收、个人预算与账本快照、工单自助查询、会话列表与分页、计量一致性） |
 | 本地 JWT（W1 D2） | ✅ 已完成 | `tests/test_auth.py` 20 条：签发/验签、过期、alg=none、401 JSON、OpenAPI Bearer、run 归属隔离 |
 | 事件落库 + 断线续传（D4） | ✅ 已完成 | `alembic upgrade head` + `alembic check` 无漂移；`tests/test_store_contract.py`（内存 + Postgres 契约）、`tests/test_chat_stream.py`（落库、幂等回放、503 语义） |
 | 最小 Agent 运行时（W1 D5） | ✅ 已完成 | `tests/test_agent_runtime.py` 9 条：工具真实执行、检索引用、写操作挂起审批、工具失败降级、步数/时长上限 |
@@ -193,6 +193,7 @@ oncall/
 | 预算可观测性（W6 后补） | ✅ 已完成 | 全局与个人账本加只读快照；预扣时间戳写进同一个 reservations hash（旧副本无 ts → 年龄未知、不报 stale），用户用当日集合枚举；`GET /admin/budgets/usage` 返回已用、未结算笔数/金额与 300 秒判据下的卡住笔数，账本故障 503 不降级；成本页合并配置与账本（未知花费显示「—」）；`tests/test_budget_usage.py`；[ADR-0028](docs/decisions/0028-budget-observability.md) |
 | 工单自助查询（W6 后补） | ✅ 已完成 | `query_tickets` 注册为只读工具（2000ms、身份注入、只查 `requester=当前用户`，创建时间倒序取最近 N 条）；「我的工单/工单进度/修好了吗」等状态问法保持 `knowledge`（不再被「报修」误判成写操作），规则计划选中该工具，`finalize` 以工单表作答、不拼知识库引用；`tests/test_tickets.py`、`test_tools_guard.py`、`test_agent_graph.py`；[ADR-0029](docs/decisions/0029-ticket-self-service-query.md) |
 | 会话列表与历史会话继续（W6 后补） | ✅ 已完成 | 不建表，按 `runs.session_id` 投影（复用 `idx_runs_user_session_time`，无迁移）；`GET /sessions` 只读本人、标题取最早非空 `input`；左侧会话栏点开最近 20 条 run，拼只读 transcript（正文过期/引用回收/未结束/失败各有占位），继续对话沿用同一 `session_id`；`tests/test_sessions_api.py`、`test_store_contract.py`（`_exercise_sessions`）、`web/src/features/chat/history.test.ts`；[ADR-0030](docs/decisions/0030-session-list.md) |
+| 会话列表与历史轮次分页（W6 后补） | ✅ 已完成 | `/sessions` 用 `(updated_at, session_id)` keyset 游标（base64url JSON，非法 400 `INVALID_CURSOR`）；会话内用 `/runs` 已有游标翻更早轮次（`prependHistory`）；翻页期间新 run 可能造成重复/跳过，刷新即重置；无新表/索引/迁移；[ADR-0033](docs/decisions/0033-session-history-pagination.md) |
 | 历史引用回放（W6 后补） | ✅ 已完成 | `runs.citations`（迁移 0014）存 `message.completed` 的完整引用快照，历史会话还原角标并复用现有全文预览；只保留已知字段、最多 50 条，正文按 ADR-0023 清空时一起置空，`content_redacted` / 过期时详情返回 `[]`；迁移前旧 run 不回填；`test_store_contract.py`、`test_runs_api.py`；[ADR-0031](docs/decisions/0031-run-citations-replay.md) |
 | PDF 解析子进程隔离（W6 后补） | ✅ 已完成 | `.pdf` 在 `spawn` 子进程里解析（PyMuPDF/pypdf 逻辑不变），60 秒超时先 terminate 再 kill；崩溃/超时/管道异常都收敛成 `ParseError` → 上传接口 422，不再带走 API；本机实测 1 页文本 PDF 预热后 5 次中位数约 0.30 秒启动开销（Linux/大文件未测），未做内存 rlimit/常驻池；`test_rag_pdf_isolation.py`；[ADR-0032](docs/decisions/0032-pdf-parse-subprocess.md) |
 
@@ -305,8 +306,10 @@ W6 基线（3 轮均值，mock 规则路径，口径见 [baseline-v1](docs/eval/
   把流程咨询（如「报修进度怎么查」）误当成查工单、而不是走知识库；`requester` 列暂未加索引
   （单用户工单量小）
   （[ADR-0029](docs/decisions/0029-ticket-self-service-query.md)）
-- 会话列表只展示最近 20 个会话、每个会话最近 20 轮：没有游标翻页、重命名、删除与
-  虚拟滚动；只读 transcript 不回放工具结果与审批卡片；历史回答的引用角标已按
+- 会话列表首屏是最近 20 个会话、每个会话 20 轮，底部/顶部可继续翻页，但没有会话搜索、
+  重命名、删除与虚拟滚动；翻页期间有新 run 时可能重复或跳过一页，刷新即重置
+  （[ADR-0033](docs/decisions/0033-session-history-pagination.md)）；只读 transcript 不回放
+  工具结果与审批卡片；历史回答的引用角标已按
   `runs.citations` 还原（[ADR-0031](docs/decisions/0031-run-citations-replay.md)），
   但迁移前的旧 run 没有快照；窄屏（<640px）隐藏
   会话栏，暂没有抽屉入口；刷新不自动恢复最后一次会话（需在左侧点开）；正文按

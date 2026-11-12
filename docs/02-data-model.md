@@ -66,6 +66,9 @@ CREATE INDEX idx_runs_status            ON runs (status) WHERE status IN ('runni
 > 按 `session_id` 分组取 `min/max(started_at)` 与 `count(*)`，标题取最早一条非空 `input`；
 > 复用 `idx_runs_user_session_time` 的 `user_id` 前缀筛选，跨会话排序仍需要聚合——
 > **没有 `sessions` 表，也没有新迁移**。正文按 ADR-0023 清空后标题为 `NULL`，会话仍会列出。
+> 翻页用 keyset 游标 `(max(started_at), session_id)`，`HAVING` 过滤后取下一批
+> （[ADR-0033](decisions/0033-session-history-pagination.md)）；没有新索引，也不承诺
+> 翻页期间新 run 不造成重复/跳过。
 > `events_pruned_at` 非空表示这场 run 的事件已按保留策略整场删除（迁移 0010、
 > [ADR-0021](decisions/0021-data-retention.md)）：**由清理任务写入，不是事件投影**；
 > 回放不可用，摘要/回答/计量仍保留。

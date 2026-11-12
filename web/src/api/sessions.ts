@@ -1,4 +1,4 @@
-/** 会话列表接口（ADR-0030）。会话是 runs.session_id 的投影，没有独立表。 */
+/** 会话列表接口（ADR-0030/0033）。会话是 runs.session_id 的投影，没有独立表。 */
 
 import { getJson } from './client';
 
@@ -11,12 +11,14 @@ export interface SessionSummary {
   updated_at: string;
 }
 
-interface SessionListResponse {
+export interface SessionPage {
   items: SessionSummary[];
+  /** keyset 游标；当前页没取满时为 null（ADR-0033） */
   next_cursor: string | null;
 }
 
-export async function listSessions(limit = 20): Promise<SessionSummary[]> {
-  const res = await getJson<SessionListResponse>(`/sessions?limit=${limit}`);
-  return res.items;
+export async function listSessions(limit = 20, cursor: string | null = null): Promise<SessionPage> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (cursor) params.set('cursor', cursor);
+  return getJson<SessionPage>(`/sessions?${params.toString()}`);
 }

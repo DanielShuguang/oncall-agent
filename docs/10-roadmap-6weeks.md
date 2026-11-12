@@ -682,6 +682,33 @@ ADR-0030 的历史会话只有两段文字，引用角标没有还原——完�
 
 ---
 
+## W6 后补：会话列表与历史轮次分页（ADR-0033）
+
+ADR-0030 的会话列表第一版留了两个「取不到」：`GET /sessions` 只能看最近 20 个会话，
+打开历史会话只取最近 20 条 run，更早的轮次没有入口。`docs/07` 也一直注明虚拟滚动未做；
+这次补的是数据分页，不是渲染。
+
+| 事项 | 落地 |
+|---|---|
+| 会话列表 | `GET /sessions` 加 keyset 游标：`(updated_at, session_id)` 倒序，`next_cursor` 只在取满时返回；游标是 base64url(JSON)，非法返回 400 `INVALID_CURSOR` |
+| 查询 | `RunStore.list_sessions` 增加 `before_updated_at` / `before_session_id`；Postgres 用聚合后的 `HAVING`（`max(started_at)` 与 `session_id` 比较），复用现有 `idx_runs_user_session_time` 的 `user_id` 前缀 |
+| 会话内历史 | 复用 `/runs` 已有的 `(started_at, run_id)` 游标；`GET /runs?session_id=...&cursor=...` 翻更早轮次 |
+| 前端 | 会话栏底部「加载更多会话」；消息区顶部「加载更早的对话」，把旧轮次 `prependHistory` 到现有消息前，不换 `session_id` |
+| 一致性 | 翻页期间新 run 会把会话移到前面，可能重复/跳过一页；刷新即重置，不承诺快照一致性 |
+| 数据/契约 | 无新表、无索引、无迁移；`/sessions` 与 `/runs` 的 `next_cursor` 形状一致；重命名/删除/搜索/虚拟滚动仍不做 |
+
+验证：默认 **428 passed + 31 skipped**；真实 Postgres **456 passed + 3 skipped**；
+再加 Redis **459 passed**。`ruff check` / `ruff format --check`（171 files）/
+`mypy app`（104 files）通过；前端 `tsc`、**64 tests / 13 files**、`oxlint` 0/0、
+`oxfmt --check` 69 files、`pnpm build` 成功。新增 `tests/test_sessions_api.py` 3 条与
+`_exercise_sessions` 的 keyset 断言；检索、提示词、多轮判定未改，未重跑评测。
+
+已知边界：翻页不保证稳定快照；每会话首屏仍只取 20 轮，更早要手动点；没有会话搜索/
+重命名/删除；长会话仍直接渲染，虚拟滚动未做。详见
+[ADR-0033](decisions/0033-session-history-pagination.md)。
+
+---
+
 ## 每周固定动作
 
 | 时点 | 动作 |

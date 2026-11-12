@@ -505,10 +505,20 @@ async def _exercise_sessions(store: RunStore) -> None:
     assert sessions[0].session_id in {"sess_c", "sess_b"}
     assert "sess_x" not in by_id
 
-    # limit 截断的是「会话」而不是 run
+    # limit 截断的是「会话」而不是 run；keyset 游标能取到下一页（ADR-0033）
     limited = await store.list_sessions(user_id=user, limit=1)
     assert len(limited) == 1
     assert limited[0].session_id == "sess_c"
+
+    first_page = await store.list_sessions(user_id=user, limit=2)
+    assert [item.session_id for item in first_page] == ["sess_c", "sess_b"]
+    older = await store.list_sessions(
+        user_id=user,
+        limit=2,
+        before_updated_at=first_page[-1].updated_at,
+        before_session_id=first_page[-1].session_id,
+    )
+    assert [item.session_id for item in older] == ["sess_a"]
 
     # 按会话过滤 run：own-only，且不返回其他会话
     runs = await store.list_runs(user_id=user, session_id="sess_a", limit=10)

@@ -31,7 +31,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | GET | `/health` | 健康检查（含 db/redis 探活） | W1 D1 |
 | POST | `/chat/stream` | 发起一次对话，返回 SSE 流 | W1 D3 |
 | GET | `/runs` | 运行列表（分页、按状态/会话筛选） | W4 D19 / W6 后补 |
-| GET | `/sessions` | 当前用户的会话列表（最近 20 个，按活动倒序） | W6 后补 |
+| GET | `/sessions` | 当前用户的会话列表（keyset 游标，按活动倒序） | W6 后补 |
 | GET | `/runs/{run_id}` | 单次运行详情（含指标与模型调用明细） | W1 D4 / W4 D19 |
 | GET | `/runs/{run_id}/events?after_seq=` | 补拉事件（断线续传，兼容 `Last-Event-ID`） | W1 D4 |
 | GET | `/runs/{run_id}/stream` | 重连增量流（可选，v1 用轮询替代） | — |
@@ -202,7 +202,7 @@ Authorization: Bearer <token>
 
 - 只返回当前用户的 run；`status` 可选，值同事件流状态
 - `session_id` 可选，按会话过滤（仍只查自己的；会话列表见 3.3）。打开历史会话时用它取最近
-  20 条 run，再逐条取详情拼只读 transcript
+  20 条 run，再逐条取详情拼只读 transcript；更早的轮次用 `cursor` 继续翻（ADR-0033）
 - `limit` 默认 20、上限 100；`next_cursor` 为 `null` 表示没有下一页
 - `cursor` 是不透明字符串（base64 的 `started_at|run_id`）；非法 cursor 返回
   `400 {"code":"INVALID_CURSOR"}`，不要静默从头开始
@@ -292,7 +292,7 @@ GET /api/runs/{run_id}
 > `output` 缺失、`content_redacted` 或 `content_pruned_at` 非空时恒为 `[]`——引用片段
 > 是回答内容，不能比正文活得久。预览仍走 `/kb/preview`，按**当前**权限校验；列表接口不返回它。
 
-### 3.3 会话列表（ADR-0030）
+### 3.3 会话列表（ADR-0030 / ADR-0033）
 
 ```http
 GET /api/sessions?limit=20
@@ -310,8 +310,14 @@ Authorization: Bearer <token>
       "updated_at": "2026-11-09T02:26:41.008Z"
     }
   ],
-  "next_cursor": null
+  "next_cursor": "eyJ0IjoiMjAyNi0xMS0wOVQwMjoyNjo0MS4wMDgrMDA6MDAiLCJzIjoic2Vzc18wMUgifQ=="
 }
+```
+
+翻下一页时把上一页的 `next_cursor` 原样带回：
+
+```http
+GET /api/sessions?limit=20&cursor=eyJ0IjoiMjAyNi0xMS0wOVQwMjoyNjo0MS4wMDgrMDA6MDAiLCJzIjoic2Vzc18wMUgifQ==
 ```
 
 - 会话不是独立实体：按 `runs.session_id` 聚合投影，没有 `sessions` 表，也**没有迁移**；
@@ -320,10 +326,15 @@ Authorization: Bearer <token>
   同一时刻按 `session_id` 倒序，避免顺序抖动
 - `title` 取**最早一条非空 `input`**，压成单行并截到 60 字符；正文按 ADR-0023 过期清空后
   为 `null`，前端显示「无标题」，**会话本身仍会返回**（不能因为标题没了就藏掉历史）
-- `limit` 默认 20、上限 50；`next_cursor` v1 固定为 `null`，暂不支持翻页、重命名、删除
+- `limit` 默认 20、上限 50；`next_cursor` 是 keyset 游标，只在当前页取满时返回，
+  取完为 `null`。游标对前端不透明（base64url JSON，带 `updated_at` 与 `session_id`），
+  非法游标返回 `400 {"code":"INVALID_CURSOR"}`，不要静默从头开始
+- 翻页期间有新 run 时，会话可能被挤到前面，出现重复或跳过一页；刷新即从第一页重置，
+  v1 不保证快照一致性（ADR-0033）
 - 库不可用时返回 `503 {"code":"DATABASE_UNAVAILABLE"}`，不会静默返回空列表
   （否则会显示成「你没有历史会话」）
 - 取历史：先 `GET /runs?session_id=...` 拿最近 20 条 run，再逐条 `GET /runs/{run_id}`；
+  更早的轮次把该响应里的 `next_cursor` 带回 `GET /runs?session_id=...&cursor=...`。
   继续对话直接用这个 `session_id` 调 `/chat/stream`，服务端按 ADR-0020 续上下文
 
 ## 4. 审批

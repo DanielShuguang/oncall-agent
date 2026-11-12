@@ -44,6 +44,8 @@ interface ChatStore {
   reset: () => void;
   /** 切到历史会话：清掉当前运行态，用只读 transcript 填消息（ADR-0030） */
   switchSession: (nextSessionId: string, messages: ChatMessage[]) => void;
+  /** 往上翻历史：把更早的轮次插到现有消息前面（ADR-0033） */
+  prependHistory: (messages: ChatMessage[]) => void;
 }
 
 export const useChat = create<ChatStore>((set, get) => {
@@ -280,6 +282,13 @@ export const useChat = create<ChatStore>((set, get) => {
         sending: false,
         lastUserText: null,
       });
+    },
+
+    prependHistory: (messages) => {
+      if (messages.length === 0) return;
+      set((s) => ({
+        runtime: { ...s.runtime, messages: [...messages, ...s.runtime.messages] },
+      }));
     },
   };
 });

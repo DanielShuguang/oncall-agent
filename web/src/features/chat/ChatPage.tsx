@@ -23,14 +23,29 @@ const PHASE_LABEL: Record<string, string> = {
 };
 
 export default function ChatPage() {
-  const { runtime, sessionId, sending, send, retry, resolve, abort, reset, switchSession } =
-    useChat();
+  const {
+    runtime,
+    sessionId,
+    sending,
+    send,
+    retry,
+    resolve,
+    abort,
+    reset,
+    switchSession,
+    prependHistory,
+  } = useChat();
   const [text, setText] = useState('');
   const [activeCitation, setActiveCitation] = useState<Citation | null>(null);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [sessionsCursor, setSessionsCursor] = useState<string | null>(null);
   const [sessionsLoading, setSessionsLoading] = useState(true);
+  const [sessionsLoadingMore, setSessionsLoadingMore] = useState(false);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
+  // 当前会话内更早轮次的 keyset 游标；null 表示没有更早的页（ADR-0033）
+  const [historyCursor, setHistoryCursor] = useState<string | null>(null);
+  const [historyOlderLoading, setHistoryOlderLoading] = useState(false);
   // 历史会话请求可能乱序返回（连点两个会话、加载中又点了新会话）：
   // 用自增 token 只接受最后一次请求的结果，避免旧的响应把界面切回去。
   const historyRequest = useRef(0);
@@ -38,9 +53,12 @@ export default function ChatPage() {
   useEffect(() => {
     let cancelled = false;
     listSessions(20)
-      .then((items) => {
-        if (!cancelled) setSessions(items);
-        return items;
+      .then((page) => {
+        if (!cancelled) {
+          setSessions(page.items);
+          setSessionsCursor(page.next_cursor);
+        }
+        return page.items;
       })
       .catch((err: unknown) => {
         if (!cancelled) setSessionsError(err instanceof Error ? err.message : '会话列表加载失败');
@@ -58,14 +76,30 @@ export default function ChatPage() {
     setSessionsLoading(true);
     setSessionsError(null);
     listSessions(20)
-      .then((items) => {
-        setSessions(items);
-        return items;
+      .then((page) => {
+        setSessions(page.items);
+        setSessionsCursor(page.next_cursor);
+        return page.items;
       })
       .catch((err: unknown) => {
         setSessionsError(err instanceof Error ? err.message : '会话列表加载失败');
       })
       .finally(() => setSessionsLoading(false));
+  };
+
+  const loadMoreSessions = async () => {
+    if (!sessionsCursor || sessionsLoadingMore) return;
+    setSessionsLoadingMore(true);
+    setSessionsError(null);
+    try {
+      const page = await listSessions(20, sessionsCursor);
+      setSessions((prev) => [...prev, ...page.items]);
+      setSessionsCursor(page.next_cursor);
+    } catch (err) {
+      setSessionsError(err instanceof Error ? err.message : '更多会话加载失败');
+    } finally {
+      setSessionsLoadingMore(false);
+    }
   };
 
   const onSend = async () => {
@@ -74,6 +108,7 @@ export default function ChatPage() {
     // 发送会沿用当前会话：取消还在路上的历史会话切换，避免它回来后把本轮 UI 覆盖掉
     historyRequest.current += 1;
     setHistoryLoading(false);
+    setHistoryOlderLoading(false);
     setText('');
     await send(value);
     refreshSessions();
@@ -83,6 +118,7 @@ export default function ChatPage() {
     if (sending || historyLoading || nextSessionId === sessionId) return;
     const requestId = ++historyRequest.current;
     setHistoryLoading(true);
+    setHistoryOlderLoading(false);
     setSessionsError(null);
     try {
       const list = await listRuns({ sessionId: nextSessionId, limit: 20 });
@@ -90,6 +126,7 @@ export default function ChatPage() {
       if (requestId !== historyRequest.current) return;
       setActiveCitation(null);
       setText('');
+      setHistoryCursor(list.next_cursor);
       switchSession(nextSessionId, transcriptMessages(details));
     } catch (err) {
       if (requestId === historyRequest.current) {
@@ -100,9 +137,31 @@ export default function ChatPage() {
     }
   };
 
+  const loadEarlier = async () => {
+    if (!historyCursor || historyOlderLoading || historyLoading || sending) return;
+    const requestId = historyRequest.current;
+    setHistoryOlderLoading(true);
+    setSessionsError(null);
+    try {
+      const list = await listRuns({ sessionId, limit: 20, cursor: historyCursor });
+      const details = await Promise.all(list.items.map((item) => getRun(item.run_id)));
+      if (requestId !== historyRequest.current) return;
+      prependHistory(transcriptMessages(details));
+      setHistoryCursor(list.next_cursor);
+    } catch (err) {
+      if (requestId === historyRequest.current) {
+        setSessionsError(err instanceof Error ? err.message : '更早的对话加载失败');
+      }
+    } finally {
+      if (requestId === historyRequest.current) setHistoryOlderLoading(false);
+    }
+  };
+
   const onNewSession = () => {
     historyRequest.current += 1;
     setHistoryLoading(false);
+    setHistoryOlderLoading(false);
+    setHistoryCursor(null);
     setActiveCitation(null);
     setText('');
     reset();
@@ -116,12 +175,27 @@ export default function ChatPage() {
         loading={sessionsLoading}
         error={sessionsError}
         busy={historyLoading}
+        hasMore={sessionsCursor !== null}
+        loadingMore={sessionsLoadingMore}
         onSelect={(id) => void onSelectSession(id)}
         onNew={onNewSession}
         onRetry={refreshSessions}
+        onLoadMore={() => void loadMoreSessions()}
       />
       <div className="flex min-h-0 flex-1 flex-col">
         <div aria-live="polite" className="flex flex-1 flex-col gap-3 overflow-y-auto p-4">
+          {historyCursor && (
+            <div className="flex justify-center">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={historyOlderLoading}
+                onClick={() => void loadEarlier()}
+              >
+                {historyOlderLoading ? '加载中…' : '加载更早的对话'}
+              </Button>
+            </div>
+          )}
           {runtime.messages.length === 0 && (
             <Card className="gap-0 py-0">
               <CardContent className="p-3 text-sm">

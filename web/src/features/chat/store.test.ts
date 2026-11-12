@@ -285,4 +285,29 @@ describe('历史会话切换', () => {
     await useChat.getState().send('继续问');
     expect(seen).toEqual(['sess_hist']);
   });
+
+  it('prependHistory 把更早的轮次插到现有消息前面（ADR-0033）', () => {
+    useChat.setState({
+      runtime: {
+        ...initialRuntime,
+        messages: [
+          { id: 'h3', role: 'user', text: '较新问题' },
+          { id: 'h4', role: 'assistant', text: '较新回答' },
+        ],
+      },
+    });
+    useChat.getState().prependHistory([
+      { id: 'h1', role: 'user', text: '更早问题' },
+      { id: 'h2', role: 'assistant', text: '更早回答' },
+    ]);
+    const { runtime, sessionId } = useChat.getState();
+    // 翻更早的页不该换会话，也不该动运行态
+    expect(sessionId).toBe('sess_test');
+    expect(runtime.messages.map((message) => message.text)).toEqual([
+      '更早问题',
+      '更早回答',
+      '较新问题',
+      '较新回答',
+    ]);
+  });
 });

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import json
 import uuid
 from datetime import UTC, datetime
 from typing import Annotated, Any
@@ -141,22 +142,63 @@ def _session_title(raw: str | None) -> str | None:
     return text[:59] + "…"
 
 
+def _encode_session_cursor(updated_at: datetime, session_id: str) -> str:
+    """会话列表的 keyset 游标：`(updated_at, session_id)`，base64(JSON) 对前端不透明。
+
+    不用 `isoformat|session_id` 拼接，因为 session_id 由客户端生成（1–64 字符），
+    可能包含分隔符。
+    """
+    raw = json.dumps({"t": updated_at.isoformat(), "s": session_id}, ensure_ascii=False)
+    return base64.urlsafe_b64encode(raw.encode()).decode()
+
+
+def _decode_session_cursor(cursor: str) -> tuple[datetime, str]:
+    try:
+        raw = base64.urlsafe_b64decode(cursor.encode()).decode()
+        data = json.loads(raw)
+        if not isinstance(data, dict):
+            raise ValueError("cursor must be an object")
+        updated_at = datetime.fromisoformat(str(data["t"]))
+        session_id = data["s"]
+        if not isinstance(session_id, str) or not 1 <= len(session_id) <= 64:
+            raise ValueError("invalid session id")
+        if updated_at.tzinfo is None:
+            raise ValueError("cursor datetime must be timezone-aware")
+        return updated_at.astimezone(UTC), session_id
+    except (ValueError, TypeError, KeyError, UnicodeDecodeError, binascii.Error) as exc:
+        raise ApiError(400, "INVALID_CURSOR", "cursor 无效，请从第一页重新拉取") from exc
+
+
 @router.get("/sessions")
 async def list_sessions(
     store: Annotated[RunStore, Depends(get_store)],
     identity: Annotated[Identity, Depends(get_identity)],
     limit: Annotated[int, Query(ge=1, le=50)] = 20,
+    cursor: Annotated[str | None, Query()] = None,
 ) -> dict[str, Any]:
-    """当前用户最近的会话（ADR-0030）。
+    """当前用户最近的会话（ADR-0030），按最近活动 keyset 分页（ADR-0033）。
 
-    会话是 `runs.session_id` 的投影，没有独立表、也没有游标：默认取最近 20 个、
-    最多 50 个，更早的会话等真有需求再加。`next_cursor` 固定为 null，保持与
-    `/runs` 相同形状。
+    会话是 `runs.session_id` 的投影，没有独立表。`next_cursor` 只在当前页取满时
+    返回；新 run 会把会话移到列表前面，翻页途中可能重复或跳过一页，刷新即重置。
     """
+    before_updated_at: datetime | None = None
+    before_session_id: str | None = None
+    if cursor:
+        before_updated_at, before_session_id = _decode_session_cursor(cursor)
     try:
-        sessions = await store.list_sessions(user_id=identity.user_id, limit=limit)
+        sessions = await store.list_sessions(
+            user_id=identity.user_id,
+            limit=limit,
+            before_updated_at=before_updated_at,
+            before_session_id=before_session_id,
+        )
     except SQLAlchemyError as exc:
         raise ApiError(503, "DATABASE_UNAVAILABLE", "database unavailable") from exc
+    next_cursor = (
+        _encode_session_cursor(sessions[-1].updated_at, sessions[-1].session_id)
+        if len(sessions) == limit
+        else None
+    )
     return {
         "items": [
             {
@@ -168,7 +210,7 @@ async def list_sessions(
             }
             for item in sessions
         ],
-        "next_cursor": None,
+        "next_cursor": next_cursor,
     }
 
 

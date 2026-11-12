@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from unittest.mock import AsyncMock
 
@@ -95,6 +96,60 @@ async def test_runs_can_be_filtered_by_session(
     missing = await client.get("/api/runs", params={"session_id": "sess_missing"})
     assert missing.status_code == 200
     assert missing.json()["items"] == []
+
+
+async def test_sessions_paginate_with_cursor(
+    client: AsyncClient, mem_store: InMemoryRunStore
+) -> None:
+    await _run(mem_store, "sess_a", "会话 A")
+    await asyncio.sleep(0.005)
+    await _run(mem_store, "sess_b", "会话 B")
+    await asyncio.sleep(0.005)
+    await _run(mem_store, "sess_c", "会话 C")
+
+    first = await client.get("/api/sessions", params={"limit": 2})
+    assert first.status_code == 200
+    first_body = first.json()
+    assert [item["session_id"] for item in first_body["items"]] == ["sess_c", "sess_b"]
+    assert first_body["next_cursor"] is not None
+
+    second = await client.get(
+        "/api/sessions", params={"limit": 2, "cursor": first_body["next_cursor"]}
+    )
+    assert second.status_code == 200
+    second_body = second.json()
+    assert [item["session_id"] for item in second_body["items"]] == ["sess_a"]
+    assert second_body["next_cursor"] is None
+
+
+async def test_sessions_reject_invalid_cursor(client: AsyncClient) -> None:
+    res = await client.get("/api/sessions", params={"cursor": "not-a-cursor"})
+    assert res.status_code == 400
+    assert res.json()["code"] == "INVALID_CURSOR"
+
+
+async def test_session_history_pages_older_runs(
+    client: AsyncClient, mem_store: InMemoryRunStore
+) -> None:
+    await _run(mem_store, "sess_a", "第一轮")
+    await asyncio.sleep(0.005)
+    second = await _run(mem_store, "sess_a", "第二轮")
+    await asyncio.sleep(0.005)
+    third = await _run(mem_store, "sess_a", "第三轮")
+
+    first = await client.get("/api/runs", params={"session_id": "sess_a", "limit": 2})
+    first_body = first.json()
+    assert [item["run_id"] for item in first_body["items"]] == [third, second]
+    assert first_body["next_cursor"] is not None
+
+    older = await client.get(
+        "/api/runs",
+        params={"session_id": "sess_a", "limit": 2, "cursor": first_body["next_cursor"]},
+    )
+    older_body = older.json()
+    assert len(older_body["items"]) == 1
+    assert older_body["items"][0]["run_id"] not in {second, third}
+    assert older_body["next_cursor"] is None
 
 
 async def test_sessions_reject_bad_limit(client: AsyncClient) -> None:

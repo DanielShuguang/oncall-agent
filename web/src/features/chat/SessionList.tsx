@@ -11,9 +11,12 @@ interface SessionListProps {
   error: string | null;
   /** 历史会话正在加载：暂时锁住列表项，避免连点导致后到的响应覆盖前一次选择 */
   busy: boolean;
+  hasMore: boolean;
+  loadingMore: boolean;
   onSelect: (sessionId: string) => void;
   onNew: () => void;
   onRetry: () => void;
+  onLoadMore: () => void;
 }
 
 function formatUpdated(iso: string): string {
@@ -33,9 +36,12 @@ export function SessionList({
   loading,
   error,
   busy,
+  hasMore,
+  loadingMore,
   onSelect,
   onNew,
   onRetry,
+  onLoadMore,
 }: SessionListProps) {
   return (
     <aside className="hidden w-56 shrink-0 flex-col gap-2 border-r p-3 sm:flex">
@@ -83,6 +89,12 @@ export function SessionList({
           );
         })}
       </ul>
+
+      {hasMore && (
+        <Button size="sm" variant="outline" disabled={loadingMore || busy} onClick={onLoadMore}>
+          {loadingMore ? '加载中…' : '加载更多会话'}
+        </Button>
+      )}
     </aside>
   );
 }

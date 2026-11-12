@@ -222,22 +222,26 @@ async def list_sessions(
     identity: Annotated[Identity, Depends(get_identity)],
     limit: Annotated[int, Query(ge=1, le=50)] = 20,
     cursor: Annotated[str | None, Query(max_length=512)] = None,
+    q: Annotated[str | None, Query(min_length=1, max_length=100)] = None,
 ) -> dict[str, Any]:
-    """当前用户最近的会话（ADR-0030），按最近活动 keyset 分页（ADR-0033）。
+    """当前用户最近的会话（ADR-0030），按最近活动 keyset 分页（ADR-0033），可按标题搜（ADR-0039）。
 
     会话是 `runs.session_id` 的投影，没有独立表。`next_cursor` 只在当前页取满时
     返回；新 run 会把会话移到列表前面，翻页途中可能重复或跳过一页，刷新即重置。
+    `q` 只匹配投影标题（首条非空问题）的大小写不敏感子串，不搜回答正文。
     """
     before_updated_at: datetime | None = None
     before_session_id: str | None = None
     if cursor:
         before_updated_at, before_session_id = _decode_session_cursor(cursor)
+    query = q.strip() if q is not None else None
     try:
         sessions = await store.list_sessions(
             user_id=identity.user_id,
             limit=limit,
             before_updated_at=before_updated_at,
             before_session_id=before_session_id,
+            query=query or None,
         )
     except SQLAlchemyError as exc:
         raise ApiError(503, "DATABASE_UNAVAILABLE", "database unavailable") from exc

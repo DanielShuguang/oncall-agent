@@ -18,9 +18,14 @@ export interface SessionPage {
   next_cursor: string | null;
 }
 
-export async function listSessions(limit = 20, cursor: string | null = null): Promise<SessionPage> {
+export async function listSessions(
+  limit = 20,
+  cursor: string | null = null,
+  query: string | null = null,
+): Promise<SessionPage> {
   const params = new URLSearchParams({ limit: String(limit) });
   if (cursor) params.set('cursor', cursor);
+  if (query) params.set('q', query);
   return getJson<SessionPage>(`/sessions?${params.toString()}`);
 }
 

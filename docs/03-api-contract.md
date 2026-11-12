@@ -31,7 +31,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | GET | `/health` | 健康检查（含 db/redis 探活） | W1 D1 |
 | POST | `/chat/stream` | 发起一次对话，返回 SSE 流 | W1 D3 |
 | GET | `/runs` | 运行列表（分页、按状态/会话筛选） | W4 D19 / W6 后补 |
-| GET | `/sessions` | 当前用户的会话列表（keyset 游标，按活动倒序） | W6 后补 |
+| GET | `/sessions` | 当前用户的会话列表（keyset 游标，按活动倒序；可选 `q` 按标题搜索） | W6 后补 |
 | GET | `/sessions/{session_id}/runs` | 一页会话详情（正文/引用/运行过程，一次返回） | W6 后补 |
 | GET | `/runs/{run_id}` | 单次运行详情（含指标与模型调用明细） | W1 D4 / W4 D19 |
 | GET | `/runs/{run_id}/events?after_seq=` | 补拉事件（断线续传，兼容 `Last-Event-ID`） | W1 D4 |
@@ -331,7 +331,7 @@ GET /api/runs/{run_id}
 > 为保护内部治理信息，审批卡不返回 `resolved_by` 与 `scope`。列表接口不返回这些字段；
 > 历史过程只读，不提供重试/批准/拒绝。
 
-### 3.3 会话列表（ADR-0030 / ADR-0033）
+### 3.3 会话列表（ADR-0030 / ADR-0033 / ADR-0039）
 
 ```http
 GET /api/sessions?limit=20
@@ -359,6 +359,12 @@ Authorization: Bearer <token>
 GET /api/sessions?limit=20&cursor=eyJ0IjoiMjAyNi0xMS0wOVQwMjoyNjo0MS4wMDgrMDA6MDAiLCJzIjoic2Vzc18wMUgifQ==
 ```
 
+按标题搜索时加 `q`（1–100 字符，大小写不敏感子串，只搜本人）：
+
+```http
+GET /api/sessions?limit=20&q=打印机
+```
+
 - 会话不是独立实体：按 `runs.session_id` 聚合投影，没有 `sessions` 表，也**没有迁移**；
   没有 run 的会话不存在，不需要清理任务
 - 只返回当前用户的会话；按 `updated_at`（最近一次 run 的 `started_at`）倒序，
@@ -370,6 +376,9 @@ GET /api/sessions?limit=20&cursor=eyJ0IjoiMjAyNi0xMS0wOVQwMjoyNjo0MS4wMDgrMDA6MD
   游标对前端不透明（base64url JSON，带 `updated_at` 与 `session_id`，最多 512 字符），
   非法游标返回 `400 {"code":"INVALID_CURSOR"}`，不要静默从头开始
 - 游标不签名：伪造游标只能改变自己的起点，不会越权读到别人的会话（ADR-0033）
+- `q` 只匹配投影标题（最早一条非空 `input`），不搜回答正文、工具结果与审批理由；标题被
+  正文保留期清空后（`title` 为 `null`）也搜不到。搜索与分页共用 keyset 游标，翻页期间
+  新 run 仍可能让会话重复/跳过（ADR-0039）
 - 翻页期间有新 run 时，会话可能被挤到前面，出现重复或跳过一页；刷新即从第一页重置，
   v1 不保证快照一致性（ADR-0033）
 - 库不可用时返回 `503 {"code":"DATABASE_UNAVAILABLE"}`，不会静默返回空列表

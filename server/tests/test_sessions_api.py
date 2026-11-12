@@ -125,6 +125,51 @@ async def test_sessions_paginate_with_cursor(
     assert second_body["next_cursor"] is None
 
 
+async def test_sessions_search_by_title_is_case_insensitive(
+    client: AsyncClient, mem_store: InMemoryRunStore
+) -> None:
+    await _run(mem_store, "sess_print", "打印机离线")
+    await asyncio.sleep(0.005)
+    await _run(mem_store, "sess_vpn", "VPN 连不上")
+    await asyncio.sleep(0.005)
+    await _run(mem_store, "sess_jam", "打印机卡纸")
+
+    res = await client.get("/api/sessions", params={"q": "打印机"})
+    assert res.status_code == 200
+    assert [item["session_id"] for item in res.json()["items"]] == ["sess_jam", "sess_print"]
+
+    lower = await client.get("/api/sessions", params={"q": "vpn"})
+    assert [item["session_id"] for item in lower.json()["items"]] == ["sess_vpn"]
+
+    missing = await client.get("/api/sessions", params={"q": "不存在的话题"})
+    assert missing.status_code == 200
+    assert missing.json() == {"items": [], "next_cursor": None}
+
+    # % / _ 是普通字符，不能当通配符
+    literal = await client.get("/api/sessions", params={"q": "%"})
+    assert literal.json()["items"] == []
+
+
+async def test_sessions_search_paginates_and_validates_query(
+    client: AsyncClient, mem_store: InMemoryRunStore
+) -> None:
+    for index in range(3):
+        await _run(mem_store, f"sess_p{index}", f"打印机问题 {index}")
+        await asyncio.sleep(0.005)
+
+    first = await client.get("/api/sessions", params={"q": "打印机", "limit": 2})
+    body = first.json()
+    assert [item["session_id"] for item in body["items"]] == ["sess_p2", "sess_p1"]
+    assert body["next_cursor"] is not None
+    second = await client.get(
+        "/api/sessions",
+        params={"q": "打印机", "limit": 2, "cursor": body["next_cursor"]},
+    )
+    assert [item["session_id"] for item in second.json()["items"]] == ["sess_p0"]
+
+    assert (await client.get("/api/sessions", params={"q": "x" * 101})).status_code == 422
+
+
 async def test_sessions_reject_invalid_cursor(client: AsyncClient) -> None:
     res = await client.get("/api/sessions", params={"cursor": "not-a-cursor"})
     assert res.status_code == 400

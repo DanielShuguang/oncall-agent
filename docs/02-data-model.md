@@ -70,6 +70,9 @@ CREATE INDEX idx_runs_status            ON runs (status) WHERE status IN ('runni
 > 翻页用 keyset 游标 `(max(started_at), session_id)`，`HAVING` 过滤后取下一批
 > （[ADR-0033](decisions/0033-session-history-pagination.md)）；没有新索引，也不承诺
 > 翻页期间新 run 不造成重复/跳过。
+> 标题搜索（[ADR-0039](decisions/0039-session-search.md)）也走同一投影：先用窗口函数取
+> 每个会话最早的非空 `input`，再用 `strpos(lower(input), lower(q))` 做子串过滤；
+> **无新表/索引/迁移**，但正文被清空后标题为 `NULL`，该会话搜不到。
 > 会话详情的一页读取由 `GET /sessions/{session_id}/runs` 一次投影
 > （[ADR-0036](decisions/0036-session-detail-batch.md)）：按 `(started_at, run_id)`
 > 取一页 run，引用可见性合并成一次知识库查询，事件按 run 批量取；**没有新列/新表**。

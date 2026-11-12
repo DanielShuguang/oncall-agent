@@ -43,6 +43,9 @@ export default function ChatPage() {
   const [sessionsLoading, setSessionsLoading] = useState(true);
   const [sessionsLoadingMore, setSessionsLoadingMore] = useState(false);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
+  // 已提交的标题搜索词；空串表示不过滤（ADR-0039）
+  const [sessionQuery, setSessionQuery] = useState('');
+  const [sessionDraftQuery, setSessionDraftQuery] = useState('');
   const [historyLoading, setHistoryLoading] = useState(false);
   // 当前会话内更早轮次的 keyset 游标；null 表示没有更早的页（ADR-0033）
   const [historyCursor, setHistoryCursor] = useState<string | null>(null);
@@ -79,12 +82,12 @@ export default function ChatPage() {
     };
   }, []);
 
-  const refreshSessions = () => {
+  const refreshSessions = (query: string = sessionQuery) => {
     const requestId = ++sessionsRequest.current;
     setSessionsLoading(true);
     setSessionsLoadingMore(false);
     setSessionsError(null);
-    listSessions(20)
+    listSessions(20, null, query || null)
       .then((page) => {
         if (requestId !== sessionsRequest.current) return page.items;
         setSessions(page.items);
@@ -107,7 +110,7 @@ export default function ChatPage() {
     setSessionsLoadingMore(true);
     setSessionsError(null);
     try {
-      const page = await listSessions(20, sessionsCursor);
+      const page = await listSessions(20, sessionsCursor, sessionQuery || null);
       if (requestId !== sessionsRequest.current) return;
       setSessions((prev) => [...prev, ...page.items]);
       setSessionsCursor(page.next_cursor);
@@ -118,6 +121,12 @@ export default function ChatPage() {
     } finally {
       if (requestId === sessionsRequest.current) setSessionsLoadingMore(false);
     }
+  };
+
+  const onSearchSessions = () => {
+    const next = sessionDraftQuery.trim();
+    setSessionQuery(next);
+    refreshSessions(next);
   };
 
   const onSend = async () => {
@@ -193,6 +202,10 @@ export default function ChatPage() {
         busy={historyLoading}
         hasMore={sessionsCursor !== null}
         loadingMore={sessionsLoadingMore}
+        query={sessionQuery}
+        searchDraft={sessionDraftQuery}
+        onSearchDraftChange={setSessionDraftQuery}
+        onSearch={onSearchSessions}
         onSelect={(id) => void onSelectSession(id)}
         onNew={onNewSession}
         onRetry={refreshSessions}

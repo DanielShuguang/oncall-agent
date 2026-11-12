@@ -520,6 +520,16 @@ async def _exercise_sessions(store: RunStore) -> None:
     )
     assert [item.session_id for item in older] == ["sess_a"]
 
+    # 按标题搜索（ADR-0039）：大小写不敏感、只匹配投影标题、不越权
+    searched = await store.list_sessions(user_id=user, limit=10, query="打印机")
+    assert [item.session_id for item in searched] == ["sess_a"]
+    assert [
+        item.session_id for item in await store.list_sessions(user_id=user, limit=10, query="真实")
+    ] == ["sess_c"]
+    assert await store.list_sessions(user_id=user, limit=10, query="不存在") == []
+    assert await store.list_sessions(user_id=user, limit=10, query="别人") == []
+    assert await store.list_sessions(user_id=other, limit=10, query="打印机") == []
+
     # 按会话过滤 run：own-only，且不返回其他会话
     runs = await store.list_runs(user_id=user, session_id="sess_a", limit=10)
     assert {item.session_id for item in runs} == {"sess_a"}

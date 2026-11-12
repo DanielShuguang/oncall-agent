@@ -97,7 +97,7 @@ token 来源：v1 没有登录页，token 存在 `localStorage.oncall.token`，�
 
 ```
 ChatPage
-|-- SessionList            会话侧栏：新会话 + 最近会话 + 加载更多，点击回看并继续（ADR-0030/0033）
+|-- SessionList            会话侧栏：新会话 + 标题搜索 + 最近会话 + 加载更多，点击回看并继续（ADR-0030/0033/0039）
 ├─ MessageList             直接渲染（未做虚拟滚动）
 │  ├─ UserMessage
 │  ├─ AssistantMessage

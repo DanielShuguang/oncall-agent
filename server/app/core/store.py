@@ -433,6 +433,7 @@ class RunStore(Protocol):
         limit: int = 20,
         before_updated_at: datetime | None = None,
         before_session_id: str | None = None,
+        query: str | None = None,
     ) -> list[SessionSummary]:
         """按 `session_id` 聚合该用户最近的会话，按最近一次 run 倒序（ADR-0030）。
 
@@ -440,6 +441,9 @@ class RunStore(Protocol):
         没有 run 的会话不存在，因此不需要清理任务。`(before_updated_at,
         before_session_id)` 是上一页游标（ADR-0033）；新 run 会把会话移到更前，
         翻页途中可能重复或跳过一页，刷新列表即重置。
+
+        `query` 只按投影标题做大小写不敏感的子串匹配（ADR-0039）：不搜回答正文、
+        不搜被保留策略清空的历史；标题来自首条非空问题，不是最后一轮。
         """
         ...
 
@@ -736,6 +740,7 @@ class InMemoryRunStore:
         limit: int = 20,
         before_updated_at: datetime | None = None,
         before_session_id: str | None = None,
+        query: str | None = None,
     ) -> list[SessionSummary]:
         grouped: dict[str, list[RunRecord]] = {}
         for record in self._runs.values():
@@ -755,6 +760,9 @@ class InMemoryRunStore:
                     updated_at=records[-1].started_at,
                 )
             )
+        if query:
+            needle = query.lower()
+            summaries = [item for item in summaries if item.title and needle in item.title.lower()]
         summaries.sort(key=lambda item: (item.updated_at, item.session_id), reverse=True)
         if before_updated_at is not None and before_session_id is not None:
             summaries = [
@@ -1175,7 +1183,28 @@ class PostgresRunStore:
         limit: int = 20,
         before_updated_at: datetime | None = None,
         before_session_id: str | None = None,
+        query: str | None = None,
     ) -> list[SessionSummary]:
+        # 标题取最早一条非空 input；用窗口函数按会话取第一行，避免 N+1。
+        # 搜索与标题查询共用这个子查询，保证「搜到的」和「显示的」是同一个标题（ADR-0039）。
+        ranked = (
+            select(
+                Run.session_id,
+                Run.input,
+                func.row_number()
+                .over(
+                    partition_by=Run.session_id,
+                    order_by=(Run.started_at.asc(), Run.id.asc()),
+                )
+                .label("rn"),
+            )
+            .where(
+                Run.user_id == user_id,
+                func.length(func.regexp_replace(Run.input, r"\s", "", "g")) > 0,
+            )
+            .subquery()
+        )
+        first_input = select(ranked.c.session_id, ranked.c.input).where(ranked.c.rn == 1).subquery()
         agg = (
             select(
                 Run.session_id,
@@ -1186,6 +1215,11 @@ class PostgresRunStore:
             .where(Run.user_id == user_id)
             .group_by(Run.session_id)
         )
+        if query:
+            # strpos 而不是 LIKE：用户输入里的 % 和 _ 不应变成通配符。
+            agg = agg.join(first_input, first_input.c.session_id == Run.session_id).where(
+                func.strpos(func.lower(first_input.c.input), query.lower()) > 0
+            )
         if before_updated_at is not None and before_session_id is not None:
             # keyset 作用在聚合结果上：HAVING + max(started_at)/session_id 比较。
             agg = agg.having(
@@ -1203,28 +1237,11 @@ class PostgresRunStore:
             if not rows:
                 return []
             session_ids = [row.session_id for row in rows]
-            # 标题取最早一条非空 input；用窗口函数按会话取第一行，避免 N+1。
-            ranked = (
-                select(
-                    Run.session_id,
-                    Run.input,
-                    func.row_number()
-                    .over(
-                        partition_by=Run.session_id,
-                        order_by=(Run.started_at.asc(), Run.id.asc()),
-                    )
-                    .label("rn"),
-                )
-                .where(
-                    Run.user_id == user_id,
-                    Run.session_id.in_(session_ids),
-                    func.length(func.regexp_replace(Run.input, r"\s", "", "g")) > 0,
-                )
-                .subquery()
-            )
             title_rows = (
                 await session.execute(
-                    select(ranked.c.session_id, ranked.c.input).where(ranked.c.rn == 1)
+                    select(first_input.c.session_id, first_input.c.input).where(
+                        first_input.c.session_id.in_(session_ids)
+                    )
                 )
             ).all()
         titles = {session_id: title for session_id, title in title_rows}

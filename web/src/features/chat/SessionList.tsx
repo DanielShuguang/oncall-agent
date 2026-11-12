@@ -13,6 +13,11 @@ interface SessionListProps {
   busy: boolean;
   hasMore: boolean;
   loadingMore: boolean;
+  /** 已提交的搜索词（ADR-0039），只用于空态文案 */
+  query: string;
+  searchDraft: string;
+  onSearchDraftChange: (value: string) => void;
+  onSearch: () => void;
   onSelect: (sessionId: string) => void;
   onNew: () => void;
   onRetry: () => void;
@@ -38,6 +43,10 @@ export function SessionList({
   busy,
   hasMore,
   loadingMore,
+  query,
+  searchDraft,
+  onSearchDraftChange,
+  onSearch,
   onSelect,
   onNew,
   onRetry,
@@ -52,6 +61,25 @@ export function SessionList({
         </Button>
       </div>
 
+      <form
+        className="flex gap-1"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSearch();
+        }}
+      >
+        <input
+          value={searchDraft}
+          onChange={(event) => onSearchDraftChange(event.target.value)}
+          placeholder="搜索标题"
+          aria-label="搜索会话标题"
+          className="h-8 min-w-0 flex-1 rounded-md border bg-transparent px-2 text-xs outline-none focus-visible:ring-1 focus-visible:ring-brand/40"
+        />
+        <Button size="sm" variant="outline" type="submit">
+          搜索
+        </Button>
+      </form>
+
       {loading && <p className="px-1 py-2 text-xs text-muted-foreground">加载中…</p>}
       {error && (
         <div className="space-y-1 px-1 py-2">
@@ -62,7 +90,9 @@ export function SessionList({
         </div>
       )}
       {!loading && !error && sessions.length === 0 && (
-        <p className="px-1 py-2 text-xs text-muted-foreground">还没有历史会话。</p>
+        <p className="px-1 py-2 text-xs text-muted-foreground">
+          {query.trim() ? '没有匹配的会话。' : '还没有历史会话。'}
+        </p>
       )}
 
       <ul className="min-h-0 flex-1 space-y-1 overflow-y-auto">

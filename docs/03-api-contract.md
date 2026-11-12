@@ -252,6 +252,34 @@ GET /api/runs/{run_id}
       "page": 3
     }
   ],
+  "timeline": [
+    {
+      "kind": "tool",
+      "seq": 12,
+      "call_id": "call_1",
+      "tool": "query_cmdb",
+      "args": {},
+      "write": false,
+      "status": "ok",
+      "result": {"assets": [{"asset_id": "PC-20481", "model": "ThinkPad T14"}], "count": 1},
+      "duration_ms": 3,
+      "attempts": 1
+    },
+    {
+      "kind": "approval",
+      "seq": 18,
+      "approval_id": "apr_1",
+      "tool": "create_ticket",
+      "args": {"title": "打印机报修"},
+      "risk_level": "high",
+      "reason": "将创建工单",
+      "status": "approved",
+      "resolved_at": "2026-11-09T02:11:04.100Z",
+      "decision_reason": "确认报修"
+    }
+  ],
+  "timeline_available": true,
+  "timeline_truncated": false,
   "model_calls": [
     {
       "step": "plan",
@@ -291,6 +319,15 @@ GET /api/runs/{run_id}
 > 里引用快照的投影，供历史会话还原角标。只在 `output` 可见且正文未过期时返回；
 > `output` 缺失、`content_redacted` 或 `content_pruned_at` 非空时恒为 `[]`——引用片段
 > 是回答内容，不能比正文活得久。预览仍走 `/kb/preview`，按**当前**权限校验；列表接口不返回它。
+>
+> `timeline`（[ADR-0035](decisions/0035-run-timeline-replay.md)）：历史回答的只读运行过程，
+> 由 `tool.call` / `tool.result` / `approval.required` / `approval.resolved` 事件投影而来；
+> 按 `call_id`、`approval_id` 合并，步骤与 `message.delta` 不进入。最多 20 项，超出时
+> `timeline_truncated: true`。与 `citations` 一样只在回答可见时返回：`content_redacted`、
+> `events_pruned_at` 或 `content_pruned_at` 非空时 `timeline: []` 且
+> `timeline_available: false`——「过程不可用」不能显示成「这轮没有调用工具」。
+> 为保护内部治理信息，审批卡不返回 `resolved_by` 与 `scope`。列表接口不返回这些字段；
+> 历史过程只读，不提供重试/批准/拒绝。
 
 ### 3.3 会话列表（ADR-0030 / ADR-0033）
 

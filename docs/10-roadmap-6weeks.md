@@ -737,6 +737,36 @@ CMDB 增量同步、共享设备、离职转移与 IT 代查都未做；换真�
 
 ---
 
+## W6 后补：历史会话运行过程回放（ADR-0035）
+
+ADR-0030/0031 让历史会话能回看问题、回答与引用角标，但刷新后这一轮调了什么工具、
+参数是什么、有没有走审批、批没批，全都看不到。实时对话里这些卡片由 SSE 事件驱动，
+历史 transcript 只还原了 `input` / `output`。事件表本来就有记录（ADR-0021 保留 180 天），
+缺的是一个只读、字段收敛的投影。
+
+| 事项 | 落地 |
+|---|---|
+| 数据 | 从 `tool.call` / `tool.result` / `approval.required` / `approval.resolved` 投影；步骤与 `message.delta` 不进入；事件仍是唯一真相，**无迁移、无新表** |
+| 合并 | 工具按 `call_id`、审批按 `approval_id` 合并；孤儿结果/决议忽略，不造没有入参的假卡片 |
+| 可见性 | 与回答对齐：正文被回收、正文过期或事件已清理时 `timeline_available=false`，明确「过程无法回看」 |
+| 治理 | 审批卡不返回 `resolved_by` / `scope`；历史过程只读，不提供重试/批准/拒绝 |
+| 上限 | 最多 20 项，超出时 `timeline_truncated=true`；读取事件上限 500 条 |
+| 前端 | 历史回答下加「运行过程」`<details>`（工具参数/结果、审批状态/理由），默认收起 |
+| 接口 | `GET /runs/{id}` 新增 `timeline`、`timeline_available`、`timeline_truncated`；列表接口不返回 |
+
+验证：默认 **438 passed + 32 skipped**；真实 Postgres 下 **467 passed + 3 skipped**，
+再加 Redis 为 **470 passed**；
+`ruff check` / `ruff format --check`（176 files）/ `mypy app`（106 files）通过；
+前端 `tsc`、**65 tests / 13 files**、`oxlint`、`oxfmt --check`、`build` 通过。
+新增 `tests/test_run_timeline.py` 4 条与详情接口的回放/清理断言；检索、提示词、多轮历史
+未改，未重跑 RAG 与多轮评测。
+
+已知边界：历史打开仍是「每个 run 一次详情 + 一次事件查询」，20 轮即 20+20 次请求，
+批量详情未做；单条工具结果没有字节上限（按 20 项截断）；普通用户看不到审批人；
+事件清理后过程随正文一起消失。详见 [ADR-0035](decisions/0035-run-timeline-replay.md)。
+
+---
+
 ## 每周固定动作
 
 | 时点 | 动作 |

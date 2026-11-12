@@ -11,6 +11,7 @@ ADR-0022 在读取侧加一层按**当前**可见性的回收：详情不带 `ou
 ADR-0023 是**按时间**的正文清理（`content_pruned_at`）：到期后 `input/output` 不再返回，
 摘要、计量与失败归因照旧；两种原因同时存在时先说过期（正文已经不存在了）。
 ADR-0030 的会话列表也是 runs 的投影：`GET /sessions` 按 `session_id` 聚合，不建表。
+ADR-0035 在详情里投影只读运行过程（工具调用/审批），事件仍是唯一真相。
 """
 
 from __future__ import annotations
@@ -33,6 +34,7 @@ from app.rag.access import Viewer
 from app.rag.retrieve import KnowledgeBase
 from app.rag.service import get_knowledge_base
 from app.runs.content import content_is_redacted, content_is_visible
+from app.runs.timeline import build_timeline
 from app.schemas.cost import ModelCallOut
 from app.schemas.event import RunStatus
 from app.tools.registry import Identity
@@ -232,6 +234,18 @@ async def get_run(
         # 回答引用的文档要按**当前**角色重新校验（ADR-0022）：撤权后旧回答正文
         # 不能再从详情接口吐出来。没有引用时不会查知识库。
         redacted = await content_is_redacted(rec, viewer=viewer, kb=kb)
+        # 运行过程跟随回答的可见性：正文被回收/过期后，工具参数与审批理由也不
+        # 再展示（它们同样属于那一轮的内容）。事件已清理时明确告诉前端「不可用」，
+        # 不把它伪装成「这轮没调工具」。
+        timeline_available = (
+            not redacted and rec.events_pruned_at is None and rec.content_pruned_at is None
+        )
+        timeline: list[dict[str, Any]] = []
+        timeline_truncated = False
+        if timeline_available:
+            timeline, timeline_truncated = build_timeline(
+                await store.events_after(run_id, limit=500)
+            )
     except SQLAlchemyError as exc:
         raise ApiError(503, "DATABASE_UNAVAILABLE", "database unavailable") from exc
     return {
@@ -248,6 +262,11 @@ async def get_run(
             if redacted or rec.content_pruned_at is not None or rec.output is None
             else rec.citations
         ),
+        # 只读运行过程（ADR-0035）：工具调用/审批的短列表，事件已清理或内容被
+        # 回收时为空，并用 timeline_available 区分「没有过程」与「过程不可用」。
+        "timeline": timeline,
+        "timeline_available": timeline_available,
+        "timeline_truncated": timeline_truncated,
         "model_calls": [
             ModelCallOut(
                 step=item.step,

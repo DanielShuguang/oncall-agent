@@ -30,6 +30,9 @@ function run(overrides: Partial<RunDetail> & { run_id: string; started_at: strin
     output: '回答',
     content_redacted: false,
     citations: [],
+    timeline: [],
+    timeline_available: true,
+    timeline_truncated: false,
     model_calls: [],
     ...overrides,
   };
@@ -98,5 +101,43 @@ describe('transcriptMessages', () => {
     expect(messages[0]?.text).toBe(PRUNED_NOTE);
     // 正文被回收时不再挂引用角标：角标不能指向一段看不到的答案（ADR-0031）
     expect(messages.find((message) => message.id === 'hist_r_a')?.citations).toBeUndefined();
+  });
+
+  it('运行过程只在回答可见时挂到消息上（ADR-0035）', () => {
+    const messages = transcriptMessages([
+      run({
+        run_id: 't',
+        started_at: '2026-11-08T00:00:00Z',
+        timeline: [
+          {
+            kind: 'tool',
+            seq: 2,
+            call_id: 'call_1',
+            tool: 'query_cmdb',
+            args: {},
+            write: false,
+            status: 'ok',
+            result: { count: 2 },
+          },
+        ],
+        timeline_truncated: true,
+      }),
+      run({
+        run_id: 'x',
+        started_at: '2026-11-08T00:01:00Z',
+        output: null,
+        content_redacted: true,
+        timeline_available: false,
+      }),
+    ]);
+
+    const visible = messages.find((message) => message.id === 'hist_t_a');
+    expect(visible?.timeline).toHaveLength(1);
+    expect(visible?.timeline?.[0]?.kind).toBe('tool');
+    expect(visible?.timelineTruncated).toBe(true);
+
+    const hidden = messages.find((message) => message.id === 'hist_x_a');
+    expect(hidden?.timeline).toBeUndefined();
+    expect(hidden?.timelineAvailable).toBe(false);
   });
 });

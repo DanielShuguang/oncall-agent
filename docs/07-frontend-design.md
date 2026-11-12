@@ -102,8 +102,9 @@ ChatPage
 │  ├─ UserMessage
 │  ├─ AssistantMessage
 │  │  ├─ MarkdownText      流式中渲染，代码块/表格
-│  │  └─ CitationList      角标 [1][2]，点击跳原文
-│  │     └─ CitationPreviewDialog 全文按切片重组 + 引用段高亮（ADR-0018）
+│  │  ├─ CitationList      角标 [1][2]，点击跳原文
+│  │  │  └─ CitationPreviewDialog 全文按切片重组 + 引用段高亮（ADR-0018）
+│  │  └─ RunTimeline       历史回答的工具/审批折叠区（ADR-0035，默认收起）
 │  ├─ StepTimeline         step.started/completed
 │  ├─ ToolCard             tool.call/result：参数、状态、耗时、错误
 │  └─ ApprovalCard         approval.required
@@ -116,7 +117,9 @@ ChatPage
 
 > 已实现会话列表（ADR-0030）：左侧列出最近会话，点开可回看只读 transcript 并继续对话；
 > 列表底部可「加载更多会话」，消息区顶部可「加载更早的对话」（keyset 游标，ADR-0033）。
-> 历史回答的引用角标按快照还原、仍可点开全文预览（ADR-0031），但工具与审批卡片不回放。
+> 历史回答的引用角标按快照还原、仍可点开全文预览（ADR-0031）；工具与审批不再以实时卡片
+> 回放，而是正文下方的「运行过程」折叠区：按事件投影出工具参数/结果与审批状态，最多 20 项，
+> 事件过保留期或回答被回收时明确显示「无法回看」（ADR-0035）。
 > 窄屏（<640px）暂隐藏会话栏（尚无抽屉入口），刷新后不自动恢复上次会话。
 > 仍未做消息虚拟滚动，长会话直接渲染（后续可加）。
 

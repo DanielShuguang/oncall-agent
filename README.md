@@ -168,9 +168,9 @@ oncall/
 
 | 模块 | 状态 | 验证方式 |
 |---|---|---|
-| 文档（12 篇 + 34 篇 ADR + 评测基线） | ✅ 完成 | — |
-| 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡 / 运行回放 / 成本页） | ✅ 可用 | `tsc --noEmit`、`oxlint 0`、`oxfmt --check` 通过；`vitest` 64/64；`pnpm build` 成功 |
-| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **433 passed + 32 skipped**；设 `ONCALL_TEST_DATABASE_URL`（指向一个可清空的库）后 **462 passed + 3 skipped**，再加 `ONCALL_TEST_REDIS_URL` 为 **465 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约与审批快照、引用快照与内容回收、个人预算与账本快照、工单自助查询、会话列表与分页、资产查询接表、计量一致性） |
+| 文档（12 篇 + 35 篇 ADR + 评测基线） | ✅ 完成 | — |
+| 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡 / 运行回放 / 成本页） | ✅ 可用 | `tsc --noEmit`、`oxlint 0`、`oxfmt --check` 通过；`vitest` 65/65；`pnpm build` 成功 |
+| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **438 passed + 32 skipped**；设 `ONCALL_TEST_DATABASE_URL`（指向一个可清空的库）后 **467 passed + 3 skipped**，再加 `ONCALL_TEST_REDIS_URL` 为 **470 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约与审批快照、引用快照与内容回收、个人预算与账本快照、工单自助查询、会话列表与分页、资产查询接表、运行过程回放、计量一致性） |
 | 本地 JWT（W1 D2） | ✅ 已完成 | `tests/test_auth.py` 20 条：签发/验签、过期、alg=none、401 JSON、OpenAPI Bearer、run 归属隔离 |
 | 事件落库 + 断线续传（D4） | ✅ 已完成 | `alembic upgrade head` + `alembic check` 无漂移；`tests/test_store_contract.py`（内存 + Postgres 契约）、`tests/test_chat_stream.py`（落库、幂等回放、503 语义） |
 | 最小 Agent 运行时（W1 D5） | ✅ 已完成 | `tests/test_agent_runtime.py` 9 条：工具真实执行、检索引用、写操作挂起审批、工具失败降级、步数/时长上限 |
@@ -197,6 +197,7 @@ oncall/
 | 历史引用回放（W6 后补） | ✅ 已完成 | `runs.citations`（迁移 0014）存 `message.completed` 的完整引用快照，历史会话还原角标并复用现有全文预览；只保留已知字段、最多 50 条，正文按 ADR-0023 清空时一起置空，`content_redacted` / 过期时详情返回 `[]`；迁移前旧 run 不回填；`test_store_contract.py`、`test_runs_api.py`；[ADR-0031](docs/decisions/0031-run-citations-replay.md) |
 | PDF 解析子进程隔离（W6 后补） | ✅ 已完成 | `.pdf` 在 `spawn` 子进程里解析（PyMuPDF/pypdf 逻辑不变），60 秒超时先 terminate 再 kill；崩溃/超时/管道异常都收敛成 `ParseError` → 上传接口 422，不再带走 API；本机实测 1 页文本 PDF 预热后 5 次中位数约 0.30 秒启动开销（Linux/大文件未测），未做内存 rlimit/常驻池；`test_rag_pdf_isolation.py`；[ADR-0032](docs/decisions/0032-pdf-parse-subprocess.md) |
 | 资产查询接表（W6 后补） | ✅ 已完成 | `query_cmdb` 改读 `assets` 表（内存/PG 双实现），`owner_id` 从 schema 删除、由 `ToolGuard` 注入，模型传身份字段会被 `validate_args` 拒绝；返回 `{"assets": [...], "count": N}`，空列表是合法结果，`finalize` 支持单台/多台/空/失败；换真实 CMDB 只替换 repository；无迁移；`tests/test_assets.py`、`test_assets_pg.py`；[ADR-0034](docs/decisions/0034-cmdb-assets-table.md) |
+| 历史运行过程回放（W6 后补） | ✅ 已完成 | `GET /runs/{id}` 从 `tool.call/result`、`approval.required/resolved` 投影只读 `timeline`，按 `call_id` / `approval_id` 合并，步骤与 `message.delta` 不进入；最多 20 项、超出 `timeline_truncated=true`；跟随回答可见性，正文回收/过期/事件清理时 `timeline_available=false`；不返回审批人 `resolved_by`/`scope`；历史回答下方折叠展示，只读；无新表/迁移；`tests/test_run_timeline.py`、`test_runs_api.py`；[ADR-0035](docs/decisions/0035-run-timeline-replay.md) |
 
 ### 评测与压测
 
@@ -310,8 +311,10 @@ W6 基线（3 轮均值，mock 规则路径，口径见 [baseline-v1](docs/eval/
   （[ADR-0029](docs/decisions/0029-ticket-self-service-query.md)）
 - 会话列表首屏是最近 20 个会话、每个会话 20 轮，底部/顶部可继续翻页，但没有会话搜索、
   重命名、删除与虚拟滚动；翻页期间有新 run 时可能重复或跳过一页，刷新即重置
-  （[ADR-0033](docs/decisions/0033-session-history-pagination.md)）；只读 transcript 不回放
-  工具结果与审批卡片；历史回答的引用角标已按
+  （[ADR-0033](docs/decisions/0033-session-history-pagination.md)）；历史回答的工具/审批以
+  「运行过程」折叠区回放（[ADR-0035](docs/decisions/0035-run-timeline-replay.md)），但最多
+  20 项、单条工具结果没有字节上限，不显示审批人；正文被回收/过期或事件已清理后不可回看。
+  历史回答的引用角标已按
   `runs.citations` 还原（[ADR-0031](docs/decisions/0031-run-citations-replay.md)），
   但迁移前的旧 run 没有快照；窄屏（<640px）隐藏
   会话栏，暂没有抽屉入口；刷新不自动恢复最后一次会话（需在左侧点开）；正文按

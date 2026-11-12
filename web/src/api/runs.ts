@@ -1,6 +1,6 @@
 /** 运行查询接口：列表、详情、断线补拉与回放。契约见 docs/03-api-contract.md 第 3 节。 */
 
-import type { Citation, RunEvent } from '@/features/chat/types';
+import type { Citation, RunEvent, TimelineItem } from '@/features/chat/types';
 import { getJson } from './client';
 
 export interface RunSummary {
@@ -48,6 +48,11 @@ export interface RunDetail extends RunSummary {
   content_redacted: boolean;
   // 历史会话还原角标用的引用快照（ADR-0031）；正文被回收/过期清理时为空
   citations: Citation[];
+  // 只读运行过程（ADR-0035）：工具调用与审批，不含正文/步骤事件
+  timeline: TimelineItem[];
+  // false 表示事件已清理或回答被回收：过程不可用 ≠ 这轮没调工具
+  timeline_available: boolean;
+  timeline_truncated: boolean;
   model_calls: ModelCall[];
 }
 

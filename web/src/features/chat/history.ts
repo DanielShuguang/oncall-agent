@@ -43,11 +43,17 @@ export function transcriptMessages(runs: RunDetail[]): ChatMessage[] {
     else answer = '（没有回答内容）';
     // 引用快照只在正文可见时还原（ADR-0031）；否则角标会指向一段看不到的答案
     const citations = !run.content_redacted && run.output ? run.citations : [];
+    // 运行过程同样跟随回答可见性（ADR-0035）；可用但没有记录时不必渲染折叠区
+    const timeline =
+      !run.content_redacted && run.output && run.timeline.length ? run.timeline : undefined;
     messages.push({
       id: `hist_${run.run_id}_a`,
       role: 'assistant',
       text: answer,
       citations: citations.length ? citations : undefined,
+      timeline,
+      timelineAvailable: run.timeline_available,
+      timelineTruncated: run.timeline_truncated,
     });
   }
   return messages;

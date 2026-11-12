@@ -65,7 +65,43 @@ export interface ChatMessage {
   text: string;
   streaming?: boolean;
   citations?: Citation[];
+  /** 历史回答的运行过程（ADR-0035）；只读，不回放 message.delta */
+  timeline?: TimelineItem[];
+  /** false 表示事件已过保留期，不能把「不可用」显示成「没有过程」 */
+  timelineAvailable?: boolean;
+  timelineTruncated?: boolean;
 }
+
+export interface ToolTimelineItem {
+  kind: 'tool';
+  seq: number;
+  call_id: string;
+  tool: string;
+  args: Record<string, unknown>;
+  write: boolean;
+  status: string;
+  result?: unknown;
+  error?: string;
+  error_kind?: string;
+  duration_ms?: number;
+  attempts?: number;
+}
+
+export interface ApprovalTimelineItem {
+  kind: 'approval';
+  seq: number;
+  approval_id: string;
+  tool: string;
+  args: Record<string, unknown>;
+  risk_level: string;
+  reason?: string;
+  expires_at?: string;
+  status: string;
+  resolved_at?: string;
+  decision_reason?: string;
+}
+
+export type TimelineItem = ToolTimelineItem | ApprovalTimelineItem;
 
 export interface ApprovalRequest {
   approvalId: string;

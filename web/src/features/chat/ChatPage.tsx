@@ -9,6 +9,7 @@ import { getRun, listRuns } from '@/api/runs';
 import { listSessions, type SessionSummary } from '@/api/sessions';
 import { CitationPreviewDialog } from './CitationPreviewDialog';
 import { SessionList } from './SessionList';
+import { Timeline } from './Timeline';
 import { transcriptMessages } from './history';
 import { useChat } from './store';
 import type { Citation } from './types';
@@ -332,6 +333,14 @@ export default function ChatPage() {
                     </Tooltip>
                   ))}
                 </div>
+              ) : null}
+              {msg.role === 'assistant' &&
+              ((msg.timeline?.length ?? 0) > 0 || msg.timelineAvailable === false) ? (
+                <Timeline
+                  items={msg.timeline ?? []}
+                  available={msg.timelineAvailable ?? true}
+                  truncated={Boolean(msg.timelineTruncated)}
+                />
               ) : null}
             </div>
           ))}

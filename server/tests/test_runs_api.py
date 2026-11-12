@@ -261,6 +261,66 @@ async def test_run_detail_includes_model_calls(
     assert calls[0]["token_in"] == 100
 
 
+async def test_run_detail_includes_readonly_timeline(
+    client: AsyncClient, mem_store: InMemoryRunStore
+) -> None:
+    """历史详情回放工具/审批（ADR-0035），审批人身份不出现在响应里。"""
+    run_id = await _seed_run(mem_store)
+    await mem_store.append(
+        run_id,
+        EventType.TOOL_CALL,
+        {"call_id": "call_1", "tool": "query_cmdb", "args": {}, "write": False},
+    )
+    await mem_store.append(
+        run_id,
+        EventType.TOOL_RESULT,
+        {
+            "call_id": "call_1",
+            "tool": "query_cmdb",
+            "status": "ok",
+            "result": {"count": 2},
+            "duration_ms": 3,
+            "attempts": 1,
+        },
+    )
+    await mem_store.append(
+        run_id,
+        EventType.APPROVAL_REQUIRED,
+        {
+            "approval_id": "apr_1",
+            "tool": "create_ticket",
+            "args": {"title": "打印机报修"},
+            "risk_level": "high",
+            "reason": "将创建工单",
+            "expires_at": "2026-01-01T00:00:00Z",
+        },
+    )
+    await mem_store.append(
+        run_id,
+        EventType.APPROVAL_RESOLVED,
+        {
+            "approval_id": "apr_1",
+            "status": "approved",
+            "resolved_by": "u_205",
+            "reason": "同意",
+            "scope": "once",
+        },
+    )
+
+    detail = (await client.get(f"/api/runs/{run_id}")).json()
+
+    assert detail["timeline_available"] is True
+    assert detail["timeline_truncated"] is False
+    assert [item["kind"] for item in detail["timeline"]] == ["tool", "approval"]
+    tool = detail["timeline"][0]
+    assert tool["status"] == "ok"
+    assert tool["result"] == {"count": 2}
+    approval = detail["timeline"][1]
+    assert approval["status"] == "approved"
+    assert "resolved_by" not in approval
+    assert "scope" not in approval
+
+
 async def test_pruned_events_are_marked_in_detail(
     client: AsyncClient, mem_store: InMemoryRunStore
 ) -> None:
@@ -272,6 +332,8 @@ async def test_pruned_events_are_marked_in_detail(
     detail = (await client.get(f"/api/runs/{run_id}")).json()
     assert detail["events_pruned_at"] is not None
     assert detail["event_count"] == 0
+    assert detail["timeline"] == []
+    assert detail["timeline_available"] is False
     # 摘要与回答保留：回放不可用不等于 run 消失
     assert detail["output"] == "重启打印服务"
     assert detail["content_redacted"] is False

@@ -1,5 +1,6 @@
 /** 会话列表接口（ADR-0030/0033）。会话是 runs.session_id 的投影，没有独立表。 */
 
+import type { HistoryRun } from './runs';
 import { getJson } from './client';
 
 export interface SessionSummary {
@@ -21,4 +22,24 @@ export async function listSessions(limit = 20, cursor: string | null = null): Pr
   const params = new URLSearchParams({ limit: String(limit) });
   if (cursor) params.set('cursor', cursor);
   return getJson<SessionPage>(`/sessions?${params.toString()}`);
+}
+
+export interface SessionRunsPage {
+  session_id: string;
+  items: HistoryRun[];
+  /** 与 /runs 同一套 keyset 游标；取满才返回（ADR-0036） */
+  next_cursor: string | null;
+}
+
+/** 一次取回一页会话详情（ADR-0036），替代详情 + 事件的 N+1 请求。 */
+export async function getSessionRuns(
+  sessionId: string,
+  limit = 20,
+  cursor: string | null = null,
+): Promise<SessionRunsPage> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (cursor) params.set('cursor', cursor);
+  return getJson<SessionRunsPage>(
+    `/sessions/${encodeURIComponent(sessionId)}/runs?${params.toString()}`,
+  );
 }

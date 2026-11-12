@@ -10,6 +10,9 @@ from httpx import AsyncClient
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.store import InMemoryRunStore
+from app.rag.access import ROLES
+from app.rag.retrieve import KnowledgeBase
+from app.schemas.event import EventType
 
 
 async def _run(
@@ -165,3 +168,182 @@ async def test_sessions_database_failure_is_503(
     res = await client.get("/api/sessions")
     assert res.status_code == 503
     assert res.json()["code"] == "DATABASE_UNAVAILABLE"
+
+
+async def _detail(
+    store: InMemoryRunStore,
+    session_id: str,
+    message: str,
+    *,
+    citations: list[dict[str, object]] | None = None,
+    with_tool: bool = False,
+    user_id: str = "u_102",
+) -> str:
+    """造一条有正文（可选引用/工具事件）的历史 run。"""
+    run_id = str(uuid.uuid4())
+    await store.create(
+        run_id=run_id,
+        user_id=user_id,
+        session_id=session_id,
+        message=message,
+    )
+    await store.append(run_id, EventType.RUN_STARTED, {"model": "mock", "max_steps": 12})
+    payload: dict[str, object] = {"text": f"回答：{message}"}
+    if citations is not None:
+        payload["citations"] = citations
+    await store.append(run_id, EventType.MESSAGE_COMPLETED, payload)
+    if with_tool:
+        await store.append(
+            run_id,
+            EventType.TOOL_CALL,
+            {"call_id": f"call_{run_id}", "tool": "query_cmdb", "args": {}, "write": False},
+        )
+        await store.append(
+            run_id,
+            EventType.TOOL_RESULT,
+            {"call_id": f"call_{run_id}", "tool": "query_cmdb", "status": "ok", "result": {}},
+        )
+    await store.append(run_id, EventType.RUN_COMPLETED, {"status": "completed", "steps": 1})
+    return run_id
+
+
+async def _public_doc(kb: KnowledgeBase) -> str:
+    info, _ = await kb.index_text(
+        title="打印机驱动",
+        text="# 打印机驱动\n\n重启打印服务即可。\n",
+        source=f"seed:{uuid.uuid4().hex}.md",
+    )
+    return info.id
+
+
+async def test_session_runs_batch_returns_details_and_timeline(
+    client: AsyncClient, mem_store: InMemoryRunStore, memory_kb: KnowledgeBase
+) -> None:
+    """批量详情一次返回正文/引用/运行过程，且不带 model_calls（ADR-0036）。"""
+    doc_id = await _public_doc(memory_kb)
+    older = await _detail(
+        mem_store,
+        "sess_batch",
+        "怎么装驱动",
+        citations=[
+            {
+                "chunk_id": 0,
+                "document_id": doc_id,
+                "ord": 0,
+                "title": "打印机驱动",
+                "snippet": "重启打印服务即可。",
+            }
+        ],
+    )
+    await asyncio.sleep(0.005)
+    newer = await _detail(mem_store, "sess_batch", "重启了还是不行", with_tool=True)
+
+    res = await client.get("/api/sessions/sess_batch/runs")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["session_id"] == "sess_batch"
+    assert body["next_cursor"] is None
+    assert [item["run_id"] for item in body["items"]] == [newer, older]
+    first = body["items"][0]
+    assert "model_calls" not in first
+    assert first["content_redacted"] is False
+    assert [item["kind"] for item in first["timeline"]] == ["tool"]
+    assert first["timeline"][0]["status"] == "ok"
+    second = body["items"][1]
+    assert second["citations"][0]["document_id"] == doc_id
+
+
+async def test_session_runs_missing_or_foreign_session_is_404(
+    client: AsyncClient, mem_store: InMemoryRunStore
+) -> None:
+    await _detail(mem_store, "sess_other", "别人的会话", user_id="u_205")
+
+    assert (await client.get("/api/sessions/sess_missing/runs")).status_code == 404
+    assert (await client.get("/api/sessions/sess_other/runs")).status_code == 404
+
+
+async def test_session_runs_paginate_older_runs(
+    client: AsyncClient, mem_store: InMemoryRunStore
+) -> None:
+    first = await _detail(mem_store, "sess_page", "第一轮")
+    await asyncio.sleep(0.005)
+    second = await _detail(mem_store, "sess_page", "第二轮")
+    await asyncio.sleep(0.005)
+    third = await _detail(mem_store, "sess_page", "第三轮")
+
+    page = await client.get("/api/sessions/sess_page/runs", params={"limit": 2})
+    body = page.json()
+    assert [item["run_id"] for item in body["items"]] == [third, second]
+    assert body["next_cursor"] is not None
+
+    older = await client.get(
+        "/api/sessions/sess_page/runs",
+        params={"limit": 2, "cursor": body["next_cursor"]},
+    )
+    older_body = older.json()
+    assert [item["run_id"] for item in older_body["items"]] == [first]
+    assert older_body["next_cursor"] is None
+
+    bad = await client.get(
+        "/api/sessions/sess_page/runs",
+        params={"cursor": "not-a-cursor"},
+    )
+    assert bad.status_code == 400
+    assert bad.json()["code"] == "INVALID_CURSOR"
+
+
+async def test_session_runs_cursor_past_end_returns_empty_page(
+    client: AsyncClient, mem_store: InMemoryRunStore
+) -> None:
+    await _detail(mem_store, "sess_empty", "唯一一轮")
+
+    page = await client.get("/api/sessions/sess_empty/runs", params={"limit": 1})
+    body = page.json()
+    assert len(body["items"]) == 1
+    assert body["next_cursor"] is not None
+
+    empty = await client.get(
+        "/api/sessions/sess_empty/runs",
+        params={"limit": 1, "cursor": body["next_cursor"]},
+    )
+    assert empty.status_code == 200
+    assert empty.json()["items"] == []
+    assert empty.json()["next_cursor"] is None
+
+
+async def test_session_runs_redacts_only_the_restricted_run(
+    client: AsyncClient, mem_store: InMemoryRunStore, memory_kb: KnowledgeBase
+) -> None:
+    """同一页里被回收的 run 只影响自己，正文与运行过程一起收起。"""
+    public_id = await _public_doc(memory_kb)
+    hidden_id = await _public_doc(memory_kb)
+    await memory_kb.set_access(hidden_id, visibility=ROLES, allowed_roles=("hr",))
+
+    visible = await _detail(
+        mem_store,
+        "sess_mix",
+        "公开问题",
+        citations=[{"document_id": public_id, "chunk_id": 0, "ord": 0}],
+        with_tool=True,
+    )
+    await asyncio.sleep(0.005)
+    hidden = await _detail(
+        mem_store,
+        "sess_mix",
+        "受限问题",
+        citations=[{"document_id": hidden_id, "chunk_id": 0, "ord": 0}],
+        with_tool=True,
+    )
+
+    body = (await client.get("/api/sessions/sess_mix/runs")).json()
+    items = {item["run_id"]: item for item in body["items"]}
+
+    assert items[visible]["content_redacted"] is False
+    assert items[visible]["output"] is not None
+    assert items[visible]["timeline_available"] is True
+
+    assert items[hidden]["content_redacted"] is True
+    assert items[hidden]["output"] is None
+    assert items[hidden]["citations"] == []
+    assert items[hidden]["timeline"] == []
+    assert items[hidden]["timeline_available"] is False

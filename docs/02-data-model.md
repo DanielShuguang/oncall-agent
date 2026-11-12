@@ -69,6 +69,9 @@ CREATE INDEX idx_runs_status            ON runs (status) WHERE status IN ('runni
 > 翻页用 keyset 游标 `(max(started_at), session_id)`，`HAVING` 过滤后取下一批
 > （[ADR-0033](decisions/0033-session-history-pagination.md)）；没有新索引，也不承诺
 > 翻页期间新 run 不造成重复/跳过。
+> 会话详情的一页读取由 `GET /sessions/{session_id}/runs` 一次投影
+> （[ADR-0036](decisions/0036-session-detail-batch.md)）：按 `(started_at, run_id)`
+> 取一页 run，引用可见性合并成一次知识库查询，事件按 run 批量取；**没有新列/新表**。
 > `events_pruned_at` 非空表示这场 run 的事件已按保留策略整场删除（迁移 0010、
 > [ADR-0021](decisions/0021-data-retention.md)）：**由清理任务写入，不是事件投影**；
 > 回放不可用，摘要/回答/计量仍保留。

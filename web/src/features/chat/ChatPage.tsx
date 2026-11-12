@@ -5,8 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { getRun, listRuns } from '@/api/runs';
-import { listSessions, type SessionSummary } from '@/api/sessions';
+
+import { getSessionRuns, listSessions, type SessionSummary } from '@/api/sessions';
 import { CitationPreviewDialog } from './CitationPreviewDialog';
 import { SessionList } from './SessionList';
 import { Timeline } from './Timeline';
@@ -139,13 +139,12 @@ export default function ChatPage() {
     setHistoryOlderLoading(false);
     setSessionsError(null);
     try {
-      const list = await listRuns({ sessionId: nextSessionId, limit: 20 });
-      const details = await Promise.all(list.items.map((item) => getRun(item.run_id)));
+      const page = await getSessionRuns(nextSessionId, 20);
       if (requestId !== historyRequest.current) return;
       setActiveCitation(null);
       setText('');
-      setHistoryCursor(list.next_cursor);
-      switchSession(nextSessionId, transcriptMessages(details));
+      setHistoryCursor(page.next_cursor);
+      switchSession(nextSessionId, transcriptMessages(page.items));
     } catch (err) {
       if (requestId === historyRequest.current) {
         setSessionsError(err instanceof Error ? err.message : '历史会话加载失败');
@@ -161,11 +160,10 @@ export default function ChatPage() {
     setHistoryOlderLoading(true);
     setSessionsError(null);
     try {
-      const list = await listRuns({ sessionId, limit: 20, cursor: historyCursor });
-      const details = await Promise.all(list.items.map((item) => getRun(item.run_id)));
+      const page = await getSessionRuns(sessionId, 20, historyCursor);
       if (requestId !== historyRequest.current) return;
-      prependHistory(transcriptMessages(details));
-      setHistoryCursor(list.next_cursor);
+      prependHistory(transcriptMessages(page.items));
+      setHistoryCursor(page.next_cursor);
     } catch (err) {
       if (requestId === historyRequest.current) {
         setSessionsError(err instanceof Error ? err.message : '更早的对话加载失败');

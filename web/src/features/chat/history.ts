@@ -5,7 +5,7 @@
  * 明确的占位说明，不能让人以为是「模型没回答」。
  */
 
-import type { RunDetail } from '@/api/runs';
+import type { HistoryRun } from '@/api/runs';
 import type { ChatMessage } from './types';
 
 export const PRUNED_NOTE = '（正文已过保留期，不再展示）';
@@ -13,9 +13,9 @@ export const REDACTED_NOTE = '（回答引用的文档已不可见，内容不�
 export const RUNNING_NOTE = '（这场对话还没有结束）';
 export const FAILED_NOTE = '（这场对话没有生成回答）';
 
-export function transcriptMessages(runs: RunDetail[]): ChatMessage[] {
+export function transcriptMessages(runs: HistoryRun[]): ChatMessage[] {
   // 有序插入而不是 sort：ES2022 库没有 toSorted，oxlint 也不允许原地 sort
-  const ordered: RunDetail[] = [];
+  const ordered: HistoryRun[] = [];
   for (const run of runs) {
     let index = ordered.length;
     while (index > 0) {

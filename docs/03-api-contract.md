@@ -32,6 +32,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | POST | `/chat/stream` | 发起一次对话，返回 SSE 流 | W1 D3 |
 | GET | `/runs` | 运行列表（分页、按状态/会话筛选） | W4 D19 / W6 后补 |
 | GET | `/sessions` | 当前用户的会话列表（keyset 游标，按活动倒序） | W6 后补 |
+| GET | `/sessions/{session_id}/runs` | 一页会话详情（正文/引用/运行过程，一次返回） | W6 后补 |
 | GET | `/runs/{run_id}` | 单次运行详情（含指标与模型调用明细） | W1 D4 / W4 D19 |
 | GET | `/runs/{run_id}/events?after_seq=` | 补拉事件（断线续传，兼容 `Last-Event-ID`） | W1 D4 |
 | GET | `/runs/{run_id}/stream` | 重连增量流（可选，v1 用轮询替代） | — |
@@ -372,9 +373,53 @@ GET /api/sessions?limit=20&cursor=eyJ0IjoiMjAyNi0xMS0wOVQwMjoyNjo0MS4wMDgrMDA6MD
   v1 不保证快照一致性（ADR-0033）
 - 库不可用时返回 `503 {"code":"DATABASE_UNAVAILABLE"}`，不会静默返回空列表
   （否则会显示成「你没有历史会话」）
-- 取历史：先 `GET /runs?session_id=...` 拿最近 20 条 run，再逐条 `GET /runs/{run_id}`；
-  更早的轮次把该响应里的 `next_cursor` 带回 `GET /runs?session_id=...&cursor=...`。
+- 取历史：优先用下面的批量接口 `GET /sessions/{session_id}/runs`（一次拿一页正文/引用/
+  运行过程）；单条详情路径仍保留。更早的轮次把响应里的 `next_cursor` 带回同一接口。
   继续对话直接用这个 `session_id` 调 `/chat/stream`，服务端按 ADR-0020 续上下文
+
+### 3.4 一页会话详情（ADR-0036）
+
+```http
+GET /api/sessions/sess_01H.../runs?limit=20
+Authorization: Bearer <token>
+```
+
+```json
+{
+  "session_id": "sess_01H...",
+  "items": [
+    {
+      "run_id": "run_01H...",
+      "status": "completed",
+      "input": "我电脑连不上打印机了",
+      "output": "先重启打印服务……",
+      "content_redacted": false,
+      "citations": [
+        { "chunk_id": 3, "document_id": "doc_print", "ord": 1, "title": "打印机手册", "snippet": "……" }
+      ],
+      "timeline": [
+        { "kind": "tool", "seq": 4, "call_id": "call_1", "tool": "query_cmdb", "args": {}, "write": false, "status": "ok", "duration_ms": 12 }
+      ],
+      "timeline_available": true,
+      "timeline_truncated": false
+    }
+  ],
+  "next_cursor": null
+}
+```
+
+- 管理/本人：只返回当前用户的会话；路径里的 `session_id` 属于别人或不存在且没有游标时
+  返回 `404 {"detail":"session not found"}`，不区分两种原因（避免泄露存在性）
+- `items` 的字段与 `GET /runs/{run_id}` 相同（`input` / `output` / `content_redacted` /
+  `citations` / `timeline*`），**但没有 `model_calls`**：历史 transcript 不需要计量明细，
+  需要时仍走单条详情
+- 分页与 `/runs` 共用 keyset 游标：`limit` 1–50 默认 20，按 `started_at` 倒序，
+  取满才给 `next_cursor`；游标翻到空页返回 200 空列表
+- 可见性按当前角色**整页一次**判定（ADR-0022）：正文被回收的 run 只影响自己，
+  同页其他 run 正常返回；被回收时 `output=null`、`citations=[]`、`timeline=[]`
+- `timeline` 只对回答可见且事件未清理的 run 生成（ADR-0035）；`timeline_available=false`
+  表示「过程不可用」，不是「没调工具」
+- 库不可用时返回 `503 {"code":"DATABASE_UNAVAILABLE"}`
 
 ## 4. 审批
 

@@ -56,6 +56,9 @@ export interface RunDetail extends RunSummary {
   model_calls: ModelCall[];
 }
 
+/** 批量历史里的一轮：正文/引用/运行过程，不含计量明细（ADR-0036）。 */
+export type HistoryRun = Omit<RunDetail, 'model_calls'>;
+
 export interface RunListResponse {
   items: RunSummary[];
   next_cursor: string | null;

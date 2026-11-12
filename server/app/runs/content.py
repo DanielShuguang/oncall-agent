@@ -71,6 +71,31 @@ async def content_is_redacted(record: RunRecord, *, viewer: Viewer, kb: Knowledg
     )
 
 
+async def redacted_run_ids(
+    records: Sequence[RunRecord], *, viewer: Viewer, kb: KnowledgeBase
+) -> set[str]:
+    """批量版 `content_is_redacted`：一次知识库查询判定整页 run。
+
+    历史会话一次读取 20 轮，逐轮查可见性会变成 20 次 `kb_documents` 查询
+    （ADR-0036）；这里把所有引用 id 合并成一次 `visible_document_ids`。
+    语义与单条函数一致：正文已过期清理的 run 不参与判定（不算「被回收」），
+    没有引用的 run 恒可见。
+    """
+    items = list(records)
+    ids = _unique_ids(document_id for record in items for document_id in record.cited_document_ids)
+    if not ids or viewer.unrestricted:
+        return set()
+    visible = await kb.visible_document_ids(ids, viewer=viewer)
+    redacted: set[str] = set()
+    for record in items:
+        if record.content_pruned_at is not None:
+            continue
+        cited = _unique_ids(record.cited_document_ids)
+        if cited and not all(document_id in visible for document_id in cited):
+            redacted.add(record.run_id)
+    return redacted
+
+
 async def filter_visible_turns(
     turns: Iterable[RunTurn], *, viewer: Viewer, kb: KnowledgeBase
 ) -> list[RunTurn]:

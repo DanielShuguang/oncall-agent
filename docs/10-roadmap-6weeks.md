@@ -767,6 +767,34 @@ ADR-0030/0031 让历史会话能回看问题、回答与引用角标，但刷新
 
 ---
 
+## W6 后补：批量会话详情（ADR-0036）
+
+打开一个 20 轮的历史会话，前端此前要发 1 次会话列表 + 20 次 run 详情 + 20 次事件回放，
+共 41 次请求；「加载更早」再来一轮。数据与接口都没错，缺的是面向**历史会话**的读模型：
+把一页 run 的正文、引用与运行过程一次返回，可见性与事件在服务端批量判定。
+
+| 事项 | 落地 |
+|---|---|
+| 接口 | 新增 `GET /sessions/{session_id}/runs`，一页返回 `input/output/content_redacted/citations/timeline/timeline_available/timeline_truncated` |
+| 分页 | 与 `/runs` 共用 keyset 游标 `(started_at, run_id)`，`limit` 1–50 默认 20，按时间倒序 |
+| 可见性 | 整页 `cited_document_ids` 合并成一次知识库查询；被回收的 run 只影响自己 |
+| 事件 | 只给「回答可见且事件未清理」的 run 取事件；Postgres 用窗口函数一次取回 |
+| 404 | 无游标且查不到 run 时返回 404（不区分不存在/别人的会话）；游标越界返回 200 空页 |
+| 字段 | 不含 `model_calls`（历史 transcript 不需要）；需要计量时仍走单条详情 |
+| 前端 | 打开会话与加载更早各一次请求；`historyRequest` 竞态 token 不变 |
+| 迁移 | **无**：仍然从 `runs` 与 `run_events` 投影，没有 `sessions` 表 |
+
+验证：默认 **443 passed + 32 skipped**；真实 Postgres 下 **472 passed + 3 skipped**，
+再加 Redis 为 **475 passed**；`ruff check` / `ruff format --check`（176 files）/
+`mypy app`（106 files）通过；前端 `tsc`、**65 tests / 13 files**、`oxlint`、`oxfmt --check`、
+`build` 通过。检索、提示词与多轮历史未改，未重跑评测。
+
+已知边界：仍按游标翻页，没有「跳到某一轮」；批量响应可能达数百 KB，单条 run 没有
+字节上限；不能按状态过滤或只取摘要；会话不存在时与单条详情一样返回 404。
+详见 [ADR-0036](decisions/0036-session-detail-batch.md)。
+
+---
+
 ## 每周固定动作
 
 | 时点 | 动作 |

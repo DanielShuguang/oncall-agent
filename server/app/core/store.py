@@ -12,11 +12,12 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Protocol
 
-from sqlalchemy import and_, delete, func, or_, select, update
+from sqlalchemy import and_, delete, func, or_, select, tuple_, update
 from sqlalchemy.exc import IntegrityError
 
 from app.core.logging import get_logger
@@ -384,6 +385,16 @@ class RunStore(Protocol):
         self, run_id: str, after_seq: int = 0, limit: int = 200
     ) -> list[RunEvent]: ...
 
+    async def events_for_runs(
+        self, run_ids: Sequence[str], *, limit_per_run: int = 500
+    ) -> dict[str, list[RunEvent]]:
+        """一次取多个 run 的前 N 条事件（ADR-0036 会话历史批量回放）。
+
+        返回按 `run_id` 分组、组内按 `seq` 升序；只包含入参里存在的 run。
+        没有这个方法时，打开 20 轮会话要发 20 次事件查询。
+        """
+        ...
+
     async def set_status(
         self, run_id: str, status: str, *, error_code: str | None = None
     ) -> None: ...
@@ -627,6 +638,20 @@ class InMemoryRunStore:
         except ValueError:
             return []
         return [e for e in self._events.get(rid, []) if e.seq > after_seq][:limit]
+
+    async def events_for_runs(
+        self, run_ids: Sequence[str], *, limit_per_run: int = 500
+    ) -> dict[str, list[RunEvent]]:
+        grouped: dict[str, list[RunEvent]] = {}
+        for run_id in run_ids:
+            try:
+                rid = str(uuid.UUID(run_id))
+            except ValueError:
+                continue
+            events = self._events.get(rid)
+            if events:
+                grouped[run_id] = events[:limit_per_run]
+        return grouped
 
     async def set_status(self, run_id: str, status: str, *, error_code: str | None = None) -> None:
         rid = str(uuid.UUID(run_id))
@@ -1001,6 +1026,47 @@ class PostgresRunStore:
             ).all()
         events = [_event_from_row(row) for row in rows]
         return [event for event in events if event is not None]
+
+    async def events_for_runs(
+        self, run_ids: Sequence[str], *, limit_per_run: int = 500
+    ) -> dict[str, list[RunEvent]]:
+        uids: list[uuid.UUID] = []
+        for run_id in run_ids:
+            try:
+                uids.append(uuid.UUID(run_id))
+            except ValueError:
+                continue
+        if not uids:
+            return {}
+        # 每个 run 只取前 N 条：用窗口函数而不是对每个 run 单独 LIMIT，
+        # 否则 20 轮历史又要退化成 20 次查询（ADR-0036）。
+        ranked = (
+            select(
+                RunEventRow.run_id,
+                RunEventRow.seq,
+                func.row_number()
+                .over(partition_by=RunEventRow.run_id, order_by=RunEventRow.seq)
+                .label("rn"),
+            )
+            .where(RunEventRow.run_id.in_(uids))
+            .subquery()
+        )
+        first_n = select(ranked.c.run_id, ranked.c.seq).where(ranked.c.rn <= limit_per_run)
+        async with self._sessionmaker() as session:
+            rows = (
+                await session.scalars(
+                    select(RunEventRow)
+                    .where(tuple_(RunEventRow.run_id, RunEventRow.seq).in_(first_n))
+                    .order_by(RunEventRow.run_id, RunEventRow.seq)
+                )
+            ).all()
+        grouped: dict[str, list[RunEvent]] = {}
+        for row in rows:
+            event = _event_from_row(row)
+            if event is None:
+                continue
+            grouped.setdefault(str(row.run_id), []).append(event)
+        return grouped
 
     async def set_status(self, run_id: str, status: str, *, error_code: str | None = None) -> None:
         rid = uuid.UUID(run_id)

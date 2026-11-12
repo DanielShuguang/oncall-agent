@@ -23,7 +23,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.deps import get_identity, get_viewer
@@ -33,7 +33,7 @@ from app.gateway.meter import ModelCallStore, get_model_call_store
 from app.rag.access import Viewer
 from app.rag.retrieve import KnowledgeBase
 from app.rag.service import get_knowledge_base
-from app.runs.content import content_is_redacted, content_is_visible
+from app.runs.content import content_is_redacted, content_is_visible, redacted_run_ids
 from app.runs.timeline import build_timeline
 from app.schemas.cost import ModelCallOut
 from app.schemas.event import RunStatus
@@ -44,6 +44,11 @@ router = APIRouter(tags=["runs"])
 
 def _not_found() -> HTTPException:
     return HTTPException(status_code=404, detail="run not found")
+
+
+def _session_not_found() -> HTTPException:
+    # 会话是 run 的投影，没有独立表；别人的会话同样按 404 处理，不泄露存在性
+    return HTTPException(status_code=404, detail="session not found")
 
 
 def _parse_last_event_id(raw: str | None) -> int:
@@ -77,6 +82,45 @@ def _run_summary(rec: RunRecord) -> dict[str, Any]:
         "content_pruned_at": rec.content_pruned_at,
         "started_at": rec.started_at,
         "finished_at": rec.finished_at,
+    }
+
+
+def _timeline_available(record: RunRecord, *, redacted: bool) -> bool:
+    return (
+        record.output is not None
+        and not redacted
+        and record.events_pruned_at is None
+        and record.content_pruned_at is None
+    )
+
+
+def _run_detail_payload(
+    record: RunRecord,
+    *,
+    redacted: bool,
+    timeline: list[dict[str, Any]],
+    timeline_truncated: bool,
+) -> dict[str, Any]:
+    """详情与批量历史共用的 run 正文/引用/过程字段（不含 model_calls）。"""
+    return {
+        **_run_summary(record),
+        # 正文被保留策略清空后 input 是空串、output 是 null（ADR-0023）；
+        # 用 content_pruned_at 区分「本来就空」和「过期清理」
+        "input": record.input,
+        "output": None if redacted else record.output,
+        "content_redacted": redacted,
+        # 引用快照供历史会话还原角标（ADR-0031）。正文没生成、被权限回收或按时间
+        # 清空时都不返回：没有可指的答案，片段也不能比 output 活得更久。
+        "citations": (
+            []
+            if redacted or record.content_pruned_at is not None or record.output is None
+            else record.citations
+        ),
+        # 只读运行过程（ADR-0035）：工具调用/审批的短列表，事件已清理或内容被
+        # 回收时为空，并用 timeline_available 区分「没有过程」与「过程不可用」。
+        "timeline": timeline,
+        "timeline_available": _timeline_available(record, redacted=redacted),
+        "timeline_truncated": timeline_truncated,
     }
 
 
@@ -217,6 +261,67 @@ async def list_sessions(
     }
 
 
+@router.get("/sessions/{session_id}/runs")
+async def list_session_runs(
+    session_id: Annotated[str, Path(min_length=1, max_length=64)],
+    store: Annotated[RunStore, Depends(get_store)],
+    identity: Annotated[Identity, Depends(get_identity)],
+    kb: Annotated[KnowledgeBase, Depends(get_knowledge_base)],
+    viewer: Annotated[Viewer, Depends(get_viewer)],
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+    cursor: Annotated[str | None, Query(max_length=512)] = None,
+) -> dict[str, Any]:
+    """一次取回一页历史会话详情（ADR-0036）。
+
+    打开 20 轮会话时，前端原本要 1 次列表 + 20 次详情 + 20 次事件查询；这里
+    把可见性判定与事件读取都做成批量。会话不存在（或属于别人）且没有游标时
+    返回 404，与单条 run 的口径一致；游标翻到空页则返回 200 空列表。
+    """
+    before_started_at: datetime | None = None
+    before_run_id: str | None = None
+    if cursor:
+        before_started_at, before_run_id = _decode_cursor(cursor)
+    try:
+        records = await store.list_runs(
+            user_id=identity.user_id,
+            limit=limit,
+            session_id=session_id,
+            before_started_at=before_started_at,
+            before_run_id=before_run_id,
+        )
+        if not records and cursor is None:
+            raise _session_not_found()
+        # 可见性按整页引用一次查完；运行过程只给「回答可见」的 run 取事件。
+        redacted = await redacted_run_ids(records, viewer=viewer, kb=kb)
+        eligible = [
+            record
+            for record in records
+            if _timeline_available(record, redacted=record.run_id in redacted)
+        ]
+        timelines = (
+            await store.events_for_runs([record.run_id for record in eligible]) if eligible else {}
+        )
+    except SQLAlchemyError as exc:
+        raise ApiError(503, "DATABASE_UNAVAILABLE", "database unavailable") from exc
+    items: list[dict[str, Any]] = []
+    for record in records:
+        is_redacted = record.run_id in redacted
+        timeline: list[dict[str, Any]] = []
+        timeline_truncated = False
+        if _timeline_available(record, redacted=is_redacted):
+            timeline, timeline_truncated = build_timeline(timelines.get(record.run_id, []))
+        items.append(
+            _run_detail_payload(
+                record,
+                redacted=is_redacted,
+                timeline=timeline,
+                timeline_truncated=timeline_truncated,
+            )
+        )
+    next_cursor = _encode_cursor(records[-1]) if len(records) == limit else None
+    return {"session_id": session_id, "items": items, "next_cursor": next_cursor}
+
+
 @router.get("/runs/{run_id}")
 async def get_run(
     run_id: str,
@@ -238,39 +343,21 @@ async def get_run(
         # 再展示（它们同样属于那一轮的内容）。没有回答正文（失败/未完成）时也
         # 不返回过程；事件已清理时明确告诉前端「不可用」，不把它伪装成
         # 「这轮没调工具」。
-        timeline_available = (
-            rec.output is not None
-            and not redacted
-            and rec.events_pruned_at is None
-            and rec.content_pruned_at is None
-        )
         timeline: list[dict[str, Any]] = []
         timeline_truncated = False
-        if timeline_available:
+        if _timeline_available(rec, redacted=redacted):
             timeline, timeline_truncated = build_timeline(
                 await store.events_after(run_id, limit=500)
             )
     except SQLAlchemyError as exc:
         raise ApiError(503, "DATABASE_UNAVAILABLE", "database unavailable") from exc
     return {
-        **_run_summary(rec),
-        # 正文被保留策略清空后 input 是空串、output 是 null（ADR-0023）；
-        # 用 content_pruned_at 区分「本来就空」和「过期清理」
-        "input": rec.input,
-        "output": None if redacted else rec.output,
-        "content_redacted": redacted,
-        # 引用快照供历史会话还原角标（ADR-0031）。正文没生成、被权限回收或按时间
-        # 清空时都不返回：没有可指的答案，片段也不能比 output 活得更久。
-        "citations": (
-            []
-            if redacted or rec.content_pruned_at is not None or rec.output is None
-            else rec.citations
+        **_run_detail_payload(
+            rec,
+            redacted=redacted,
+            timeline=timeline,
+            timeline_truncated=timeline_truncated,
         ),
-        # 只读运行过程（ADR-0035）：工具调用/审批的短列表，事件已清理或内容被
-        # 回收时为空，并用 timeline_available 区分「没有过程」与「过程不可用」。
-        "timeline": timeline,
-        "timeline_available": timeline_available,
-        "timeline_truncated": timeline_truncated,
         "model_calls": [
             ModelCallOut(
                 step=item.step,

@@ -529,6 +529,35 @@ async def _exercise_sessions(store: RunStore) -> None:
     assert other_runs == []
 
 
+async def _exercise_events_for_runs(store: RunStore) -> None:
+    """批量取事件（ADR-0036）：按 run 分组、组内 seq 升序、每个 run 独立截断。"""
+    user = "u_events_batch"
+    first = str(uuid.uuid4())
+    second = str(uuid.uuid4())
+    await store.create(run_id=first, user_id=user, session_id="sess_events", message="第一轮")
+    await store.create(run_id=second, user_id=user, session_id="sess_events", message="第二轮")
+    for node in ("intake", "retrieve", "finalize"):
+        await store.append(first, EventType.STEP_STARTED, {"node": node})
+    for node in ("intake", "retrieve"):
+        await store.append(second, EventType.STEP_STARTED, {"node": node})
+
+    grouped = await store.events_for_runs([first, second, str(uuid.uuid4())])
+    assert set(grouped) == {first, second}
+    assert [event.seq for event in grouped[first]] == [1, 2, 3]
+    assert [event.seq for event in grouped[second]] == [1, 2]
+    assert [event.payload["node"] for event in grouped[first]] == [
+        "intake",
+        "retrieve",
+        "finalize",
+    ]
+
+    limited = await store.events_for_runs([first, second], limit_per_run=1)
+    assert [event.seq for event in limited[first]] == [1]
+    assert [event.seq for event in limited[second]] == [1]
+    assert await store.events_for_runs([]) == {}
+    assert await store.events_for_runs(["not-a-uuid"]) == {}
+
+
 async def test_memory_store_contract() -> None:
     store = InMemoryRunStore()
     await _exercise(store)
@@ -538,6 +567,7 @@ async def test_memory_store_contract() -> None:
     await _exercise_prune_contents(store)
     await _exercise_cited_documents(store)
     await _exercise_sessions(store)
+    await _exercise_events_for_runs(store)
 
 
 @pytest_asyncio.fixture
@@ -569,3 +599,4 @@ async def test_postgres_store_contract(pg_store: PostgresRunStore) -> None:
     await _exercise_prune_contents(pg_store)
     await _exercise_cited_documents(pg_store)
     await _exercise_sessions(pg_store)
+    await _exercise_events_for_runs(pg_store)

@@ -840,10 +840,10 @@ ADR-0029 只回答「最近 N 张的摘要」：用户从回答里拿到单号�
 | 回答 | `finalize` 用表数据直答：单号/状态/优先级/标题、描述（表里有才展示，截 200 字）、处理人、创建/解决日期；不拼知识库引用 |
 | 数据 | `tickets` 字段已齐，**无迁移**；IT 查他人、分页、筛选仍不做 |
 
-验证：默认 **457 passed + 34 skipped**；真实 Postgres **487 passed + 3 skipped**
-（既有 PG 用例补了 `get_for_requester` 与 description/assignee 断言，未新增测试函数）；
-`ruff check`、`ruff format --check`（179 files）、`mypy app`（106 files）通过；前端未改，
-仍 **65 tests / 13 files**。无迁移，检索/提示词/多轮历史未改。
+验证：默认 **457 passed + 34 skipped**；真实 Postgres **488 passed + 3 skipped**，
+再加 Redis **491 passed**（既有 PG 用例补了 `get_for_requester` 与 description/assignee
+断言，未新增测试函数）；`ruff check`、`ruff format --check`（179 files）、`mypy app`
+（106 files）通过；前端未改，仍 **65 tests / 13 files**。无迁移，检索/提示词/多轮历史未改。
 
 已知边界：只查本人、只能按单号精确查；描述最多展示 200 字，且只展示 `tickets` 表里已有的值
 （`create_ticket` 暂不收集 description，自建单没有「问题」行）；状态中文映射仍写死在

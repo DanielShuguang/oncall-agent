@@ -80,8 +80,8 @@ ADR-0029 让用户能查「我最近的工单」，但回答只有单号、状�
   `test_query_tickets_normalizes_and_rejects_malformed_ticket_id`（小写单号可用、格式不对
   返回 null）。
 - 真实 Postgres：`tests/test_tickets_pg.py` 的既有用例补 `get_for_requester` 本人/他人/
-  不存在断言，并回写 description/assignee 后校验详情字段，**487 passed + 3 skipped**
-  （未新增 PG 测试函数）。
+  不存在断言，并回写 description/assignee 后校验详情字段，**488 passed + 3 skipped**，
+  再加 Redis **491 passed**（未新增 PG 测试函数）。
 - `ruff check` 通过、`ruff format --check` 179 files、`mypy app` 106 files。
 - 前端未改，仍 **65 tests / 13 files**；无迁移，`alembic` 不变；检索、提示词、
   多轮历史未改，未重跑 RAG/多轮评测。

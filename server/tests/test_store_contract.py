@@ -558,18 +558,18 @@ async def _exercise_session_titles(store: RunStore) -> None:
     )
 
     assert (
-        await store.rename_session(user_id=user, session_id="sess_t", title="办公室打印机") is True
+        await store.rename_session(user_id=user, session_id="sess_t", title="Office VPN 100%")
+        is True
     )
     sessions = {item.session_id: item for item in await store.list_sessions(user_id=user, limit=10)}
-    assert sessions["sess_t"].title == "办公室打印机"
+    assert sessions["sess_t"].title == "Office VPN 100%"
 
-    # 改名后新标题能搜到，旧的首条问题也仍能搜到
-    assert [
-        item.session_id for item in await store.list_sessions(user_id=user, limit=10, query="办公")
-    ] == ["sess_t"]
-    assert [
-        item.session_id for item in await store.list_sessions(user_id=user, limit=10, query="打印")
-    ] == ["sess_t"]
+    # 改名后新标题能搜到（大小写不敏感、% 按字面量），旧的首条问题也仍能搜到
+    for query in ("office", "VPN", "100%", "打印"):
+        assert [
+            item.session_id
+            for item in await store.list_sessions(user_id=user, limit=10, query=query)
+        ] == ["sess_t"]
 
     # 别人的会话不能改名，也不出现在自己的列表里
     assert await store.rename_session(user_id=user, session_id="sess_secret", title="偷改") is False
@@ -582,7 +582,7 @@ async def _exercise_session_titles(store: RunStore) -> None:
     assert await store.rename_session(user_id=user, session_id="sess_t", title=None) is True
     restored = {item.session_id: item for item in await store.list_sessions(user_id=user, limit=10)}
     assert restored["sess_t"].title == "打印机离线"
-    assert await store.list_sessions(user_id=user, limit=10, query="办公") == []
+    assert await store.list_sessions(user_id=user, limit=10, query="office") == []
 
 
 async def _exercise_events_for_runs(store: RunStore) -> None:

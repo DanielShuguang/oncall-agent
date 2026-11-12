@@ -27,6 +27,7 @@ interface SessionListProps {
   /** 正在改名的会话（ADR-0040）；null 表示没有行内编辑 */
   renamingId: string | null;
   renameDraft: string;
+  renameSaving: boolean;
   onRenameStart: (session: SessionSummary) => void;
   onRenameDraftChange: (value: string) => void;
   onRenameSubmit: () => void;
@@ -62,6 +63,7 @@ export function SessionList({
   onLoadMore,
   renamingId,
   renameDraft,
+  renameSaving,
   onRenameStart,
   onRenameDraftChange,
   onRenameSubmit,
@@ -126,6 +128,7 @@ export function SessionList({
                   <input
                     value={renameDraft}
                     maxLength={60}
+                    disabled={renameSaving}
                     onChange={(event) => onRenameDraftChange(event.target.value)}
                     onKeyDown={(event) => {
                       if (event.key === 'Escape') {
@@ -141,8 +144,8 @@ export function SessionList({
                     <Button size="sm" variant="outline" type="button" onClick={onRenameCancel}>
                       取消
                     </Button>
-                    <Button size="sm" type="submit" disabled={busy}>
-                      保存
+                    <Button size="sm" type="submit" disabled={busy || renameSaving}>
+                      {renameSaving ? '保存中…' : '保存'}
                     </Button>
                   </div>
                 </form>

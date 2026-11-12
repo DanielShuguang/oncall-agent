@@ -453,7 +453,9 @@ Content-Type: application/json
   要恢复默认标题请显式传 `null`
 - `{"title": null}` 清除自定义标题，显示回退到最早一条非空 `input`
 - 成功返回 `204 No Content`（无响应体，不要解析 JSON）
-- 只允许本人：别人的会话与不存在的会话都返回 `404 {"detail":"session not found"}`
+- 标题格式校验先于归属检查：空白或超长标题先返回 422，不因会话是否存在而改变；
+  合法标题下，别人的会话与不存在的会话都返回 `404 {"detail":"session not found"}`
+  （不泄露存在性）
 - 搜索 `q` 同时匹配自定义标题与首条问题（ADR-0039 / ADR-0040）；改名后旧关键词仍可命中
 - 库不可用时返回 `503 {"code":"DATABASE_UNAVAILABLE"}`
 

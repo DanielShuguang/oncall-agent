@@ -49,6 +49,9 @@ export default function ChatPage() {
   // 行内改会话标题（ADR-0040）；renamingId 一次只允许一个
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState('');
+  // 重命名请求可能晚于下一次编辑返回：token 变了就不要再关掉新的编辑器。
+  const [renameSaving, setRenameSaving] = useState(false);
+  const renameRequest = useRef(0);
   const [historyLoading, setHistoryLoading] = useState(false);
   // 当前会话内更早轮次的 keyset 游标；null 表示没有更早的页（ADR-0033）
   const [historyCursor, setHistoryCursor] = useState<string | null>(null);
@@ -133,31 +136,43 @@ export default function ChatPage() {
   };
 
   const onRenameStart = (session: SessionSummary) => {
+    renameRequest.current += 1;
+    setRenameSaving(false);
     setRenamingId(session.session_id);
     setRenameDraft(session.title ?? '');
   };
 
   const onRenameCancel = () => {
+    renameRequest.current += 1;
+    setRenameSaving(false);
     setRenamingId(null);
     setRenameDraft('');
   };
 
   const onRenameSubmit = async () => {
-    if (!renamingId) return;
+    if (!renamingId || renameSaving) return;
     const title = renameDraft.trim();
     if (title.length > 60) {
       setSessionsError('标题最多 60 个字符');
       return;
     }
+    const requestId = ++renameRequest.current;
+    setRenameSaving(true);
     setSessionsError(null);
     try {
       // 留空 = 恢复默认标题（首条问题）
       await renameSession(renamingId, title || null);
-      setRenamingId(null);
-      setRenameDraft('');
       refreshSessions();
+      if (requestId === renameRequest.current) {
+        setRenamingId(null);
+        setRenameDraft('');
+      }
     } catch (err) {
-      setSessionsError(err instanceof Error ? err.message : '会话重命名失败');
+      if (requestId === renameRequest.current) {
+        setSessionsError(err instanceof Error ? err.message : '会话重命名失败');
+      }
+    } finally {
+      if (requestId === renameRequest.current) setRenameSaving(false);
     }
   };
 
@@ -184,6 +199,8 @@ export default function ChatPage() {
       if (requestId !== historyRequest.current) return;
       setActiveCitation(null);
       setText('');
+      renameRequest.current += 1;
+      setRenameSaving(false);
       setRenamingId(null);
       setRenameDraft('');
       setHistoryCursor(page.next_cursor);
@@ -218,9 +235,11 @@ export default function ChatPage() {
 
   const onNewSession = () => {
     historyRequest.current += 1;
+    renameRequest.current += 1;
     setHistoryLoading(false);
     setHistoryOlderLoading(false);
     setHistoryCursor(null);
+    setRenameSaving(false);
     setRenamingId(null);
     setRenameDraft('');
     setActiveCitation(null);
@@ -248,6 +267,7 @@ export default function ChatPage() {
         onLoadMore={() => void loadMoreSessions()}
         renamingId={renamingId}
         renameDraft={renameDraft}
+        renameSaving={renameSaving}
         onRenameStart={onRenameStart}
         onRenameDraftChange={setRenameDraft}
         onRenameSubmit={() => void onRenameSubmit()}

@@ -69,12 +69,13 @@ async def test_printer_query_executes_cmdb_and_answers() -> None:
 
     call = _of(events, EventType.TOOL_CALL)[0]
     assert call["tool"] == "query_cmdb"
-    assert call["args"] == {"owner_id": "u_102"}
+    assert call["args"] == {}
     assert call["write"] is False
 
     result = _of(events, EventType.TOOL_RESULT)[0]
     assert result["status"] == "ok"
-    assert result["result"]["asset_id"] == "PC-20481"
+    assert result["result"]["count"] == 2
+    assert result["result"]["assets"][0]["asset_id"] == "PC-20481"
 
     completed = _of(events, EventType.RUN_COMPLETED)[0]
     assert completed["status"] == "completed"
@@ -161,17 +162,18 @@ async def test_unrelated_message_skips_tools() -> None:
     assert "工单" in answer
 
 
-async def test_tool_failure_degrades_but_run_completes() -> None:
+async def test_missing_assets_answer_does_not_fail_run() -> None:
     stranger = Identity(user_id="u_none", roles=frozenset({"employee"}))
     events = await _run("打印机连不上", identity=stranger)
 
+    # 查不到资产是合法结果（空列表），不是工具失败（ADR-0034）
     result = _of(events, EventType.TOOL_RESULT)[0]
-    assert result["status"] == "error"
-    assert result["error_kind"] == "not_found"
+    assert result["status"] == "ok"
+    assert result["result"]["count"] == 0
 
     assert [etype for etype, _ in events][-1] is EventType.RUN_COMPLETED
     answer = _of(events, EventType.MESSAGE_COMPLETED)[0]["text"]
-    assert "数据可能过期" in answer
+    assert "没有查到资产记录" in answer
 
 
 async def test_step_limit_fails_run_with_error_code() -> None:

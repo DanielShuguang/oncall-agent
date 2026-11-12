@@ -301,7 +301,8 @@ CREATE TABLE tickets (
 ```
 
 > W2 D6：`app/seed/generate.py` 生成 200 资产 / 500 工单（含重复报修等噪声），
-> `--db` 时写入这两张表；W3 让 `query_cmdb` / `create_ticket` 真正查表（当前仍是代码常量）。
+> `--db` 时写入这两张表；`create_ticket` 落工单表，`query_cmdb` 已按
+> [ADR-0034](decisions/0034-cmdb-assets-table.md) 读 `assets` 表（只查本人）。
 
 ### 2.8 评测
 

@@ -11,6 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.agent.deps import AgentDeps
 from app.agent.nodes.plan import plan_node
 from app.agent.state import initial_state
+from app.tools.assets import InMemoryAssetRepository
 from app.tools.builtin import default_registry
 from app.tools.policy import ToolOverride, ToolPolicy
 from app.tools.registry import Identity, ToolGuard
@@ -50,24 +51,38 @@ async def test_list_tools_includes_governance_metadata(client: AsyncClient) -> N
     assert "title" in tools["create_ticket"]["input_schema"]["required"]
 
 
-async def test_test_read_tool_goes_through_guard(client: AsyncClient) -> None:
+async def test_test_read_tool_goes_through_guard(
+    client: AsyncClient, mem_assets: InMemoryAssetRepository
+) -> None:
+    mem_assets.add(
+        {
+            "asset_id": "PC-90001",
+            "owner_id": "admin_1",
+            "type": "laptop",
+            "model": "ThinkPad X1",
+            "location": "5F",
+            "ip": "10.20.99.1",
+            "warranty_until": "2028-01-01",
+            "status": "online",
+        }
+    )
     res = await client.post(
         "/api/admin/tools/query_cmdb/test",
         headers=ADMIN,
-        json={"args": {"owner_id": "u_102"}},
+        json={"args": {}},
     )
     assert res.status_code == 200
     body = res.json()
     assert body["decision"] == "executed"
     assert body["status"] == "ok"
-    assert body["result"]["asset_id"] == "PC-20481"
+    assert body["result"]["assets"][0]["asset_id"] == "PC-90001"
 
 
 async def test_test_tool_rejects_reserved_identity_args(client: AsyncClient) -> None:
     res = await client.post(
         "/api/admin/tools/query_cmdb/test",
         headers=ADMIN,
-        json={"args": {"owner_id": "u_102", "user_id": "admin_1"}},
+        json={"args": {"asset_id": "PC-20481", "user_id": "admin_1"}},
     )
     assert res.status_code == 200
     body = res.json()
@@ -118,7 +133,7 @@ async def test_disable_tool_blocks_execution_and_can_be_restored(
     blocked = await client.post(
         "/api/admin/tools/query_cmdb/test",
         headers=ADMIN,
-        json={"args": {"owner_id": "u_102"}},
+        json={"args": {}},
     )
     assert blocked.status_code == 200
     assert blocked.json()["status"] == "denied"
@@ -177,11 +192,11 @@ async def test_perm_matrix_update_restricts_tool_to_admin(
 
     guard = ToolGuard(default_registry(), policy=mem_tool_settings)
     employee = Identity(user_id="u_102", roles=frozenset({"employee"}))
-    denied = await guard.execute("query_cmdb", {"owner_id": "u_102"}, employee, call_id="call_1")
+    denied = await guard.execute("query_cmdb", {}, employee, call_id="call_1")
     assert denied.status.value == "denied"
 
     admin = Identity(user_id="admin_1", roles=frozenset({"admin"}))
-    allowed = await guard.execute("query_cmdb", {"owner_id": "u_102"}, admin, call_id="call_2")
+    allowed = await guard.execute("query_cmdb", {}, admin, call_id="call_2")
     assert allowed.status.value == "ok"
 
 

@@ -143,7 +143,7 @@ async def test_plan_prompt_carries_history_for_follow_ups() -> None:
     assert payload["history"] == history
 
 
-async def test_plan_injects_owner_id_and_validates_calls() -> None:
+async def test_plan_rejects_forged_identity_args() -> None:
     gateway = FakeGateway(
         {
             Purpose.PLAN: [
@@ -152,10 +152,12 @@ async def test_plan_injects_owner_id_and_validates_calls() -> None:
         }
     )
     delta = await plan_node(_state("打印机离线", intent="asset_check"), _deps(gateway))
-    assert delta["plan_source"] == "llm"
+    # 身份字段不在 schema 里：校验失败 → 重试仍失败 → 规则兜底；
+    # 模型不能通过 args 指定查谁的资产（R9）。
+    assert delta["plan_source"] == "fallback"
     assert delta["plan"][0]["tool"] == "query_cmdb"
-    assert delta["plan"][0]["args"]["owner_id"] == "u_102"
-    assert delta["usage"]["calls"] == 1
+    assert delta["plan"][0]["args"] == {}
+    assert delta["usage"]["calls"] == 2
 
 
 async def test_plan_drops_write_when_intent_is_not_ticket() -> None:

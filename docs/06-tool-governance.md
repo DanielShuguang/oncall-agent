@@ -107,7 +107,7 @@ def should_retry(err: ToolError, attempt: int, spec: ToolSpec) -> bool:
 
 | 工具 | 失败降级 |
 |---|---|
-| `query_cmdb` | 提示"数据可能过期"并按通用步骤继续；W3 接入会话资产缓存后改用缓存值 |
+| `query_cmdb` | 提示「数据可能过期」或「没有查到资产记录」，按通用步骤继续（[ADR-0034](decisions/0034-cmdb-assets-table.md)） |
 | `search_kb` | 降级为只走 BM25（跳过向量），或直接兜底话术 + 转人工 |
 | `query_tickets` | 返回空，继续流程，提示"未查到历史工单" |
 | `run_diagnostic` | 跳过诊断，直接建议开单（人工排查） |
@@ -181,15 +181,17 @@ app/tools/
 
 | 工具 | 读/写 | 超时 | 角色 | 说明 |
 |---|---|---|---|---|
-| `query_cmdb` | 读 | 2000ms | 所有 | 按 owner / 资产号查设备信息 |
+| `query_cmdb` | 读 | 2000ms | 所有 | 查当前用户名下资产，可按资产号缩小 |
 | `query_tickets` | 读 | 2000ms | 所有 | 查该用户历史工单 |
 | `search_kb` | 读 | 1500ms | 所有 | 知识库混合检索 |
 | `run_diagnostic` | 读 | 10000ms | it_support | 只读检测（ping/端口/驱动版本） |
 | `create_ticket` | **写** | 3000ms | 所有（需审批） | 创建工单 |
 
 > `create_ticket` 在 W3 D14 接通审批后真正落 `tickets` 表（`server/app/tools/tickets.py`），
-> requester 由治理层注入；`query_cmdb` 仍是进程内假数据，后续接真实 CMDB 时只替换
-> handler 与 `input_schema`，`ToolGuard` 不改（R3）。
+> requester 由治理层注入。
+> `query_cmdb` 已按 [ADR-0034](decisions/0034-cmdb-assets-table.md) 改为读 `assets` 表
+> （`server/app/tools/assets.py`）：schema 只保留可选 `asset_id`，owner 由治理层注入，
+> 仓储层只查 `owner_id = 当前用户`；换真实 CMDB 时只替换 repository，`ToolGuard` 不改（R3）。
 > `query_tickets` 已按 [ADR-0029](decisions/0029-ticket-self-service-query.md) 注册：只读、
 > 身份由治理层注入、仓储层只查 `requester = 当前用户`，按创建时间倒序取最近 N 条；
 > 用户问「我的工单到哪了」时由 `plan` 的规则分支选中，`finalize` 用工单表直接作答。

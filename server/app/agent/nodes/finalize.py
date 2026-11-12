@@ -75,16 +75,34 @@ def _best_sentence(content: str, query_tokens: set[str]) -> str:
 
 def _asset_prefix(state: AgentState) -> str | None:
     asset_call = _first_tool(state, "query_cmdb")
-    asset = asset_call.get("result") if asset_call is not None else None
-    if isinstance(asset, dict):
+    result = asset_call.get("result") if asset_call is not None else None
+    if asset_call is None:
+        return None
+    assets = result.get("assets") if isinstance(result, dict) else None
+    if not isinstance(assets, list):
+        # 工具失败不中断 run，按 docs/06 §6 的降级话术继续给建议
+        return "资产信息暂时没查到（数据可能过期），我按通用步骤给你建议。"
+    if not assets:
+        return "你名下暂时没有查到资产记录（CMDB 里没有登记），我按通用步骤给你建议。"
+    if len(assets) == 1 and isinstance(assets[0], dict):
+        asset = assets[0]
         return (
             f"已确认你名下的 {asset.get('model', '设备')}"
             f"（{asset.get('asset_id', '-')}）状态为 {asset.get('status', '未知')}。"
         )
-    if asset_call is not None:
-        # 工具失败不中断 run，按 docs/06 §6 的降级话术继续给建议
-        return "资产信息暂时没查到（数据可能过期），我按通用步骤给你建议。"
-    return None
+
+    def describe(item: object) -> str:
+        if not isinstance(item, dict):
+            return "设备"
+        return (
+            f"{item.get('model', '设备')}"
+            f"（{item.get('asset_id', '-')}，{item.get('status', '未知')}）"
+        )
+
+    shown = "、".join(describe(item) for item in assets[:3])
+    if len(assets) <= 3:
+        return f"已确认你名下 {len(assets)} 台资产：{shown}。"
+    return f"已确认你名下 {len(assets)} 台资产，例如：{shown}。"
 
 
 def _ticket_prefix(state: AgentState) -> str | None:

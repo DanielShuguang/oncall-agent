@@ -1,7 +1,8 @@
 """模拟业务域：资产（CMDB）与工单。
 
-这些表是"可替换的真实系统"的本地替身：W1 的 `query_cmdb` 仍从代码常量返回，
-W2 seed 把演示数据落到这里，W3 再让工具真正查表（docs/02 §2.7）。
+这些表是"可替换的真实系统"的本地替身：W2 seed 把演示数据落到这里，
+W3 的 `query_cmdb` 已按 ADR-0034 真正查 `assets` 表（只查本人，身份由
+ToolGuard 注入）。换成真实 CMDB 时替换 `app/tools/assets.py` 的仓储即可。
 """
 
 from __future__ import annotations

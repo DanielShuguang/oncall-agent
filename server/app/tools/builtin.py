@@ -1,15 +1,15 @@
-"""v1 内置工具的实现与注册（W1 D5 用内存假数据）。
+"""v1 内置工具的实现与注册。
 
 治理逻辑全部在 `registry.py`（R3），这里只负责「工具做什么」：
 
-- `query_cmdb`：查用户名下资产。W1 用内存假数据，接真实 CMDB 时只替换 handler，
-  `input_schema` / 超时 / 角色约束不变，治理链路不用动（docs/06 §8.2）。
+- `query_cmdb`：查当前用户名下资产。数据来自 `assets` 表（ADR-0034），
+  身份由 ToolGuard 注入；换真实 CMDB 时只替换 `tools/assets.py` 的仓储，
+  `input_schema` / 超时 / 角色约束与治理链路不变（docs/06 §8.2）。
 - `create_ticket`：写操作，**永远不在这里判断能不能执行** —— 由 `ToolGuard` 挂起
   等审批（R10），审批通过后 runtime 用 `allow_write=True` 才走到 handler。
   requester 由 ToolGuard 注入服务端身份，不来自模型参数（R9）。
 
-⚠️ `query_cmdb` 仍是假数据，不是从 CMDB 拉的，演示时不要当成真实资产；
-W4 接真实 CMDB 时只替换 handler 与 input_schema。
+`query_tickets` 只查本人，同样依赖注入的 identity（ADR-0029）。
 """
 
 from __future__ import annotations
@@ -17,43 +17,22 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Any
 
-from app.tools.registry import Identity, ToolError, ToolErrorKind, ToolRegistry, ToolSpec
+from app.tools.assets import get_asset_repository
+from app.tools.registry import Identity, ToolRegistry, ToolSpec
 from app.tools.tickets import get_ticket_repository
 
-#: 假资产库：owner_id -> 资产。字段与 docs/06 的 query_cmdb 返回约定一致。
-FAKE_ASSETS: dict[str, dict[str, Any]] = {
-    "u_102": {
-        "asset_id": "PC-20481",
-        "owner_id": "u_102",
-        "type": "laptop",
-        "model": "ThinkPad T14",
-        "status": "online",
-        "ip": "10.20.31.44",
-        "warranty_until": "2027-03-31",
-    },
-    "u_205": {
-        "asset_id": "PC-20517",
-        "owner_id": "u_205",
-        "type": "laptop",
-        "model": "MacBook Pro 14",
-        "status": "online",
-        "ip": "10.20.32.8",
-        "warranty_until": "2028-01-15",
-    },
-}
 
+async def query_cmdb(*, asset_id: str | None = None, identity: Identity) -> dict[str, Any]:
+    """查当前用户名下资产（只读）。
 
-async def query_cmdb(owner_id: str) -> dict[str, Any]:
-    """按 owner 查设备信息（只读）。
-
-    W1 是同步假数据；接真实 CMDB 时这里换成 `httpx.AsyncClient`，
-    handler 必须响应 `CancelledError`（docs/06 §4）。
+    模型可以按资产号缩小范围，但不能指定 owner：`owner_id` 不在 schema 里，
+    仓储也只按注入的 `identity.user_id` 过滤（R9）。空结果是合法结果，
+    由 finalize 说明「没查到资产」，不是工具失败。
     """
-    asset = FAKE_ASSETS.get(owner_id)
-    if asset is None:
-        # not_found 不重试，让 runtime 走「数据可能过期」的降级话术（docs/06 §6）
-        raise ToolError(ToolErrorKind.NOT_FOUND, f"未找到 {owner_id} 名下资产")
-    return dict(asset)
+    rows = await get_asset_repository().list_for_owner(
+        identity.user_id, asset_id=asset_id, limit=20
+    )
+    return {"assets": rows, "count": len(rows)}
 
 
 async def create_ticket(
@@ -101,19 +80,24 @@ def build_registry() -> ToolRegistry:
     registry.register(
         ToolSpec(
             name="query_cmdb",
-            description="按 owner 查设备信息：型号、在线状态、IP、保修期",
+            description="查当前用户名下资产：型号、在线状态、IP、保修期",
             input_schema={
                 "type": "object",
                 "properties": {
-                    "owner_id": {"type": "string", "description": "资产归属人 ID"},
+                    "asset_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 32,
+                        "description": "资产号，可缩小到某一台",
+                    },
                 },
-                "required": ["owner_id"],
                 "additionalProperties": False,
             },
             handler=query_cmdb,
             is_write=False,
             timeout_ms=2000,
             roles=(),
+            inject_identity=True,
         )
     )
 

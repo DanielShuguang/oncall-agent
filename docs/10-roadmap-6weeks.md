@@ -709,6 +709,34 @@ ADR-0030 的会话列表第一版留了两个「取不到」：`GET /sessions` �
 
 ---
 
+## W6 后补：资产查询接表（ADR-0034）
+
+`docs/06` §8.3 从 W1 起就挂着「`query_cmdb` 仍是进程内假数据」，迁移 `0003` 的注释也写着
+「W3 让工具真正查表」。但 W2 的 seed 早就把 200 条资产写进了 `assets` 表，
+`tickets.asset_id` 还外键引用它——Agent 却只认识 `u_102` / `u_205` 各一台演示设备。
+旧实现还把 `owner_id` 放进工具参数，等于让模型决定查谁（R9 隐患）。
+
+| 事项 | 落地 |
+|---|---|
+| 仓储 | 新增 `app/tools/assets.py`：`AssetRepository.list_for_owner(owner_id, asset_id?, limit=20)`；内存实现带最小 `DEMO_ASSETS`，Postgres 实现读 `assets` 表 |
+| 身份 | `query_cmdb` schema 只保留可选 `asset_id`，`owner_id` 删除，`inject_identity=True` 由 `ToolGuard` 注入；模型传身份字段会在 `validate_args` 被拒 |
+| 计划 | `rule_plan` 资产分支 `args={}`；`_calls_from_text` 不再补 `owner_id`；`prompts/plan.md` 示例同步改为 `args: {}` |
+| 结果 | 返回 `{"assets": [...], "count": N}`；空列表是合法结果（不是 `not_found`），最多 20 台、按资产号升序 |
+| 回答 | `finalize` 支持 1 台 / 2–3 台 / >3 台；空结果说「没有查到资产记录」，工具失败仍说「数据可能过期」 |
+| 数据 | **无迁移**：`assets` 表早已存在；`owner_id` 暂不加索引（200 条 seed 可接受） |
+
+验证：默认 **433 passed + 32 skipped**；临时 Postgres 下 **462 passed + 3 skipped**；
+再加 Redis 为 **465 passed**（45.12s）。
+`ruff check` / `ruff format --check`（174 files）/ `mypy app`（105 files）通过；前端未改，
+仍 **64 tests / 13 files**。新增 `tests/test_assets.py` 3 条与 `tests/test_assets_pg.py` 1 条；
+检索/提示词/多轮历史未改，未重跑 RAG 与多轮评测。
+
+已知边界：只按 owner 查、最多 20 台，没有分页/搜索；`type`/`status` 仍是库里字符串直出；
+CMDB 增量同步、共享设备、离职转移与 IT 代查都未做；换真实 CMDB 只替换 repository。
+详见 [ADR-0034](decisions/0034-cmdb-assets-table.md)。
+
+---
+
 ## 每周固定动作
 
 | 时点 | 动作 |

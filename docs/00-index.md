@@ -22,7 +22,7 @@
 | — | [eval/multiturn-v2](eval/multiturn-v2.md) | 多轮评测基线（指代 + 话题切换 + 隔离对照，ADR-0024/0025） | 改 history / 检索参数前 |
 | — | [eval/multiturn-v1](eval/multiturn-v1.md) | 多轮历史基线（ADR-0025 修复前，9 条） | 只看历史对比 |
 | — | [eval/baseline-v0](eval/baseline-v0.md) | W2 历史基线（20 条） | 只看历史对比 |
-| — | [decisions/](decisions/) | 33 篇 ADR：为什么 React / Python / LangGraph / pgvector / SSE / Tailwind+oxc / 依赖版本 / shadcn / Postgres 存储 / 本地 JWT / 离线 RAG 向量化 / 显式调度 / 自研模型网关 / 工具覆盖存库 / 私有化交付 / 审批事务 / 孤儿 run 回收 / 引用全文预览 / 文档级可见性 / 多轮上下文 / 数据保留 / 回答内容回收 / 正文按时间保留 / 多轮评测 / 追问原句优先 / 按用户日预算 / 审批快照保留 / 预算可观测性 / 工单自助查询 / 会话列表 / 历史引用回放 / PDF 解析子进程隔离 / 会话历史分页 | 面试前重读 |
+| — | [decisions/](decisions/) | 34 篇 ADR：为什么 React / Python / LangGraph / pgvector / SSE / Tailwind+oxc / 依赖版本 / shadcn / Postgres 存储 / 本地 JWT / 离线 RAG 向量化 / 显式调度 / 自研模型网关 / 工具覆盖存库 / 私有化交付 / 审批事务 / 孤儿 run 回收 / 引用全文预览 / 文档级可见性 / 多轮上下文 / 数据保留 / 回答内容回收 / 正文按时间保留 / 多轮评测 / 追问原句优先 / 按用户日预算 / 审批快照保留 / 预算可观测性 / 工单自助查询 / 会话列表 / 历史引用回放 / PDF 解析子进程隔离 / 会话历史分页 / 资产查询接表 | 面试前重读 |
 
 ## ADR（Architecture Decision Record）
 
@@ -61,6 +61,7 @@
 | [0031](decisions/0031-run-citations-replay.md) | 历史引用回放 | `runs.citations` 存引用快照（迁移 0014），历史会话还原角标；正文回收/过期时一并置空，不回填旧 run |
 | [0032](decisions/0032-pdf-parse-subprocess.md) | PDF 解析子进程隔离 | `.pdf` 走 `spawn` 子进程与 60 秒超时；崩溃/超时收敛为 422，不再带走 API；仍不做 OCR，未限内存 |
 | [0033](decisions/0033-session-history-pagination.md) | 会话历史分页 | `/sessions` 用 `(updated_at, session_id)` keyset 游标，`/runs` 沿用已有游标翻更早轮次；翻页可能重复/跳过，无新表/迁移 |
+| [0034](decisions/0034-cmdb-assets-table.md) | 资产查询接表 | `query_cmdb` 改读 `assets` 表（内存/PG 双实现），`owner_id` 从 schema 删除、由 `ToolGuard` 注入；空结果是合法结果；无迁移 |
 
 > ADR 的写法：背景 → 方案对比 → 决策 → 后果。面试被问"为什么这么做"时，直接念 ADR。
 

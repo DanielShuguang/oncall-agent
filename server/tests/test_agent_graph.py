@@ -263,3 +263,46 @@ def test_finalize_caps_ticket_list_at_five() -> None:
     # 头部不能声称列了 6 张，正文只展示最近 5 张
     assert "先列最近 5 张" in answer
     assert answer.count("\n- ") == 5
+
+
+def test_finalize_lists_multiple_assets_from_cmdb() -> None:
+    state = initial_state(run_id="r1", user={"id": "u_102"}, query="打印机离线")
+    state["tool_results"] = [
+        {
+            "tool": "query_cmdb",
+            "status": "ok",
+            "result": {
+                "assets": [
+                    {
+                        "asset_id": "PC-20481",
+                        "model": "ThinkPad T14",
+                        "status": "online",
+                    },
+                    {
+                        "asset_id": "PC-20499",
+                        "model": "Dell U2723QE",
+                        "status": "online",
+                    },
+                ],
+                "count": 2,
+            },
+        }
+    ]
+    answer, _ = compose_answer(state)
+    assert "已确认你名下 2 台资产" in answer
+    assert "PC-20481" in answer
+    assert "PC-20499" in answer
+
+
+def test_finalize_handles_empty_and_failed_asset_query() -> None:
+    empty = initial_state(run_id="r1", user={"id": "u_102"}, query="我的电脑保修到什么时候")
+    empty["tool_results"] = [
+        {"tool": "query_cmdb", "status": "ok", "result": {"assets": [], "count": 0}}
+    ]
+    answer, _ = compose_answer(empty)
+    assert "没有查到资产记录" in answer
+
+    failed = initial_state(run_id="r2", user={"id": "u_102"}, query="我的电脑保修到什么时候")
+    failed["tool_results"] = [{"tool": "query_cmdb", "status": "error", "result": None}]
+    answer, _ = compose_answer(failed)
+    assert "资产信息暂时没查到" in answer

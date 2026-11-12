@@ -3,7 +3,8 @@
 - `ONCALL_MOCK_MODE=true`：只走规则计划，无模型调用（无 key 演示）
 - 真实模式：模型产出 `{calls:[{tool,args,reason}]}`，服务端逐条校验：
   - 工具必须已注册、参数必须过 `validate_args`（含 enum / 未知字段）
-  - `query_cmdb.owner_id` 由服务端注入，模型写的值一律忽略（R9）
+  - 身份字段（`owner_id` / `user_id` / `requester`）不在工具 schema 里，
+    模型传了会被判非法参数；真实身份由 ToolGuard 注入（R9）
   - 模糊输入不允许计划写操作（R10）
   - 模型输出无法解析时重试 1 次，再失败退回规则计划
 
@@ -64,7 +65,7 @@ def rule_plan(state: AgentState) -> list[dict[str, Any]]:
         plan.append(
             {
                 "tool": "query_cmdb",
-                "args": {"owner_id": state.get("user", {}).get("id", "")},
+                "args": {},
                 "reason": "先确认名下资产状态，再给排查建议",
             }
         )
@@ -151,7 +152,6 @@ async def _calls_from_text(
     if not isinstance(calls, list):
         return None
 
-    user_id = str(state.get("user", {}).get("id", ""))
     incident = state.get("incident_type", "other")
     intent = state.get("intent", INTENT_KNOWLEDGE)
     blocked = set(state.get("failed_tools", []))
@@ -178,8 +178,6 @@ async def _calls_from_text(
 
         raw_args = item.get("args")
         args: dict[str, Any] = dict(raw_args) if isinstance(raw_args, dict) else {}
-        if tool == "query_cmdb":
-            args["owner_id"] = user_id  # 身份字段由服务端注入（R9）
         if tool == "create_ticket":
             args.setdefault("title", str(state.get("query", ""))[:100])
             args.setdefault("category", incident)

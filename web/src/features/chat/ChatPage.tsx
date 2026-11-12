@@ -69,6 +69,8 @@ export default function ChatPage() {
   const [hiddenLoading, setHiddenLoading] = useState(false);
   const [hiddenError, setHiddenError] = useState<string | null>(null);
   const [restoringId, setRestoringId] = useState<string | null>(null);
+  // 快速收起/展开时旧请求可能晚于新请求返回：只接受最后一次展开的结果。
+  const hiddenRequest = useRef(0);
   const [historyLoading, setHistoryLoading] = useState(false);
   // 当前会话内更早轮次的 keyset 游标；null 表示没有更早的页（ADR-0033）
   const [historyCursor, setHistoryCursor] = useState<string | null>(null);
@@ -272,8 +274,10 @@ export default function ChatPage() {
       await hideSession(targetSessionId);
       if (targetSessionId === sessionId) onNewSession();
       refreshSessions();
-      // 列表已经变化，已移除折叠区下次打开时重新拉取。
+      // 列表已经变化，已移除折叠区下次打开时重新拉取；并让在途请求失效。
+      hiddenRequest.current += 1;
       setHiddenOpen(false);
+      setHiddenLoading(false);
       setHiddenSessions([]);
     } catch (err) {
       setSessionsError(err instanceof Error ? err.message : '会话移除失败');
@@ -284,18 +288,24 @@ export default function ChatPage() {
 
   const onToggleHiddenSessions = async () => {
     if (hiddenOpen) {
+      hiddenRequest.current += 1;
       setHiddenOpen(false);
+      setHiddenLoading(false);
       return;
     }
+    const requestId = ++hiddenRequest.current;
     setHiddenOpen(true);
     setHiddenLoading(true);
     setHiddenError(null);
     try {
-      setHiddenSessions(await listHiddenSessions(50));
+      const items = await listHiddenSessions(50);
+      if (requestId === hiddenRequest.current) setHiddenSessions(items);
     } catch (err) {
-      setHiddenError(err instanceof Error ? err.message : '已移除会话加载失败');
+      if (requestId === hiddenRequest.current) {
+        setHiddenError(err instanceof Error ? err.message : '已移除会话加载失败');
+      }
     } finally {
-      setHiddenLoading(false);
+      if (requestId === hiddenRequest.current) setHiddenLoading(false);
     }
   };
 

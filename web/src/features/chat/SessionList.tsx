@@ -264,12 +264,13 @@ export function SessionList({
           variant="ghost"
           className="w-full justify-start text-muted-foreground"
           aria-expanded={hiddenOpen}
+          aria-controls="hidden-sessions"
           onClick={onToggleHidden}
         >
           {hiddenOpen ? '收起已移除的会话' : '已移除的会话'}
         </Button>
         {hiddenOpen && (
-          <div className="mt-1 space-y-1">
+          <div id="hidden-sessions" className="mt-1 max-h-56 space-y-1 overflow-y-auto pr-1">
             {hiddenLoading && <p className="px-1 py-1 text-xs text-muted-foreground">加载中…</p>}
             {hiddenError && <p className="px-1 py-1 text-xs text-danger">{hiddenError}</p>}
             {!hiddenLoading && !hiddenError && hiddenSessions.length === 0 && (

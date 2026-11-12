@@ -88,10 +88,11 @@ async def test_history_requires_admin(client: AsyncClient) -> None:
     assert res.json()["code"] == "FORBIDDEN"
 
 
-async def test_history_unknown_tool_and_bad_limit(client: AsyncClient) -> None:
+async def test_history_unknown_tool_is_empty_and_bad_limit(client: AsyncClient) -> None:
+    # 工具下线/改名后历史仍可查；未知名字只是没有记录，不返回 404
     missing = await client.get("/api/admin/tools/ghost/history", headers=ADMIN)
-    assert missing.status_code == 404
-    assert missing.json()["code"] == "TOOL_NOT_FOUND"
+    assert missing.status_code == 200
+    assert missing.json() == {"items": []}
 
     for limit in (0, 101):
         res = await client.get(f"/api/admin/tools/query_cmdb/history?limit={limit}", headers=ADMIN)
@@ -162,4 +163,7 @@ async def test_replace_records_multiple_changes() -> None:
         changes=changes,
     )
     assert len(await store.history("query_cmdb")) == 1
-    assert (await store.history("create_ticket"))[0].after is None
+    create_ticket = await store.history("create_ticket")
+    assert create_ticket[0].after is None
+    # 同一次矩阵提交的多条记录共享时间戳，避免倒序读出来出现伪顺序
+    assert create_ticket[0].changed_at == (await store.history("query_cmdb"))[0].changed_at

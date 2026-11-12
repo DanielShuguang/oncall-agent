@@ -63,7 +63,10 @@ async def test_upsert_and_replace_persist_history(
     assert rows[0].after == {"enabled": False, "roles": None}
 
     await store.replace(
-        {"query_cmdb": ToolOverride(roles=("admin",))},
+        {
+            "query_cmdb": ToolOverride(roles=("admin",)),
+            "create_ticket": ToolOverride(enabled=False),
+        },
         updated_by="admin_2",
         changes=[
             ToolSettingChange(
@@ -72,12 +75,21 @@ async def test_upsert_and_replace_persist_history(
                 source="matrix",
                 before={"enabled": False, "roles": None},
                 after={"enabled": None, "roles": ["admin"]},
-            )
+            ),
+            ToolSettingChange(
+                tool_name="create_ticket",
+                changed_by="admin_2",
+                source="matrix",
+                before=None,
+                after={"enabled": False, "roles": None},
+            ),
         ],
     )
     rows = await store.history("query_cmdb")
     assert [row.changed_by for row in rows] == ["admin_2", "admin_1"]
     assert len(await store.history("query_cmdb", limit=1)) == 1
+    # 同一事务的 now() 让同一次矩阵提交共享时间戳
+    assert (await store.history("create_ticket"))[0].changed_at == rows[0].changed_at
 
 
 async def test_history_is_scoped_per_tool(pg_tool_history: PostgresToolSettingStore) -> None:

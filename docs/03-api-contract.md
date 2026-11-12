@@ -842,8 +842,9 @@ Authorization: Bearer <admin token>
 - `source`：`tool` = PATCH 启用开关，`matrix` = 权限矩阵整表保存；同一次矩阵保存
   按工具各一行
 - 默认返回最近 20 条，最多 100；记录按 `changed_at DESC, id DESC` 排序
-- 未知工具 `404 TOOL_NOT_FOUND`；库不可用 `503 DATABASE_UNAVAILABLE`，不拿空列表
-  冒充「没有历史」
+- 不要求工具仍在注册表：按名字查历史，工具下线/改名后仍可查；从未注册过的名字返回空
+  列表（`items: []`），不返回 404
+- 库不可用 `503 DATABASE_UNAVAILABLE`，不把故障显示成「没有历史」
 - 历史长期保留，不随 run 事件或审批快照清理；只读，不提供回滚按钮（回滚应是一次
   新的显式保存）
 

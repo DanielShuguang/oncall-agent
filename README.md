@@ -268,7 +268,7 @@ W6 基线（3 轮均值，mock 规则路径，口径见 [baseline-v1](docs/eval/
   `RUN_INTERRUPTED`（[ADR-0017](docs/decisions/0017-stale-run-recovery.md)），只收敛状态、
   不自动重试写工具；工单是否已创建仍需人工按 run_id 对账
 - 工具 schema 在管理页只读；配置覆盖只到「启用/角色」，且多副本部署最长 2s 生效（[ADR-0014](docs/decisions/0014-tool-policy-overrides.md)）
-- 工具配置变更历史只记管理 API：`changed_by` 是 JWT `sub`（没有姓名/部门目录），权限矩阵一次保存没有 batch id、只能按工具逐条看；没有保留期/冷归档、导出、时间范围筛选与回滚按钮，直接改数据库也不会留下应用层记录（[ADR-0037](docs/decisions/0037-tool-setting-history.md)）
+- 工具配置变更历史只记管理 API：`changed_by` 是 JWT `sub`（没有姓名/部门目录），权限矩阵一次保存没有 batch id、只能按工具逐条看；没有保留期/冷归档、导出、时间范围筛选与回滚按钮，直接改数据库也不会留下应用层记录；并发管理写入是 last-write-wins，`before` 不保证接上前一条 `after`；工具下线后只能通过 API 按旧名字查历史，管理页不再有入口（[ADR-0037](docs/decisions/0037-tool-setting-history.md)）
 - 引用全文预览是按切片重组的正文，不是原始文件渲染（PDF 排版/表格样式会丢）；没有列表接口、只能凭已知
   `document_id` 打开（[ADR-0018](docs/decisions/0018-citation-fulltext-preview.md)）
 - 多轮上下文只有 3 轮 / 1200 字，追问判定是关键词启发式；连续追问的检索词按链累积（最多 80 字），

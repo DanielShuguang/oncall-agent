@@ -12,7 +12,7 @@ from __future__ import annotations
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Path, Query
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.deps import require_admin
@@ -175,13 +175,13 @@ async def update_tool(
 
 @router.get("/tools/{name}/history")
 async def tool_setting_history(
-    name: str,
+    name: Annotated[str, Path(min_length=1, max_length=64)],
     policy: Annotated[ToolPolicy, Depends(get_tool_policy)],
     _admin: Annotated[Identity, Depends(require_admin)],
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> ToolHistoryResponse:
-    if default_registry().try_get(name) is None:
-        raise ApiError(404, "TOOL_NOT_FOUND", "工具未注册")
+    # 不要求工具仍在注册表里：工具下线/改名后，历史仍要能按旧名字查到，
+    # 否则「长期审计」在工具下线那一刻就断了。从未注册过的名字只会得到空列表。
     try:
         records = await policy.history(name, limit=limit)
     except SQLAlchemyError as exc:

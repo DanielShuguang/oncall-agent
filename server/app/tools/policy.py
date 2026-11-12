@@ -132,8 +132,11 @@ class InMemoryToolSettingStore:
         changes: Sequence[ToolSettingChange] = (),
     ) -> None:
         self._items = dict(overrides)
+        # 与 Postgres 同一事务的 now() 对齐：一次提交的记录共享时间戳，
+        # 否则按时间倒序读出来会变成「后写的工具排在前面」的伪顺序。
+        changed_at = utcnow() if changes else None
         for change in changes:
-            self._history.append(self._new_record(change))
+            self._history.append(self._new_record(change, changed_at=changed_at))
 
     async def history(self, name: str, *, limit: int = 20) -> list[ToolSettingChangeRecord]:
         rows = sorted(
@@ -143,12 +146,14 @@ class InMemoryToolSettingStore:
         )
         return rows[:limit]
 
-    def _new_record(self, change: ToolSettingChange) -> ToolSettingChangeRecord:
+    def _new_record(
+        self, change: ToolSettingChange, *, changed_at: datetime | None = None
+    ) -> ToolSettingChangeRecord:
         record = ToolSettingChangeRecord(
             id=self._next_id,
             tool_name=change.tool_name,
             changed_by=change.changed_by,
-            changed_at=utcnow(),
+            changed_at=changed_at or utcnow(),
             source=change.source,
             before=change.before,
             after=change.after,

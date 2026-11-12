@@ -102,7 +102,8 @@ async def list_runs(
     store: Annotated[RunStore, Depends(get_store)],
     identity: Annotated[Identity, Depends(get_identity)],
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
-    cursor: Annotated[str | None, Query()] = None,
+    # 合法游标只有几十个字符；限长避免把解码/JSON 解析暴露给任意大输入
+    cursor: Annotated[str | None, Query(max_length=512)] = None,
     status: Annotated[RunStatus | None, Query()] = None,
     session_id: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
 ) -> dict[str, Any]:
@@ -174,7 +175,7 @@ async def list_sessions(
     store: Annotated[RunStore, Depends(get_store)],
     identity: Annotated[Identity, Depends(get_identity)],
     limit: Annotated[int, Query(ge=1, le=50)] = 20,
-    cursor: Annotated[str | None, Query()] = None,
+    cursor: Annotated[str | None, Query(max_length=512)] = None,
 ) -> dict[str, Any]:
     """当前用户最近的会话（ADR-0030），按最近活动 keyset 分页（ADR-0033）。
 

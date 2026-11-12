@@ -49,56 +49,73 @@ export default function ChatPage() {
   // 历史会话请求可能乱序返回（连点两个会话、加载中又点了新会话）：
   // 用自增 token 只接受最后一次请求的结果，避免旧的响应把界面切回去。
   const historyRequest = useRef(0);
+  // 刷新会替换整个会话列表：加载更多/初始加载的旧页回来时不能 append 到新列表上。
+  const sessionsRequest = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
+    const requestId = ++sessionsRequest.current;
     listSessions(20)
       .then((page) => {
-        if (!cancelled) {
+        if (!cancelled && requestId === sessionsRequest.current) {
           setSessions(page.items);
           setSessionsCursor(page.next_cursor);
         }
         return page.items;
       })
       .catch((err: unknown) => {
-        if (!cancelled) setSessionsError(err instanceof Error ? err.message : '会话列表加载失败');
+        if (!cancelled && requestId === sessionsRequest.current) {
+          setSessionsError(err instanceof Error ? err.message : '会话列表加载失败');
+        }
       })
       .finally(() => {
-        if (!cancelled) setSessionsLoading(false);
+        if (!cancelled && requestId === sessionsRequest.current) setSessionsLoading(false);
       });
     return () => {
       cancelled = true;
       historyRequest.current += 1;
+      sessionsRequest.current += 1;
     };
   }, []);
 
   const refreshSessions = () => {
+    const requestId = ++sessionsRequest.current;
     setSessionsLoading(true);
+    setSessionsLoadingMore(false);
     setSessionsError(null);
     listSessions(20)
       .then((page) => {
+        if (requestId !== sessionsRequest.current) return page.items;
         setSessions(page.items);
         setSessionsCursor(page.next_cursor);
         return page.items;
       })
       .catch((err: unknown) => {
-        setSessionsError(err instanceof Error ? err.message : '会话列表加载失败');
+        if (requestId === sessionsRequest.current) {
+          setSessionsError(err instanceof Error ? err.message : '会话列表加载失败');
+        }
       })
-      .finally(() => setSessionsLoading(false));
+      .finally(() => {
+        if (requestId === sessionsRequest.current) setSessionsLoading(false);
+      });
   };
 
   const loadMoreSessions = async () => {
     if (!sessionsCursor || sessionsLoadingMore) return;
+    const requestId = sessionsRequest.current;
     setSessionsLoadingMore(true);
     setSessionsError(null);
     try {
       const page = await listSessions(20, sessionsCursor);
+      if (requestId !== sessionsRequest.current) return;
       setSessions((prev) => [...prev, ...page.items]);
       setSessionsCursor(page.next_cursor);
     } catch (err) {
-      setSessionsError(err instanceof Error ? err.message : '更多会话加载失败');
+      if (requestId === sessionsRequest.current) {
+        setSessionsError(err instanceof Error ? err.message : '更多会话加载失败');
+      }
     } finally {
-      setSessionsLoadingMore(false);
+      if (requestId === sessionsRequest.current) setSessionsLoadingMore(false);
     }
   };
 

@@ -326,9 +326,11 @@ GET /api/sessions?limit=20&cursor=eyJ0IjoiMjAyNi0xMS0wOVQwMjoyNjo0MS4wMDgrMDA6MD
   同一时刻按 `session_id` 倒序，避免顺序抖动
 - `title` 取**最早一条非空 `input`**，压成单行并截到 60 字符；正文按 ADR-0023 过期清空后
   为 `null`，前端显示「无标题」，**会话本身仍会返回**（不能因为标题没了就藏掉历史）
-- `limit` 默认 20、上限 50；`next_cursor` 是 keyset 游标，只在当前页取满时返回，
-  取完为 `null`。游标对前端不透明（base64url JSON，带 `updated_at` 与 `session_id`），
+- `limit` 默认 20、上限 50；`next_cursor` 是 keyset 游标，当前页取满就会返回；
+  下一页没有数据时返回空列表且 `next_cursor` 为 `null`（恰好取满时会多一次空请求）。
+  游标对前端不透明（base64url JSON，带 `updated_at` 与 `session_id`，最多 512 字符），
   非法游标返回 `400 {"code":"INVALID_CURSOR"}`，不要静默从头开始
+- 游标不签名：伪造游标只能改变自己的起点，不会越权读到别人的会话（ADR-0033）
 - 翻页期间有新 run 时，会话可能被挤到前面，出现重复或跳过一页；刷新即从第一页重置，
   v1 不保证快照一致性（ADR-0033）
 - 库不可用时返回 `503 {"code":"DATABASE_UNAVAILABLE"}`，不会静默返回空列表

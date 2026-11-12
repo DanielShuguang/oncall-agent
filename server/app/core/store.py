@@ -473,6 +473,23 @@ class RunStore(Protocol):
         """
         ...
 
+    async def list_runs_without_citations(self, *, limit: int = 100) -> list[RunRecord]:
+        """列出仍没有引用快照、且事件与正文都还保留着的 run（ADR-0042 回填用）。
+
+        只选 `citations == []`、`content_pruned_at is None`、`events_pruned_at is None`
+        且 `output is not None` 的 run；按 `started_at, run_id` 升序，重复执行时
+        优先处理更早的数据。回填是 opt-in 的运维动作，不在请求路径上。
+        """
+        ...
+
+    async def set_citations(self, run_id: str, citations: list[dict[str, Any]]) -> bool:
+        """仅当 run 的引用快照仍为空时写入（ADR-0042）。
+
+        返回 False 表示 run 不存在或已经有快照（已回填/并发写入）；条件写入
+        避免回填覆盖同一 run 的新事件投影。调用方不应把 False 当异常。
+        """
+        ...
+
     async def recent_turns(
         self,
         *,
@@ -836,6 +853,28 @@ class InMemoryRunStore:
             ):
                 return False
             self._hidden_sessions.add((user_id, session_id))
+            return True
+
+    async def list_runs_without_citations(self, *, limit: int = 100) -> list[RunRecord]:
+        async with self._lock:
+            candidates = [
+                record
+                for record in self._runs.values()
+                if not record.citations
+                and record.content_pruned_at is None
+                and record.events_pruned_at is None
+                and record.output is not None
+            ]
+            candidates.sort(key=lambda record: (record.started_at, record.run_id))
+            return candidates[:limit]
+
+    async def set_citations(self, run_id: str, citations: list[dict[str, Any]]) -> bool:
+        async with self._lock:
+            record = self._runs.get(run_id)
+            if record is None or record.citations:
+                return False
+            # 条件写入与 PG 实现同口径：事件投影刚写过快照时不能覆盖
+            record.citations = [dict(item) for item in citations]
             return True
 
     async def recent_turns(
@@ -1382,6 +1421,34 @@ class PostgresRunStore:
             )
             await session.commit()
         return True
+
+    async def list_runs_without_citations(self, *, limit: int = 100) -> list[RunRecord]:
+        stmt = (
+            select(Run)
+            .where(
+                # 回填只处理「明确没有引用」的行；JSONB 默认就是 '[]'::jsonb
+                func.jsonb_array_length(Run.citations) == 0,
+                Run.content_pruned_at.is_(None),
+                Run.events_pruned_at.is_(None),
+                Run.output.is_not(None),
+            )
+            .order_by(Run.started_at, Run.id)
+            .limit(limit)
+        )
+        async with self._sessionmaker() as session:
+            rows = (await session.scalars(stmt)).all()
+        return [_record_from_row(row, event_count=0) for row in rows]
+
+    async def set_citations(self, run_id: str, citations: list[dict[str, Any]]) -> bool:
+        rid = uuid.UUID(run_id)
+        async with self._sessionmaker() as session, session.begin():
+            updated = await session.scalar(
+                update(Run)
+                .where(Run.id == rid, func.jsonb_array_length(Run.citations) == 0)
+                .values(citations=citations)
+                .returning(Run.id)
+            )
+        return updated is not None
 
     async def recent_turns(
         self,

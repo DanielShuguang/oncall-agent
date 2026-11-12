@@ -85,6 +85,9 @@ reap:
 prune:
 	cd server && uv run python -m app.cli prune
 
+backfill-citations:
+	cd server && uv run python -m app.cli backfill-citations
+
 loadtest:
 	cd server && uv run python -m app.eval.loadtest --requests 100 --concurrency 20 --users 20
 

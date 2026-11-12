@@ -642,6 +642,9 @@ ADR-0030 的历史会话只有两段文字，引用角标没有还原——完�
 | 前端 | `transcriptMessages` 只在回答可见时挂引用，复用现有角标与 `CitationPreviewDialog`；预览仍按当前角色校验，fail-closed |
 | 迁移 | `0014`：`runs.citations JSONB NOT NULL DEFAULT '[]'`，不建索引；`downgrade` 删列 |
 
+> 后来 [ADR-0042](decisions/0042-citation-backfill.md) 补了 opt-in 的 `backfill-citations`，
+> 此段「迁移前历史 run 不回填」保留当时口径。
+
 验证：默认 **422 passed + 31 skipped**；临时 Postgres 下 **450 passed + 3 skipped**，
 `alembic upgrade head` → `check` → `downgrade 0013` → `upgrade head` 往返无漂移；
 `ruff check` / `ruff format --check`（169 files）/ `mypy app`（103 files）通过；前端
@@ -934,6 +937,32 @@ Postgres + Redis **498 passed**。迁移 `0017` 的
 已知边界：移除不删数据，正文/引用/运行过程仍按保留期存在；网页没有恢复入口；
 重复移除幂等但不会报错；`hidden_sessions` 不随 run 清理；搜索在移除后立即不再返回该会话。
 详见 [ADR-0041](decisions/0041-session-remove.md)。
+
+---
+
+## W6 后补：历史引用回填（ADR-0042）
+
+ADR-0031 只对上线后的 `message.completed` 写 `runs.citations`，更早的 run 即使
+事件还在也没有快照，历史侧栏不出角标。这里补一个 opt-in 的运维命令，从事件重建；
+不改运行时、不加表、不加迁移，也不改变保留语义。
+
+| 事项 | 落地 |
+|---|---|
+| 命令 | `make backfill-citations` / `python -m app.cli backfill-citations`，`--dry-run`、`--limit`（默认 100） |
+| 候选 | `citations == []`、正文未清理、事件未清理、有 `output`；按 `started_at, run_id` 升序 |
+| 重建 | 批量取事件，取最后一条 `message.completed`；复用 `_citation_snapshot`（字段白名单、截断、最多 50） |
+| 写入 | `set_citations` 只在仍为空时更新（PG `WHERE jsonb_array_length(citations) = 0 RETURNING id`），已回填/并发写入不覆盖 |
+| 语义 | 不改变读路径：回填出的快照仍按当前可见性与正文保留期过滤；事件已清理的 run 补不出 |
+| 边界 | 无自动定时、无按用户/时间范围、无进度游标；大库分多次跑 |
+
+验证：默认 **468 passed + 35 skipped**；真实 Postgres **500 passed + 3 skipped**；
+Postgres + Redis **503 passed**。`ruff check` / `ruff format --check`（186 files）/
+`mypy app`（110 files）通过；前端未改，仍 **65 tests / 13 files**。
+检索参数/提示词/多轮历史未改，未重跑评测。
+
+已知边界：事件过了保留期的 run 永远补不出角标；回填是逐 run 条件更新，不做整批事务；
+没有操作审计（谁跑了、影响多少场）；事件表很大时单批扫描仍是全表条件查询。
+详见 [ADR-0042](decisions/0042-citation-backfill.md)。
 
 ---
 

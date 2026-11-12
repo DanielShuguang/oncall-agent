@@ -168,9 +168,9 @@ oncall/
 
 | 模块 | 状态 | 验证方式 |
 |---|---|---|
-| 文档（12 篇 + 41 篇 ADR + 评测基线） | ✅ 完成 | — |
+| 文档（12 篇 + 42 篇 ADR + 评测基线） | ✅ 完成 | — |
 | 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡 / 运行回放 / 成本页） | ✅ 可用 | `tsc --noEmit`、`oxlint 0`、`oxfmt --check` 通过；`vitest` 65/65；`pnpm build` 成功 |
-| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **464 passed + 34 skipped**；设 `ONCALL_TEST_DATABASE_URL`（指向一个可清空的库）后 **495 passed + 3 skipped**，再加 `ONCALL_TEST_REDIS_URL` 为 **498 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约与审批快照、引用快照与内容回收、个人预算与账本快照、工单自助查询、工单详情、会话列表/标题搜索/分页/重命名/移除、资产查询接表、运行过程回放、批量会话详情、工具配置变更历史、计量一致性） |
+| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **468 passed + 35 skipped**；设 `ONCALL_TEST_DATABASE_URL`（指向一个可清空的库）后 **500 passed + 3 skipped**，再加 `ONCALL_TEST_REDIS_URL` 为 **503 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约与审批快照、引用快照与内容回收、个人预算与账本快照、工单自助查询、工单详情、会话列表/标题搜索/分页/重命名/移除、资产查询接表、运行过程回放、批量会话详情、工具配置变更历史、历史引用回填、计量一致性） |
 | 本地 JWT（W1 D2） | ✅ 已完成 | `tests/test_auth.py` 20 条：签发/验签、过期、alg=none、401 JSON、OpenAPI Bearer、run 归属隔离 |
 | 事件落库 + 断线续传（D4） | ✅ 已完成 | `alembic upgrade head` + `alembic check` 无漂移；`tests/test_store_contract.py`（内存 + Postgres 契约）、`tests/test_chat_stream.py`（落库、幂等回放、503 语义） |
 | 最小 Agent 运行时（W1 D5） | ✅ 已完成 | `tests/test_agent_runtime.py` 9 条：工具真实执行、检索引用、写操作挂起审批、工具失败降级、步数/时长上限 |
@@ -197,7 +197,8 @@ oncall/
 | 会话列表按标题搜索（W6 后补） | ✅ 已完成 | `GET /sessions?q=`（1–100 字符，本人，大小写不敏感子串）只匹配投影标题（最早非空 `input`），不搜正文/工具结果/审批理由；与 keyset 分页共用游标；Postgres 用 `row_number()` 子查询 + `strpos(lower(...))`（`%`/`_` 按字面量，不是通配符）；无新表/索引/迁移；`tests/test_sessions_api.py`、`test_store_contract.py`；[ADR-0039](docs/decisions/0039-session-search.md) |
 | 会话重命名（W6 后补） | ✅ 已完成 | 旁挂 `session_titles`（迁移 0016，`(user_id, session_id)` 主键、无外键）：显示标题优先自定义，否则最早非空 `input`；`PATCH /sessions/{id}` 裁空白、1–60 字符、空串 422、`null` 恢复默认、成功 204、别人/不存在 404、503 不降级；`q` 同时匹配自定义标题与首条问题（改名后旧关键词仍可搜）；只改显示标题，不碰 run/事件/排序；`tests/test_sessions_api.py`、`test_store_contract.py`（`_exercise_session_titles`）；[ADR-0040](docs/decisions/0040-session-rename.md) |
 | 会话从列表移除（W6 后补） | ✅ 已完成 | 旁挂 `hidden_sessions`（迁移 0017，`(user_id, session_id)` 主键、无外键）：`DELETE /sessions/{id}` 软移除，成功 204、重复 204（幂等）、别人/不存在 404、503 不降级；只过滤 `GET /sessions` 与 `q` 搜索，`runs`/事件/审批/引用快照仍按保留期保存、直连详情仍可读；前端垃圾桶 + 行内确认，移除当前会话时切新会话；v1 无恢复入口；`tests/test_sessions_api.py`、`test_store_contract.py`（`_exercise_hidden_sessions`）；[ADR-0041](docs/decisions/0041-session-remove.md) |
-| 历史引用回放（W6 后补） | ✅ 已完成 | `runs.citations`（迁移 0014）存 `message.completed` 的完整引用快照，历史会话还原角标并复用现有全文预览；只保留已知字段、最多 50 条，正文按 ADR-0023 清空时一起置空，`content_redacted` / 过期时详情返回 `[]`；迁移前旧 run 不回填；`test_store_contract.py`、`test_runs_api.py`；[ADR-0031](docs/decisions/0031-run-citations-replay.md) |
+| 历史引用回放（W6 后补） | ✅ 已完成 | `runs.citations`（迁移 0014）存 `message.completed` 的完整引用快照，历史会话还原角标并复用现有全文预览；只保留已知字段、最多 50 条，正文按 ADR-0023 清空时一起置空，`content_redacted` / 过期时详情返回 `[]`；迁移前旧 run 默认不回填，事件仍保留时可用 `backfill-citations` 重建（[ADR-0042](docs/decisions/0042-citation-backfill.md)）；`test_store_contract.py`、`test_runs_api.py`；[ADR-0031](docs/decisions/0031-run-citations-replay.md) |
+| 历史引用回填（W6 后补） | ✅ 已完成 | `make backfill-citations` / `python -m app.cli backfill-citations`：只处理无快照、正文与事件都未清理的 run，从最后一条 `message.completed` 重建（字段白名单/截断/最多 50），`set_citations` 条件写、可重复执行、`--dry-run` 不写库；不改读路径与保留语义；无迁移；`tests/test_citation_backfill.py`；[ADR-0042](docs/decisions/0042-citation-backfill.md) |
 | PDF 解析子进程隔离（W6 后补） | ✅ 已完成 | `.pdf` 在 `spawn` 子进程里解析（PyMuPDF/pypdf 逻辑不变），60 秒超时先 terminate 再 kill；崩溃/超时/管道异常都收敛成 `ParseError` → 上传接口 422，不再带走 API；本机实测 1 页文本 PDF 预热后 5 次中位数约 0.30 秒启动开销（Linux/大文件未测），未做内存 rlimit/常驻池；`test_rag_pdf_isolation.py`；[ADR-0032](docs/decisions/0032-pdf-parse-subprocess.md) |
 | 资产查询接表（W6 后补） | ✅ 已完成 | `query_cmdb` 改读 `assets` 表（内存/PG 双实现），`owner_id` 从 schema 删除、由 `ToolGuard` 注入，模型传身份字段会被 `validate_args` 拒绝；返回 `{"assets": [...], "count": N}`，空列表是合法结果，`finalize` 支持单台/多台/空/失败；换真实 CMDB 只替换 repository；无迁移；`tests/test_assets.py`、`test_assets_pg.py`；[ADR-0034](docs/decisions/0034-cmdb-assets-table.md) |
 | 历史运行过程回放（W6 后补） | ✅ 已完成 | `GET /runs/{id}` 从 `tool.call/result`、`approval.required/resolved` 投影只读 `timeline`，按 `call_id` / `approval_id` 合并，步骤与 `message.delta` 不进入；最多 20 项、超出 `timeline_truncated=true`；跟随回答可见性，正文回收/过期/事件清理时 `timeline_available=false`；不返回审批人 `resolved_by`/`scope`；历史回答下方折叠展示，只读；无新表/迁移；`tests/test_run_timeline.py`、`test_runs_api.py`；[ADR-0035](docs/decisions/0035-run-timeline-replay.md) |
@@ -330,14 +331,14 @@ W6 基线（3 轮均值，mock 规则路径，口径见 [baseline-v1](docs/eval/
   但仍是游标翻页、不能跳到某一轮，批量响应也没有单条 run 字节上限。
   历史回答的引用角标已按
   `runs.citations` 还原（[ADR-0031](docs/decisions/0031-run-citations-replay.md)），
-  但迁移前的旧 run 没有快照；窄屏（<640px）隐藏
+  但迁移前的旧 run 默认没有快照（事件仍在时可用 `backfill-citations` 回填）；窄屏（<640px）隐藏
   会话栏，暂没有抽屉入口；刷新不自动恢复最后一次会话（需在左侧点开）；正文按
   ADR-0023 清空后标题为 null，显示「无标题」但会话仍保留
   （[ADR-0030](docs/decisions/0030-session-list.md)）
 - 引用快照随正文一起保留 180 天，过期后历史角标消失、只留 `cited_document_ids`
-  供权限回收；仍不支持单条引用级权限（一篇不可见就整场回收，ADR-0022），迁移前的
-  run 也不能补出角标
-  （[ADR-0031](docs/decisions/0031-run-citations-replay.md)）
+  供权限回收；仍不支持单条引用级权限（一篇不可见就整场回收，ADR-0022）；迁移前的 run 只有在
+  事件仍保留时才能用 `backfill-citations` 回填，事件已清理的补不出角标
+  （[ADR-0031](docs/decisions/0031-run-citations-replay.md)、[ADR-0042](docs/decisions/0042-citation-backfill.md)）
 - iframe + postMessage 嵌入形态（W5 D25）暂缓，需要来源白名单与 CSP 部署决策
 
 ## License

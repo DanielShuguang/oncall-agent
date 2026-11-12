@@ -100,7 +100,9 @@ CREATE INDEX idx_runs_status            ON runs (status) WHERE status IN ('runni
 > 历史会话打开时直接还原角标，不需要回查事件。写入时只保留已知字段、文本字段截断
 > （`title`/`heading` 200、`snippet` 500）、最多 50 条；
 > 正文按 ADR-0023 清空时一起置为 `[]`——片段是回答内容，不能比正文活得久；
-> `cited_document_ids` 不清，权限回收仍需要。迁移前的历史 run 不回填。
+> `cited_document_ids` 不清，权限回收仍需要。迁移前的历史 run 默认不回填；正文与
+> 事件都还在时，可用 `make backfill-citations`（ADR-0042）从最后一条
+> `message.completed` 重建快照，事件已清理的 run 补不出。
 
 ### 2.1.1 session_titles（会话显示标题）
 

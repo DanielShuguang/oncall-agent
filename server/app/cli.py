@@ -6,12 +6,15 @@ v1 不接 SSO（ADR-0010）：给用户签发短期 token 由运维离线完成�
     uv run python -m app.cli token --user u_102 --roles employee
     uv run python -m app.cli reap --dry-run
     uv run python -m app.cli prune --dry-run
+    uv run python -m app.cli backfill-citations --dry-run
 
 `reap` 回收进程中断后停在 `running` 的 run（ADR-0017）：只追加
 `run.failed(RUN_INTERRUPTED)` 收敛状态，不会自动重放写工具。
 `prune` 执行保留策略（ADR-0021 / ADR-0023 / ADR-0027）：整场删除过期 run 的事件、
 清空过期 run 的正文（`input/output`）与已决议审批的快照（`approvals.state`）、
 删除过期授权（`approval_grants`）、按时间删除过期的模型计量行；先 `--dry-run` 看候选。
+`backfill-citations` 从仍保留的事件里为旧 run 重建引用快照（ADR-0042），
+可重复执行；正文或事件已过保留期的 run 会跳过。
 """
 
 from __future__ import annotations
@@ -27,6 +30,7 @@ from app.core.db import dispose as dispose_db
 from app.core.security import DEFAULT_TTL_MINUTES, create_token
 from app.core.store import build_store
 from app.gateway.meter import build_model_call_store
+from app.runs.citation_backfill import backfill_citations
 from app.runs.recovery import RunRecovery
 from app.runs.retention import RetentionSweeper
 
@@ -62,6 +66,12 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="单批上限，覆盖 ONCALL_RETENTION_BATCH",
     )
+    backfill = sub.add_parser(
+        "backfill-citations",
+        help="为旧 run 回填引用快照（ADR-0042，可重复执行）",
+    )
+    backfill.add_argument("--dry-run", action="store_true", help="只统计可回填的 run，不写库")
+    backfill.add_argument("--limit", type=int, default=100, help="单次最多扫描多少个 run")
     return parser
 
 
@@ -141,6 +151,38 @@ async def _prune(args: argparse.Namespace) -> int:
     return 0
 
 
+async def _backfill_citations(args: argparse.Namespace) -> int:
+    if args.limit < 1:
+        print("--limit 必须 >= 1", file=sys.stderr)
+        return 2
+
+    settings = get_settings()
+    store = build_store(settings)
+    try:
+        result = await backfill_citations(
+            store,
+            limit=int(args.limit),
+            dry_run=bool(args.dry_run),
+        )
+    finally:
+        # 一次性命令：显式释放连接池，避免解释器退出时留下未关闭的 asyncpg 连接
+        if settings.store_backend == "postgres":
+            await dispose_db()
+    print(
+        json.dumps(
+            {
+                "store": settings.store_backend,
+                "scanned": result.scanned,
+                "filled": result.filled,
+                "skipped_no_citations": result.skipped_no_citations,
+                "dry_run": result.dry_run,
+            },
+            ensure_ascii=False,
+        )
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     if args.command == "token":
@@ -158,6 +200,8 @@ def main(argv: list[str] | None = None) -> int:
         return asyncio.run(_reap(args))
     if args.command == "prune":
         return asyncio.run(_prune(args))
+    if args.command == "backfill-citations":
+        return asyncio.run(_backfill_citations(args))
     return 2  # pragma: no cover - argparse 已保证 command 合法
 
 

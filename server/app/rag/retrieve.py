@@ -123,8 +123,8 @@ class KnowledgeBase:
         visibility: str = PUBLIC,
         allowed_roles: tuple[str, ...] = (),
     ) -> tuple[DocumentInfo, list[Chunk]]:
-        # PDF/DOCX 解析是 CPU 密集的同步代码；上传接口在事件循环里，直接跑会卡住
-        # 其他请求（包括 SSE）。放线程池，10MB 扫描件也不会把 API 拖死。
+        # PDF/DOCX 解析是同步代码；上传接口在事件循环里，直接跑会卡住其他请求
+        # （包括 SSE）。放线程池；PDF 还会再起子进程（ADR-0032），线程只等待结果。
         parsed = await asyncio.to_thread(parse_bytes, filename, data)
         return await self.index_parsed(
             parsed,

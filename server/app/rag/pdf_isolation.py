@@ -55,6 +55,9 @@ def parse_pdf_isolated(
         process.join(timeout=1)
         if process.is_alive():
             _terminate(process)
+        if not process.is_alive():
+            # 显式释放进程句柄；Windows 上不 close 会一直留到 GC。
+            process.close()
 
     if status == "ok":
         return payload

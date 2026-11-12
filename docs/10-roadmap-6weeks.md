@@ -673,6 +673,8 @@ ADR-0030 的历史会话只有两段文字，引用角标没有还原——完�
 再加 Redis **456 passed**。`ruff check` / `ruff format --check`（171 files）/
 `mypy app`（104 files）通过；前端未改，仍 **63 tests / 13 files**。新增
 `server/tests/test_rag_pdf_isolation.py` 3 条；检索、提示词、多轮判定未改，未重跑评测。
+启动开销实测：本机 Windows、1 页文本 PDF、预热后 5 次中位数 **0.303 秒**
+（同文件进程内解析 0.0006 秒，仅作对照；Linux 与大文件未测）。
 
 已知边界：60 秒是常量，慢机器上的大 PDF 可能被误杀；子进程继承环境变量与文件系统权限；
 并发上传会并发出多个解析进程；仍不做 OCR。详见

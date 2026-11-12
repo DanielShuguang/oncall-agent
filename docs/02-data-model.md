@@ -13,7 +13,7 @@ runs ──< run_events
   │
   ├──< approvals
   ├──< model_calls
-  └──< session_titles（用户改的显示标题；主键 user_id+session_id，无外键）
+  ├──< session_titles（用户改的显示标题；主键 user_id+session_id，无外键）
   └──< hidden_sessions（用户从列表移除的会话；主键 user_id+session_id，不删 run）
 
 user_budgets（按用户日预算覆盖；user_id 来自 JWT，无外键）

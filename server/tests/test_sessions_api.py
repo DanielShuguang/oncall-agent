@@ -482,7 +482,7 @@ async def test_rename_session_database_failure_is_503(
 async def test_hide_session_removes_from_list_and_search(
     client: AsyncClient, mem_store: InMemoryRunStore
 ) -> None:
-    await _run(mem_store, "sess_hide", "打印机离线")
+    hidden_run_id = await _run(mem_store, "sess_hide", "打印机离线")
     await _run(mem_store, "sess_keep", "VPN 掉线")
 
     hidden = await client.delete("/api/sessions/sess_hide")
@@ -494,6 +494,12 @@ async def test_hide_session_removes_from_list_and_search(
 
     # 重复移除幂等
     assert (await client.delete("/api/sessions/sess_hide")).status_code == 204
+
+    # 软移除：run 与详情仍可直接访问，只是不再出现在列表/搜索里
+    run_page = await client.get("/api/sessions/sess_hide/runs")
+    assert run_page.status_code == 200
+    assert [item["run_id"] for item in run_page.json()["items"]] == [hidden_run_id]
+    assert (await client.get(f"/api/runs/{hidden_run_id}")).status_code == 200
 
 
 async def test_hide_session_is_scoped_and_reports_database_failure(

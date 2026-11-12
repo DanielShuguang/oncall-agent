@@ -408,8 +408,9 @@ Authorization: Bearer <token>
 }
 ```
 
-- 管理/本人：只返回当前用户的会话；路径里的 `session_id` 属于别人或不存在且没有游标时
-  返回 `404 {"detail":"session not found"}`，不区分两种原因（避免泄露存在性）
+- 本人：只返回当前用户的会话（没有管理员旁路）；路径里的 `session_id` 属于别人或不存在且没有游标时
+  返回 `404 {"detail":"session not found"}`，不区分两种原因（避免泄露存在性）；
+  `cursor=` 空串按「没有游标」处理
 - `items` 的字段与 `GET /runs/{run_id}` 相同（`input` / `output` / `content_redacted` /
   `citations` / `timeline*`），**但没有 `model_calls`**：历史 transcript 不需要计量明细，
   需要时仍走单条详情

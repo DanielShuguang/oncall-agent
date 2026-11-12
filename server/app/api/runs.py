@@ -289,7 +289,8 @@ async def list_session_runs(
             before_started_at=before_started_at,
             before_run_id=before_run_id,
         )
-        if not records and cursor is None:
+        # 空字符串按「没传游标」处理：否则 ?cursor= 会让未知会话从 404 变成 200 空页
+        if not records and not cursor:
             raise _session_not_found()
         # 可见性按整页引用一次查完；运行过程只给「回答可见」的 run 取事件。
         redacted = await redacted_run_ids(records, viewer=viewer, kb=kb)

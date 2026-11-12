@@ -260,6 +260,26 @@ async def test_session_runs_missing_or_foreign_session_is_404(
 
     assert (await client.get("/api/sessions/sess_missing/runs")).status_code == 404
     assert (await client.get("/api/sessions/sess_other/runs")).status_code == 404
+    # 空 cursor 按「没有游标」处理，不能把 404 变成 200 空页
+    empty_cursor = await client.get("/api/sessions/sess_missing/runs", params={"cursor": ""})
+    assert empty_cursor.status_code == 404
+
+
+async def test_session_runs_rejects_bad_limit(client: AsyncClient) -> None:
+    assert (await client.get("/api/sessions/sess_any/runs", params={"limit": 0})).status_code == 422
+    assert (
+        await client.get("/api/sessions/sess_any/runs", params={"limit": 51})
+    ).status_code == 422
+
+
+async def test_session_runs_database_failure_is_503(
+    client: AsyncClient, mem_store: InMemoryRunStore
+) -> None:
+    mem_store.list_runs = AsyncMock(side_effect=SQLAlchemyError("boom"))  # type: ignore[method-assign]
+
+    res = await client.get("/api/sessions/sess_any/runs")
+    assert res.status_code == 503
+    assert res.json()["code"] == "DATABASE_UNAVAILABLE"
 
 
 async def test_session_runs_paginate_older_runs(

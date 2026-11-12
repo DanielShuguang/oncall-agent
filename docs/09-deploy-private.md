@@ -93,7 +93,7 @@ ONCALL_MOCK_MODE=true
 行为：
 
 - **不构建模型网关**：classify/plan 走确定性规则，`model_calls` 为空、成本恒为 0
-- 工具走**内置假数据**（`server/app/seed/`）
+- 工具照常执行：资产/工单来自内存仓储或 Postgres 里 seed 落的表，不连真实 CMDB/工单系统
 - 事件流、审批、回放全部照常执行
 - 切真实模型：`ONCALL_MOCK_MODE=false`，再按 §5.1 配 provider
 

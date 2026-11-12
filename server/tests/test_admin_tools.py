@@ -90,6 +90,19 @@ async def test_test_tool_rejects_reserved_identity_args(client: AsyncClient) -> 
     assert body["error_kind"] == "permission"
     assert "身份字段" in body["error"]
 
+    # owner_id 已从 schema 删除：它不是 RESERVED_ARGS，而是「未定义参数」，
+    # 同样不能借管理页试调用查别人的资产（ADR-0034）。
+    owner = await client.post(
+        "/api/admin/tools/query_cmdb/test",
+        headers=ADMIN,
+        json={"args": {"owner_id": "u_102"}},
+    )
+    assert owner.status_code == 200
+    owner_body = owner.json()
+    assert owner_body["decision"] == "executed"
+    assert owner_body["status"] == "error"
+    assert owner_body["error_kind"] == "invalid_args"
+
 
 async def test_write_tool_test_call_only_requests_approval(
     client: AsyncClient, mem_tickets: InMemoryTicketRepository

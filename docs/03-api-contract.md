@@ -644,8 +644,8 @@ Authorization: Bearer <admin token>
   "items": [
     {
       "name": "query_cmdb",
-      "description": "按 owner 查设备信息",
-      "input_schema": { "type": "object", "properties": { "owner_id": { "type": "string" } } },
+      "description": "查当前用户名下资产",
+      "input_schema": { "type": "object", "properties": { "asset_id": { "type": "string" } } },
       "is_write": false,
       "timeout_ms": 2000,
       "roles": [],
@@ -672,13 +672,15 @@ PATCH /api/admin/tools/query_cmdb
 
 ```http
 POST /api/admin/tools/query_cmdb/test
-{ "args": { "owner_id": "u_102" } }
+{ "args": {} }
 ```
 
 返回 `{ tool, decision, status, result, error, error_kind, duration_ms, attempts }`，
 **强制走治理链路**（权限用当前管理员身份），不绕过 guard：
 
 - 只读工具真实执行；参数里的身份字段（`user_id` / `role` …）仍按 `RESERVED_ARGS` 拒绝
+- `owner_id` 已从 `query_cmdb` 的 schema 删除，由当前管理员身份注入：传 `owner_id` 会触发
+  参数校验失败，传 `requester` 会命中 `RESERVED_ARGS`，两者都不会执行 handler
 - 写工具只返回 `decision=requires_approval`，**不会真的执行 handler**
 - 被禁用或角色不匹配时返回 `decision=denied`
 
@@ -694,7 +696,7 @@ GET /api/admin/perm-matrix
   "tools": [
     {
       "name": "query_cmdb",
-      "description": "按 owner 查设备信息",
+      "description": "查当前用户名下资产",
       "is_write": false,
       "enabled": true,
       "code_enabled": true,

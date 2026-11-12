@@ -12,7 +12,7 @@ from __future__ import annotations
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.deps import require_admin
@@ -25,14 +25,23 @@ from app.schemas.tool import (
     PermMatrixTool,
     PermMatrixUpdateRequest,
     PermMatrixUpdateResponse,
+    ToolChangeOut,
+    ToolHistoryResponse,
     ToolListResponse,
     ToolOut,
+    ToolOverrideSnapshot,
     ToolTestRequest,
     ToolTestResponse,
     ToolUpdateRequest,
 )
 from app.tools.builtin import default_registry
-from app.tools.policy import ToolOverride, ToolPolicy, get_tool_policy
+from app.tools.policy import (
+    ToolOverride,
+    ToolPolicy,
+    ToolSettingChange,
+    get_tool_policy,
+    override_snapshot,
+)
 from app.tools.registry import Identity, ToolGuard, ToolSpec
 
 router = APIRouter(prefix="/admin", tags=["admin-tools"])
@@ -127,26 +136,30 @@ async def update_tool(
         raise ApiError(422, "TOOL_LOCKED", "该工具在代码中已禁用，管理页不能开启")
 
     try:
-        current = await policy.override_for(name)
+        current = (await policy.overrides(force=True, allow_stale=False)).get(name)
         if body.enabled is None or body.enabled == spec.enabled:
             # 撤销启用覆盖；若角色还有覆盖则保留 roles
             if current is None or current.roles is None:
-                await policy.set_override(name, None, updated_by=admin.user_id)
+                new_override = None
             else:
-                await policy.set_override(
-                    name,
-                    ToolOverride(enabled=None, roles=current.roles),
-                    updated_by=admin.user_id,
-                )
+                new_override = ToolOverride(enabled=None, roles=current.roles)
         else:
-            await policy.set_override(
-                name,
-                ToolOverride(
-                    enabled=body.enabled,
-                    roles=current.roles if current is not None else None,
-                ),
-                updated_by=admin.user_id,
+            new_override = ToolOverride(
+                enabled=body.enabled,
+                roles=current.roles if current is not None else None,
             )
+        before = override_snapshot(current)
+        after = override_snapshot(new_override)
+        change = None
+        if before != after:
+            change = ToolSettingChange(
+                tool_name=name,
+                changed_by=admin.user_id,
+                source="tool",
+                before=before,
+                after=after,
+            )
+        await policy.set_override(name, new_override, updated_by=admin.user_id, change=change)
     except SQLAlchemyError as exc:
         log.error("tool_setting_write_failed", tool=name, error=str(exc))
         raise ApiError(503, "DATABASE_UNAVAILABLE", "工具配置保存失败，请稍后重试") from exc
@@ -157,6 +170,36 @@ async def update_tool(
         spec,
         policy.effective_spec(spec, override),
         overridden=override is not None,
+    )
+
+
+@router.get("/tools/{name}/history")
+async def tool_setting_history(
+    name: str,
+    policy: Annotated[ToolPolicy, Depends(get_tool_policy)],
+    _admin: Annotated[Identity, Depends(require_admin)],
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> ToolHistoryResponse:
+    if default_registry().try_get(name) is None:
+        raise ApiError(404, "TOOL_NOT_FOUND", "工具未注册")
+    try:
+        records = await policy.history(name, limit=limit)
+    except SQLAlchemyError as exc:
+        log.error("tool_history_read_failed", tool=name, error=str(exc))
+        raise ApiError(503, "DATABASE_UNAVAILABLE", "工具变更历史暂不可用") from exc
+    return ToolHistoryResponse(
+        items=[
+            ToolChangeOut(
+                id=record.id,
+                tool_name=record.tool_name,
+                changed_by=record.changed_by,
+                changed_at=record.changed_at,
+                source=record.source,
+                before=None if record.before is None else ToolOverrideSnapshot(**record.before),
+                after=None if record.after is None else ToolOverrideSnapshot(**record.after),
+            )
+            for record in records
+        ]
     )
 
 
@@ -251,13 +294,27 @@ async def update_perm_matrix(
         else:
             current[item.name] = ToolOverride(enabled=enabled, roles=role_override)
 
+    # 只记录真正变化的工具；整表保存但内容没变时不产生审计噪声
+    before_snapshots = {name: override_snapshot(item) for name, item in loaded.items()}
+    after_snapshots = {name: override_snapshot(item) for name, item in current.items()}
+    changes = [
+        ToolSettingChange(
+            tool_name=name,
+            changed_by=admin.user_id,
+            source="matrix",
+            before=before_snapshots.get(name),
+            after=after_snapshots.get(name),
+        )
+        for name in sorted(before_snapshots.keys() | after_snapshots.keys())
+        if before_snapshots.get(name) != after_snapshots.get(name)
+    ]
     try:
-        await policy.replace_overrides(current, updated_by=admin.user_id)
+        await policy.replace_overrides(current, updated_by=admin.user_id, changes=changes)
     except SQLAlchemyError as exc:
         log.error("perm_matrix_write_failed", error=str(exc))
         raise ApiError(503, "DATABASE_UNAVAILABLE", "权限矩阵保存失败，请稍后重试") from exc
 
-    log.info("perm_matrix_updated", tools=len(seen), by=admin.user_id)
+    log.info("perm_matrix_updated", tools=len(seen), changes=len(changes), by=admin.user_id)
     try:
         matrix = await _matrix(policy, allow_stale=False)
     except SQLAlchemyError as exc:

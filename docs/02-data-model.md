@@ -8,6 +8,7 @@
 
 ```
 tools（代码注册） ──< tool_settings（环境覆盖：启用/角色）
+                 └──< tool_setting_changes（谁在何时改了什么，追加）
 runs ──< run_events
   │
   ├──< approvals
@@ -208,7 +209,7 @@ CREATE TABLE tool_settings (
   name       TEXT PRIMARY KEY,        -- 与 ToolSpec.name 对应；无外键，删除工具后残留行读取时忽略
   enabled    BOOLEAN,                 -- NULL = 继承代码默认；false = 本环境禁用
   roles      JSONB,                   -- NULL = 继承；[] = 所有登录用户
-  updated_by TEXT,                    -- 最后修改人（完整历史看结构化日志）
+  updated_by TEXT,                    -- 最后修改人（完整历史见 tool_setting_changes）
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ```
@@ -220,6 +221,26 @@ CREATE TABLE tool_settings (
   由内置 `employee/approver/admin` 加 `ONCALL_ADMIN_ROLES` / `ONCALL_APPROVER_ROLES` 组成
 - 覆盖读取有 2s 进程内缓存（ADR-0014）；单进程保存后立即失效，多副本最长 2s 生效
 - 写操作即使角色允许，也仍需人工审批（`approvals` 表），权限矩阵不能替代审批
+- 每次管理写入追加到 `tool_setting_changes`（ADR-0037）：
+
+```sql
+CREATE TABLE tool_setting_changes (
+  id         BIGSERIAL PRIMARY KEY,
+  tool_name  TEXT NOT NULL,           -- 与 ToolSpec.name 对应；无外键，工具下线后历史仍保留
+  changed_by TEXT NOT NULL,           -- 管理员的 JWT sub
+  changed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  source     TEXT NOT NULL,           -- tool = PATCH 开关；matrix = 权限矩阵整表保存
+  before     JSONB,                   -- 覆盖快照 {enabled, roles}；NULL = 没有覆盖/继承代码默认
+  after      JSONB
+);
+CREATE INDEX idx_tool_setting_changes_tool_time
+  ON tool_setting_changes (tool_name, changed_at DESC);
+```
+
+- 只对**真正变化**的工具追加一行；无变化的 PATCH / 矩阵保存不落行
+- 与 `tool_settings` 的写入在同一事务里：历史写失败则配置一起回滚
+- 只记录管理 API 的写入；进程内系统/测试调用 `set_override` 没有可信操作人，不写历史
+- 长期保留，不随 run 事件或审批快照清理；管理页按工具查看最近 N 条
 
 ### 2.6 知识库
 
@@ -434,7 +455,7 @@ uv run alembic upgrade head --sql    # 无库环境渲染 DDL，评审用
 
 - 迁移文件在 `server/migrations/versions/`；`alembic.ini` 只放占位 DSN，真实 DSN 由 `migrations/env.py` 从环境变量读
 - 必须写 `downgrade`，并在空库上验证一次 `downgrade base && upgrade head`
-- 当前迁移链：`0001` runs/events → `0002` 幂等键按用户作用域 → `0003` kb（pgvector/tsvector）+ assets/tickets → `0004` approvals → `0005` 会话授权按用户隔离 → `0006` model_calls + failure_category → `0007` tool_settings → `0008` 文档可见性 → `0009` 会话索引 → `0010` 事件清理标记/部分索引 → `0011` 回答引用快照 → `0012` 正文清理标记/部分索引 → `0013` 按用户日预算覆盖（`user_budgets`）→ `0014` 回答引用快照（`runs.citations`，ADR-0031）
+- 当前迁移链：`0001` runs/events → `0002` 幂等键按用户作用域 → `0003` kb（pgvector/tsvector）+ assets/tickets → `0004` approvals → `0005` 会话授权按用户隔离 → `0006` model_calls + failure_category → `0007` tool_settings → `0008` 文档可见性 → `0009` 会话索引 → `0010` 事件清理标记/部分索引 → `0011` 回答引用快照 → `0012` 正文清理标记/部分索引 → `0013` 按用户日预算覆盖（`user_budgets`）→ `0014` 回答引用快照（`runs.citations`，ADR-0031）→ `0015` 工具配置变更历史（`tool_setting_changes`，ADR-0037）
 
 > `0003` 先 `CREATE EXTENSION IF NOT EXISTS vector`，否则 vector 类型与 HNSW 索引会失败；
 > 测试库由 fixture 建扩展后再 `create_all`（扩展是库级对象，`drop_all` 不会删）。

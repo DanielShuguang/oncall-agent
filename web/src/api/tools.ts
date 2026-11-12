@@ -30,6 +30,31 @@ export interface ToolListResponse {
   items: ToolInfo[];
 }
 
+export interface ToolOverrideSnapshot {
+  enabled: boolean | null;
+  roles: string[] | null;
+}
+
+export interface ToolChange {
+  id: number;
+  tool_name: string;
+  changed_by: string;
+  changed_at: string;
+  source: 'tool' | 'matrix' | string;
+  before: ToolOverrideSnapshot | null;
+  after: ToolOverrideSnapshot | null;
+}
+
+export interface ToolHistoryResponse {
+  items: ToolChange[];
+}
+
+export function getToolHistory(name: string, limit = 20): Promise<ToolHistoryResponse> {
+  return getJson<ToolHistoryResponse>(
+    `/admin/tools/${encodeURIComponent(name)}/history?limit=${limit}`,
+  );
+}
+
 export interface ToolTestResponse {
   tool: string;
   decision: 'executed' | 'requires_approval' | 'denied' | string;

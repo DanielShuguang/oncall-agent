@@ -220,6 +220,12 @@ app/tools/
 `args` / `reason` 永久保留，`approval.resolved` 事件仍随 run 事件到期删除
 （[ADR-0027](decisions/0027-approval-snapshot-retention.md)）。
 
+**管理配置的变更**另存 `tool_setting_changes`：每次 PATCH 启用开关或整表保存权限矩阵，
+只对真正发生变化的工具追加一行（`changed_by` / `changed_at` / `source` /
+`before` / `after` 覆盖快照），与配置写入同事务，失败一起回滚（
+[ADR-0037](decisions/0037-tool-setting-history.md)）。管理页的「历史」入口按工具查看；
+历史长期保留，不随 run 事件或审批快照清理。
+
 ## 10. 面试高频追问与答法
 
 | 问题 | 答法要点 |

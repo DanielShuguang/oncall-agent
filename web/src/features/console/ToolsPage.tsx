@@ -1,7 +1,7 @@
 /** 工具注册与试调用（W5 D22）。schema 只读，启用/角色走治理配置。 */
 
 import { useEffect, useState } from 'react';
-import { FlaskConical, Lock, RotateCcw } from 'lucide-react';
+import { FlaskConical, History, Lock, RotateCcw } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -24,10 +24,13 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import {
   exampleArgs,
+  getToolHistory,
   listTools,
   testTool,
   updateTool,
+  type ToolChange,
   type ToolInfo,
+  type ToolOverrideSnapshot,
   type ToolTestResponse,
 } from '@/api/tools';
 
@@ -39,6 +42,36 @@ interface TestState {
   error: string | null;
 }
 
+interface HistoryState {
+  tool: ToolInfo;
+  loading: boolean;
+  items: ToolChange[];
+  error: string | null;
+}
+
+function formatTime(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN', { hour12: false });
+}
+
+function describeSnapshot(snapshot: ToolOverrideSnapshot | null): string {
+  if (snapshot === null) return '代码默认';
+  const enabled = snapshot.enabled === null ? '启用继承' : snapshot.enabled ? '启用' : '禁用';
+  const roles =
+    snapshot.roles === null
+      ? '角色继承'
+      : snapshot.roles.length === 0
+        ? '所有登录用户'
+        : snapshot.roles.join('、');
+  return `${enabled} · ${roles}`;
+}
+
+function sourceLabel(source: string): string {
+  if (source === 'matrix') return '权限矩阵';
+  if (source === 'tool') return '工具开关';
+  return source;
+}
+
 export default function ToolsPage() {
   const [tools, setTools] = useState<ToolInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -46,6 +79,7 @@ export default function ToolsPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [tester, setTester] = useState<TestState | null>(null);
+  const [history, setHistory] = useState<HistoryState | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -109,6 +143,30 @@ export default function ToolsPage() {
       result: null,
       error: null,
     });
+  };
+
+  const openHistory = (tool: ToolInfo) => {
+    setHistory({ tool, loading: true, items: [], error: null });
+    void (async () => {
+      try {
+        const data = await getToolHistory(tool.name);
+        setHistory((current) =>
+          current?.tool.name === tool.name
+            ? { ...current, loading: false, items: data.items }
+            : current,
+        );
+      } catch (exc) {
+        setHistory((current) =>
+          current?.tool.name === tool.name
+            ? {
+                ...current,
+                loading: false,
+                error: exc instanceof Error ? exc.message : '变更历史加载失败',
+              }
+            : current,
+        );
+      }
+    })();
   };
 
   const runTest = async () => {
@@ -222,7 +280,16 @@ export default function ToolsPage() {
                         )}
                       </TableCell>
                       <TableCell className="text-right align-top">
-                        <div className="flex justify-end gap-1">
+                        <div className="flex flex-wrap justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 text-xs"
+                            onClick={() => openHistory(tool)}
+                          >
+                            <History className="size-3" />
+                            历史
+                          </Button>
                           <Button
                             variant="outline"
                             size="sm"
@@ -268,7 +335,8 @@ export default function ToolsPage() {
 
       <p className="text-[11px] text-muted-foreground">
         角色矩阵在「权限」页编辑。工具 schema 由代码定义，避免在线修改让入参校验与提示词脱节；
-        需要新工具时走 code review 与治理测试（docs/06）。
+        需要新工具时走 code review 与治理测试（docs/06）。每次真正改变启用/角色的管理写入都会
+        记入「历史」（谁、何时、从什么改成什么），长期保留。
       </p>
 
       <Dialog
@@ -348,6 +416,55 @@ export default function ToolsPage() {
             </Button>
             <Button disabled={tester?.running} onClick={() => void runTest()}>
               {tester?.running ? '执行中…' : '执行'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={history !== null}
+        onOpenChange={(open) => {
+          if (!open) setHistory(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="font-mono">变更历史 · {history?.tool.name}</DialogTitle>
+            <DialogDescription>
+              只记录管理页真正改变配置的写入；试调用与运行中的工具调用不会产生记录。
+            </DialogDescription>
+          </DialogHeader>
+
+          {history?.loading ? (
+            <div className="p-6 text-center text-xs text-muted-foreground">加载中…</div>
+          ) : history?.error ? (
+            <div className="rounded-md border border-danger/30 bg-danger/5 p-3 text-xs text-danger">
+              {history.error}
+            </div>
+          ) : history && history.items.length === 0 ? (
+            <div className="p-6 text-center text-xs text-muted-foreground">
+              还没有配置变更记录。
+            </div>
+          ) : (
+            <div className="max-h-96 space-y-2 overflow-auto">
+              {history?.items.map((item) => (
+                <div key={item.id} className="rounded-md border p-2 text-xs">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="outline">{sourceLabel(item.source)}</Badge>
+                    <span className="text-muted-foreground">{formatTime(item.changed_at)}</span>
+                    <span className="font-mono">{item.changed_by}</span>
+                  </div>
+                  <div className="mt-1 text-muted-foreground">
+                    {describeSnapshot(item.before)} → {describeSnapshot(item.after)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setHistory(null)}>
+              关闭
             </Button>
           </DialogFooter>
         </DialogContent>

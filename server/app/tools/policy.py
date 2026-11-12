@@ -9,10 +9,11 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
+from datetime import datetime
 from time import monotonic
-from typing import Protocol
+from typing import Any, Protocol
 
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -23,6 +24,7 @@ from app.core.db import get_sessionmaker
 from app.core.logging import get_logger
 from app.models.base import utcnow
 from app.models.tool_setting import ToolSetting
+from app.models.tool_setting import ToolSettingChange as ToolSettingChangeRow
 from app.tools.registry import ToolSpec
 
 log = get_logger(__name__)
@@ -39,14 +41,61 @@ class ToolOverride:
     roles: tuple[str, ...] | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class ToolSettingChange:
+    """一次管理写入里真正发生的单工具变化（ADR-0037）。"""
+
+    tool_name: str
+    changed_by: str
+    source: str
+    before: dict[str, Any] | None
+    after: dict[str, Any] | None
+
+
+@dataclass(frozen=True, slots=True)
+class ToolSettingChangeRecord:
+    """审计页读出的历史行。"""
+
+    id: int
+    tool_name: str
+    changed_by: str
+    changed_at: datetime
+    source: str
+    before: dict[str, Any] | None
+    after: dict[str, Any] | None
+
+
+def override_snapshot(override: ToolOverride | None) -> dict[str, Any] | None:
+    """把覆盖转成审计快照；None 表示没有覆盖（走代码默认）。"""
+    if override is None:
+        return None
+    return {
+        "enabled": override.enabled,
+        "roles": None if override.roles is None else list(override.roles),
+    }
+
+
 class ToolSettingStore(Protocol):
     async def load(self) -> dict[str, ToolOverride]: ...
 
     async def upsert(
-        self, name: str, override: ToolOverride | None, *, updated_by: str
+        self,
+        name: str,
+        override: ToolOverride | None,
+        *,
+        updated_by: str,
+        change: ToolSettingChange | None = None,
     ) -> None: ...
 
-    async def replace(self, overrides: Mapping[str, ToolOverride], *, updated_by: str) -> None: ...
+    async def replace(
+        self,
+        overrides: Mapping[str, ToolOverride],
+        *,
+        updated_by: str,
+        changes: Sequence[ToolSettingChange] = (),
+    ) -> None: ...
+
+    async def history(self, name: str, *, limit: int = 20) -> list[ToolSettingChangeRecord]: ...
 
 
 class InMemoryToolSettingStore:
@@ -54,18 +103,58 @@ class InMemoryToolSettingStore:
 
     def __init__(self) -> None:
         self._items: dict[str, ToolOverride] = {}
+        self._history: list[ToolSettingChangeRecord] = []
+        self._next_id = 1
 
     async def load(self) -> dict[str, ToolOverride]:
         return dict(self._items)
 
-    async def upsert(self, name: str, override: ToolOverride | None, *, updated_by: str) -> None:
+    async def upsert(
+        self,
+        name: str,
+        override: ToolOverride | None,
+        *,
+        updated_by: str,
+        change: ToolSettingChange | None = None,
+    ) -> None:
         if override is None:
             self._items.pop(name, None)
         else:
             self._items[name] = override
+        if change is not None:
+            self._history.append(self._new_record(change))
 
-    async def replace(self, overrides: Mapping[str, ToolOverride], *, updated_by: str) -> None:
+    async def replace(
+        self,
+        overrides: Mapping[str, ToolOverride],
+        *,
+        updated_by: str,
+        changes: Sequence[ToolSettingChange] = (),
+    ) -> None:
         self._items = dict(overrides)
+        for change in changes:
+            self._history.append(self._new_record(change))
+
+    async def history(self, name: str, *, limit: int = 20) -> list[ToolSettingChangeRecord]:
+        rows = sorted(
+            (row for row in self._history if row.tool_name == name),
+            key=lambda row: (row.changed_at, row.id),
+            reverse=True,
+        )
+        return rows[:limit]
+
+    def _new_record(self, change: ToolSettingChange) -> ToolSettingChangeRecord:
+        record = ToolSettingChangeRecord(
+            id=self._next_id,
+            tool_name=change.tool_name,
+            changed_by=change.changed_by,
+            changed_at=utcnow(),
+            source=change.source,
+            before=change.before,
+            after=change.after,
+        )
+        self._next_id += 1
+        return record
 
 
 class PostgresToolSettingStore:
@@ -86,29 +175,44 @@ class PostgresToolSettingStore:
             for row in rows
         }
 
-    async def upsert(self, name: str, override: ToolOverride | None, *, updated_by: str) -> None:
+    async def upsert(
+        self,
+        name: str,
+        override: ToolOverride | None,
+        *,
+        updated_by: str,
+        change: ToolSettingChange | None = None,
+    ) -> None:
         async with self._sessionmaker() as session, session.begin():
             if override is None:
                 await session.execute(delete(ToolSetting).where(ToolSetting.name == name))
-                return
-            stmt = pg_insert(ToolSetting).values(
-                name=name,
-                enabled=override.enabled,
-                roles=None if override.roles is None else list(override.roles),
-                updated_by=updated_by,
-            )
-            stmt = stmt.on_conflict_do_update(
-                index_elements=["name"],
-                set_={
-                    "enabled": stmt.excluded.enabled,
-                    "roles": stmt.excluded.roles,
-                    "updated_by": stmt.excluded.updated_by,
-                    "updated_at": utcnow(),
-                },
-            )
-            await session.execute(stmt)
+            else:
+                stmt = pg_insert(ToolSetting).values(
+                    name=name,
+                    enabled=override.enabled,
+                    roles=None if override.roles is None else list(override.roles),
+                    updated_by=updated_by,
+                )
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=["name"],
+                    set_={
+                        "enabled": stmt.excluded.enabled,
+                        "roles": stmt.excluded.roles,
+                        "updated_by": stmt.excluded.updated_by,
+                        "updated_at": utcnow(),
+                    },
+                )
+                await session.execute(stmt)
+            if change is not None:
+                session.add(self._change_row(change))
 
-    async def replace(self, overrides: Mapping[str, ToolOverride], *, updated_by: str) -> None:
+    async def replace(
+        self,
+        overrides: Mapping[str, ToolOverride],
+        *,
+        updated_by: str,
+        changes: Sequence[ToolSettingChange] = (),
+    ) -> None:
         async with self._sessionmaker() as session, session.begin():
             await session.execute(delete(ToolSetting))
             for name, override in overrides.items():
@@ -120,6 +224,44 @@ class PostgresToolSettingStore:
                         updated_by=updated_by,
                     )
                 )
+            for change in changes:
+                session.add(self._change_row(change))
+
+    async def history(self, name: str, *, limit: int = 20) -> list[ToolSettingChangeRecord]:
+        async with self._sessionmaker() as session:
+            rows = (
+                await session.scalars(
+                    select(ToolSettingChangeRow)
+                    .where(ToolSettingChangeRow.tool_name == name)
+                    .order_by(
+                        ToolSettingChangeRow.changed_at.desc(),
+                        ToolSettingChangeRow.id.desc(),
+                    )
+                    .limit(limit)
+                )
+            ).all()
+        return [
+            ToolSettingChangeRecord(
+                id=row.id,
+                tool_name=row.tool_name,
+                changed_by=row.changed_by,
+                changed_at=row.changed_at,
+                source=row.source,
+                before=row.before,
+                after=row.after,
+            )
+            for row in rows
+        ]
+
+    @staticmethod
+    def _change_row(change: ToolSettingChange) -> ToolSettingChangeRow:
+        return ToolSettingChangeRow(
+            tool_name=change.tool_name,
+            changed_by=change.changed_by,
+            source=change.source,
+            before=change.before,
+            after=change.after,
+        )
 
 
 class ToolPolicy:
@@ -199,16 +341,28 @@ class ToolPolicy:
         return (await self.overrides()).get(name)
 
     async def set_override(
-        self, name: str, override: ToolOverride | None, *, updated_by: str = "system"
+        self,
+        name: str,
+        override: ToolOverride | None,
+        *,
+        updated_by: str = "system",
+        change: ToolSettingChange | None = None,
     ) -> None:
-        await self._store.upsert(name, override, updated_by=updated_by)
+        await self._store.upsert(name, override, updated_by=updated_by, change=change)
         self.invalidate()
 
     async def replace_overrides(
-        self, overrides: Mapping[str, ToolOverride], *, updated_by: str = "system"
+        self,
+        overrides: Mapping[str, ToolOverride],
+        *,
+        updated_by: str = "system",
+        changes: Sequence[ToolSettingChange] = (),
     ) -> None:
-        await self._store.replace(overrides, updated_by=updated_by)
+        await self._store.replace(overrides, updated_by=updated_by, changes=changes)
         self.invalidate()
+
+    async def history(self, name: str, *, limit: int = 20) -> list[ToolSettingChangeRecord]:
+        return await self._store.history(name, limit=limit)
 
     def invalidate(self) -> None:
         self._cached = None

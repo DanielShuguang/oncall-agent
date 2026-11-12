@@ -13,8 +13,9 @@ code review 与测试，不能让管理页在线改出一个绕过治理的 sche
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
-from sqlalchemy import Boolean, DateTime, String, text
+from sqlalchemy import BigInteger, Boolean, DateTime, Index, String, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -35,4 +36,31 @@ class ToolSetting(Base):
         onupdate=utcnow,
         server_default=text("now()"),
         nullable=False,
+    )
+
+
+class ToolSettingChange(Base):
+    """工具配置变更审计（ADR-0037）。
+
+    只追加、不修改。`before` / `after` 存完整的覆盖快照（enabled 与 roles），
+    `NULL` 表示「没有覆盖、走代码默认」。无变化的管理写入不落行，避免把
+    「点了一次保存」误当成一次治理变更。
+    """
+
+    __tablename__ = "tool_setting_changes"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    tool_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    changed_by: Mapped[str] = mapped_column(String(64), nullable=False)
+    #: 触发来源：tool（单工具开关）/ matrix（权限矩阵整表保存）
+    source: Mapped[str] = mapped_column(String(16), nullable=False)
+    before: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    after: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    changed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("now()"), nullable=False
+    )
+
+    __table_args__ = (
+        # 管理页按工具查最近 N 条；历史表只增，索引跟着写入增长
+        Index("idx_tool_setting_changes_tool_time", "tool_name", text("changed_at DESC")),
     )

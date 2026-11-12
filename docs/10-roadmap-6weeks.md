@@ -796,6 +796,34 @@ ADR-0030/0031 让历史会话能回看问题、回答与引用角标，但刷新
 
 ---
 
+## W6 后补：工具配置变更历史（ADR-0037）
+
+`tool_settings` 只留最后修改人和最后修改时间。管理页收紧角色、禁用工具之后，没有人能
+按工具回答「上周三谁把 `create_ticket` 从所有用户改成仅管理员」——结构化日志有保留期、
+不可查询，`updated_by` 也只剩最后一人。ADR-0014 的待定里一直记着这张历史表。
+
+| 事项 | 落地 |
+|---|---|
+| 表 | 新增 `tool_setting_changes`（工具名、操作人、时间、来源、`before`/`after` JSONB），索引 `(tool_name, changed_at DESC)`；迁移 `0015` |
+| 粒度 | 每个真正变化的工具一行；无变化的 PATCH / 矩阵保存不落行 |
+| 原子性 | 与 `tool_settings` 写入同一事务；历史写失败则配置一起回滚 |
+| 来源 | `source=tool`（PATCH 启用开关）/ `matrix`（权限矩阵整表保存）；同一批矩阵变更按工具各一行 |
+| 快照 | `before`/`after` 存完整覆盖 `{enabled, roles}`；`null` = 没有覆盖、继承代码默认，删除覆盖也留记录 |
+| 接口 | `GET /admin/tools/{name}/history?limit=20`：admin-only、倒序、最多 100；未知工具 404，库不可用 503 |
+| 管理页 | ToolsPage 每行「历史」打开 Dialog，显示时间、操作人、来源、`before → after`；不提供回滚按钮 |
+| 保留 | v1 长期保留，不并入 run 事件/审批快照的清理；历史增长与管理员操作次数同阶 |
+
+验证：默认 **454 passed + 34 skipped**；真实 Postgres 下 **485 passed + 3 skipped**，
+再加 Redis 为 **488 passed**；迁移 `0015` 在空库 `upgrade → check → downgrade 0014 →
+upgrade` 往返无漂移；`ruff check` / `mypy app`（106 files）通过；前端 `tsc`、
+**65 tests / 13 files**、`oxlint`、`oxfmt --check` 通过。检索、提示词与多轮历史未改。
+
+已知边界：`changed_by` 是 JWT `sub`，没有姓名/部门目录；矩阵一次保存没有 batch id，
+只能按工具逐条看；没有保留期/冷归档、导出、时间范围筛选与回滚按钮；直接改数据库不会
+留下可信的应用层记录。详见 [ADR-0037](decisions/0037-tool-setting-history.md)。
+
+---
+
 ## 每周固定动作
 
 | 时点 | 动作 |

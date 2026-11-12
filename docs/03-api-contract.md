@@ -46,6 +46,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | POST | `/admin/kb/reindex` | 重建索引（用当前 embedder 重算向量） | W2 D8 |
 | GET | `/admin/tools` | 工具注册表（含生效角色/启用状态） | W3 D12 / W5 D22 |
 | PATCH | `/admin/tools/{name}` | 启用/禁用工具（`enabled: null` 恢复默认） | W5 D22 |
+| GET | `/admin/tools/{name}/history` | 工具配置变更历史（谁在何时把启用/角色改成什么） | W6 后补 |
 | POST | `/admin/tools/{name}/test` | 工具试调用（强制走治理链路） | W5 D22 |
 | GET | `/admin/perm-matrix` | 角色 × 工具矩阵 | W3 D12 / W5 D23 |
 | PUT | `/admin/perm-matrix` | 更新矩阵（按工具部分更新） | W5 D23 |
@@ -810,6 +811,41 @@ GET /api/admin/perm-matrix
 - 保存后本进程立即生效；多副本部署最长 `2s` 生效（短 TTL 缓存，见 ADR-0014）
 - 管理页读配置失败返回 `503 DATABASE_UNAVAILABLE`，**不用旧快照冒充现状**；
   只有工具执行路径允许退回上一份快照（否则库抖动会让所有工具调用一起失败）
+
+### 工具配置变更历史（ADR-0037）
+
+```http
+GET /api/admin/tools/create_ticket/history?limit=20
+Authorization: Bearer <admin token>
+```
+
+```json
+{
+  "items": [
+    {
+      "id": 12,
+      "tool_name": "create_ticket",
+      "changed_by": "admin_1",
+      "changed_at": "2026-11-12T10:00:00Z",
+      "source": "matrix",
+      "before": { "enabled": null, "roles": [] },
+      "after": { "enabled": false, "roles": null }
+    }
+  ]
+}
+```
+
+- 只有真正发生变化的工具才落行；无变化的 PATCH / 矩阵保存不产生记录
+- `before` / `after` 是完整覆盖快照：`null` 表示没有覆盖（继承代码默认），
+  `enabled: null` 表示启用继承，`roles: []` 表示所有登录用户；删除覆盖也会留下
+  「恢复默认」的记录
+- `source`：`tool` = PATCH 启用开关，`matrix` = 权限矩阵整表保存；同一次矩阵保存
+  按工具各一行
+- 默认返回最近 20 条，最多 100；记录按 `changed_at DESC, id DESC` 排序
+- 未知工具 `404 TOOL_NOT_FOUND`；库不可用 `503 DATABASE_UNAVAILABLE`，不拿空列表
+  冒充「没有历史」
+- 历史长期保留，不随 run 事件或审批快照清理；只读，不提供回滚按钮（回滚应是一次
+  新的显式保存）
 
 ## 6. 版本与兼容
 

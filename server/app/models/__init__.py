@@ -6,7 +6,7 @@ from app.models.business import Asset, Ticket
 from app.models.kb import KbChunk, KbDocument
 from app.models.model_call import ModelCall
 from app.models.run import Run, RunEvent
-from app.models.tool_setting import ToolSetting
+from app.models.tool_setting import ToolSetting, ToolSettingChange
 from app.models.user_budget import UserBudget
 
 __all__ = [
@@ -22,6 +22,7 @@ __all__ = [
     "Ticket",
     "TimestampMixin",
     "ToolSetting",
+    "ToolSettingChange",
     "UserBudget",
     "utcnow",
 ]

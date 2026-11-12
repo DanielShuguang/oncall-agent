@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -25,6 +26,29 @@ class ToolOut(BaseModel):
 
 class ToolListResponse(BaseModel):
     items: list[ToolOut]
+
+
+class ToolOverrideSnapshot(BaseModel):
+    """覆盖快照；整个对象为 null 表示没有覆盖、走代码默认。"""
+
+    enabled: bool | None = None
+    #: null = 继承代码默认角色；[] = 所有登录用户
+    roles: list[str] | None = None
+
+
+class ToolChangeOut(BaseModel):
+    id: int
+    tool_name: str
+    changed_by: str
+    changed_at: datetime
+    #: tool = 单工具开关；matrix = 权限矩阵整表保存
+    source: str
+    before: ToolOverrideSnapshot | None = None
+    after: ToolOverrideSnapshot | None = None
+
+
+class ToolHistoryResponse(BaseModel):
+    items: list[ToolChangeOut]
 
 
 class ToolUpdateRequest(BaseModel):

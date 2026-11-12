@@ -129,6 +129,11 @@ describe('transcriptMessages', () => {
         content_redacted: true,
         timeline_available: false,
       }),
+      run({
+        run_id: 'u',
+        started_at: '2026-11-08T00:02:00Z',
+        timeline_available: false,
+      }),
     ]);
 
     const visible = messages.find((message) => message.id === 'hist_t_a');
@@ -136,8 +141,14 @@ describe('transcriptMessages', () => {
     expect(visible?.timeline?.[0]?.kind).toBe('tool');
     expect(visible?.timelineTruncated).toBe(true);
 
+    // 正文不可见时连「过程不可用」也不提示，避免把回收说成保留期问题
     const hidden = messages.find((message) => message.id === 'hist_x_a');
     expect(hidden?.timeline).toBeUndefined();
-    expect(hidden?.timelineAvailable).toBe(false);
+    expect(hidden?.timelineAvailable).toBeUndefined();
+
+    // 正文仍可见但事件已清理：明确标记不可用
+    const expired = messages.find((message) => message.id === 'hist_u_a');
+    expect(expired?.timeline).toBeUndefined();
+    expect(expired?.timelineAvailable).toBe(false);
   });
 });

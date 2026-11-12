@@ -235,10 +235,14 @@ async def get_run(
         # 不能再从详情接口吐出来。没有引用时不会查知识库。
         redacted = await content_is_redacted(rec, viewer=viewer, kb=kb)
         # 运行过程跟随回答的可见性：正文被回收/过期后，工具参数与审批理由也不
-        # 再展示（它们同样属于那一轮的内容）。事件已清理时明确告诉前端「不可用」，
-        # 不把它伪装成「这轮没调工具」。
+        # 再展示（它们同样属于那一轮的内容）。没有回答正文（失败/未完成）时也
+        # 不返回过程；事件已清理时明确告诉前端「不可用」，不把它伪装成
+        # 「这轮没调工具」。
         timeline_available = (
-            not redacted and rec.events_pruned_at is None and rec.content_pruned_at is None
+            rec.output is not None
+            and not redacted
+            and rec.events_pruned_at is None
+            and rec.content_pruned_at is None
         )
         timeline: list[dict[str, Any]] = []
         timeline_truncated = False

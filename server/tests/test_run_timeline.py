@@ -117,7 +117,12 @@ def test_build_timeline_truncates_and_tolerates_malformed_payloads() -> None:
         _event(
             seq,
             EventType.TOOL_CALL,
-            {"call_id": f"call_{seq}", "tool": "query_cmdb", "args": ["not-a-dict"]},
+            {
+                "call_id": f"call_{seq}",
+                "tool": "query_cmdb",
+                "args": ["not-a-dict"],
+                "write": "false",
+            },
         )
         for seq in range(1, MAX_TIMELINE_ITEMS + 2)
     ]
@@ -139,6 +144,8 @@ def test_build_timeline_truncates_and_tolerates_malformed_payloads() -> None:
     assert truncated is True
     assert len(items) == MAX_TIMELINE_ITEMS
     assert items[0]["args"] == {}
+    # 字符串 "false" 不是布尔值，不能被当成写操作
+    assert items[0]["write"] is False
     assert items[0]["status"] == "unknown"
     assert "duration_ms" not in items[0]
     assert "attempts" not in items[0]

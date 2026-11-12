@@ -59,7 +59,8 @@ def build_timeline(events: list[RunEvent]) -> tuple[list[dict[str, Any]], bool]:
                 "call_id": call_id,
                 "tool": tool,
                 "args": _mapping(payload.get("args")),
-                "write": bool(payload.get("write", False)),
+                # 只认真正的布尔值：旧事件或脏数据里的 "false" 不能被当成写操作
+                "write": payload.get("write") is True,
                 "status": "running",
             }
             items.append(tool_item)

@@ -519,12 +519,20 @@ async def test_missing_output_does_not_expose_citations(
     run_id = await _seed_run(
         mem_store, text=None, citations=[{"document_id": doc_id, "title": "薪酬"}]
     )
+    await mem_store.append(
+        run_id,
+        EventType.TOOL_CALL,
+        {"call_id": "call_1", "tool": "query_cmdb", "args": {}, "write": False},
+    )
 
     detail = (await client.get(f"/api/runs/{run_id}")).json()
     assert detail["output"] is None
     assert detail["content_pruned_at"] is None
     assert detail["content_redacted"] is False
     assert detail["citations"] == []
+    # 没有可见回答时也不返回运行过程（ADR-0035）
+    assert detail["timeline"] == []
+    assert detail["timeline_available"] is False
 
 
 async def test_pruned_content_wins_over_visibility(

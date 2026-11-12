@@ -323,8 +323,8 @@ GET /api/runs/{run_id}
 > `timeline`（[ADR-0035](decisions/0035-run-timeline-replay.md)）：历史回答的只读运行过程，
 > 由 `tool.call` / `tool.result` / `approval.required` / `approval.resolved` 事件投影而来；
 > 按 `call_id`、`approval_id` 合并，步骤与 `message.delta` 不进入。最多 20 项，超出时
-> `timeline_truncated: true`。与 `citations` 一样只在回答可见时返回：`content_redacted`、
-> `events_pruned_at` 或 `content_pruned_at` 非空时 `timeline: []` 且
+> `timeline_truncated: true`。与 `citations` 一样只在回答可见时返回：`output` 缺失、
+> `content_redacted`、`events_pruned_at` 或 `content_pruned_at` 非空时 `timeline: []` 且
 > `timeline_available: false`——「过程不可用」不能显示成「这轮没有调用工具」。
 > 为保护内部治理信息，审批卡不返回 `resolved_by` 与 `scope`。列表接口不返回这些字段；
 > 历史过程只读，不提供重试/批准/拒绝。

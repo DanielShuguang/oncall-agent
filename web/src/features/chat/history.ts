@@ -43,17 +43,18 @@ export function transcriptMessages(runs: RunDetail[]): ChatMessage[] {
     else answer = '（没有回答内容）';
     // 引用快照只在正文可见时还原（ADR-0031）；否则角标会指向一段看不到的答案
     const citations = !run.content_redacted && run.output ? run.citations : [];
-    // 运行过程同样跟随回答可见性（ADR-0035）；可用但没有记录时不必渲染折叠区
-    const timeline =
-      !run.content_redacted && run.output && run.timeline.length ? run.timeline : undefined;
+    // 运行过程同样跟随回答可见性（ADR-0035）；没有可见回答时连「不可用」提示
+    // 也不给：那会把「正文被回收」误说成「过程已过保留期」。
+    const timelineVisible = !run.content_redacted && Boolean(run.output);
+    const timeline = timelineVisible && run.timeline.length ? run.timeline : undefined;
     messages.push({
       id: `hist_${run.run_id}_a`,
       role: 'assistant',
       text: answer,
       citations: citations.length ? citations : undefined,
       timeline,
-      timelineAvailable: run.timeline_available,
-      timelineTruncated: run.timeline_truncated,
+      timelineAvailable: timelineVisible ? run.timeline_available : undefined,
+      timelineTruncated: timelineVisible ? run.timeline_truncated : undefined,
     });
   }
   return messages;

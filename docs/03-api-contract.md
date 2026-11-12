@@ -34,6 +34,8 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | GET | `/sessions` | 当前用户的会话列表（keyset 游标，按活动倒序；可选 `q` 按标题搜索） | W6 后补 |
 | PATCH | `/sessions/{session_id}` | 改会话显示标题；`title: null` 恢复默认 | W6 后补 |
 | DELETE | `/sessions/{session_id}` | 从会话列表移除（软移除；不删 run/事件/审批，204） | W6 后补 |
+| GET | `/sessions/hidden` | 本人从列表移除的会话（按移除时间倒序，ADR-0043） | W6 后补 |
+| DELETE | `/sessions/{session_id}/hidden` | 恢复已移除的会话（只删 `hidden_sessions` 行，204） | W6 后补 |
 | GET | `/sessions/{session_id}/runs` | 一页会话详情（正文/引用/运行过程，一次返回） | W6 后补 |
 | GET | `/runs/{run_id}` | 单次运行详情（含指标与模型调用明细） | W1 D4 / W4 D19 |
 | GET | `/runs/{run_id}/events?after_seq=` | 补拉事件（断线续传，兼容 `Last-Event-ID`） | W1 D4 |
@@ -472,8 +474,45 @@ Authorization: Bearer <token>
 - **不删数据**：`runs`、事件、审批、引用快照仍按保留期（ADR-0021/0023）保存；
   直接 `GET /runs/{id}`、事件回放、引用预览仍可访问——这是列表级整理，不是权限控制
 - 别人的会话与不存在的会话都返回 `404 {"detail":"session not found"}`（不泄露存在性）
-- v1 没有恢复接口；成功后前端若移除的是当前会话，会切到一个新会话
+- 移除后可以在「已移除的会话」里恢复（§3.7）；成功后前端若移除的是当前会话，会切到一个新会话
 - 库不可用时返回 `503 {"code":"DATABASE_UNAVAILABLE"}`
+
+### 3.7 已移除会话的查看与恢复（ADR-0043）
+
+```http
+GET /api/sessions/hidden?limit=50
+Authorization: Bearer <token>
+```
+
+```json
+{
+  "items": [
+    {
+      "session_id": "sess_01H...",
+      "title": "打印机离线",
+      "run_count": 2,
+      "hidden_at": "2026-11-12T09:30:00Z"
+    }
+  ]
+}
+```
+
+```http
+DELETE /api/sessions/sess_01H.../hidden
+Authorization: Bearer <token>
+```
+
+- `GET /sessions/hidden` 只返回**本人**从列表移除的会话，按 `hidden_at DESC, session_id DESC`；
+  `limit` 1–50，默认 50，v1 没有分页
+- 标题口径与普通会话列表一致：自定义标题优先，否则最早一条非空 `input`，展示截到 60 字符；
+  `run_count` 是该会话仍存在的 run 数（移除不删 run）
+- 恢复成功返回 `204 No Content`；之后该会话重新出现在 `GET /sessions` 与 `q` 搜索中，
+  排序仍按最近一次 run 活动
+- 没移除过、或属于别人的会话，都返回 `404 {"detail":"session not found"}`（不泄露存在性）；
+  重复恢复同样是 404（已无行可删）
+- 恢复只删 `hidden_sessions` 的一行：不重建/不删除 run、事件、审批、引用快照与自定义标题；
+  已过保留期的正文不会因此重新出现
+- 库不可用时返回 `503 {"code":"DATABASE_UNAVAILABLE"}`；前端折叠区只在首次展开时请求
 
 ## 4. 审批
 

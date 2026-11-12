@@ -41,7 +41,11 @@ from app.runs.content import content_is_redacted, content_is_visible, redacted_r
 from app.runs.timeline import build_timeline
 from app.schemas.cost import ModelCallOut
 from app.schemas.event import RunStatus
-from app.schemas.session import SessionRenameRequest
+from app.schemas.session import (
+    HiddenSessionListResponse,
+    HiddenSessionOut,
+    SessionRenameRequest,
+)
 from app.tools.registry import Identity
 
 router = APIRouter(tags=["runs"])
@@ -268,6 +272,54 @@ async def list_sessions(
         ],
         "next_cursor": next_cursor,
     }
+
+
+@router.get("/sessions/hidden", response_model=HiddenSessionListResponse)
+async def list_hidden_sessions(
+    store: Annotated[RunStore, Depends(get_store)],
+    identity: Annotated[Identity, Depends(get_identity)],
+    limit: Annotated[int, Query(ge=1, le=50)] = 50,
+) -> HiddenSessionListResponse:
+    """当前用户从列表移除的会话，按移除时间倒序（ADR-0043）。
+
+    只用于「已移除」视图；普通列表与搜索始终排除这些会话（ADR-0041）。
+    run、事件、审批与标题都没有删，恢复只是删掉 `hidden_sessions` 行。
+    """
+    try:
+        items = await store.list_hidden_sessions(user_id=identity.user_id, limit=limit)
+    except SQLAlchemyError as exc:
+        raise ApiError(503, "DATABASE_UNAVAILABLE", "database unavailable") from exc
+    return HiddenSessionListResponse(
+        items=[
+            HiddenSessionOut(
+                session_id=item.session_id,
+                title=_session_title(item.title),
+                run_count=item.run_count,
+                hidden_at=item.hidden_at,
+            )
+            for item in items
+        ]
+    )
+
+
+@router.delete("/sessions/{session_id}/hidden", status_code=204)
+async def restore_session(
+    session_id: Annotated[str, Path(min_length=1, max_length=64)],
+    store: Annotated[RunStore, Depends(get_store)],
+    identity: Annotated[Identity, Depends(get_identity)],
+) -> Response:
+    """把从列表移除的会话恢复到列表（ADR-0043）。
+
+    只删 `hidden_sessions` 行，run、事件、审批、标题都不动；恢复后按最近活动
+    重新参与排序与搜索。没有移除过的会话（或别人的会话）返回 404。
+    """
+    try:
+        restored = await store.unhide_session(user_id=identity.user_id, session_id=session_id)
+    except SQLAlchemyError as exc:
+        raise ApiError(503, "DATABASE_UNAVAILABLE", "database unavailable") from exc
+    if not restored:
+        raise _session_not_found()
+    return Response(status_code=204)
 
 
 @router.patch("/sessions/{session_id}", status_code=204)

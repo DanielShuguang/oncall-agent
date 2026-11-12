@@ -610,14 +610,33 @@ async def _exercise_hidden_sessions(store: RunStore) -> None:
     assert await store.list_sessions(user_id=user, limit=10, query="打印机") == []
     assert await store.list_sessions(user_id=user, limit=10, query="要移除") == []
 
-    # 重复移除幂等；别人的会话不受影响，也不能由本人移除
+    hidden_before = await store.list_hidden_sessions(user_id=user, limit=10)
+    assert [item.session_id for item in hidden_before] == ["sess_drop"]
+    assert hidden_before[0].title == "要移除"
+    assert hidden_before[0].run_count == 1
+
+    # 重复移除幂等（保留第一次的 hidden_at）；别人的会话不受影响，也不能由本人移除
     assert await store.hide_session(user_id=user, session_id="sess_drop") is True
+    hidden_after = await store.list_hidden_sessions(user_id=user, limit=10)
+    assert hidden_after[0].hidden_at == hidden_before[0].hidden_at
     assert {item.session_id for item in await store.list_sessions(user_id=other, limit=10)} == {
         "sess_drop",
         "sess_secret",
     }
     assert await store.hide_session(user_id=user, session_id="sess_missing") is False
     assert await store.hide_session(user_id=user, session_id="sess_secret") is False
+    assert await store.list_hidden_sessions(user_id=other, limit=10) == []
+
+    # 恢复（ADR-0043）：删除移除记录，会话重新出现在列表；没有移除过返回 False
+    assert await store.unhide_session(user_id=user, session_id="sess_drop") is True
+    assert {item.session_id for item in await store.list_sessions(user_id=user, limit=10)} == {
+        "sess_drop",
+        "sess_keep",
+    }
+    assert await store.list_sessions(user_id=user, limit=10, query="要移除") != []
+    assert await store.list_hidden_sessions(user_id=user, limit=10) == []
+    assert await store.unhide_session(user_id=user, session_id="sess_drop") is False
+    assert await store.unhide_session(user_id=user, session_id="sess_secret") is False
 
 
 async def _exercise_events_for_runs(store: RunStore) -> None:

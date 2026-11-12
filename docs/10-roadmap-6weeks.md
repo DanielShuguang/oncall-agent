@@ -966,6 +966,33 @@ Postgres + Redis **503 passed**。`ruff check` / `ruff format --check`（186 fil
 
 ---
 
+## W6 后补：已移除会话的查看与恢复（ADR-0043）
+
+ADR-0041 只做了软移除：`hidden_sessions` 留一行，`runs`/事件/审批都不删，但 v1 没有
+任何入口能看见被移除的会话，误点后只能改库。本轮补一个低频的「已移除」视图与恢复动作；
+无新表、无迁移、无新事件类型。
+
+| 事项 | 落地 |
+|---|---|
+| 列表 | `GET /api/sessions/hidden`：本人、`limit` 1–50 默认 50，按 `hidden_at DESC, session_id DESC` |
+| 标题 | 与会话列表一致：自定义标题优先，否则最早非空 `input`，展示截 60 字符；`run_count` 为现存 run 数 |
+| 恢复 | `DELETE /api/sessions/{id}/hidden`：只删 `hidden_sessions` 行，204；未移除/别人的 404；库故障 503 |
+| 过滤 | 普通列表与 `q` 搜索本来就排除 hidden；删行后自动重新参与，无需缓存失效或重建 |
+| 前端 | 侧栏底部「已移除的会话」折叠区，首次展开才请求；每条显示标题/轮数/移除时间与恢复按钮 |
+| 一致性 | 移除成功后关闭并清空折叠区，下次展开重新拉；恢复成功后从折叠区移除并刷新普通列表 |
+| 边界 | 无批量恢复、无隐藏列表分页/搜索、无管理员视角、不自动清理隐藏行 |
+
+验证：默认 **468 passed + 35 skipped**；真实 Postgres **500 passed + 3 skipped**；
+Postgres + Redis **503 passed**。会话 API/契约子集在真实 PG 上 **25 passed**。
+`ruff check` / `ruff format --check`（186 files）/ `mypy app`（110 files）通过；
+前端 **65 tests / 13 files**、`tsc` / `oxlint` / `oxfmt --check` / `pnpm build` 通过。
+无迁移、无 API 读路径变化；检索/提示词/多轮未改，未重跑评测。
+
+已知边界：已移除列表最多 50 条且没有游标；恢复不改保留期，已清理的正文不会回来；
+仍无硬删除，也仍无「最近删除」/批量操作。详见 [ADR-0043](decisions/0043-hidden-session-restore.md)。
+
+---
+
 ## 每周固定动作
 
 | 时点 | 动作 |

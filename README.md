@@ -168,9 +168,9 @@ oncall/
 
 | 模块 | 状态 | 验证方式 |
 |---|---|---|
-| 文档（12 篇 + 42 篇 ADR + 评测基线） | ✅ 完成 | — |
+| 文档（12 篇 + 43 篇 ADR + 评测基线） | ✅ 完成 | — |
 | 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡 / 运行回放 / 成本页） | ✅ 可用 | `tsc --noEmit`、`oxlint 0`、`oxfmt --check` 通过；`vitest` 65/65；`pnpm build` 成功 |
-| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **468 passed + 35 skipped**；设 `ONCALL_TEST_DATABASE_URL`（指向一个可清空的库）后 **500 passed + 3 skipped**，再加 `ONCALL_TEST_REDIS_URL` 为 **503 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约与审批快照、引用快照与内容回收、个人预算与账本快照、工单自助查询、工单详情、会话列表/标题搜索/分页/重命名/移除、资产查询接表、运行过程回放、批量会话详情、工具配置变更历史、历史引用回填、计量一致性） |
+| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **468 passed + 35 skipped**；设 `ONCALL_TEST_DATABASE_URL`（指向一个可清空的库）后 **500 passed + 3 skipped**，再加 `ONCALL_TEST_REDIS_URL` 为 **503 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约与审批快照、引用快照与内容回收、个人预算与账本快照、工单自助查询、工单详情、会话列表/标题搜索/分页/重命名/移除/恢复、资产查询接表、运行过程回放、批量会话详情、工具配置变更历史、历史引用回填、计量一致性） |
 | 本地 JWT（W1 D2） | ✅ 已完成 | `tests/test_auth.py` 20 条：签发/验签、过期、alg=none、401 JSON、OpenAPI Bearer、run 归属隔离 |
 | 事件落库 + 断线续传（D4） | ✅ 已完成 | `alembic upgrade head` + `alembic check` 无漂移；`tests/test_store_contract.py`（内存 + Postgres 契约）、`tests/test_chat_stream.py`（落库、幂等回放、503 语义） |
 | 最小 Agent 运行时（W1 D5） | ✅ 已完成 | `tests/test_agent_runtime.py` 9 条：工具真实执行、检索引用、写操作挂起审批、工具失败降级、步数/时长上限 |
@@ -196,7 +196,7 @@ oncall/
 | 会话列表与历史轮次分页（W6 后补） | ✅ 已完成 | `/sessions` 用 `(updated_at, session_id)` keyset 游标（base64url JSON，非法 400 `INVALID_CURSOR`）；会话内用 `/runs` 已有游标翻更早轮次（`prependHistory`）；翻页期间新 run 可能造成重复/跳过，刷新即重置；无新表/索引/迁移；[ADR-0033](docs/decisions/0033-session-history-pagination.md) |
 | 会话列表按标题搜索（W6 后补） | ✅ 已完成 | `GET /sessions?q=`（1–100 字符，本人，大小写不敏感子串）只匹配投影标题（最早非空 `input`），不搜正文/工具结果/审批理由；与 keyset 分页共用游标；Postgres 用 `row_number()` 子查询 + `strpos(lower(...))`（`%`/`_` 按字面量，不是通配符）；无新表/索引/迁移；`tests/test_sessions_api.py`、`test_store_contract.py`；[ADR-0039](docs/decisions/0039-session-search.md) |
 | 会话重命名（W6 后补） | ✅ 已完成 | 旁挂 `session_titles`（迁移 0016，`(user_id, session_id)` 主键、无外键）：显示标题优先自定义，否则最早非空 `input`；`PATCH /sessions/{id}` 裁空白、1–60 字符、空串 422、`null` 恢复默认、成功 204、别人/不存在 404、503 不降级；`q` 同时匹配自定义标题与首条问题（改名后旧关键词仍可搜）；只改显示标题，不碰 run/事件/排序；`tests/test_sessions_api.py`、`test_store_contract.py`（`_exercise_session_titles`）；[ADR-0040](docs/decisions/0040-session-rename.md) |
-| 会话从列表移除（W6 后补） | ✅ 已完成 | 旁挂 `hidden_sessions`（迁移 0017，`(user_id, session_id)` 主键、无外键）：`DELETE /sessions/{id}` 软移除，成功 204、重复 204（幂等）、别人/不存在 404、503 不降级；只过滤 `GET /sessions` 与 `q` 搜索，`runs`/事件/审批/引用快照仍按保留期保存、直连详情仍可读；前端垃圾桶 + 行内确认，移除当前会话时切新会话；v1 无恢复入口；`tests/test_sessions_api.py`、`test_store_contract.py`（`_exercise_hidden_sessions`）；[ADR-0041](docs/decisions/0041-session-remove.md) |
+| 会话从列表移除与恢复（W6 后补） | ✅ 已完成 | 旁挂 `hidden_sessions`（迁移 0017，`(user_id, session_id)` 主键、无外键）：`DELETE /sessions/{id}` 软移除，成功 204、重复 204（幂等）、别人/不存在 404、503 不降级；只过滤 `GET /sessions` 与 `q` 搜索，`runs`/事件/审批/引用快照仍按保留期保存、直连详情仍可读；`GET /sessions/hidden` 列本人移除项、`DELETE /sessions/{id}/hidden` 恢复（只删行、204、404/503），前端侧栏「已移除的会话」折叠区；`tests/test_sessions_api.py`、`test_store_contract.py`（`_exercise_hidden_sessions`）；[ADR-0041](docs/decisions/0041-session-remove.md)、[ADR-0043](docs/decisions/0043-hidden-session-restore.md) |
 | 历史引用回放（W6 后补） | ✅ 已完成 | `runs.citations`（迁移 0014）存 `message.completed` 的完整引用快照，历史会话还原角标并复用现有全文预览；只保留已知字段、最多 50 条，正文按 ADR-0023 清空时一起置空，`content_redacted` / 过期时详情返回 `[]`；迁移前旧 run 默认不回填，事件仍保留时可用 `backfill-citations` 重建（[ADR-0042](docs/decisions/0042-citation-backfill.md)）；`test_store_contract.py`、`test_runs_api.py`；[ADR-0031](docs/decisions/0031-run-citations-replay.md) |
 | 历史引用回填（W6 后补） | ✅ 已完成 | `make backfill-citations` / `python -m app.cli backfill-citations`：只处理无快照、正文与事件都未清理的 run，从最后一条 `message.completed` 重建（字段白名单/截断/最多 50），`set_citations` 条件写、可重复执行、`--dry-run` 不写库；不改读路径与保留语义；无迁移；`tests/test_citation_backfill.py`；[ADR-0042](docs/decisions/0042-citation-backfill.md) |
 | PDF 解析子进程隔离（W6 后补） | ✅ 已完成 | `.pdf` 在 `spawn` 子进程里解析（PyMuPDF/pypdf 逻辑不变），60 秒超时先 terminate 再 kill；崩溃/超时/管道异常都收敛成 `ParseError` → 上传接口 422，不再带走 API；本机实测 1 页文本 PDF 预热后 5 次中位数约 0.30 秒启动开销（Linux/大文件未测），未做内存 rlimit/常驻池；`test_rag_pdf_isolation.py`；[ADR-0032](docs/decisions/0032-pdf-parse-subprocess.md) |
@@ -322,7 +322,10 @@ W6 基线（3 轮均值，mock 规则路径，口径见 [baseline-v1](docs/eval/
   （只搜首条问题、不搜回答正文；标题被保留期清空后搜不到），并支持**行内重命名**
   （标题 1–60 字，`null` 恢复默认；只改显示名，搜索仍兼顾首条问题）与
   **从列表移除**（软移除：只影响列表与搜索，run/事件/审批仍按保留期保存，直连详情仍可读；
-  无恢复入口，[ADR-0041](docs/decisions/0041-session-remove.md)）；但没有批量移除/改名、
+  侧栏「已移除的会话」可查看并恢复，恢复只删 `hidden_sessions` 行、不改变保留期，
+  [ADR-0041](docs/decisions/0041-session-remove.md)、
+  [ADR-0043](docs/decisions/0043-hidden-session-restore.md)；已移除列表最多 50 条、无批量恢复、
+  无管理员视角）；但没有批量移除/改名、
   置顶与虚拟滚动；翻页期间有新 run 时可能重复或跳过一页，刷新即重置
   （[ADR-0033](docs/decisions/0033-session-history-pagination.md)）；历史回答的工具/审批以
   「运行过程」折叠区回放（[ADR-0035](docs/decisions/0035-run-timeline-replay.md)），但最多

@@ -58,3 +58,21 @@ export async function renameSession(sessionId: string, title: string | null): Pr
 export async function hideSession(sessionId: string): Promise<void> {
   await del(`/sessions/${encodeURIComponent(sessionId)}`);
 }
+
+export interface HiddenSession {
+  session_id: string;
+  title: string | null;
+  run_count: number;
+  hidden_at: string;
+}
+
+/** 已移除的会话（ADR-0043）；只影响列表，run/事件仍按保留期保存。 */
+export async function listHiddenSessions(limit = 50): Promise<HiddenSession[]> {
+  const page = await getJson<{ items: HiddenSession[] }>(`/sessions/hidden?limit=${limit}`);
+  return page.items;
+}
+
+/** 恢复已移除的会话（ADR-0043）：只删 hidden_sessions 行，恢复后重新参与列表与搜索。 */
+export async function restoreSession(sessionId: string): Promise<void> {
+  await del(`/sessions/${encodeURIComponent(sessionId)}/hidden`);
+}

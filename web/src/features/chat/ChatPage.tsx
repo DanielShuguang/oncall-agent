@@ -9,8 +9,11 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import {
   getSessionRuns,
   hideSession,
+  listHiddenSessions,
   listSessions,
   renameSession,
+  restoreSession,
+  type HiddenSession,
   type SessionSummary,
 } from '@/api/sessions';
 import { CitationPreviewDialog } from './CitationPreviewDialog';
@@ -60,6 +63,12 @@ export default function ChatPage() {
   const renameRequest = useRef(0);
   // 正在从会话列表移除的会话（ADR-0041）；移除只影响列表，不删 run
   const [hidingId, setHidingId] = useState<string | null>(null);
+  // 已移除的会话折叠区（ADR-0043）；打开时才拉取，恢复只删 hidden_sessions 行
+  const [hiddenOpen, setHiddenOpen] = useState(false);
+  const [hiddenSessions, setHiddenSessions] = useState<HiddenSession[]>([]);
+  const [hiddenLoading, setHiddenLoading] = useState(false);
+  const [hiddenError, setHiddenError] = useState<string | null>(null);
+  const [restoringId, setRestoringId] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   // 当前会话内更早轮次的 keyset 游标；null 表示没有更早的页（ADR-0033）
   const [historyCursor, setHistoryCursor] = useState<string | null>(null);
@@ -263,10 +272,45 @@ export default function ChatPage() {
       await hideSession(targetSessionId);
       if (targetSessionId === sessionId) onNewSession();
       refreshSessions();
+      // 列表已经变化，已移除折叠区下次打开时重新拉取。
+      setHiddenOpen(false);
+      setHiddenSessions([]);
     } catch (err) {
       setSessionsError(err instanceof Error ? err.message : '会话移除失败');
     } finally {
       setHidingId(null);
+    }
+  };
+
+  const onToggleHiddenSessions = async () => {
+    if (hiddenOpen) {
+      setHiddenOpen(false);
+      return;
+    }
+    setHiddenOpen(true);
+    setHiddenLoading(true);
+    setHiddenError(null);
+    try {
+      setHiddenSessions(await listHiddenSessions(50));
+    } catch (err) {
+      setHiddenError(err instanceof Error ? err.message : '已移除会话加载失败');
+    } finally {
+      setHiddenLoading(false);
+    }
+  };
+
+  const onRestoreSession = async (targetSessionId: string) => {
+    if (restoringId) return;
+    setRestoringId(targetSessionId);
+    setHiddenError(null);
+    try {
+      await restoreSession(targetSessionId);
+      setHiddenSessions((prev) => prev.filter((item) => item.session_id !== targetSessionId));
+      refreshSessions();
+    } catch (err) {
+      setHiddenError(err instanceof Error ? err.message : '会话恢复失败');
+    } finally {
+      setRestoringId(null);
     }
   };
 
@@ -297,6 +341,13 @@ export default function ChatPage() {
         onRenameCancel={onRenameCancel}
         hidingId={hidingId}
         onHide={(id) => void onHideSession(id)}
+        hiddenOpen={hiddenOpen}
+        hiddenSessions={hiddenSessions}
+        hiddenLoading={hiddenLoading}
+        hiddenError={hiddenError}
+        restoringId={restoringId}
+        onToggleHidden={() => void onToggleHiddenSessions()}
+        onRestore={(id) => void onRestoreSession(id)}
       />
       <div className="flex min-h-0 flex-1 flex-col">
         <div aria-live="polite" className="flex flex-1 flex-col gap-3 overflow-y-auto p-4">

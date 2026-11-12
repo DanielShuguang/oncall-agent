@@ -495,6 +495,17 @@ async def test_hide_session_removes_from_list_and_search(
     # 重复移除幂等
     assert (await client.delete("/api/sessions/sess_hide")).status_code == 204
 
+    # 已移除视图（ADR-0043）：能找回并恢复
+    hidden_items = (await client.get("/api/sessions/hidden")).json()["items"]
+    assert [item["session_id"] for item in hidden_items] == ["sess_hide"]
+    assert hidden_items[0]["title"] == "打印机离线"
+    assert hidden_items[0]["run_count"] == 1
+    assert (await client.delete("/api/sessions/sess_hide/hidden")).status_code == 204
+    restored = (await client.get("/api/sessions")).json()["items"]
+    assert {item["session_id"] for item in restored} == {"sess_hide", "sess_keep"}
+    assert (await client.get("/api/sessions/hidden")).json()["items"] == []
+    assert (await client.delete("/api/sessions/sess_hide/hidden")).status_code == 404
+
     # 软移除：run 与详情仍可直接访问，只是不再出现在列表/搜索里
     run_page = await client.get("/api/sessions/sess_hide/runs")
     assert run_page.status_code == 200
@@ -512,5 +523,17 @@ async def test_hide_session_is_scoped_and_reports_database_failure(
 
     mem_store.hide_session = AsyncMock(side_effect=SQLAlchemyError("boom"))  # type: ignore[method-assign]
     res = await client.delete("/api/sessions/sess_any")
+    assert res.status_code == 503
+    assert res.json()["code"] == "DATABASE_UNAVAILABLE"
+
+    mem_store.list_hidden_sessions = AsyncMock(  # type: ignore[method-assign]
+        side_effect=SQLAlchemyError("boom")
+    )
+    res = await client.get("/api/sessions/hidden")
+    assert res.status_code == 503
+    assert res.json()["code"] == "DATABASE_UNAVAILABLE"
+
+    mem_store.unhide_session = AsyncMock(side_effect=SQLAlchemyError("boom"))  # type: ignore[method-assign]
+    res = await client.delete("/api/sessions/sess_any/hidden")
     assert res.status_code == 503
     assert res.json()["code"] == "DATABASE_UNAVAILABLE"

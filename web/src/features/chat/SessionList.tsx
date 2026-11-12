@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Pencil, Trash2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
-import type { SessionSummary } from '@/api/sessions';
+import type { HiddenSession, SessionSummary } from '@/api/sessions';
 import { cn } from 'cn';
 
 interface SessionListProps {
@@ -36,6 +36,14 @@ interface SessionListProps {
   /** 正在从列表移除的会话（ADR-0041） */
   hidingId: string | null;
   onHide: (sessionId: string) => void;
+  /** 已移除的会话折叠区（ADR-0043） */
+  hiddenOpen: boolean;
+  hiddenSessions: HiddenSession[];
+  hiddenLoading: boolean;
+  hiddenError: string | null;
+  restoringId: string | null;
+  onToggleHidden: () => void;
+  onRestore: (sessionId: string) => void;
 }
 
 function formatUpdated(iso: string): string {
@@ -74,6 +82,13 @@ export function SessionList({
   onRenameCancel,
   hidingId,
   onHide,
+  hiddenOpen,
+  hiddenSessions,
+  hiddenLoading,
+  hiddenError,
+  restoringId,
+  onToggleHidden,
+  onRestore,
 }: SessionListProps) {
   // 行内二次确认，避免为一次移除引入额外的全局弹层（ADR-0041）
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
@@ -242,6 +257,48 @@ export function SessionList({
           {loadingMore ? '加载中…' : '加载更多会话'}
         </Button>
       )}
+
+      <div className="border-t pt-2">
+        <Button
+          size="sm"
+          variant="ghost"
+          className="w-full justify-start text-muted-foreground"
+          aria-expanded={hiddenOpen}
+          onClick={onToggleHidden}
+        >
+          {hiddenOpen ? '收起已移除的会话' : '已移除的会话'}
+        </Button>
+        {hiddenOpen && (
+          <div className="mt-1 space-y-1">
+            {hiddenLoading && <p className="px-1 py-1 text-xs text-muted-foreground">加载中…</p>}
+            {hiddenError && <p className="px-1 py-1 text-xs text-danger">{hiddenError}</p>}
+            {!hiddenLoading && !hiddenError && hiddenSessions.length === 0 && (
+              <p className="px-1 py-1 text-xs text-muted-foreground">没有已移除的会话。</p>
+            )}
+            {hiddenSessions.map((item) => (
+              <div
+                key={item.session_id}
+                className="flex items-center justify-between gap-1 rounded-md border bg-canvas p-1.5"
+              >
+                <div className="min-w-0">
+                  <span className="line-clamp-2 break-words text-xs">{item.title ?? '无标题'}</span>
+                  <span className="block text-[11px] text-muted-foreground">
+                    {item.run_count} 轮 · 移除于 {formatUpdated(item.hidden_at)}
+                  </span>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={restoringId !== null}
+                  onClick={() => onRestore(item.session_id)}
+                >
+                  {restoringId === item.session_id ? '恢复中…' : '恢复'}
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </aside>
   );
 }

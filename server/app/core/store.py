@@ -150,6 +150,20 @@ class SessionSummary:
     updated_at: datetime
 
 
+@dataclass(frozen=True)
+class HiddenSessionSummary:
+    """从列表移除的会话（ADR-0041 / ADR-0043）。
+
+    只给「已移除」视图用：标题口径与 `SessionSummary` 一致（自定义标题优先，
+    否则最早一条非空 input），时间取移除时间而不是最近活动时间。
+    """
+
+    session_id: str
+    title: str | None
+    run_count: int
+    hidden_at: datetime
+
+
 def _matches_session_query(needle: str, *candidates: str | None) -> bool:
     """会话搜索：任一候选标题包含 `needle`（调用方已 lower）。"""
     return any(candidate is not None and needle in candidate.lower() for candidate in candidates)
@@ -473,6 +487,24 @@ class RunStore(Protocol):
         """
         ...
 
+    async def list_hidden_sessions(
+        self, *, user_id: str, limit: int = 50
+    ) -> list[HiddenSessionSummary]:
+        """列出该用户从列表移除的会话，按移除时间倒序（ADR-0043）。
+
+        标题与计数仍从 runs 投影；没有 run 的残留行不返回。只用于「已移除」
+        视图，普通列表与搜索始终排除这些会话（ADR-0041）。
+        """
+        ...
+
+    async def unhide_session(self, *, user_id: str, session_id: str) -> bool:
+        """把会话恢复到该用户的列表（ADR-0043）。
+
+        删除 `hidden_sessions` 行；返回 False 表示这个用户没有该会话或它本来
+        就没有被移除——调用方翻成 404，不泄露别人的会话是否存在。
+        """
+        ...
+
     async def list_runs_without_citations(self, *, limit: int = 100) -> list[RunRecord]:
         """列出仍没有引用快照、且事件与正文都还保留着的 run（ADR-0042 回填用）。
 
@@ -552,7 +584,8 @@ class InMemoryRunStore:
         #: 用户改过的显示标题；没有行时回落到首条非空 input（ADR-0040）
         self._session_titles: dict[tuple[str, str], str] = {}
         #: 用户从列表移除的会话（ADR-0041）；run/事件仍保留
-        self._hidden_sessions: set[tuple[str, str]] = set()
+        #: 从列表移除的会话 → 移除时间（ADR-0041/0043）；行仍在 runs 里
+        self._hidden_sessions: dict[tuple[str, str], datetime] = {}
         self._lock = asyncio.Lock()
         self._started_at: datetime | None = None
 
@@ -854,8 +887,44 @@ class InMemoryRunStore:
                 for record in self._runs.values()
             ):
                 return False
-            self._hidden_sessions.add((user_id, session_id))
+            # 重复移除保留第一次的 hidden_at，与 PG 的 on_conflict_do_nothing 一致
+            self._hidden_sessions.setdefault((user_id, session_id), datetime.now(UTC))
             return True
+
+    async def list_hidden_sessions(
+        self, *, user_id: str, limit: int = 50
+    ) -> list[HiddenSessionSummary]:
+        async with self._lock:
+            by_session: dict[str, list[RunRecord]] = {}
+            for record in self._runs.values():
+                if record.user_id == user_id:
+                    by_session.setdefault(record.session_id, []).append(record)
+            items: list[HiddenSessionSummary] = []
+            for (hidden_user, session_id), hidden_at in self._hidden_sessions.items():
+                if hidden_user != user_id:
+                    continue
+                records = by_session.get(session_id)
+                if not records:
+                    continue
+                records.sort(key=lambda record: (record.started_at, record.run_id))
+                first_input = next(
+                    (record.input for record in records if record.input.strip()), None
+                )
+                custom = self._session_titles.get((user_id, session_id))
+                items.append(
+                    HiddenSessionSummary(
+                        session_id=session_id,
+                        title=custom if custom is not None else first_input,
+                        run_count=len(records),
+                        hidden_at=hidden_at,
+                    )
+                )
+            items.sort(key=lambda item: (item.hidden_at, item.session_id), reverse=True)
+            return items[:limit]
+
+    async def unhide_session(self, *, user_id: str, session_id: str) -> bool:
+        async with self._lock:
+            return self._hidden_sessions.pop((user_id, session_id), None) is not None
 
     async def list_runs_without_citations(self, *, limit: int = 100) -> list[RunRecord]:
         async with self._lock:
@@ -1432,6 +1501,86 @@ class PostgresRunStore:
             )
             await session.commit()
         return True
+
+    async def list_hidden_sessions(
+        self, *, user_id: str, limit: int = 50
+    ) -> list[HiddenSessionSummary]:
+        # 标题口径与 list_sessions 一致：自定义标题优先，否则最早一条非空 input。
+        # 按 hidden_at 排序而不是最近活动时间——「已移除」视图是运维/找回场景。
+        ranked = (
+            select(
+                Run.session_id,
+                Run.input,
+                func.row_number()
+                .over(
+                    partition_by=Run.session_id,
+                    order_by=(Run.started_at.asc(), Run.id.asc()),
+                )
+                .label("rn"),
+            )
+            .where(
+                Run.user_id == user_id,
+                func.length(func.regexp_replace(Run.input, r"\s", "", "g")) > 0,
+            )
+            .subquery()
+        )
+        first_input = select(ranked.c.session_id, ranked.c.input).where(ranked.c.rn == 1).subquery()
+        stmt = (
+            select(
+                HiddenSessionRow.session_id,
+                HiddenSessionRow.hidden_at,
+                func.coalesce(SessionTitleRow.title, first_input.c.input).label("title"),
+                func.count(Run.id).label("run_count"),
+            )
+            .join(
+                Run,
+                and_(
+                    Run.user_id == HiddenSessionRow.user_id,
+                    Run.session_id == HiddenSessionRow.session_id,
+                ),
+            )
+            .outerjoin(first_input, first_input.c.session_id == HiddenSessionRow.session_id)
+            .outerjoin(
+                SessionTitleRow,
+                and_(
+                    SessionTitleRow.user_id == HiddenSessionRow.user_id,
+                    SessionTitleRow.session_id == HiddenSessionRow.session_id,
+                ),
+            )
+            .where(HiddenSessionRow.user_id == user_id)
+            .group_by(
+                HiddenSessionRow.session_id,
+                HiddenSessionRow.hidden_at,
+                SessionTitleRow.title,
+                first_input.c.input,
+            )
+            .order_by(HiddenSessionRow.hidden_at.desc(), HiddenSessionRow.session_id.desc())
+            .limit(limit)
+        )
+        async with self._sessionmaker() as session:
+            rows = (await session.execute(stmt)).all()
+        return [
+            HiddenSessionSummary(
+                session_id=row.session_id,
+                title=row.title,
+                run_count=int(row.run_count),
+                hidden_at=row.hidden_at,
+            )
+            for row in rows
+        ]
+
+    async def unhide_session(self, *, user_id: str, session_id: str) -> bool:
+        async with self._sessionmaker() as session:
+            deleted = await session.scalar(
+                delete(HiddenSessionRow)
+                .where(
+                    HiddenSessionRow.user_id == user_id,
+                    HiddenSessionRow.session_id == session_id,
+                )
+                .returning(HiddenSessionRow.session_id)
+            )
+            await session.commit()
+        return deleted is not None
 
     async def list_runs_without_citations(self, *, limit: int = 100) -> list[RunRecord]:
         stmt = (

@@ -168,9 +168,9 @@ oncall/
 
 | 模块 | 状态 | 验证方式 |
 |---|---|---|
-| 文档（12 篇 + 37 篇 ADR + 评测基线） | ✅ 完成 | — |
+| 文档（12 篇 + 38 篇 ADR + 评测基线） | ✅ 完成 | — |
 | 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡 / 运行回放 / 成本页） | ✅ 可用 | `tsc --noEmit`、`oxlint 0`、`oxfmt --check` 通过；`vitest` 65/65；`pnpm build` 成功 |
-| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **454 passed + 34 skipped**；设 `ONCALL_TEST_DATABASE_URL`（指向一个可清空的库）后 **485 passed + 3 skipped**，再加 `ONCALL_TEST_REDIS_URL` 为 **488 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约与审批快照、引用快照与内容回收、个人预算与账本快照、工单自助查询、会话列表与分页、资产查询接表、运行过程回放、批量会话详情、工具配置变更历史、计量一致性） |
+| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **456 passed + 34 skipped**；设 `ONCALL_TEST_DATABASE_URL`（指向一个可清空的库）后 **487 passed + 3 skipped**，再加 `ONCALL_TEST_REDIS_URL` 为 **490 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约与审批快照、引用快照与内容回收、个人预算与账本快照、工单自助查询、工单详情、会话列表与分页、资产查询接表、运行过程回放、批量会话详情、工具配置变更历史、计量一致性） |
 | 本地 JWT（W1 D2） | ✅ 已完成 | `tests/test_auth.py` 20 条：签发/验签、过期、alg=none、401 JSON、OpenAPI Bearer、run 归属隔离 |
 | 事件落库 + 断线续传（D4） | ✅ 已完成 | `alembic upgrade head` + `alembic check` 无漂移；`tests/test_store_contract.py`（内存 + Postgres 契约）、`tests/test_chat_stream.py`（落库、幂等回放、503 语义） |
 | 最小 Agent 运行时（W1 D5） | ✅ 已完成 | `tests/test_agent_runtime.py` 9 条：工具真实执行、检索引用、写操作挂起审批、工具失败降级、步数/时长上限 |
@@ -191,7 +191,7 @@ oncall/
 | 个人日预算（W6 后补） | ✅ 已完成 | `user_budgets` 表（迁移 0013）+ `GET/PUT/DELETE /admin/budgets`；网关在模型调用前先扣全局、再扣个人，个人不足时把全局预扣还回去再 `run.failed(BUDGET_EXCEEDED)`（不花钱、不占全局额度）；`ONCALL_USER_DAILY_BUDGET_CNY` 默认 0 = 不限，覆盖 2s 缓存、改完不重启；成本页新增「个人日预算」卡片；`tests/test_budgets.py`、`test_budgets_pg.py`；[ADR-0026](docs/decisions/0026-user-daily-budget.md) |
 | 审批快照保留（W6 后补） | ✅ 已完成 | 已决议审批的 `state` 按 `ONCALL_RUN_CONTENT_RETENTION_DAYS`（默认 180 天）清空为 `{}`，挂起的不清；参数/理由/决议人保留，无迁移、幂等；`approval_grants` 过期即删；清理任务与 `prune --dry-run` 输出 `approval_snapshots` / `approval_grants`；`tests/test_retention.py`、`test_approvals_pg.py`；[ADR-0027](docs/decisions/0027-approval-snapshot-retention.md) |
 | 预算可观测性（W6 后补） | ✅ 已完成 | 全局与个人账本加只读快照；预扣时间戳写进同一个 reservations hash（旧副本无 ts → 年龄未知、不报 stale），用户用当日集合枚举；`GET /admin/budgets/usage` 返回已用、未结算笔数/金额与 300 秒判据下的卡住笔数，账本故障 503 不降级；成本页合并配置与账本（未知花费显示「—」）；`tests/test_budget_usage.py`；[ADR-0028](docs/decisions/0028-budget-observability.md) |
-| 工单自助查询（W6 后补） | ✅ 已完成 | `query_tickets` 注册为只读工具（2000ms、身份注入、只查 `requester=当前用户`，创建时间倒序取最近 N 条）；「我的工单/工单进度/修好了吗」等状态问法保持 `knowledge`（不再被「报修」误判成写操作），规则计划选中该工具，`finalize` 以工单表作答、不拼知识库引用；`tests/test_tickets.py`、`test_tools_guard.py`、`test_agent_graph.py`；[ADR-0029](docs/decisions/0029-ticket-self-service-query.md) |
+| 工单自助查询与详情（W6 后补） | ✅ 已完成 | `query_tickets` 注册为只读工具（2000ms、身份注入、只查 `requester=当前用户`，创建时间倒序取最近 N 条）；「我的工单/工单进度/修好了吗」等状态问法保持 `knowledge`（不再被「报修」误判成写操作），规则计划选中该工具，`finalize` 以工单表作答、不拼知识库引用；按 [ADR-0038](docs/decisions/0038-ticket-detail.md) 支持可选 `ticket_id`：按 `requester` 过滤的单条详情（描述/处理人/解决时间），查不到返回 null、不泄露存在性；`tests/test_tickets.py`、`test_tools_guard.py`、`test_agent_graph.py`；[ADR-0029](docs/decisions/0029-ticket-self-service-query.md) |
 | 会话列表与历史会话继续（W6 后补） | ✅ 已完成 | 不建表，按 `runs.session_id` 投影（复用 `idx_runs_user_session_time`，无迁移）；`GET /sessions` 只读本人、标题取最早非空 `input`；左侧会话栏点开最近 20 条 run，拼只读 transcript（正文过期/引用回收/未结束/失败各有占位），继续对话沿用同一 `session_id`；`tests/test_sessions_api.py`、`test_store_contract.py`（`_exercise_sessions`）、`web/src/features/chat/history.test.ts`；[ADR-0030](docs/decisions/0030-session-list.md) |
 | 会话列表与历史轮次分页（W6 后补） | ✅ 已完成 | `/sessions` 用 `(updated_at, session_id)` keyset 游标（base64url JSON，非法 400 `INVALID_CURSOR`）；会话内用 `/runs` 已有游标翻更早轮次（`prependHistory`）；翻页期间新 run 可能造成重复/跳过，刷新即重置；无新表/索引/迁移；[ADR-0033](docs/decisions/0033-session-history-pagination.md) |
 | 历史引用回放（W6 后补） | ✅ 已完成 | `runs.citations`（迁移 0014）存 `message.completed` 的完整引用快照，历史会话还原角标并复用现有全文预览；只保留已知字段、最多 50 条，正文按 ADR-0023 清空时一起置空，`content_redacted` / 过期时详情返回 `[]`；迁移前旧 run 不回填；`test_store_contract.py`、`test_runs_api.py`；[ADR-0031](docs/decisions/0031-run-citations-replay.md) |
@@ -307,11 +307,12 @@ W6 基线（3 轮均值，mock 规则路径，口径见 [baseline-v1](docs/eval/
   进程崩在两次之间会留下全局预留（日切自愈，偏保守）。预扣泄漏能在成本页看到，但报表只是
   当前 UTC 日采样，不自动对账、没有历史趋势；旧格式预扣（升级前写入、无时间戳）年龄未知，
   `oldest_age_s` 为 null、不计 stale（[ADR-0028](docs/decisions/0028-budget-observability.md)）
-- 工单自助查询只覆盖「本人 + 最近 N 张」的摘要：没有详情、分页、时间范围与按资产筛选；
-  IT 管理员不能查他人（需要新的权限模型）；状态中文映射写死在 `finalize`；关键词规则也可能
-  把流程咨询（如「报修进度怎么查」）误当成查工单、而不是走知识库；`requester` 列暂未加索引
-  （单用户工单量小）
-  （[ADR-0029](docs/decisions/0029-ticket-self-service-query.md)）
+- 工单自助查询只覆盖本人：可按单号看单条详情（描述截 200 字、处理人、解决时间），但列表
+  仍只有最近 N 张摘要，没有分页、时间范围与按资产筛选；IT 管理员不能查他人（需要新的权限
+  模型）；状态中文映射写死在 `finalize`；关键词规则也可能把流程咨询（如「报修进度怎么查」）
+  误当成查工单、而不是走知识库；`requester` 列暂未加索引（单用户工单量小）
+  （[ADR-0029](docs/decisions/0029-ticket-self-service-query.md)、
+  [ADR-0038](docs/decisions/0038-ticket-detail.md)）
 - 会话列表首屏是最近 20 个会话、每个会话 20 轮，底部/顶部可继续翻页，但没有会话搜索、
   重命名、删除与虚拟滚动；翻页期间有新 run 时可能重复或跳过一页，刷新即重置
   （[ADR-0033](docs/decisions/0033-session-history-pagination.md)）；历史回答的工具/审批以

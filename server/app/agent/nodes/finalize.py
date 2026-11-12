@@ -126,6 +126,45 @@ _TICKET_STATUS_LABELS = {
 }
 
 
+def _planned_ticket_id(state: AgentState) -> str | None:
+    """从计划里取本次查询的单号；tool_result 的 payload 不带 args。"""
+    plan = state.get("plan")
+    if not isinstance(plan, list):
+        return None
+    for call in plan:
+        if not isinstance(call, dict) or call.get("tool") != "query_tickets":
+            continue
+        args = call.get("args")
+        if isinstance(args, dict) and isinstance(args.get("ticket_id"), str):
+            return str(args["ticket_id"])
+    return None
+
+
+def _ticket_detail_answer(ticket: Any, ticket_id: str | None) -> str:
+    """用单张工单的详情直接回答；查不到时不透露这张单是否存在。"""
+    if not isinstance(ticket, dict):
+        shown = ticket_id or "这张工单"
+        return f"你名下没有查到工单 {shown}。单号可能不对，或这张单不属于当前账号。"
+    ticket_no = str(ticket.get("id") or ticket_id or "-")
+    status = str(ticket.get("status") or "")
+    status_label = _TICKET_STATUS_LABELS.get(status, status or "未知")
+    priority = str(ticket.get("priority") or "P2")
+    title = str(ticket.get("title") or "未命名")
+    lines = [f"你名下工单 {ticket_no}（{status_label} / {priority}）：{title}"]
+    description = ticket.get("description")
+    if isinstance(description, str) and description.strip():
+        lines.append(f"问题：{description.strip()[:200]}")
+    assignee = ticket.get("assignee")
+    lines.append(f"处理人：{assignee if isinstance(assignee, str) and assignee else '未分配'}")
+    created = str(ticket.get("created_at") or "")[:10]
+    if created:
+        lines.append(f"创建：{created}")
+    resolved = str(ticket.get("resolved_at") or "")[:10]
+    if resolved:
+        lines.append(f"解决：{resolved}")
+    return "\n".join(lines) + "\n"
+
+
 def _tickets_answer(state: AgentState) -> str | None:
     """用 query_tickets 的结果直接回答「我的工单到哪了」。
 
@@ -136,6 +175,12 @@ def _tickets_answer(state: AgentState) -> str | None:
     if call is None:
         return None
     result = call.get("result")
+    if isinstance(result, dict) and "ticket" in result:
+        args = call.get("args")
+        raw_id = args.get("ticket_id") if isinstance(args, dict) else None
+        if not isinstance(raw_id, str):
+            raw_id = _planned_ticket_id(state)
+        return _ticket_detail_answer(result.get("ticket"), raw_id)
     tickets = result.get("tickets") if isinstance(result, dict) else None
     if not isinstance(tickets, list):
         return "工单信息暂时没查到，请稍后重试或联系 IT 服务台。"

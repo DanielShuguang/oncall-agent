@@ -11,6 +11,7 @@ from app.agent.nodes.classify import (
     classify_intent,
     classify_node,
     needs_model,
+    ticket_id_from_query,
     wants_ticket_status,
 )
 from app.agent.nodes.finalize import compose_answer
@@ -306,3 +307,55 @@ def test_finalize_handles_empty_and_failed_asset_query() -> None:
     failed["tool_results"] = [{"tool": "query_cmdb", "status": "error", "result": None}]
     answer, _ = compose_answer(failed)
     assert "资产信息暂时没查到" in answer
+
+
+def test_ticket_detail_query_by_ticket_id() -> None:
+    query = "TCK-1A2B3C4D 处理到哪了"
+    assert ticket_id_from_query(query) == "TCK-1A2B3C4D"
+    assert wants_ticket_status(query) is True
+    assert classify_intent(query, "hardware") == "knowledge"
+
+    state = initial_state(run_id="r_detail", user={"id": "u_102"}, query=query)
+    state["intent"] = "knowledge"
+    plan = rule_plan(state)
+    assert [call["tool"] for call in plan] == ["query_tickets"]
+    assert plan[0]["args"] == {"ticket_id": "TCK-1A2B3C4D"}
+
+    state["tool_results"] = [
+        {
+            "tool": "query_tickets",
+            "status": "ok",
+            "args": {"ticket_id": "TCK-1A2B3C4D"},
+            "result": {
+                "ticket": {
+                    "id": "TCK-1A2B3C4D",
+                    "title": "打印机离线",
+                    "description": "三楼打印机无法连接网络",
+                    "priority": "P2",
+                    "status": "in_progress",
+                    "assignee": "张工",
+                    "created_at": "2026-11-11T09:00:00+00:00",
+                    "resolved_at": "2026-11-12T10:30:00+00:00",
+                }
+            },
+        }
+    ]
+    answer, citations = compose_answer(state)
+    assert "你名下工单 TCK-1A2B3C4D（处理中 / P2）" in answer
+    assert "三楼打印机无法连接网络" in answer
+    assert "处理人：张工" in answer
+    assert "解决：2026-11-12" in answer
+    assert citations == []
+
+    missing = initial_state(run_id="r_detail_missing", user={"id": "u_102"}, query=query)
+    # tool.result 的 payload 不带 args，单号要从计划里取
+    missing["plan"] = [{"tool": "query_tickets", "args": {"ticket_id": "TCK-DEADBEEF"}}]
+    missing["tool_results"] = [
+        {
+            "tool": "query_tickets",
+            "status": "ok",
+            "result": {"ticket": None},
+        }
+    ]
+    answer, _ = compose_answer(missing)
+    assert "没有查到工单 TCK-DEADBEEF" in answer

@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from app.agent.deps import AgentDeps
@@ -159,9 +160,22 @@ def wants_asset(query: str, incident: str) -> bool:
     return incident == "hardware" or any(keyword in query for keyword in ASSET_KEYWORDS)
 
 
+#: 工单号：create_ticket 生成 `TCK-` + 8 位十六进制。用户追问具体一张单时，
+#: 句子里未必有「我的工单」之类的词，靠单号本身也足以判成查单（ADR-0038）。
+TICKET_ID_PATTERN = re.compile(r"\b[Tt][Cc][Kk]-[0-9A-Fa-f]{8}\b")
+
+
+def ticket_id_from_query(query: str) -> str | None:
+    match = TICKET_ID_PATTERN.search(query)
+    return match.group(0).upper() if match is not None else None
+
+
 def wants_ticket_status(query: str) -> bool:
     """问的是「我已有的工单处理到哪了」，不是要新开单。"""
     if any(keyword in query for keyword in TICKET_STATUS_KEYWORDS):
+        return True
+    # 带具体单号：即使没有「进度」词，也是在追问这张单（ADR-0038）。
+    if ticket_id_from_query(query) is not None:
         return True
     # 「我开单了，进度怎么查」「开单了吗」：过去的动作 + 进度词，仍是查单。
     return any(marker in query for marker in PAST_TENSE_CREATE_MARKERS) and any(

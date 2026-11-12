@@ -47,3 +47,20 @@ async def test_list_for_requester_filters_status() -> None:
     opened = await repo.list_for_requester("u_102", status="open")
     assert [row["id"] for row in opened] == [open_ticket["id"]]
     assert await repo.list_for_requester("u_102", status="closed") == []
+
+
+async def test_get_for_requester_is_scoped_and_missing_returns_none() -> None:
+    repo = InMemoryTicketRepository()
+    mine = await repo.create(
+        title="打印机离线", category="hardware", priority="P2", requester="u_102"
+    )
+    other = await repo.create(
+        title="VPN 连不上", category="network", priority="P1", requester="u_205"
+    )
+
+    found = await repo.get_for_requester("u_102", mine["id"])
+    assert found is not None
+    assert found["id"] == mine["id"]
+    # 不是本人的单与不存在的单都返回 None，调用方无法区分
+    assert await repo.get_for_requester("u_102", other["id"]) is None
+    assert await repo.get_for_requester("u_102", "TCK-DEADBEEF") is None

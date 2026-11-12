@@ -22,6 +22,7 @@ from app.agent.nodes.classify import (
     INTENT_KNOWLEDGE,
     INTENT_TICKET,
     classify_incident,
+    ticket_id_from_query,
     wants_ticket_status,
 )
 from app.agent.nodes.json_utils import extract_json_object
@@ -70,11 +71,17 @@ def rule_plan(state: AgentState) -> list[dict[str, Any]]:
             }
         )
     elif "query_tickets" not in blocked and wants_ticket_status(query):
+        ticket_id = ticket_id_from_query(query)
+        args = {"ticket_id": ticket_id} if ticket_id is not None else {"limit": 5}
         plan.append(
             {
                 "tool": "query_tickets",
-                "args": {"limit": 5},
-                "reason": "用户问自己工单的处理进度，查自己名下的工单",
+                "args": args,
+                "reason": (
+                    "用户追问具体一张工单，按单号查详情"
+                    if ticket_id is not None
+                    else "用户问自己工单的处理进度，查自己名下的工单"
+                ),
             }
         )
     return plan

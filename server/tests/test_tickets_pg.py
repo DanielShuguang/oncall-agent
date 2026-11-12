@@ -57,4 +57,10 @@ async def test_pg_lists_only_requesters_tickets_in_created_order(
     limited = await pg_tickets.list_for_requester("u_102", limit=1)
     assert len(limited) == 1
     assert limited[0]["id"] == second["id"]
+
+    detail = await pg_tickets.get_for_requester("u_102", second["id"])
+    assert detail is not None
+    assert detail["id"] == second["id"]
+    assert await pg_tickets.get_for_requester("u_205", second["id"]) is None
+    assert await pg_tickets.get_for_requester("u_102", "TCK-DEADBEEF") is None
     assert await pg_tickets.list_for_requester("u_102", status="resolved") == []

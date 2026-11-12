@@ -22,7 +22,7 @@
 | — | [eval/multiturn-v2](eval/multiturn-v2.md) | 多轮评测基线（指代 + 话题切换 + 隔离对照，ADR-0024/0025） | 改 history / 检索参数前 |
 | — | [eval/multiturn-v1](eval/multiturn-v1.md) | 多轮历史基线（ADR-0025 修复前，9 条） | 只看历史对比 |
 | — | [eval/baseline-v0](eval/baseline-v0.md) | W2 历史基线（20 条） | 只看历史对比 |
-| — | [decisions/](decisions/) | 37 篇 ADR：为什么 React / Python / LangGraph / pgvector / SSE / Tailwind+oxc / 依赖版本 / shadcn / Postgres 存储 / 本地 JWT / 离线 RAG 向量化 / 显式调度 / 自研模型网关 / 工具覆盖存库 / 私有化交付 / 审批事务 / 孤儿 run 回收 / 引用全文预览 / 文档级可见性 / 多轮上下文 / 数据保留 / 回答内容回收 / 正文按时间保留 / 多轮评测 / 追问原句优先 / 按用户日预算 / 审批快照保留 / 预算可观测性 / 工单自助查询 / 会话列表 / 历史引用回放 / PDF 解析子进程隔离 / 会话历史分页 / 资产查询接表 / 历史运行过程回放 / 批量会话详情 / 工具配置变更历史 | 面试前重读 |
+| — | [decisions/](decisions/) | 38 篇 ADR：为什么 React / Python / LangGraph / pgvector / SSE / Tailwind+oxc / 依赖版本 / shadcn / Postgres 存储 / 本地 JWT / 离线 RAG 向量化 / 显式调度 / 自研模型网关 / 工具覆盖存库 / 私有化交付 / 审批事务 / 孤儿 run 回收 / 引用全文预览 / 文档级可见性 / 多轮上下文 / 数据保留 / 回答内容回收 / 正文按时间保留 / 多轮评测 / 追问原句优先 / 按用户日预算 / 审批快照保留 / 预算可观测性 / 工单自助查询 / 会话列表 / 历史引用回放 / PDF 解析子进程隔离 / 会话历史分页 / 资产查询接表 / 历史运行过程回放 / 批量会话详情 / 工具配置变更历史 / 工单详情查询 | 面试前重读 |
 
 ## ADR（Architecture Decision Record）
 
@@ -65,6 +65,7 @@
 | [0035](decisions/0035-run-timeline-replay.md) | 历史运行过程回放 | 历史详情从事件投影只读工具/审批（最多 20 项），跟随回答可见性；不返回审批人身份；事件仍是唯一真相，无迁移 |
 | [0036](decisions/0036-session-detail-batch.md) | 批量会话详情 | 新增 `GET /sessions/{id}/runs`：一页 run 的正文/引用/过程一次返回；可见性与事件批量查；无 `model_calls`、无新表/迁移 |
 | [0037](decisions/0037-tool-setting-history.md) | 工具配置变更历史 | 追加式 `tool_setting_changes`（迁移 0015）：每个真正变化的工具一行、与配置写入同事务；admin-only 按工具查历史；不清理、不回滚 |
+| [0038](decisions/0038-ticket-detail.md) | 工单详情查询 | `query_tickets` 增加可选 `ticket_id`：按 `requester` 过滤的单条查询，查不到返回 null、不泄露存在性；`finalize` 用描述/处理人/解决时间直答；无迁移 |
 
 > ADR 的写法：背景 → 方案对比 → 决策 → 后果。面试被问"为什么这么做"时，直接念 ADR。
 

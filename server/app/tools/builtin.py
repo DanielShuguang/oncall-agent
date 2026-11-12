@@ -59,6 +59,7 @@ async def create_ticket(
 
 async def query_tickets(
     *,
+    ticket_id: str | None = None,
     status: str | None = None,
     limit: int = 5,
     identity: Identity,
@@ -66,10 +67,13 @@ async def query_tickets(
     """查当前用户名下的工单（只读）。
 
     requester 恒为服务端注入的 identity：模型无法查别人的工单（R9）。
+    给了单号就只查这一张（按本人过滤，别人的单等同不存在），否则列最近 N 张。
     """
-    rows = await get_ticket_repository().list_for_requester(
-        identity.user_id, status=status, limit=limit
-    )
+    repository = get_ticket_repository()
+    if ticket_id is not None:
+        ticket = await repository.get_for_requester(identity.user_id, ticket_id.upper())
+        return {"ticket": ticket}
+    rows = await repository.list_for_requester(identity.user_id, status=status, limit=limit)
     return {"tickets": rows, "count": len(rows)}
 
 
@@ -104,18 +108,26 @@ def build_registry() -> ToolRegistry:
     registry.register(
         ToolSpec(
             name="query_tickets",
-            description="查当前用户名下的工单：单号、标题、优先级、状态、创建时间",
+            description=(
+                "查当前用户名下的工单：单号、标题、优先级、状态、创建时间；"
+                "给 ticket_id 可查这一张的详情（描述、处理人、解决时间）"
+            ),
             input_schema={
                 "type": "object",
                 "properties": {
+                    "ticket_id": {
+                        "type": "string",
+                        "pattern": "^[Tt][Cc][Kk]-[0-9A-Fa-f]{8}$",
+                        "description": "工单号（形如 TCK-1A2B3C4D）；给了就只查这一张",
+                    },
                     "status": {
                         "type": "string",
-                        "description": "按状态筛选",
+                        "description": "按状态筛选（只在列表模式生效）",
                         "enum": ["open", "in_progress", "resolved", "closed"],
                     },
                     "limit": {
                         "type": "integer",
-                        "description": "最多返回几条（1-20）",
+                        "description": "最多返回几条（1-20，只在列表模式生效）",
                         "minimum": 1,
                         "maximum": 20,
                     },

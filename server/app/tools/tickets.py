@@ -34,6 +34,10 @@ class TicketRepository(Protocol):
 
     async def get(self, ticket_id: str) -> dict[str, Any] | None: ...
 
+    async def get_for_requester(self, requester: str, ticket_id: str) -> dict[str, Any] | None:
+        """按单号查某人自己的工单；不是本人的单返回 None，不泄露存在性。"""
+        ...
+
     async def list_for_requester(
         self, requester: str, *, status: str | None = None, limit: int = 5
     ) -> list[dict[str, Any]]:
@@ -77,6 +81,13 @@ class InMemoryTicketRepository:
     async def get(self, ticket_id: str) -> dict[str, Any] | None:
         ticket = self._tickets.get(ticket_id)
         return dict(ticket) if ticket is not None else None
+
+    async def get_for_requester(self, requester: str, ticket_id: str) -> dict[str, Any] | None:
+        async with self._lock:
+            ticket = self._tickets.get(ticket_id)
+            if ticket is None or ticket["requester"] != requester:
+                return None
+            return dict(ticket)
 
     async def list_for_requester(
         self, requester: str, *, status: str | None = None, limit: int = 5
@@ -125,6 +136,16 @@ class PostgresTicketRepository:
     async def get(self, ticket_id: str) -> dict[str, Any] | None:
         async with self._sessionmaker() as session:
             row = await session.scalar(select(Ticket).where(Ticket.id == ticket_id))
+        return _ticket_dict(row) if row is not None else None
+
+    async def get_for_requester(self, requester: str, ticket_id: str) -> dict[str, Any] | None:
+        async with self._sessionmaker() as session:
+            row = await session.scalar(
+                select(Ticket).where(
+                    Ticket.id == ticket_id,
+                    Ticket.requester == requester,
+                )
+            )
         return _ticket_dict(row) if row is not None else None
 
     async def list_for_requester(

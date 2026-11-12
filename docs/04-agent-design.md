@@ -133,7 +133,9 @@ class AgentState(TypedDict, total=False):
 >
 > 「我的工单到哪了」这类状态问法：classify 保持 `knowledge`（避免「报修」二字误触
 > 写操作），plan 的规则分支选中 `query_tickets`，finalize 以工单表作答、不拼知识库
-> 引用（[ADR-0029](decisions/0029-ticket-self-service-query.md)）。
+> 引用（[ADR-0029](decisions/0029-ticket-self-service-query.md)）。用户给出具体单号时，
+> 规则计划把 `ticket_id` 带进参数，finalize 用描述/处理人/解决时间直接回答
+> （[ADR-0038](decisions/0038-ticket-detail.md)）。
 
 ## 4. 为什么 plan 用 LLM 而 act 不用
 

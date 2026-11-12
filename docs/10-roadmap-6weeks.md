@@ -824,6 +824,33 @@ upgrade` 往返无漂移；`ruff check` / `mypy app`（106 files）通过；前�
 
 ---
 
+## W6 后补：工单详情查询（ADR-0038）
+
+ADR-0029 只回答「最近 N 张的摘要」：用户从回答里拿到单号后追问「这张单什么情况」，
+智能体只能再列一遍标题。描述、处理人、创建/解决时间都在 `tickets` 表里，缺的只是
+一个按身份过滤的单条入口；分页与时间范围仍不做。
+
+| 事项 | 落地 |
+|---|---|
+| 工具 | `query_tickets` 增加可选 `ticket_id`（`^[Tt][Cc][Kk]-[0-9A-Fa-f]{8}$`）；传了就查单条，否则仍列表 |
+| 身份 | 仓储新增 `get_for_requester`，`id` 与 `requester` 同时匹配；不是本人的单返回 `None`，工具不区分「不存在」与「不是你的」 |
+| 空结果 | `{"ticket": null}` 是合法结果，不重试、不落 `tool.failed`；回答统一说「你名下没有查到工单 X」 |
+| 意图 | 原句出现单号即视为查单，仍保持 `knowledge`（不新增 intent、不动分类评测），`needs_model` 排除 |
+| 计划 | 规则计划提取单号放进 `args`；模型传小写单号也能过 schema，工具再转大写 |
+| 回答 | `finalize` 用表数据直答：单号/状态/优先级/标题、描述（截 200 字）、处理人、创建/解决日期；不拼知识库引用 |
+| 数据 | `tickets` 字段已齐，**无迁移**；IT 查他人、分页、筛选仍不做 |
+
+验证：默认 **456 passed + 34 skipped**；真实 Postgres **487 passed + 3 skipped**
+（既有 PG 用例补了 `get_for_requester` 断言，未新增测试函数）；`ruff check`、
+`ruff format --check`（179 files）、`mypy app`（106 files）通过；前端未改，
+仍 **65 tests / 13 files**。无迁移，检索/提示词/多轮历史未改。
+
+已知边界：只查本人、只能按单号精确查；描述最多展示 200 字；状态中文映射仍写死在
+`finalize`；单号可枚举但被 requester 过滤挡住；编辑/关闭工单属写操作，未设计。
+详见 [ADR-0038](decisions/0038-ticket-detail.md)。
+
+---
+
 ## 每周固定动作
 
 | 时点 | 动作 |

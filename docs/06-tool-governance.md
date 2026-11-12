@@ -109,7 +109,7 @@ def should_retry(err: ToolError, attempt: int, spec: ToolSpec) -> bool:
 |---|---|
 | `query_cmdb` | 提示「数据可能过期」或「没有查到资产记录」，按通用步骤继续（[ADR-0034](decisions/0034-cmdb-assets-table.md)） |
 | `search_kb` | 降级为只走 BM25（跳过向量），或直接兜底话术 + 转人工 |
-| `query_tickets` | 返回空，继续流程，提示"未查到历史工单" |
+| `query_tickets` | 返回空 / `null`，继续流程，提示"未查到历史工单"或"没查到这张单" |
 | `run_diagnostic` | 跳过诊断，直接建议开单（人工排查） |
 | `create_ticket` | **不降级**，明确报错让用户手动开单（写操作不能猜） |
 
@@ -182,7 +182,7 @@ app/tools/
 | 工具 | 读/写 | 超时 | 角色 | 说明 |
 |---|---|---|---|---|
 | `query_cmdb` | 读 | 2000ms | 所有 | 查当前用户名下资产，可按资产号缩小 |
-| `query_tickets` | 读 | 2000ms | 所有 | 查该用户历史工单 |
+| `query_tickets` | 读 | 2000ms | 所有 | 查该用户历史工单；可按单号查一张的详情 |
 | `search_kb` | 读 | 1500ms | 所有 | 知识库混合检索 |
 | `run_diagnostic` | 读 | 10000ms | it_support | 只读检测（ping/端口/驱动版本） |
 | `create_ticket` | **写** | 3000ms | 所有（需审批） | 创建工单 |
@@ -195,6 +195,9 @@ app/tools/
 > `query_tickets` 已按 [ADR-0029](decisions/0029-ticket-self-service-query.md) 注册：只读、
 > 身份由治理层注入、仓储层只查 `requester = 当前用户`，按创建时间倒序取最近 N 条；
 > 用户问「我的工单到哪了」时由 `plan` 的规则分支选中，`finalize` 用工单表直接作答。
+> 按 [ADR-0038](decisions/0038-ticket-detail.md)，schema 另有可选 `ticket_id`：命中时
+> 走单条详情（描述、处理人、解决时间），仍按 requester 过滤，查不到返回 `{"ticket": null}`，
+> 不区分「不存在」与「不是你的」；`status` / `limit` 只在列表模式生效。
 > 清单里的 `search_kb` 当前是 `retrieve` 节点（不是工具），`run_diagnostic` 随接真实
 > 系统时再加，避免先写假工具再改一遍治理用例。
 

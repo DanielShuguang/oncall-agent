@@ -13,6 +13,8 @@ ADR-0023 是**按时间**的正文清理（`content_pruned_at`）：到期后 `i
 ADR-0030 的会话列表也是 runs 的投影：`GET /sessions` 按 `session_id` 聚合，不建表。
 ADR-0040 允许用户给这个投影改显示标题（`PATCH /sessions/{session_id}`），
 标题存在旁挂的 `session_titles` 表里，搜索同时匹配自定义标题与首条问题。
+ADR-0041 允许把会话从列表移除（`DELETE /sessions/{session_id}`）：只写
+`hidden_sessions`，run/事件/审批都保留，保留清理仍按时间执行。
 ADR-0035 在详情里投影只读运行过程（工具调用/审批），事件仍是唯一真相。
 """
 
@@ -295,6 +297,27 @@ async def rename_session(
     except SQLAlchemyError as exc:
         raise ApiError(503, "DATABASE_UNAVAILABLE", "database unavailable") from exc
     if not renamed:
+        raise _session_not_found()
+    return Response(status_code=204)
+
+
+@router.delete("/sessions/{session_id}", status_code=204)
+async def hide_session(
+    session_id: Annotated[str, Path(min_length=1, max_length=64)],
+    store: Annotated[RunStore, Depends(get_store)],
+    identity: Annotated[Identity, Depends(get_identity)],
+) -> Response:
+    """把这个会话从当前用户的会话列表里移除（ADR-0041，软移除）。
+
+    只影响列表与标题搜索：`runs`、事件、审批与标题行都不删除，保留清理仍按
+    ADR-0021/0023 的时间口径执行。别人的会话与不存在的会话返回 404；重复移除
+    同一会话是幂等的，仍返回 204。
+    """
+    try:
+        hidden = await store.hide_session(user_id=identity.user_id, session_id=session_id)
+    except SQLAlchemyError as exc:
+        raise ApiError(503, "DATABASE_UNAVAILABLE", "database unavailable") from exc
+    if not hidden:
         raise _session_not_found()
     return Response(status_code=204)
 

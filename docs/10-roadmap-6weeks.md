@@ -895,7 +895,7 @@ README 也明确写了没有。本轮把范围收窄到**投影标题**：只搜
 | 搜索 | `q` 同时匹配自定义标题与首条问题：改名后新旧关键词都能命中；正文被清空且没改过名时仍搜不到 |
 | 接口 | `PATCH /sessions/{session_id}`，body `{"title": string | null}`；裁空白、1–60 字符、空串 422、`null` 恢复默认、成功 204、别人/不存在 404、503 不降级 |
 | 前端 | 侧栏行内编辑：铅笔 → 输入框 + 保存/取消，Enter/Escape；保存后按当前搜索词刷新第一页 |
-| 边界 | 只改显示标题，不碰 run/事件/排序（排序仍按最近 run 活动）；不做删除/批量/置顶/管理员跨用户 |
+| 边界 | 只改显示标题，不碰 run/事件/排序（排序仍按最近 run 活动）；不做批量/置顶/管理员跨用户；删除由 ADR-0041 以软移除补上 |
 
 验证：默认 **462 passed + 34 skipped**；真实 Postgres **493 passed + 3 skipped**；
 迁移 `0016` 的 `upgrade head → alembic check → downgrade 0015 → upgrade head` 无漂移。
@@ -906,6 +906,34 @@ README 也明确写了没有。本轮把范围收窄到**投影标题**：只搜
 已知边界：标题行在 run 全部被清理后不会自动删除；并发改名是 last-write-wins；
 没有重命名历史、删除、批量改名、置顶/归档与管理员跨用户视角。
 详见 [ADR-0040](decisions/0040-session-rename.md)。
+
+---
+
+## W6 后补：会话从列表移除（ADR-0041）
+
+会话列表只增不减，试过的草稿会话会一直占着侧栏。真正的「删除」又不能做：
+`runs`、事件、审批是只增不改的治理证据，按时间清理是 ADR-0021/0023 的职责。
+本轮只加列表级移除：用户看不见，数据仍在。
+
+| 事项 | 落地 |
+|---|---|
+| 数据 | `hidden_sessions`：`(user_id, session_id)` 复合主键、`hidden_at`；无外键、无额外索引；迁移 `0017` |
+| 语义 | 软移除：只过滤 `GET /sessions` 与标题搜索；`runs`/事件/审批/引用快照都不动，直连详情仍可读 |
+| 接口 | `DELETE /sessions/{session_id}`：成功 204、重复 204（幂等）、别人/不存在 404、503 不降级 |
+| 归属 | 必须存在该用户的 run 才允许移除；无权会话按 404 处理，不泄露存在性 |
+| 前端 | 侧栏垃圾桶 → 行内确认框；移除当前会话时切到新会话，再按当前搜索词刷新第一页；保存中禁用 |
+| 边界 | 无恢复/撤销、无批量移除、无管理员代删；隐藏行在 run 被清理后会成为孤儿，当前不清理 |
+
+验证：默认 **464 passed + 34 skipped**；真实 Postgres **495 passed + 3 skipped**；
+Postgres + Redis **498 passed**。迁移 `0017` 的
+`upgrade head → alembic check → downgrade 0016 → upgrade head` 无漂移。
+`ruff check` / `ruff format --check`（184 files）/ `mypy app`（109 files）通过；
+前端 **65 tests / 13 files**、`oxlint` 0/0、`oxfmt --check` 70 files、`pnpm build` 通过。
+检索参数/提示词/多轮历史未改，未重跑评测。
+
+已知边界：移除不删数据，正文/引用/运行过程仍按保留期存在；网页没有恢复入口；
+重复移除幂等但不会报错；`hidden_sessions` 不随 run 清理；搜索在移除后立即不再返回该会话。
+详见 [ADR-0041](decisions/0041-session-remove.md)。
 
 ---
 

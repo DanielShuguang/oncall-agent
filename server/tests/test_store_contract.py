@@ -585,6 +585,41 @@ async def _exercise_session_titles(store: RunStore) -> None:
     assert await store.list_sessions(user_id=user, limit=10, query="office") == []
 
 
+async def _exercise_hidden_sessions(store: RunStore) -> None:
+    """从列表移除（ADR-0041）：幂等、只影响本人列表与搜索，run 不删除。"""
+    user = "u_hidden_sessions"
+    other = "u_hidden_sessions_other"
+    await store.create(
+        run_id=str(uuid.uuid4()), user_id=user, session_id="sess_keep", message="保留"
+    )
+    await store.create(
+        run_id=str(uuid.uuid4()), user_id=user, session_id="sess_drop", message="打印机离线"
+    )
+    await store.create(
+        run_id=str(uuid.uuid4()), user_id=other, session_id="sess_drop", message="别人的"
+    )
+    await store.create(
+        run_id=str(uuid.uuid4()), user_id=other, session_id="sess_secret", message="别人的秘密"
+    )
+    assert await store.rename_session(user_id=user, session_id="sess_drop", title="要移除") is True
+
+    assert await store.hide_session(user_id=user, session_id="sess_drop") is True
+    assert [item.session_id for item in await store.list_sessions(user_id=user, limit=10)] == [
+        "sess_keep"
+    ]
+    assert await store.list_sessions(user_id=user, limit=10, query="打印机") == []
+    assert await store.list_sessions(user_id=user, limit=10, query="要移除") == []
+
+    # 重复移除幂等；别人的会话不受影响，也不能由本人移除
+    assert await store.hide_session(user_id=user, session_id="sess_drop") is True
+    assert {item.session_id for item in await store.list_sessions(user_id=other, limit=10)} == {
+        "sess_drop",
+        "sess_secret",
+    }
+    assert await store.hide_session(user_id=user, session_id="sess_missing") is False
+    assert await store.hide_session(user_id=user, session_id="sess_secret") is False
+
+
 async def _exercise_events_for_runs(store: RunStore) -> None:
     """批量取事件（ADR-0036）：按 run 分组、组内 seq 升序、每个 run 独立截断。"""
     user = "u_events_batch"
@@ -624,6 +659,7 @@ async def test_memory_store_contract() -> None:
     await _exercise_cited_documents(store)
     await _exercise_sessions(store)
     await _exercise_session_titles(store)
+    await _exercise_hidden_sessions(store)
     await _exercise_events_for_runs(store)
 
 
@@ -656,4 +692,6 @@ async def test_postgres_store_contract(pg_store: PostgresRunStore) -> None:
     await _exercise_prune_contents(pg_store)
     await _exercise_cited_documents(pg_store)
     await _exercise_sessions(pg_store)
+    await _exercise_session_titles(pg_store)
+    await _exercise_hidden_sessions(pg_store)
     await _exercise_events_for_runs(pg_store)

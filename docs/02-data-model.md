@@ -14,6 +14,7 @@ runs ──< run_events
   ├──< approvals
   ├──< model_calls
   └──< session_titles（用户改的显示标题；主键 user_id+session_id，无外键）
+  └──< hidden_sessions（用户从列表移除的会话；主键 user_id+session_id，不删 run）
 
 user_budgets（按用户日预算覆盖；user_id 来自 JWT，无外键）
 kb_documents ──< kb_chunks (embedding)
@@ -117,6 +118,22 @@ CREATE TABLE session_titles (
 > 没有 `sessions` 生命周期表，也没有外键——没有 run 的会话本来就不存在。
 > 主键即点查索引，不另加索引；`title` 由 API 限制 1–60 字符（不截断）。
 > run 全部被保留策略清掉后标题行不会自动删除，当前也没有按用户删数据的入口（已知边界）。
+
+### 2.1.2 hidden_sessions（从列表移除的会话）
+
+```sql
+CREATE TABLE hidden_sessions (
+  user_id    TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  hidden_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, session_id)
+);
+```
+
+> 只记录用户主动从侧栏移除的会话（[ADR-0041](decisions/0041-session-remove.md)，迁移 `0017`）：
+> 列表与标题搜索会跳过这些会话，但 `runs`、事件、审批、引用快照都不动，仍按 ADR-0021/0023
+> 的时间口径保存。没有外键、没有额外索引；重复移除幂等；v1 没有恢复入口。
+> 如果对应 run 后来被保留清理删掉，这里会留下孤儿行，当前不清理（表小，等真实量再定）。
 
 ### 2.2 run_events（事件，只追加）
 
@@ -479,7 +496,7 @@ uv run alembic upgrade head --sql    # 无库环境渲染 DDL，评审用
 
 - 迁移文件在 `server/migrations/versions/`；`alembic.ini` 只放占位 DSN，真实 DSN 由 `migrations/env.py` 从环境变量读
 - 必须写 `downgrade`，并在空库上验证一次 `downgrade base && upgrade head`
-- 当前迁移链：`0001` runs/events → `0002` 幂等键按用户作用域 → `0003` kb（pgvector/tsvector）+ assets/tickets → `0004` approvals → `0005` 会话授权按用户隔离 → `0006` model_calls + failure_category → `0007` tool_settings → `0008` 文档可见性 → `0009` 会话索引 → `0010` 事件清理标记/部分索引 → `0011` 回答引用快照 → `0012` 正文清理标记/部分索引 → `0013` 按用户日预算覆盖（`user_budgets`）→ `0014` 回答引用快照（`runs.citations`，ADR-0031）→ `0015` 工具配置变更历史（`tool_setting_changes`，ADR-0037）→ `0016` 会话显示标题（`session_titles`，ADR-0040）
+- 当前迁移链：`0001` runs/events → `0002` 幂等键按用户作用域 → `0003` kb（pgvector/tsvector）+ assets/tickets → `0004` approvals → `0005` 会话授权按用户隔离 → `0006` model_calls + failure_category → `0007` tool_settings → `0008` 文档可见性 → `0009` 会话索引 → `0010` 事件清理标记/部分索引 → `0011` 回答引用快照 → `0012` 正文清理标记/部分索引 → `0013` 按用户日预算覆盖（`user_budgets`）→ `0014` 回答引用快照（`runs.citations`，ADR-0031）→ `0015` 工具配置变更历史（`tool_setting_changes`，ADR-0037）→ `0016` 会话显示标题（`session_titles`，ADR-0040）→ `0017` 从列表移除的会话（`hidden_sessions`，ADR-0041）
 
 > `0003` 先 `CREATE EXTENSION IF NOT EXISTS vector`，否则 vector 类型与 HNSW 索引会失败；
 > 测试库由 fixture 建扩展后再 `create_all`（扩展是库级对象，`drop_all` 不会删）。

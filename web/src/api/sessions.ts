@@ -1,7 +1,7 @@
 /** 会话列表接口（ADR-0030/0033）。会话是 runs.session_id 的投影，没有独立表。 */
 
 import type { HistoryRun } from './runs';
-import { getJson, patch } from './client';
+import { del, getJson, patch } from './client';
 
 export interface SessionSummary {
   session_id: string;
@@ -52,4 +52,9 @@ export async function getSessionRuns(
 /** 改会话显示标题（ADR-0040）；传 null 恢复默认（首条问题）。 */
 export async function renameSession(sessionId: string, title: string | null): Promise<void> {
   await patch(`/sessions/${encodeURIComponent(sessionId)}`, { title });
+}
+
+/** 从会话列表移除（ADR-0041，软移除）；run/事件仍按保留期保存。 */
+export async function hideSession(sessionId: string): Promise<void> {
+  await del(`/sessions/${encodeURIComponent(sessionId)}`);
 }

@@ -24,6 +24,7 @@ from sqlalchemy.exc import IntegrityError
 from app.core.logging import get_logger
 from app.models.run import Run
 from app.models.run import RunEvent as RunEventRow
+from app.models.session_hidden import HiddenSession as HiddenSessionRow
 from app.models.session_title import SessionTitle as SessionTitleRow
 from app.schemas.event import EventType, RunEvent, RunStatus
 from app.schemas.failure import FailureCategory, categorize
@@ -463,6 +464,15 @@ class RunStore(Protocol):
         """
         ...
 
+    async def hide_session(self, *, user_id: str, session_id: str) -> bool:
+        """把这个会话从该用户的会话列表中移除（ADR-0041，软移除）。
+
+        只写一行 `hidden_sessions`；`runs`、事件、审批与标题行都保留，保留清理
+        仍按时间执行。返回 False 表示这个用户没有该会话（没有任何 run），
+        调用方翻成 404。重复移除是幂等的，仍返回 True。
+        """
+        ...
+
     async def recent_turns(
         self,
         *,
@@ -522,6 +532,8 @@ class InMemoryRunStore:
         self._client_index: dict[tuple[str, str], str] = {}
         #: 用户改过的显示标题；没有行时回落到首条非空 input（ADR-0040）
         self._session_titles: dict[tuple[str, str], str] = {}
+        #: 用户从列表移除的会话（ADR-0041）；run/事件仍保留
+        self._hidden_sessions: set[tuple[str, str]] = set()
         self._lock = asyncio.Lock()
         self._started_at: datetime | None = None
 
@@ -762,7 +774,10 @@ class InMemoryRunStore:
     ) -> list[SessionSummary]:
         grouped: dict[str, list[RunRecord]] = {}
         for record in self._runs.values():
-            if record.user_id == user_id:
+            if (
+                record.user_id == user_id
+                and (user_id, record.session_id) not in self._hidden_sessions
+            ):
                 grouped.setdefault(record.session_id, []).append(record)
 
         summaries: list[SessionSummary] = []
@@ -811,6 +826,16 @@ class InMemoryRunStore:
                 self._session_titles.pop((user_id, session_id), None)
             else:
                 self._session_titles[(user_id, session_id)] = title
+            return True
+
+    async def hide_session(self, *, user_id: str, session_id: str) -> bool:
+        async with self._lock:
+            if not any(
+                record.user_id == user_id and record.session_id == session_id
+                for record in self._runs.values()
+            ):
+                return False
+            self._hidden_sessions.add((user_id, session_id))
             return True
 
     async def recent_turns(
@@ -1265,6 +1290,15 @@ class PostgresRunStore:
                     SessionTitleRow.session_id == Run.session_id,
                 ),
             )
+            # 软移除（ADR-0041）：不算 run 数、不参与排序，也不出现在搜索结果里
+            .where(
+                ~select(HiddenSessionRow.session_id)
+                .where(
+                    HiddenSessionRow.user_id == user_id,
+                    HiddenSessionRow.session_id == Run.session_id,
+                )
+                .exists()
+            )
             .group_by(Run.session_id, SessionTitleRow.title, first_input.c.input)
         )
         if query:
@@ -1329,6 +1363,23 @@ class PostgresRunStore:
                     )
                 )
                 await session.execute(stmt)
+            await session.commit()
+        return True
+
+    async def hide_session(self, *, user_id: str, session_id: str) -> bool:
+        async with self._sessionmaker() as session:
+            has_run = await session.scalar(
+                select(Run.id).where(Run.user_id == user_id, Run.session_id == session_id).limit(1)
+            )
+            if has_run is None:
+                return False
+            await session.execute(
+                pg_insert(HiddenSessionRow)
+                .values(user_id=user_id, session_id=session_id)
+                .on_conflict_do_nothing(
+                    index_elements=[HiddenSessionRow.user_id, HiddenSessionRow.session_id]
+                )
+            )
             await session.commit()
         return True
 

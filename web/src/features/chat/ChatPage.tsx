@@ -6,7 +6,13 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
-import { getSessionRuns, listSessions, renameSession, type SessionSummary } from '@/api/sessions';
+import {
+  getSessionRuns,
+  hideSession,
+  listSessions,
+  renameSession,
+  type SessionSummary,
+} from '@/api/sessions';
 import { CitationPreviewDialog } from './CitationPreviewDialog';
 import { SessionList } from './SessionList';
 import { Timeline } from './Timeline';
@@ -52,6 +58,8 @@ export default function ChatPage() {
   // 重命名请求可能晚于下一次编辑返回：token 变了就不要再关掉新的编辑器。
   const [renameSaving, setRenameSaving] = useState(false);
   const renameRequest = useRef(0);
+  // 正在从会话列表移除的会话（ADR-0041）；移除只影响列表，不删 run
+  const [hidingId, setHidingId] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   // 当前会话内更早轮次的 keyset 游标；null 表示没有更早的页（ADR-0033）
   const [historyCursor, setHistoryCursor] = useState<string | null>(null);
@@ -247,6 +255,21 @@ export default function ChatPage() {
     reset();
   };
 
+  const onHideSession = async (targetSessionId: string) => {
+    if (hidingId) return;
+    setHidingId(targetSessionId);
+    setSessionsError(null);
+    try {
+      await hideSession(targetSessionId);
+      if (targetSessionId === sessionId) onNewSession();
+      refreshSessions();
+    } catch (err) {
+      setSessionsError(err instanceof Error ? err.message : '会话移除失败');
+    } finally {
+      setHidingId(null);
+    }
+  };
+
   return (
     <div className="flex min-h-0 flex-1">
       <SessionList
@@ -272,6 +295,8 @@ export default function ChatPage() {
         onRenameDraftChange={setRenameDraft}
         onRenameSubmit={() => void onRenameSubmit()}
         onRenameCancel={onRenameCancel}
+        hidingId={hidingId}
+        onHide={(id) => void onHideSession(id)}
       />
       <div className="flex min-h-0 flex-1 flex-col">
         <div aria-live="polite" className="flex flex-1 flex-col gap-3 overflow-y-auto p-4">

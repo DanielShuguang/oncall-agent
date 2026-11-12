@@ -477,3 +477,34 @@ async def test_rename_session_database_failure_is_503(
     res = await client.patch("/api/sessions/sess_any", json={"title": "新标题"})
     assert res.status_code == 503
     assert res.json()["code"] == "DATABASE_UNAVAILABLE"
+
+
+async def test_hide_session_removes_from_list_and_search(
+    client: AsyncClient, mem_store: InMemoryRunStore
+) -> None:
+    await _run(mem_store, "sess_hide", "打印机离线")
+    await _run(mem_store, "sess_keep", "VPN 掉线")
+
+    hidden = await client.delete("/api/sessions/sess_hide")
+    assert hidden.status_code == 204
+
+    items = (await client.get("/api/sessions")).json()["items"]
+    assert [item["session_id"] for item in items] == ["sess_keep"]
+    assert (await client.get("/api/sessions", params={"q": "打印"})).json()["items"] == []
+
+    # 重复移除幂等
+    assert (await client.delete("/api/sessions/sess_hide")).status_code == 204
+
+
+async def test_hide_session_is_scoped_and_reports_database_failure(
+    client: AsyncClient, mem_store: InMemoryRunStore
+) -> None:
+    await _run(mem_store, "sess_other", "别人的问题", user_id="u_205")
+
+    assert (await client.delete("/api/sessions/sess_missing")).status_code == 404
+    assert (await client.delete("/api/sessions/sess_other")).status_code == 404
+
+    mem_store.hide_session = AsyncMock(side_effect=SQLAlchemyError("boom"))  # type: ignore[method-assign]
+    res = await client.delete("/api/sessions/sess_any")
+    assert res.status_code == 503
+    assert res.json()["code"] == "DATABASE_UNAVAILABLE"

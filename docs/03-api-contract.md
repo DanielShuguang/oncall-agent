@@ -33,6 +33,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | GET | `/runs` | 运行列表（分页、按状态/会话筛选） | W4 D19 / W6 后补 |
 | GET | `/sessions` | 当前用户的会话列表（keyset 游标，按活动倒序；可选 `q` 按标题搜索） | W6 后补 |
 | PATCH | `/sessions/{session_id}` | 改会话显示标题；`title: null` 恢复默认 | W6 后补 |
+| DELETE | `/sessions/{session_id}` | 从会话列表移除（软移除；不删 run/事件/审批，204） | W6 后补 |
 | GET | `/sessions/{session_id}/runs` | 一页会话详情（正文/引用/运行过程，一次返回） | W6 后补 |
 | GET | `/runs/{run_id}` | 单次运行详情（含指标与模型调用明细） | W1 D4 / W4 D19 |
 | GET | `/runs/{run_id}/events?after_seq=` | 补拉事件（断线续传，兼容 `Last-Event-ID`） | W1 D4 |
@@ -457,6 +458,21 @@ Content-Type: application/json
   合法标题下，别人的会话与不存在的会话都返回 `404 {"detail":"session not found"}`
   （不泄露存在性）
 - 搜索 `q` 同时匹配自定义标题与首条问题（ADR-0039 / ADR-0040）；改名后旧关键词仍可命中
+- 库不可用时返回 `503 {"code":"DATABASE_UNAVAILABLE"}`
+
+### 3.6 从列表移除会话（ADR-0041）
+
+```http
+DELETE /api/sessions/sess_01H...
+Authorization: Bearer <token>
+```
+
+- 成功返回 `204 No Content`；重复调用仍 204（幂等）
+- 只影响 `GET /sessions` 的列表与 `q` 搜索：该会话不再出现，其他接口不受影响
+- **不删数据**：`runs`、事件、审批、引用快照仍按保留期（ADR-0021/0023）保存；
+  直接 `GET /runs/{id}`、事件回放、引用预览仍可访问——这是列表级整理，不是权限控制
+- 别人的会话与不存在的会话都返回 `404 {"detail":"session not found"}`（不泄露存在性）
+- v1 没有恢复接口；成功后前端若移除的是当前会话，会切到一个新会话
 - 库不可用时返回 `503 {"code":"DATABASE_UNAVAILABLE"}`
 
 ## 4. 审批

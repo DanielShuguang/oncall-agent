@@ -1,6 +1,7 @@
 /** 会话侧栏（ADR-0030）：只展示服务端投影，不在浏览器本地缓存会话。 */
 
-import { Pencil } from 'lucide-react';
+import { useState } from 'react';
+import { Pencil, Trash2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import type { SessionSummary } from '@/api/sessions';
@@ -32,6 +33,9 @@ interface SessionListProps {
   onRenameDraftChange: (value: string) => void;
   onRenameSubmit: () => void;
   onRenameCancel: () => void;
+  /** 正在从列表移除的会话（ADR-0041） */
+  hidingId: string | null;
+  onHide: (sessionId: string) => void;
 }
 
 function formatUpdated(iso: string): string {
@@ -68,7 +72,11 @@ export function SessionList({
   onRenameDraftChange,
   onRenameSubmit,
   onRenameCancel,
+  hidingId,
+  onHide,
 }: SessionListProps) {
+  // 行内二次确认，避免为一次移除引入额外的全局弹层（ADR-0041）
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
   return (
     <aside className="hidden w-56 shrink-0 flex-col gap-2 border-r p-3 sm:flex">
       <div className="flex items-center justify-between gap-2">
@@ -152,6 +160,39 @@ export function SessionList({
               </li>
             );
           }
+          if (confirmingId === session.session_id) {
+            return (
+              <li key={session.session_id}>
+                <div className="flex flex-col gap-1 rounded-md border border-danger/40 bg-canvas p-1.5">
+                  <p className="text-xs text-muted-foreground">
+                    从列表移除「{session.title ?? '无标题'}」？run 与审批仍按保留期保存。
+                  </p>
+                  <div className="flex justify-end gap-1">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      type="button"
+                      onClick={() => setConfirmingId(null)}
+                    >
+                      取消
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      type="button"
+                      disabled={hidingId === session.session_id}
+                      onClick={() => {
+                        setConfirmingId(null);
+                        onHide(session.session_id);
+                      }}
+                    >
+                      {hidingId === session.session_id ? '移除中…' : '移除'}
+                    </Button>
+                  </div>
+                </div>
+              </li>
+            );
+          }
           return (
             <li key={session.session_id}>
               <div className="flex items-start gap-1">
@@ -179,6 +220,16 @@ export function SessionList({
                   onClick={() => onRenameStart(session)}
                 >
                   <Pencil className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 shrink-0 px-1.5 text-muted-foreground hover:text-danger"
+                  aria-label={`从列表移除会话 ${session.title ?? '无标题'}`}
+                  disabled={busy || hidingId !== null}
+                  onClick={() => setConfirmingId(session.session_id)}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
                 </Button>
               </div>
             </li>

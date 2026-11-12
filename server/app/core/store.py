@@ -485,8 +485,10 @@ class RunStore(Protocol):
     async def set_citations(self, run_id: str, citations: list[dict[str, Any]]) -> bool:
         """仅当 run 的引用快照仍为空时写入（ADR-0042）。
 
-        返回 False 表示 run 不存在或已经有快照（已回填/并发写入）；条件写入
-        避免回填覆盖同一 run 的新事件投影。调用方不应把 False 当异常。
+        返回 False 表示 run 不存在、已经有快照（已回填/并发写入），或正文/事件
+        刚被保留清理（ADR-0023）——后一种情况写回会把快照写得比正文久。
+        同时把 `cited_document_ids` 合并进 run，保证 ADR-0022 的可见性回收对
+        回填出来的旧数据同样生效。调用方不应把 False 当异常。
         """
         ...
 
@@ -871,10 +873,19 @@ class InMemoryRunStore:
     async def set_citations(self, run_id: str, citations: list[dict[str, Any]]) -> bool:
         async with self._lock:
             record = self._runs.get(run_id)
-            if record is None or record.citations:
+            if (
+                record is None
+                or record.citations
+                or record.content_pruned_at is not None
+                or record.events_pruned_at is not None
+                or record.output is None
+            ):
                 return False
-            # 条件写入与 PG 实现同口径：事件投影刚写过快照时不能覆盖
+            # 与 PG 条件写同口径：事件投影/保留清理刚改过的行不能覆盖
             record.citations = [dict(item) for item in citations]
+            # 旧 run 可能没有 cited_document_ids；补上才能走 ADR-0022 的可见性回收
+            new_ids = _cited_document_ids(citations) or []
+            record.cited_document_ids = list(dict.fromkeys([*record.cited_document_ids, *new_ids]))
             return True
 
     async def recent_turns(
@@ -1442,10 +1453,24 @@ class PostgresRunStore:
     async def set_citations(self, run_id: str, citations: list[dict[str, Any]]) -> bool:
         rid = uuid.UUID(run_id)
         async with self._sessionmaker() as session, session.begin():
+            # 锁行再合并 cited_document_ids：避免与保留清理并发时把快照写回去
+            existing = await session.scalar(
+                select(Run.cited_document_ids).where(Run.id == rid).with_for_update()
+            )
+            if existing is None:
+                return False
+            new_ids = _cited_document_ids(citations) or []
+            merged = list(dict.fromkeys([*existing, *new_ids]))
             updated = await session.scalar(
                 update(Run)
-                .where(Run.id == rid, func.jsonb_array_length(Run.citations) == 0)
-                .values(citations=citations)
+                .where(
+                    Run.id == rid,
+                    func.jsonb_array_length(Run.citations) == 0,
+                    Run.content_pruned_at.is_(None),
+                    Run.events_pruned_at.is_(None),
+                    Run.output.is_not(None),
+                )
+                .values(citations=citations, cited_document_ids=merged)
                 .returning(Run.id)
             )
         return updated is not None

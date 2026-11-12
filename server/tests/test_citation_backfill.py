@@ -47,6 +47,7 @@ async def _legacy_run(
     )
     # 模拟迁移前的数据：事件里有引用，投影列还没写
     store._runs[run_id].citations.clear()
+    store._runs[run_id].cited_document_ids.clear()
     return run_id
 
 
@@ -67,6 +68,8 @@ async def test_backfill_restores_snapshot_from_last_message_completed(
     assert result.skipped_no_citations == 1
     assert result.dry_run is False
     assert mem_store._runs[run_id].citations == [CITATION]
+    # 回填同时补 cited_document_ids，旧 run 也要走 ADR-0022 的可见性回收
+    assert mem_store._runs[run_id].cited_document_ids == ["doc_print"]
     assert mem_store._runs[empty_id].citations == []
     assert mem_store._runs[done_id].citations == [{"document_id": "doc_done"}]
 
@@ -118,6 +121,10 @@ async def test_backfill_skips_runs_with_pruned_content_or_events(
     mem_store._runs[content_id].content_pruned_at = now
     mem_store._runs[events_id].events_pruned_at = now
 
+    # 回填与保留清理并发时，条件写必须拒绝已经清理的 run（ADR-0042/0023）
+    assert await mem_store.set_citations(content_id, [CITATION]) is False
+    assert await mem_store.set_citations(events_id, [CITATION]) is False
+
     result = await backfill_citations(mem_store)
 
     assert result.scanned == 0
@@ -153,9 +160,13 @@ async def test_pg_backfill_writes_snapshot_only_when_empty(pg_store: PostgresRun
         EventType.MESSAGE_COMPLETED,
         {"text": "先检查打印队列。", "citations": [CITATION]},
     )
-    # 模拟迁移前的行：直接清空投影列（append 会写 citations）
+    # 模拟迁移前的行：直接清空投影列（append 会写 citations / cited_document_ids）
     async with pg_store._sessionmaker() as session, session.begin():
-        await session.execute(update(Run).where(Run.id == uuid.UUID(run_id)).values(citations=[]))
+        await session.execute(
+            update(Run)
+            .where(Run.id == uuid.UUID(run_id))
+            .values(citations=[], cited_document_ids=[])
+        )
 
     dry = await backfill_citations(pg_store, dry_run=True)
     assert dry.scanned == 1
@@ -166,6 +177,20 @@ async def test_pg_backfill_writes_snapshot_only_when_empty(pg_store: PostgresRun
     record = await pg_store.get(run_id)
     assert record is not None
     assert record.citations == [CITATION]
+    assert record.cited_document_ids == ["doc_print"]
 
     again = await backfill_citations(pg_store)
     assert again.scanned == 0
+
+    # 保留清理先落下时，条件写不能把快照写回去
+    pruned_id = str(uuid.uuid4())
+    await pg_store.create(
+        run_id=pruned_id, user_id="u_102", session_id="sess_pg_backfill", message="过期了"
+    )
+    async with pg_store._sessionmaker() as session, session.begin():
+        await session.execute(
+            update(Run)
+            .where(Run.id == uuid.UUID(pruned_id))
+            .values(content_pruned_at=datetime.now(UTC))
+        )
+    assert await pg_store.set_citations(pruned_id, [CITATION]) is False

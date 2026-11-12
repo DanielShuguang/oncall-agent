@@ -39,9 +39,12 @@ ADR-0031 给 `runs` 加了 `citations` JSONB，历史会话能还原引用角标
    `message.completed`；复用 `_citation_snapshot` 的清洗规则（只保留已知字段、
    `title`/`heading` 200、`snippet` 500、最多 50 条、跳过没有 `document_id` 的条目）。
    没有该事件或 citations 为空/不可用的 run 计入 `skipped_no_citations`。
-4. **条件写入**：新增 `RunStore.set_citations`，只在 `citations` 仍为空时写入
-   （PG 用 `UPDATE ... WHERE jsonb_array_length(citations) = 0 RETURNING id`）。
-   已回填/并发写入的 run 不会被覆盖；返回 False 不视为错误。
+4. **条件写入**：新增 `RunStore.set_citations`，只在 `citations` 仍为空、且
+   `content_pruned_at` / `events_pruned_at` 仍为空、`output` 仍在时写入
+   （PG 用 `UPDATE ... WHERE ... RETURNING id`，先 `SELECT ... FOR UPDATE` 锁行）。
+   已回填/并发写入的 run 不会被覆盖；回填与保留清理并发时也不会把快照写得
+   比正文久；返回 False 不视为错误。写入同一行时补齐 `cited_document_ids`
+   （与已有 id 合并去重），让 ADR-0022 的可见性回收对迁移前的旧数据同样生效。
 5. **批量读取**：新增 `RunStore.list_runs_without_citations`，PG 用
    `jsonb_array_length(citations) = 0` 过滤；不为回填加索引——这是低频运维扫描。
 6. **不改变读路径**：回填出的快照仍走 `GET /runs/{id}` 的可见性与正文保留过滤
@@ -53,6 +56,9 @@ ADR-0031 给 `runs` 加了 `citations` JSONB，历史会话能还原引用角标
 - 事件仍保留的旧 run 能在运维执行后恢复角标；事件已清理的 run 仍然补不出，
   这与「事件是回放唯一真相」一致。
 - 回填是逐 run 条件更新，并发打开会话不会读到半成品；重复执行无副作用。
+  写入与保留清理并发时，清理先落库会让条件写返回 False，不会留下「正文已清、
+  快照还在」的行；回填同时补齐 `cited_document_ids`，旧 run 的可见性回收继续
+  按 ADR-0022 的当前权限判定。
 - 一次最多扫描 `--limit` 场，大库需要分多次跑；没有进度游标，靠候选集合自然收敛。
 - 不新增表、不新增迁移（schema 仍到 `0017`），前端无改动。
 

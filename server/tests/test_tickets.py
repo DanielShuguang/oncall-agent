@@ -57,10 +57,17 @@ async def test_get_for_requester_is_scoped_and_missing_returns_none() -> None:
     other = await repo.create(
         title="VPN 连不上", category="network", priority="P1", requester="u_205"
     )
+    # 详情字段来自表里已有的数据；内存仓储创建时显式留空，形状与 PG 一致
+    assert mine["description"] is None
+    assert mine["assignee"] is None
+    repo._tickets[mine["id"]]["description"] = "打印机每次重启后离线"
+    repo._tickets[mine["id"]]["assignee"] = "u_902"
 
     found = await repo.get_for_requester("u_102", mine["id"])
     assert found is not None
     assert found["id"] == mine["id"]
+    assert found["description"] == "打印机每次重启后离线"
+    assert found["assignee"] == "u_902"
     # 不是本人的单与不存在的单都返回 None，调用方无法区分
     assert await repo.get_for_requester("u_102", other["id"]) is None
     assert await repo.get_for_requester("u_102", "TCK-DEADBEEF") is None

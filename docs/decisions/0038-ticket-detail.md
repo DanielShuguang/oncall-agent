@@ -40,19 +40,23 @@ ADR-0029 让用户能查「我最近的工单」，但回答只有单号、状�
    `tool.failed`；只有数据库故障才让工具失败。回答统一说「你名下没有查到工单 X」，
    不猜是单号错还是权限问题。
 4. **单号规范化**：`classify.ticket_id_from_query` 用
-   `\b[Tt][Cc][Kk]-[0-9A-Fa-f]{8}\b` 从原句提取并转大写；工具再 `upper()` 一次。
-   schema 的 pattern 同时接受大小写，模型传小写也能通过校验。
+   `\b[Tt][Cc][Kk]-[0-9A-Fa-f]{8}\b` 从原句提取并转大写；工具再 `strip().upper()`
+   一次。schema 的 pattern 同时接受大小写；但校验器不执行 `pattern`（docs/06 §8.3），
+   所以 handler 自己用 `TCK-[0-9A-F]{8}` 再兜一层，格式不对按「没查到」处理，
+   避免把任意字符串带进仓储查询。
 5. **意图与计划**：句子里出现具体单号即视为「查自己的单」，即使没有「进度」
    「到哪了」这类词；仍然保持 `knowledge` 意图（不新增 intent，不动 50 条分类
    评测），`needs_model` 排除，规则计划直接把单号放进 `args`。用户同时说「开单」
    与单号时仍按写操作优先（R10）。
 6. **回答不拼知识库**：`finalize` 看到 `ticket` 字段就直接用表数据作答——
-   单号、状态/优先级、标题、问题描述（截 200 字）、处理人（缺省「未分配」）、
-   创建日期，有解决时间再加一行；不产生引用、不落「知识库没有检索到」的拒答。
-   详情模式不列列表，列表模式仍只展示最近 5 张。`tool.result` 的 payload 不带 args，
-   未找到时从 `state["plan"]` 取单号用于回显。
-7. **无迁移**：`tickets` 表已有全部字段，`resolve`/`assignee` 由后续流程写入；
-   本次只加查询路径。前端不改：工具结果仍由通用卡片渲染，回答正文已带详情。
+   单号、状态/优先级、标题、问题描述（表里有才展示，截 200 字）、处理人（缺省
+   「未分配」）、创建日期，有解决时间再加一行；不产生引用、不落「知识库没有检索到」
+   的拒答。详情模式不列列表，列表模式仍只展示最近 5 张。`tool.result` 的 payload
+   不带 args，未找到时从 `state["plan"]` 取单号用于回显。
+7. **无迁移**：`tickets` 表已有全部字段；`description` / `assignee` / `resolved_at`
+   由 seed 或后续流程写入。`create_ticket` 目前不收集描述，所以智能体自己开的单
+   详情没有「问题」行——展示层只呈现表里真实存在的内容，等创建路径补上描述再自然出现。
+   前端不改：工具结果仍由通用卡片渲染，回答正文已带详情。
 
 ## 后果
 
@@ -61,17 +65,23 @@ ADR-0029 让用户能查「我最近的工单」，但回答只有单号、状�
 - 详情只对本人开放，IT 支持仍不能查他人；按组/队列的权限模型另开 ADR。
 - 描述可能包含用户自己写的敏感信息；当前只展示前 200 字，完整内容仍在库中，
   受 `tickets` 的保留策略约束（目前不清理）。
+- `create_ticket` 暂不收集 description/assignee，自建工单的详情会省略「问题」行、
+  处理人显示「未分配」；seed 与外部系统写入的工单则正常展示。补创建路径属于另一次
+  接口/提示词变更。
 - 单号是 8 位十六进制，理论上可枚举；接口按 requester 过滤，枚举只能确认
   「自己名下没有」，不能探测他人是否存在。
 - 列表与详情共用 2000ms 超时与同一套治理；没有新增环境变量。
 
 ## 验证
 
-- 默认 `uv run pytest` **456 passed + 34 skipped**（19.96s）；新增
-  `test_get_for_requester_is_scoped_and_missing_returns_none` 与
-  `test_ticket_detail_query_by_ticket_id`（classify/plan/finalize 三路 + 未找到话术）。
-- 真实 Postgres：`tests/test_tickets_pg.py` 的既有用例补 `get_for_requester`
-  本人/他人/不存在断言，**487 passed + 3 skipped**（未新增 PG 测试函数）。
+- 默认 `uv run pytest` **457 passed + 34 skipped**；新增
+  `test_get_for_requester_is_scoped_and_missing_returns_none`、
+  `test_ticket_detail_query_by_ticket_id`（classify/plan/finalize 三路 + 未找到话术）与
+  `test_query_tickets_normalizes_and_rejects_malformed_ticket_id`（小写单号可用、格式不对
+  返回 null）。
+- 真实 Postgres：`tests/test_tickets_pg.py` 的既有用例补 `get_for_requester` 本人/他人/
+  不存在断言，并回写 description/assignee 后校验详情字段，**487 passed + 3 skipped**
+  （未新增 PG 测试函数）。
 - `ruff check` 通过、`ruff format --check` 179 files、`mypy app` 106 files。
 - 前端未改，仍 **65 tests / 13 files**；无迁移，`alembic` 不变；检索、提示词、
   多轮历史未改，未重跑 RAG/多轮评测。

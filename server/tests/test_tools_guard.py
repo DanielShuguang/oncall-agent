@@ -273,6 +273,28 @@ async def test_query_tickets_only_returns_callers_tickets(
     assert tickets[0]["requester"] == "u_102"
 
 
+async def test_query_tickets_normalizes_and_rejects_malformed_ticket_id(
+    mem_tickets: InMemoryTicketRepository,
+) -> None:
+    own = await mem_tickets.create(
+        title="打印机离线", category="hardware", priority="P2", requester="u_102"
+    )
+    guard = ToolGuard(default_registry())
+
+    res = await guard.execute(
+        "query_tickets", {"ticket_id": own["id"].lower()}, EMPLOYEE, call_id="c16"
+    )
+    assert res.status is ToolStatus.OK
+    assert res.result["ticket"]["id"] == own["id"]
+
+    # 校验器不执行 schema 的 pattern；handler 自己兜底，避免把任意字符串带进仓储
+    res = await guard.execute(
+        "query_tickets", {"ticket_id": "not-a-ticket"}, EMPLOYEE, call_id="c17"
+    )
+    assert res.status is ToolStatus.OK
+    assert res.result == {"ticket": None}
+
+
 async def test_query_tickets_rejects_forged_requester(
     mem_tickets: InMemoryTicketRepository,
 ) -> None:

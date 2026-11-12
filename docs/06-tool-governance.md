@@ -197,7 +197,9 @@ app/tools/
 > 用户问「我的工单到哪了」时由 `plan` 的规则分支选中，`finalize` 用工单表直接作答。
 > 按 [ADR-0038](decisions/0038-ticket-detail.md)，schema 另有可选 `ticket_id`：命中时
 > 走单条详情（描述、处理人、解决时间），仍按 requester 过滤，查不到返回 `{"ticket": null}`，
-> 不区分「不存在」与「不是你的」；`status` / `limit` 只在列表模式生效。
+> 不区分「不存在」与「不是你的」；`status` / `limit` 只在列表模式生效。校验器不执行
+> `pattern`，handler 会再按 `TCK-[0-9A-F]{8}` 校验，格式不对同样按「没查到」处理；
+> 描述/处理人只展示 `tickets` 表里已有的值（`create_ticket` 暂不收集 description）。
 > 清单里的 `search_kb` 当前是 `retrieve` 节点（不是工具），`run_diagnostic` 随接真实
 > 系统时再加，避免先写假工具再改一遍治理用例。
 

@@ -14,12 +14,17 @@
 
 from __future__ import annotations
 
+import re
 from functools import lru_cache
 from typing import Any
 
 from app.tools.assets import get_asset_repository
 from app.tools.registry import Identity, ToolRegistry, ToolSpec
 from app.tools.tickets import get_ticket_repository
+
+# 校验器不执行 schema 的 pattern（docs/06），这里再兜一层：
+# 格式不对按「没查到」处理，避免把任意长字符串带进仓储查询。
+_TICKET_ID_RE = re.compile(r"TCK-[0-9A-F]{8}")
 
 
 async def query_cmdb(*, asset_id: str | None = None, identity: Identity) -> dict[str, Any]:
@@ -71,7 +76,10 @@ async def query_tickets(
     """
     repository = get_ticket_repository()
     if ticket_id is not None:
-        ticket = await repository.get_for_requester(identity.user_id, ticket_id.upper())
+        normalized = ticket_id.strip().upper()
+        if _TICKET_ID_RE.fullmatch(normalized) is None:
+            return {"ticket": None}
+        ticket = await repository.get_for_requester(identity.user_id, normalized)
         return {"ticket": ticket}
     rows = await repository.list_for_requester(identity.user_id, status=status, limit=limit)
     return {"tickets": rows, "count": len(rows)}

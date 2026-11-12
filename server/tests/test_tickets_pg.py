@@ -11,7 +11,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
-from app.models import Base
+from app.models import Base, Ticket
 from app.tools.tickets import PostgresTicketRepository
 
 
@@ -61,6 +61,16 @@ async def test_pg_lists_only_requesters_tickets_in_created_order(
     detail = await pg_tickets.get_for_requester("u_102", second["id"])
     assert detail is not None
     assert detail["id"] == second["id"]
+    # 详情要带出创建时未收集、但表里可能已有的描述与处理人
+    async with pg_tickets._sessionmaker() as session, session.begin():
+        row = await session.get(Ticket, second["id"])
+        assert row is not None
+        row.description = "VPN 连不上，远程办公受影响"
+        row.assignee = "u_902"
+    detail = await pg_tickets.get_for_requester("u_102", second["id"])
+    assert detail is not None
+    assert detail["description"] == "VPN 连不上，远程办公受影响"
+    assert detail["assignee"] == "u_902"
     assert await pg_tickets.get_for_requester("u_205", second["id"]) is None
     assert await pg_tickets.get_for_requester("u_102", "TCK-DEADBEEF") is None
     assert await pg_tickets.list_for_requester("u_102", status="resolved") == []

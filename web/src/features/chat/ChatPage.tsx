@@ -208,7 +208,7 @@ export default function ChatPage() {
         onSearch={onSearchSessions}
         onSelect={(id) => void onSelectSession(id)}
         onNew={onNewSession}
-        onRetry={refreshSessions}
+        onRetry={() => refreshSessions()}
         onLoadMore={() => void loadMoreSessions()}
       />
       <div className="flex min-h-0 flex-1 flex-col">

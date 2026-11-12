@@ -145,6 +145,14 @@ async def test_sessions_search_by_title_is_case_insensitive(
     assert missing.status_code == 200
     assert missing.json() == {"items": [], "next_cursor": None}
 
+    blank = await client.get("/api/sessions", params={"q": "   "})
+    assert blank.status_code == 200
+    assert {item["session_id"] for item in blank.json()["items"]} == {
+        "sess_print",
+        "sess_vpn",
+        "sess_jam",
+    }
+
     # % / _ 是普通字符，不能当通配符
     literal = await client.get("/api/sessions", params={"q": "%"})
     assert literal.json()["items"] == []

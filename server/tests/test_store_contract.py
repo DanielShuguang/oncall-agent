@@ -486,7 +486,7 @@ async def _exercise_sessions(store: RunStore) -> None:
     )
     await asyncio.sleep(0.005)
     second = str(uuid.uuid4())
-    await store.create(run_id=second, user_id=user, session_id="sess_b", message="第二个会话")
+    await store.create(run_id=second, user_id=user, session_id="sess_b", message="VPN 掉线")
     # 首条输入是空白时跳过，标题落到下一条；只有空白输入的会话标题为 None，但会话本身仍在
     await store.create(run_id=str(uuid.uuid4()), user_id=user, session_id="sess_c", message="   ")
     await store.create(
@@ -526,6 +526,10 @@ async def _exercise_sessions(store: RunStore) -> None:
     assert [
         item.session_id for item in await store.list_sessions(user_id=user, limit=10, query="真实")
     ] == ["sess_c"]
+    # PG 的 lower() 也要覆盖 ASCII 大小写，而不只是中文子串
+    assert [
+        item.session_id for item in await store.list_sessions(user_id=user, limit=10, query="vpn")
+    ] == ["sess_b"]
     assert await store.list_sessions(user_id=user, limit=10, query="不存在") == []
     assert await store.list_sessions(user_id=user, limit=10, query="别人") == []
     assert await store.list_sessions(user_id=other, limit=10, query="打印机") == []

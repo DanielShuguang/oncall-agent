@@ -84,7 +84,7 @@ export function SessionList({
       {error && (
         <div className="space-y-1 px-1 py-2">
           <p className="text-xs text-danger">{error}</p>
-          <Button size="sm" variant="outline" onClick={onRetry}>
+          <Button size="sm" variant="outline" onClick={() => onRetry()}>
             重试
           </Button>
         </div>

@@ -22,8 +22,9 @@
 
 ## 决策
 
-1. `GET /api/sessions` 增加可选 `q`：只匹配**投影标题**，大小写不敏感子串；`q` 长度
-   1–100，前后空白裁掉，裁完为空按「没有搜索」处理。
+1. `GET /api/sessions` 增加可选 `q`：只匹配**投影标题**（首条非空 `input` 的完整原文；
+   列表展示时仍截到 60 字符），大小写不敏感子串；`q` 长度 1–100，前后空白裁掉，裁完为空
+   按「没有搜索」处理。
 2. 只搜本人会话，没有管理员旁路；不搜回答正文、工具结果、审批理由，也不搜已被正文保留期
    清空的标题（此时 `title` 为 `null`）。
 3. 与 [ADR-0033](0033-session-history-pagination.md) 的 keyset 分页共用：先过滤再按最近
@@ -50,8 +51,9 @@
 
 - 默认 `pytest`：**459 passed + 34 skipped**；真实 Postgres：**490 passed + 3 skipped**；
   再加 Redis：**493 passed**。
-- 接口用例覆盖大小写、`%` 按字面量、无匹配空列表、搜索 + keyset 翻页、`q` 101 字符 422；
-  `test_store_contract.py` 在内存与真实 PG 上共用同一组搜索断言。
+- 接口用例覆盖大小写、`%` 按字面量、纯空白 `q` 回退全列表、无匹配空列表、搜索 + keyset
+  翻页、`q` 101 字符 422；`test_store_contract.py` 在内存与真实 PG 上共用同一组搜索断言
+  （含中文子串与 ASCII 大小写）。
 - 前端 `tsc --noEmit`、`pnpm test` **65 tests / 13 files**、`oxlint` 0/0、`oxfmt --check`
   70 files、`pnpm build` 通过。
 - 无迁移；检索参数、提示词、多轮历史未改，未重跑评测。

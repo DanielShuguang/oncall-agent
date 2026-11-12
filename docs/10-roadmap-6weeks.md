@@ -654,6 +654,32 @@ ADR-0030 的历史会话只有两段文字，引用角标没有还原——完�
 
 ---
 
+## W6 后补：PDF 解析子进程隔离（ADR-0032）
+
+`docs/09` 安全清单从 W6 起挂着一句「PDF 解析目前在 API 进程内，子进程隔离尚未实现」。
+上传接口早就有类型/大小限制，解析也放在 `asyncio.to_thread` 里，但线程只防阻塞、不防
+崩溃：`pypdf` / PyMuPDF 解析畸形 PDF 时段错误、死循环或吃光内存，都会带走 API 进程。
+
+| 事项 | 落地 |
+|---|---|
+| 隔离 | `.pdf` 走 `parse_pdf_isolated()`，用 `multiprocessing.get_context("spawn")`；PyMuPDF 优先 / pypdf 兜底的逻辑原样搬进子进程 |
+| 超时 | `PDF_PARSE_TIMEOUT_S = 60.0`；超时先 `terminate()`，2 秒不退再 `kill()`；转成 `ParseError` → 上传接口 422 |
+| 错误 | 子进程里的 `ParseError` 消息原样带回；其他异常带类型名；EOF 报「进程异常退出」；不把 traceback 暴露给上传者 |
+| 清理 | 子进程 `daemon=True`；成功/失败/超时都在 `finally` 里 join，必要时终止；管道两端显式关闭 |
+| 不变 | 上传接口、10MB 限制、422 文案、扫描件拒绝都不变；`KnowledgeBase.index_bytes` 仍在线程池里调用解析 |
+| 不做 | 内存 `rlimit`（Windows 无对应实现）、常驻 worker 池、超时环境变量、并发解析闸门；这是故障隔离，不是安全沙箱 |
+
+验证：默认 **425 passed + 31 skipped**；临时 Postgres 下 **453 passed + 3 skipped**；
+再加 Redis **456 passed**。`ruff check` / `ruff format --check`（171 files）/
+`mypy app`（104 files）通过；前端未改，仍 **63 tests / 13 files**。新增
+`server/tests/test_rag_pdf_isolation.py` 3 条；检索、提示词、多轮判定未改，未重跑评测。
+
+已知边界：60 秒是常量，慢机器上的大 PDF 可能被误杀；子进程继承环境变量与文件系统权限；
+并发上传会并发出多个解析进程；仍不做 OCR。详见
+[ADR-0032](decisions/0032-pdf-parse-subprocess.md)。
+
+---
+
 ## 每周固定动作
 
 | 时点 | 动作 |

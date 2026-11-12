@@ -217,12 +217,14 @@ def _parse_docx(filename: str, data: bytes) -> ParsedDoc:
 
 
 def _parse_pdf(filename: str, data: bytes) -> ParsedDoc:
-    """优先 PyMuPDF（若环境里装了），否则用纯 Python 的 pypdf。
+    """在独立进程里解析 PDF（ADR-0032）：畸形文件最多拖垮子进程。"""
+    from app.rag.pdf_isolation import parse_pdf_isolated
 
-    PyMuPDF 2.x 的 wheel 带布局模型，体积 60MB+；私有化交付时不是必需。
-    v0 只需要「可复制 PDF 的文本层 + 页码」，pypdf 足够且安装成本低。
-    扫描件两种实现都读不出文本，统一 422（v1 不做 OCR）。
-    """
+    return parse_pdf_isolated(filename, data)
+
+
+def _parse_pdf_inprocess(filename: str, data: bytes) -> ParsedDoc:
+    """实际的 PDF 解析逻辑，只在子进程里运行。"""
     try:
         import pymupdf
     except ImportError:

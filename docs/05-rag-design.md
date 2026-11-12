@@ -26,6 +26,7 @@
 | 文件 | 职责 |
 |---|---|
 | `rag/parse.py` | PDF / DOCX / MD / TXT -> `ParsedDoc`（blocks + heading_path + page） |
+| `rag/pdf_isolation.py` | PDF 解析子进程：spawn + 管道 + 60 秒超时，崩溃/超时转 422（ADR-0032） |
 | `rag/chunk.py` | 按标题路径切分，超长按句子递归，表格单独成 chunk |
 | `rag/text.py` | 中文单字 + 二元组分词、停用词、领域同义词扩展 |
 | `rag/embed.py` | 确定性哈希向量 / OpenAI 兼容 HTTP embedding |
@@ -37,7 +38,7 @@
 
 | 格式 | 工具 | 注意 |
 |---|---|---|
-| PDF | `pypdf`（默认）/ PyMuPDF（装了就用） | 只取文本层；保留页码；扫描件直接 422（v1 不做 OCR） |
+| PDF | `pypdf`（默认）/ PyMuPDF（装了就用） | 只取文本层；保留页码；扫描件直接 422（v1 不做 OCR）；解析在独立子进程，超时/崩溃都返回 422（ADR-0032） |
 | DOCX | `python-docx` | 保留 `Heading 1..9` 层级；表格保留表头 |
 | MD/TXT | 原生 | 按 `#` 切标题路径；表格用 `|` 行识别 |
 

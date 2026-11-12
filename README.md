@@ -168,9 +168,9 @@ oncall/
 
 | 模块 | 状态 | 验证方式 |
 |---|---|---|
-| 文档（12 篇 + 31 篇 ADR + 评测基线） | ✅ 完成 | — |
+| 文档（12 篇 + 32 篇 ADR + 评测基线） | ✅ 完成 | — |
 | 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡 / 运行回放 / 成本页） | ✅ 可用 | `tsc --noEmit`、`oxlint 0`、`oxfmt --check` 通过；`vitest` 63/63；`pnpm build` 成功 |
-| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **422 passed + 31 skipped**；设 `ONCALL_TEST_DATABASE_URL`（指向一个可清空的库）后 **450 passed + 3 skipped**，再加 `ONCALL_TEST_REDIS_URL` 为 **453 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约与审批快照、引用快照与内容回收、个人预算与账本快照、工单自助查询、会话列表、计量一致性） |
+| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **425 passed + 31 skipped**；设 `ONCALL_TEST_DATABASE_URL`（指向一个可清空的库）后 **453 passed + 3 skipped**，再加 `ONCALL_TEST_REDIS_URL` 为 **456 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约与审批快照、引用快照与内容回收、个人预算与账本快照、工单自助查询、会话列表、计量一致性） |
 | 本地 JWT（W1 D2） | ✅ 已完成 | `tests/test_auth.py` 20 条：签发/验签、过期、alg=none、401 JSON、OpenAPI Bearer、run 归属隔离 |
 | 事件落库 + 断线续传（D4） | ✅ 已完成 | `alembic upgrade head` + `alembic check` 无漂移；`tests/test_store_contract.py`（内存 + Postgres 契约）、`tests/test_chat_stream.py`（落库、幂等回放、503 语义） |
 | 最小 Agent 运行时（W1 D5） | ✅ 已完成 | `tests/test_agent_runtime.py` 9 条：工具真实执行、检索引用、写操作挂起审批、工具失败降级、步数/时长上限 |
@@ -194,6 +194,7 @@ oncall/
 | 工单自助查询（W6 后补） | ✅ 已完成 | `query_tickets` 注册为只读工具（2000ms、身份注入、只查 `requester=当前用户`，创建时间倒序取最近 N 条）；「我的工单/工单进度/修好了吗」等状态问法保持 `knowledge`（不再被「报修」误判成写操作），规则计划选中该工具，`finalize` 以工单表作答、不拼知识库引用；`tests/test_tickets.py`、`test_tools_guard.py`、`test_agent_graph.py`；[ADR-0029](docs/decisions/0029-ticket-self-service-query.md) |
 | 会话列表与历史会话继续（W6 后补） | ✅ 已完成 | 不建表，按 `runs.session_id` 投影（复用 `idx_runs_user_session_time`，无迁移）；`GET /sessions` 只读本人、标题取最早非空 `input`；左侧会话栏点开最近 20 条 run，拼只读 transcript（正文过期/引用回收/未结束/失败各有占位），继续对话沿用同一 `session_id`；`tests/test_sessions_api.py`、`test_store_contract.py`（`_exercise_sessions`）、`web/src/features/chat/history.test.ts`；[ADR-0030](docs/decisions/0030-session-list.md) |
 | 历史引用回放（W6 后补） | ✅ 已完成 | `runs.citations`（迁移 0014）存 `message.completed` 的完整引用快照，历史会话还原角标并复用现有全文预览；只保留已知字段、最多 50 条，正文按 ADR-0023 清空时一起置空，`content_redacted` / 过期时详情返回 `[]`；迁移前旧 run 不回填；`test_store_contract.py`、`test_runs_api.py`；[ADR-0031](docs/decisions/0031-run-citations-replay.md) |
+| PDF 解析子进程隔离（W6 后补） | ✅ 已完成 | `.pdf` 在 `spawn` 子进程里解析（PyMuPDF/pypdf 逻辑不变），60 秒超时先 terminate 再 kill；崩溃/超时/管道异常都收敛成 `ParseError` → 上传接口 422，不再带走 API；每次上传多 0.3–1 秒启动开销，未做内存 rlimit/常驻池；`test_rag_pdf_isolation.py`；[ADR-0032](docs/decisions/0032-pdf-parse-subprocess.md) |
 
 ### 评测与压测
 
@@ -247,7 +248,7 @@ W6 基线（3 轮均值，mock 规则路径，口径见 [baseline-v1](docs/eval/
 - `web/Dockerfile` 的 Node 构建层在本机因 registry 拉取超时未跑完；运行态用本地 `pnpm build`
   + Nginx 镜像验证（SPA、SSE、审批链路均通），正式交付前需在同网络环境重跑 `make stack`
 - 默认 embedding 是确定性哈希，不是语义模型；生产建议切 `ONCALL_EMBEDDING_PROVIDER=http` 接 bge-m3
-- PDF 用 `pypdf` 提取文本层，扫描件不做 OCR；复杂版面/表格请先转 DOCX/MD
+- PDF 用 `pypdf` 提取文本层，解析在独立子进程（60 秒超时，崩溃/超时返回 422，[ADR-0032](docs/decisions/0032-pdf-parse-subprocess.md)）；扫描件不做 OCR；复杂版面/表格请先转 DOCX/MD
 - 重排是确定性规则，bge-reranker 仍待有模型服务后再评估
 - 中文检索用「单字 + 二元组」，长句与跨文档对比仍弱于 zhparser + 领域词典
 - 默认 `ONCALL_MOCK_MODE=true`：走确定性规则，没有真实模型调用，成本恒为 0；

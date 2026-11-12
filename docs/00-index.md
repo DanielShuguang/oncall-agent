@@ -22,7 +22,7 @@
 | — | [eval/multiturn-v2](eval/multiturn-v2.md) | 多轮评测基线（指代 + 话题切换 + 隔离对照，ADR-0024/0025） | 改 history / 检索参数前 |
 | — | [eval/multiturn-v1](eval/multiturn-v1.md) | 多轮历史基线（ADR-0025 修复前，9 条） | 只看历史对比 |
 | — | [eval/baseline-v0](eval/baseline-v0.md) | W2 历史基线（20 条） | 只看历史对比 |
-| — | [decisions/](decisions/) | 31 篇 ADR：为什么 React / Python / LangGraph / pgvector / SSE / Tailwind+oxc / 依赖版本 / shadcn / Postgres 存储 / 本地 JWT / 离线 RAG 向量化 / 显式调度 / 自研模型网关 / 工具覆盖存库 / 私有化交付 / 审批事务 / 孤儿 run 回收 / 引用全文预览 / 文档级可见性 / 多轮上下文 / 数据保留 / 回答内容回收 / 正文按时间保留 / 多轮评测 / 追问原句优先 / 按用户日预算 / 审批快照保留 / 预算可观测性 / 工单自助查询 / 会话列表 / 历史引用回放 | 面试前重读 |
+| — | [decisions/](decisions/) | 32 篇 ADR：为什么 React / Python / LangGraph / pgvector / SSE / Tailwind+oxc / 依赖版本 / shadcn / Postgres 存储 / 本地 JWT / 离线 RAG 向量化 / 显式调度 / 自研模型网关 / 工具覆盖存库 / 私有化交付 / 审批事务 / 孤儿 run 回收 / 引用全文预览 / 文档级可见性 / 多轮上下文 / 数据保留 / 回答内容回收 / 正文按时间保留 / 多轮评测 / 追问原句优先 / 按用户日预算 / 审批快照保留 / 预算可观测性 / 工单自助查询 / 会话列表 / 历史引用回放 / PDF 解析子进程隔离 | 面试前重读 |
 
 ## ADR（Architecture Decision Record）
 
@@ -59,6 +59,7 @@
 | [0029](decisions/0029-ticket-self-service-query.md) | 工单自助查询 | `query_tickets` 只读、身份注入、只查本人；状态问法不新增意图，规则计划选中、`finalize` 以工单表作答（不拼知识库引用）；无迁移 |
 | [0030](decisions/0030-session-list.md) | 会话列表 | 不建表，按 `runs.session_id` 投影（无迁移）；`GET /sessions` 只读本人、标题取最早非空 input；点开只读回放并沿用 session 继续，不落 localStorage |
 | [0031](decisions/0031-run-citations-replay.md) | 历史引用回放 | `runs.citations` 存引用快照（迁移 0014），历史会话还原角标；正文回收/过期时一并置空，不回填旧 run |
+| [0032](decisions/0032-pdf-parse-subprocess.md) | PDF 解析子进程隔离 | `.pdf` 走 `spawn` 子进程与 60 秒超时；崩溃/超时收敛为 422，不再带走 API；仍不做 OCR，未限内存 |
 
 > ADR 的写法：背景 → 方案对比 → 决策 → 后果。面试被问"为什么这么做"时，直接念 ADR。
 

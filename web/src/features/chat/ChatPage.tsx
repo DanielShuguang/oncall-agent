@@ -360,6 +360,10 @@ export default function ChatPage() {
     setHiddenError(null);
     try {
       await restoreSession(targetSessionId);
+      // 恢复也是列表变更：让在途的已移除请求失效，避免旧页把刚恢复的会话写回来（ADR-0047）。
+      hiddenRequest.current += 1;
+      setHiddenLoading(false);
+      setHiddenLoadingMore(false);
       setHiddenSessions((prev) => prev.filter((item) => item.session_id !== targetSessionId));
       refreshSessions();
     } catch (err) {

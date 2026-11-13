@@ -657,6 +657,21 @@ async def _exercise_hidden_sessions(store: RunStore) -> None:
     ] == ["sess_drop"]
     assert await store.list_hidden_sessions(user_id=user, limit=10, query="不存在") == []
 
+    # 自定义标题同样参与搜索，且 `%` 是字面量；改名后原问题仍能搜到（ADR-0040/0047）。
+    assert await store.rename_session(user_id=user, session_id="sess_drop3", title="报税系统 100%")
+    assert [
+        item.session_id
+        for item in await store.list_hidden_sessions(user_id=user, limit=10, query="报税")
+    ] == ["sess_drop3"]
+    assert [
+        item.session_id
+        for item in await store.list_hidden_sessions(user_id=user, limit=10, query="100%")
+    ] == ["sess_drop3"]
+    assert [
+        item.session_id
+        for item in await store.list_hidden_sessions(user_id=user, limit=10, query="邮箱")
+    ] == ["sess_drop3"]
+
     # 恢复（ADR-0043）：删除移除记录，会话重新出现在列表；没有移除过返回 False
     assert await store.unhide_session(user_id=user, session_id="sess_drop") is True
     assert {item.session_id for item in await store.list_sessions(user_id=user, limit=10)} == {

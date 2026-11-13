@@ -1055,14 +1055,14 @@ Postgres + Redis **504 passed** 沿用上一轮；前端 `tsc` 通过、**72 tes
 |---|---|
 | 字段 | 审批项新增 `requested_at`（发起事件时间）与 `waited_ms`（发起到决议的毫秒数，仅已决议项有） |
 | 边界 | 决议早于发起的脏数据省略 `waited_ms`；孤儿决议仍忽略；待审批项不给 0，也不按当前时间猜 |
-| 展示 | 审批卡片显示「等待 2m 3s」，复用 `formatDuration`，与工具耗时同一套格式 |
+| 展示 | 审批卡片显示「等待 2m 3s」，复用 `formatDuration`；超过 1 小时显示 `Xh Ym`、超过 24 小时显示 `Xd Yh`，避免 `1440m 0s` |
 | 汇总 | 不进入工具耗时之和，也不参与「最慢」；人工等待与机器耗时分开看 |
 | 身份 | 仍不返回 `resolved_by` / `scope`；等待时长不泄露审批人 |
 | 数据 | 事件本来就带 `ts`，历史 run 直接可算；无迁移、无回填、无定时任务 |
 
 验证：默认 **471 passed + 35 skipped**；真实 Postgres **503 passed + 3 skipped**；
 Postgres + Redis **506 passed**。`ruff check` / `ruff format --check`（186 files）/`mypy app`
-（110 files）通过；前端 `tsc`、**72 tests / 15 files**、`oxlint` 0/0（66 files）、
+（110 files）通过；前端 `tsc`、**73 tests / 15 files**、`oxlint` 0/0（66 files）、
 `oxfmt --check` 74 files、`pnpm build` 712ms。不改表/事件/清理；未重跑 RAG 与多轮评测。
 
 已知边界：只显示已决议审批的等待；事件时间不是审批系统受理时间，秒级误差可接受；等待时长

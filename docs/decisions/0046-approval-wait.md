@@ -34,7 +34,8 @@
    `waited_ms`，不显示负数。孤儿 `approval.resolved`（没有对应 required）仍按 ADR-0035 忽略。
 4. **不进入汇总与「最慢」**：汇总仍是工具执行时间之和；审批等待是人的时间，混进「工具耗时」
    会把两种延迟画成一个数。本轮只在单条审批卡片上展示。
-5. **展示格式复用 `formatDuration`**：与工具耗时同一套 `ms / 1.2s / Xm Ys`，避免两套口径。
+5. **展示格式复用 `formatDuration`**：与工具耗时同一套 `ms / 1.2s / Xm Ys / Xh Ym / Xd Yh`，
+   避免两套口径；审批等待可能跨小时或天，因此格式化函数要能进到小时/天，不能显示成 `1440m 0s`。
 6. **身份口径不变**：仍然不返回 `resolved_by` / `scope`；等待时长不泄露审批人。
 7. **无迁移、无回填**：历史事件本来就带 `ts`；旧 run 打开时直接按事件计算。不新增定时任务。
 
@@ -54,7 +55,7 @@
 - 默认 `uv run pytest -p no:warnings`：**471 passed + 35 skipped**（25.87s）；
   真实 Postgres **503 passed + 3 skipped**（53.49s）；Postgres + Redis **506 passed**
   （53.63s）。`ruff check` 通过、`ruff format --check` 186 files、`mypy app` 110 files。
-- 前端：`tsc --noEmit` 通过、`pnpm test` **72 tests / 15 files**、`oxlint` 0/0
+- 前端：`tsc --noEmit` 通过、`pnpm test` **73 tests / 15 files**、`oxlint` 0/0
   （66 files、231 rules）、`oxfmt --check` 74 files、`pnpm build` 712ms。
 - 不改表、不改事件类型、不改保留清理；不重跑 RAG 与多轮评测。
 

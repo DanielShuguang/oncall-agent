@@ -94,5 +94,14 @@ describe('formatDuration', () => {
     expect(formatDuration(60_000)).toBe('1m 0s');
     expect(formatDuration(119_999)).toBe('2m 0s');
     expect(formatDuration(63_000)).toBe('1m 3s');
+    expect(formatDuration(3_599_000)).toBe('59m 59s');
+  });
+
+  it('switches to hours and days for long approval waits', () => {
+    expect(formatDuration(3_600_000)).toBe('1h 0m');
+    expect(formatDuration(5_430_000)).toBe('1h 30m');
+    expect(formatDuration(86_399_000)).toBe('23h 59m');
+    expect(formatDuration(86_400_000)).toBe('1d 0h');
+    expect(formatDuration(90_061_000)).toBe('1d 1h');
   });
 });

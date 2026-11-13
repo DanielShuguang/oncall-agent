@@ -178,6 +178,9 @@ def test_build_timeline_keeps_pending_approval_and_ignores_orphans() -> None:
     assert len(items) == 1
     assert items[0]["status"] == "pending"
     assert items[0]["risk_level"] == "medium"
+    assert items[0]["requested_at"]
+    # 待审批没有终点，不能用当前时间或 0 假装等待时长
+    assert "waited_ms" not in items[0]
 
 
 def test_build_timeline_truncates_and_tolerates_malformed_payloads() -> None:

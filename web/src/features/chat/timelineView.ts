@@ -85,5 +85,14 @@ export function formatDuration(durationMs: number): string {
     return `${seconds.endsWith('.0') ? seconds.slice(0, -2) : seconds}s`;
   }
   const wholeSeconds = Math.round(totalSeconds);
-  return `${Math.floor(wholeSeconds / 60)}m ${wholeSeconds % 60}s`;
+  if (wholeSeconds < 3600) {
+    return `${Math.floor(wholeSeconds / 60)}m ${wholeSeconds % 60}s`;
+  }
+  // 审批等待可能以小时/天计，不能一直堆成「1440m 0s」。
+  const wholeMinutes = Math.floor(wholeSeconds / 60);
+  if (wholeMinutes < 1440) {
+    return `${Math.floor(wholeMinutes / 60)}h ${wholeMinutes % 60}m`;
+  }
+  const wholeHours = Math.floor(wholeMinutes / 60);
+  return `${Math.floor(wholeHours / 24)}d ${wholeHours % 24}h`;
 }

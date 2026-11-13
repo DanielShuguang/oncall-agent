@@ -23,10 +23,13 @@ from app.approvals.service import ApprovalService, approval_payload
 from app.approvals.types import (
     ApprovalForbidden,
     ApprovalGroupBy,
+    ApprovalListCursor,
     ApprovalNotFound,
     ApprovalNotReady,
     ApprovalRecord,
     ApprovalScopeUnsupported,
+    PendingApprovalCursor,
+    ResolvedApprovalCursor,
 )
 from app.core.logging import get_logger
 from app.core.store import RunStore, get_store
@@ -45,30 +48,81 @@ router = APIRouter(tags=["approvals"])
 log = get_logger(__name__)
 
 
+def _cursor_error() -> ApiError:
+    return ApiError(400, "INVALID_CURSOR", "cursor 无效，请从第一页重新拉取")
+
+
 def _encode_approval_cursor(record: ApprovalRecord) -> str:
-    payload = {
-        "e": record.expires_at.isoformat(),
-        "c": record.created_at.isoformat(),
-        "i": record.id,
-    }
+    """按记录的最终状态编码游标：待办用 e/c/i，已办用 r/i（ADR-0053）。"""
+    if record.status == "pending":
+        payload: dict[str, object] = {
+            "e": record.expires_at.isoformat(),
+            "c": record.created_at.isoformat(),
+            "i": record.id,
+        }
+    else:
+        if record.resolved_at is None:
+            # 存储查询已过滤 resolved_at 为空的行；走到这里说明数据不变量被破坏。
+            raise RuntimeError("decided approval is missing resolved_at")
+        payload = {"r": record.resolved_at.isoformat(), "i": record.id}
     raw = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode()
     return base64.urlsafe_b64encode(raw).decode().rstrip("=")
 
 
-def _decode_approval_cursor(cursor: str) -> tuple[datetime, datetime, str]:
+def _cursor_payload(cursor: str) -> dict[str, object]:
     try:
         padded = cursor + "=" * (-len(cursor) % 4)
         data = json.loads(base64.urlsafe_b64decode(padded))
-        if not isinstance(data, dict):
-            raise ValueError("cursor payload 不是对象")
-        expires_at = datetime.fromisoformat(str(data["e"]))
-        created_at = datetime.fromisoformat(str(data["c"]))
-        approval_id = str(data["i"])
-    except (ValueError, KeyError, TypeError, binascii.Error) as exc:
-        raise ApiError(400, "INVALID_CURSOR", "cursor 无效，请从第一页重新拉取") from exc
-    if expires_at.tzinfo is None or created_at.tzinfo is None or not 1 <= len(approval_id) <= 64:
-        raise ApiError(400, "INVALID_CURSOR", "cursor 无效，请从第一页重新拉取")
-    return expires_at, created_at, approval_id
+    except (ValueError, TypeError, binascii.Error) as exc:
+        raise _cursor_error() from exc
+    if not isinstance(data, dict):
+        raise _cursor_error()
+    return data
+
+
+def _cursor_id(data: dict[str, object]) -> str:
+    approval_id = data.get("i")
+    if not isinstance(approval_id, str) or not 1 <= len(approval_id) <= 64:
+        raise _cursor_error()
+    return approval_id
+
+
+def _cursor_time(value: object) -> datetime:
+    if not isinstance(value, str):
+        raise _cursor_error()
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise _cursor_error() from exc
+    if parsed.tzinfo is None:
+        raise _cursor_error()
+    return parsed
+
+
+def _decode_pending_cursor(data: dict[str, object]) -> PendingApprovalCursor:
+    if "e" not in data or "c" not in data:
+        raise _cursor_error()
+    return PendingApprovalCursor(
+        expires_at=_cursor_time(data["e"]),
+        created_at=_cursor_time(data["c"]),
+        approval_id=_cursor_id(data),
+    )
+
+
+def _decode_resolved_cursor(data: dict[str, object]) -> ResolvedApprovalCursor:
+    if "r" not in data:
+        raise _cursor_error()
+    return ResolvedApprovalCursor(
+        resolved_at=_cursor_time(data["r"]),
+        approval_id=_cursor_id(data),
+    )
+
+
+def _decode_approval_cursor(cursor: str, status: str) -> ApprovalListCursor:
+    data = _cursor_payload(cursor)
+    if status == "pending":
+        return _decode_pending_cursor(data)
+    return _decode_resolved_cursor(data)
 
 
 @router.get("/approvals", response_model=ApprovalListResponse)
@@ -79,9 +133,9 @@ async def list_approvals(
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     cursor: Annotated[str | None, Query(max_length=512)] = None,
 ) -> ApprovalListResponse:
-    before = _decode_approval_cursor(cursor) if cursor else None
+    before = _decode_approval_cursor(cursor, status) if cursor else None
     try:
-        records = await service.list_for(identity, status=status, limit=limit, before=before)
+        records = await service.list_for(identity, status=status, limit=limit, cursor=before)
     except SQLAlchemyError as exc:
         log.error("approval_list_failed", error=str(exc))
         raise ApiError(503, "DATABASE_UNAVAILABLE", "database unavailable") from exc

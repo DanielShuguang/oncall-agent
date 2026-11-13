@@ -585,12 +585,20 @@ Authorization: Bearer <approver token>
 
 - 审批人角色（`ONCALL_APPROVER_ROLES`，默认 `approver`）看全部待办；普通员工只看自己发起的
 - `status` 只接受 `pending|approved|rejected|expired`；打开列表时会把超时待办置 `expired`
-- `limit` 默认 50、范围 1–200；按 `(expires_at, created_at, approval_id)` 升序
-- `cursor` 是 keyset 游标（base64url JSON，最长 512 字符）；当前页取满才返回
+- `limit` 默认 50、范围 1–200
+- 排序按 `status` 分流（ADR-0053）：`pending` 按 `(expires_at, created_at,
+  approval_id)` 升序，最急的在前；`approved|rejected|expired` 按
+  `(resolved_at, approval_id)` 倒序，最近的决议在前（`expired` 的
+  `resolved_at` 是过期收敛时刻）
+- `cursor` 是 keyset 游标（base64url JSON，最长 512 字符），形状随状态变化：
+  待办 `{"e","c","i"}`（ADR-0052），已办 `{"r","i"}`；当前页取满才返回
   `next_cursor`，下一页为空时返回 `items: []` 且游标为 null；非法游标返回
   `400 {"code":"INVALID_CURSOR"}`
-- 游标只配合同一个 `status` 使用；翻页期间审批被决议可能让后续页重复/跳过，
-  刷新即回第一页。游标不签名，服务端仍按当前身份过滤（ADR-0052）
+- 游标只配合同一个 `status` 使用，待办/已办游标不能混用；翻页期间审批被决议
+  可能让后续页重复/跳过，刷新即回第一页。游标不签名，服务端仍按当前身份过滤
+  （ADR-0052 / ADR-0053）
+- 前端已办列表显示「决议时间」（`resolved_at`），待办仍显示「到期时间」；
+  已办顺序变化后，ADR-0052 生成的已办游标失效一次，刷新即回第一页
 
 ```http
 GET /api/approvals/stats?days=7&group_by=tool

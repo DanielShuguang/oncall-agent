@@ -1223,9 +1223,35 @@ Postgres + Redis **519 passed**；`ruff check` / `ruff format --check`（187 fil
 `mypy app`（110 files）通过；前端 **74 tests / 15 files**、`oxlint` 0/0（66 files）、
 `oxfmt --check` 74 files、`pnpm build` 通过。无迁移。
 
-已知边界：没有总数/跳页；已办仍按 `expires_at` 排序，不做 `resolved_at` 过滤；
-游标不签名不过期；翻页期间状态变化会重复/跳过。详见
+已知边界：没有总数/跳页；已办仍按 `expires_at` 排序（已由 ADR-0053 改成
+`resolved_at` 倒序），不做 `resolved_at` 过滤；游标不签名不过期；
+翻页期间状态变化会重复/跳过。详见
 [ADR-0052](decisions/0052-approval-list-pagination.md)。
+
+---
+
+## W6 后补：已办审批按决议时间排序（ADR-0053）
+
+ADR-0052 解决了翻页，但已办仍沿用待办的 `(expires_at, created_at, id)` 升序：
+审批人想回看「刚刚批了什么」要一直翻到底。`resolved_at` 早已在表里（通过/拒绝/
+过期都会写），统计也一直用它算等待，只有列表排序没用上。
+
+| 事项 | 落地 |
+|---|---|
+| 排序 | `pending` 保持 `(expires_at, created_at, id)` 升序；`approved/rejected/expired` 改 `(resolved_at, id)` 倒序，最近决议在前 |
+| 游标 | 形状随状态：待办 `{e,c,i}`，已办 `{r,i}`；按 `status` 选解码器，混用 400 `INVALID_CURSOR`；旧的已办游标失效一次，刷新回第一页 |
+| 索引 | 迁移 `0018`：部分索引 `idx_approvals_resolved (status, resolved_at, id) WHERE resolved_at IS NOT NULL`；待办仍用 `idx_approvals_pending` |
+| 前端 | 已办表头「决议时间」并显示 `resolved_at`；待办仍显示 `expires_at` |
+| 范围 | 不做按工具/审批人/日期筛选，不做总数/跳页/导出；沿用 ADR-0052 的取满给游标与请求 token |
+
+验证：默认 **483 passed + 39 skipped**；真实 Postgres **519 passed + 3 skipped**；
+Postgres + Redis **522 passed**；`ruff check` / `ruff format --check`（188 files）/
+`mypy app`（110 files）通过；迁移 `0018` 往返无漂移；前端 **74 tests / 15 files**、
+`oxlint` 0/0（66 files）、`oxfmt --check` 74 files、`pnpm build` 通过。
+
+已知边界：`expired` 的「决议时间」实际是过期收敛时间；已办不返回待办式的到期
+urgent 排序；脏数据 `resolved_at IS NULL` 会被隐藏；翻页期间新决议会让后续页
+重复/跳过。详见 [ADR-0053](decisions/0053-resolved-approval-order.md)。
 
 ---
 

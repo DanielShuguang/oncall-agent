@@ -17,7 +17,12 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.approvals.service import ApprovalService
 from app.approvals.store import InMemoryApprovalStore
-from app.approvals.types import ApprovalNotReady, ApprovalRecord
+from app.approvals.types import (
+    ApprovalNotReady,
+    ApprovalRecord,
+    PendingApprovalCursor,
+    ResolvedApprovalCursor,
+)
 from app.core.store import InMemoryRunStore
 from app.schemas.event import EventType
 from app.tools.registry import Identity
@@ -365,11 +370,97 @@ async def test_approval_list_keyset_ties_break_by_id() -> None:
     second = await store.list(
         status="pending",
         limit=2,
-        before_expires_at=last.expires_at,
-        before_created_at=last.created_at,
-        before_id=last.id,
+        cursor=PendingApprovalCursor(last.expires_at, last.created_at, last.id),
     )
     assert [record.id for record in second] == ["b3"]
+
+
+async def test_resolved_list_orders_by_resolved_at_and_ties_break_by_id() -> None:
+    """已办按 `(resolved_at, id)` 倒序；同时间戳只靠 id 兜底（ADR-0053）。"""
+    store = InMemoryApprovalStore()
+    base = datetime.now(UTC) + timedelta(hours=1)
+    for approval_id, minutes in (("d1", 0), ("d3", 2), ("d2", 2)):
+        await store.create(
+            ApprovalRecord(
+                id=approval_id,
+                run_id=f"run_{approval_id}",
+                call_id=f"call_{approval_id}",
+                tool_name="create_ticket",
+                args={"title": approval_id},
+                risk_level="medium",
+                status="approved",
+                requested_by="u_102",
+                resolved_by="u_900",
+                expires_at=base,
+                created_at=base - timedelta(minutes=10),
+                resolved_at=base + timedelta(minutes=minutes),
+                state={},
+            )
+        )
+
+    first = await store.list(status="approved", limit=2)
+    assert [record.id for record in first] == ["d3", "d2"]
+    last = first[-1]
+    assert last.resolved_at is not None
+    second = await store.list(
+        status="approved",
+        limit=2,
+        cursor=ResolvedApprovalCursor(last.resolved_at, last.id),
+    )
+    assert [record.id for record in second] == ["d1"]
+
+
+async def test_approval_list_resolved_paginates_with_cursor(
+    client: AsyncClient, mem_approvals: InMemoryApprovalStore
+) -> None:
+    base = datetime.now(UTC) + timedelta(hours=1)
+    ids = ["d1", "d2", "d3"]
+    for index, approval_id in enumerate(ids):
+        await mem_approvals.create(
+            ApprovalRecord(
+                id=approval_id,
+                run_id=f"run_{index}",
+                call_id=f"call_{index}",
+                tool_name="create_ticket",
+                args={"title": f"t{index}"},
+                risk_level="medium",
+                status="approved",
+                requested_by="u_102",
+                resolved_by="u_900",
+                expires_at=base,
+                created_at=base - timedelta(minutes=10),
+                resolved_at=base + timedelta(minutes=index),
+                state={},
+            )
+        )
+
+    first = await client.get("/api/approvals?status=approved&limit=2", headers=APPROVER)
+    assert first.status_code == 200
+    first_body = first.json()
+    assert [item["approval_id"] for item in first_body["items"]] == ["d3", "d2"]
+    cursor = first_body["next_cursor"]
+    assert isinstance(cursor, str) and cursor
+
+    second = await client.get(
+        f"/api/approvals?status=approved&limit=2&cursor={cursor}", headers=APPROVER
+    )
+    assert second.status_code == 200
+    assert [item["approval_id"] for item in second.json()["items"]] == ["d1"]
+    assert second.json()["next_cursor"] is None
+
+    # 待办与已办游标形状不同；把待办游标用到已办上必须显式拒绝，不能静默从头开始。
+    pending_cursor = (
+        base64.urlsafe_b64encode(
+            b'{"e":"2026-01-01T00:00:00+00:00","c":"2026-01-01T00:00:00+00:00","i":"d1"}'
+        )
+        .decode()
+        .rstrip("=")
+    )
+    wrong = await client.get(
+        f"/api/approvals?status=approved&cursor={pending_cursor}", headers=APPROVER
+    )
+    assert wrong.status_code == 400
+    assert wrong.json()["code"] == "INVALID_CURSOR"
 
 
 async def test_resolve_before_approval_required_is_rejected(

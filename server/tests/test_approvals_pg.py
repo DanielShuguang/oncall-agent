@@ -23,7 +23,7 @@ from sqlalchemy.pool import NullPool
 
 from app.approvals.service import ApprovalService
 from app.approvals.store import PostgresApprovalStore
-from app.approvals.types import ApprovalRecord
+from app.approvals.types import ApprovalRecord, PendingApprovalCursor, ResolvedApprovalCursor
 from app.core.store import PostgresRunStore
 from app.core.store import append_event_in_session as real_append_event_in_session
 from app.models import Approval, ApprovalGrant, Base
@@ -457,9 +457,7 @@ async def test_pg_approval_list_paginates(pg_approvals: tuple[Any, ...]) -> None
     second = await approvals.list(
         status="pending",
         limit=2,
-        before_expires_at=last.expires_at,
-        before_created_at=last.created_at,
-        before_id=last.id,
+        cursor=PendingApprovalCursor(last.expires_at, last.created_at, last.id),
     )
     assert [record.id for record in second] == ids[2:]
 
@@ -499,8 +497,59 @@ async def test_pg_approval_list_keyset_ties_break_by_id(pg_approvals: tuple[Any,
     rest = await approvals.list(
         status="pending",
         limit=2,
-        before_expires_at=last.expires_at,
-        before_created_at=last.created_at,
-        before_id=last.id,
+        cursor=PendingApprovalCursor(last.expires_at, last.created_at, last.id),
     )
     assert [record.id for record in rest] == ids[2:]
+
+
+async def test_pg_resolved_list_orders_by_resolved_at(pg_approvals: tuple[Any, ...]) -> None:
+    """已办在真实库上按 `(resolved_at, id)` 倒序，keyset 不依赖 offset（ADR-0053）。"""
+    runs, approvals, _service, _sessionmaker = pg_approvals
+    base = datetime(2026, 11, 15, 12, 0, tzinfo=UTC)
+    ids: list[str] = []
+    for index in range(3):
+        run_id = str(uuid.uuid4())
+        await runs.create(
+            run_id=run_id,
+            user_id="u_102",
+            session_id=f"sess_resolved_{index}",
+            message="帮我开一张报修工单",
+        )
+        approval_id = str(uuid.uuid4())
+        await approvals.create(
+            ApprovalRecord(
+                id=approval_id,
+                run_id=run_id,
+                call_id=f"call_resolved_{index}",
+                tool_name="create_ticket",
+                args={"title": f"t{index}"},
+                risk_level="medium",
+                status="pending",
+                requested_by="u_102",
+                expires_at=base + timedelta(hours=1),
+                created_at=base - timedelta(minutes=10),
+                state={},
+            )
+        )
+        # 走真实的 pending→approved 迁移，而不是直接插一条已决议记录：
+        # `PostgresApprovalStore.create` 只落建单字段，决议字段由 resolve 写。
+        await approvals.resolve(
+            approval_id,
+            status="approved",
+            resolved_by="u_900",
+            reason=None,
+            scope="once",
+            at=base + timedelta(minutes=index),
+        )
+        ids.append(approval_id)
+
+    first = await approvals.list(status="approved", limit=2)
+    assert [record.id for record in first] == [ids[2], ids[1]]
+    last = first[-1]
+    assert last.resolved_at is not None
+    rest = await approvals.list(
+        status="approved",
+        limit=2,
+        cursor=ResolvedApprovalCursor(last.resolved_at, last.id),
+    )
+    assert [record.id for record in rest] == [ids[0]]

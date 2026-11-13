@@ -120,6 +120,31 @@ class ApprovalRecord:
         return self.status == "pending"
 
 
+@dataclass(frozen=True)
+class PendingApprovalCursor:
+    """待办 keyset 位置：`(expires_at, created_at, id)` 升序（ADR-0052）。"""
+
+    expires_at: datetime
+    created_at: datetime
+    approval_id: str
+
+
+@dataclass(frozen=True)
+class ResolvedApprovalCursor:
+    """已办 keyset 位置：`(resolved_at, id)` 倒序（ADR-0053）。
+
+    已办列表按决议时间倒序，最近的决议在最前；`id` 只用于同一毫秒的兜底。
+    游标的含义跟着 `status` 走，跨状态复用同一个游标没有意义。
+    """
+
+    resolved_at: datetime
+    approval_id: str
+
+
+#: 列表游标；待办与已办的排序键不同，形状也不同（ADR-0053）
+ApprovalListCursor = PendingApprovalCursor | ResolvedApprovalCursor
+
+
 class ApprovalRecorder(Protocol):
     """runtime 视角的审批能力：提交审批 + 查询会话级授权。"""
 

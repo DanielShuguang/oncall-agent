@@ -11,7 +11,7 @@ import uuid
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import replace
 from datetime import date, datetime
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from sqlalchemy import and_, delete, func, or_, select, text, tuple_, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -21,8 +21,11 @@ from app.approvals.types import (
     ApprovalDayStats,
     ApprovalGroupBy,
     ApprovalGroupStats,
+    ApprovalListCursor,
     ApprovalRecord,
     ApprovalStats,
+    PendingApprovalCursor,
+    ResolvedApprovalCursor,
 )
 from app.models.approval import Approval, ApprovalGrant
 
@@ -48,15 +51,15 @@ class ApprovalStore(Protocol):
         *,
         status: str | None = None,
         requested_by: str | None = None,
-        before_expires_at: datetime | None = None,
-        before_created_at: datetime | None = None,
-        before_id: str | None = None,
+        cursor: ApprovalListCursor | None = None,
         limit: int = 100,
     ) -> list[ApprovalRecord]:
-        """按 `(expires_at, created_at, id)` keyset 翻页（ADR-0052）。
+        """按 status 选择排序键的 keyset 翻页（ADR-0052 / ADR-0053）。
 
-        `before_*` 必须同时给；游标只配合同一个 `status` 使用，跨状态复用
-        会从错误的元组位置开始，结果不可解释。
+        待办（`status="pending"` 或 `None`）按 `(expires_at, created_at, id)`
+        升序，最急的在前；已办按 `(resolved_at, id)` 倒序，最近的决议在前。
+        游标只配合同一个 `status` 使用，跨状态复用会从错误的元组位置开始，
+        结果不可解释。
         """
         ...
 
@@ -159,9 +162,7 @@ class InMemoryApprovalStore:
         *,
         status: str | None = None,
         requested_by: str | None = None,
-        before_expires_at: datetime | None = None,
-        before_created_at: datetime | None = None,
-        before_id: str | None = None,
+        cursor: ApprovalListCursor | None = None,
         limit: int = 100,
     ) -> list[ApprovalRecord]:
         items = [
@@ -170,19 +171,30 @@ class InMemoryApprovalStore:
             if (status is None or record.status == status)
             and (requested_by is None or record.requested_by == requested_by)
         ]
-        items.sort(key=lambda r: (r.expires_at, r.created_at, r.id))
-        if (
-            before_expires_at is not None
-            and before_created_at is not None
-            and before_id is not None
-        ):
-            cursor = (before_expires_at, before_created_at, before_id)
-            items = [
+        if status is None or status == "pending":
+            # 待办按到期紧迫度：最急的在前（ADR-0052）。
+            items.sort(key=lambda r: (r.expires_at, r.created_at, r.id))
+            if isinstance(cursor, PendingApprovalCursor):
+                pending_key = (cursor.expires_at, cursor.created_at, cursor.approval_id)
+                items = [
+                    record
+                    for record in items
+                    if (record.expires_at, record.created_at, record.id) > pending_key
+                ]
+            return items[:limit]
+
+        # 已办按决议时间倒序：最近处理的在前（ADR-0053）。expired 也有
+        # resolved_at（expire_due 写入），所以四类状态都能落在这个全序里。
+        decided = [record for record in items if record.resolved_at is not None]
+        decided.sort(key=lambda r: (cast(datetime, r.resolved_at), r.id), reverse=True)
+        if isinstance(cursor, ResolvedApprovalCursor):
+            resolved_key = (cursor.resolved_at, cursor.approval_id)
+            decided = [
                 record
-                for record in items
-                if (record.expires_at, record.created_at, record.id) > cursor
+                for record in decided
+                if (cast(datetime, record.resolved_at), record.id) < resolved_key
             ]
-        return items[:limit]
+        return decided[:limit]
 
     async def stats(
         self,
@@ -399,9 +411,7 @@ class PostgresApprovalStore:
         *,
         status: str | None = None,
         requested_by: str | None = None,
-        before_expires_at: datetime | None = None,
-        before_created_at: datetime | None = None,
-        before_id: str | None = None,
+        cursor: ApprovalListCursor | None = None,
         limit: int = 100,
     ) -> list[ApprovalRecord]:
         query = select(Approval)
@@ -409,26 +419,39 @@ class PostgresApprovalStore:
             query = query.where(Approval.status == status)
         if requested_by is not None:
             query = query.where(Approval.requested_by == requested_by)
-        if (
-            before_expires_at is not None
-            and before_created_at is not None
-            and before_id is not None
-        ):
-            query = query.where(
-                or_(
-                    Approval.expires_at > before_expires_at,
-                    and_(
-                        Approval.expires_at == before_expires_at,
-                        Approval.created_at > before_created_at,
-                    ),
-                    and_(
-                        Approval.expires_at == before_expires_at,
-                        Approval.created_at == before_created_at,
-                        Approval.id > before_id,
-                    ),
+        if status is None or status == "pending":
+            if isinstance(cursor, PendingApprovalCursor):
+                query = query.where(
+                    or_(
+                        Approval.expires_at > cursor.expires_at,
+                        and_(
+                            Approval.expires_at == cursor.expires_at,
+                            Approval.created_at > cursor.created_at,
+                        ),
+                        and_(
+                            Approval.expires_at == cursor.expires_at,
+                            Approval.created_at == cursor.created_at,
+                            Approval.id > cursor.approval_id,
+                        ),
+                    )
                 )
-            )
-        query = query.order_by(Approval.expires_at, Approval.created_at, Approval.id).limit(limit)
+            query = query.order_by(Approval.expires_at, Approval.created_at, Approval.id)
+        else:
+            # 已办按决议时间倒序；resolved_at 为空的行只可能是 pending，已在
+            # status 过滤时排除，这里再加一次是防脏数据混进来（ADR-0053）。
+            query = query.where(Approval.resolved_at.is_not(None))
+            if isinstance(cursor, ResolvedApprovalCursor):
+                query = query.where(
+                    or_(
+                        Approval.resolved_at < cursor.resolved_at,
+                        and_(
+                            Approval.resolved_at == cursor.resolved_at,
+                            Approval.id < cursor.approval_id,
+                        ),
+                    )
+                )
+            query = query.order_by(Approval.resolved_at.desc(), Approval.id.desc())
+        query = query.limit(limit)
         async with self._sessionmaker() as session:
             rows = (await session.scalars(query)).all()
         return [_record_from_row(row) for row in rows]

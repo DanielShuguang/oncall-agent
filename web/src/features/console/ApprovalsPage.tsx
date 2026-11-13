@@ -407,7 +407,7 @@ export default function ApprovalsPage() {
                     <TableHead>工具 / 参数</TableHead>
                     <TableHead>发起人</TableHead>
                     <TableHead>状态</TableHead>
-                    <TableHead>过期时间</TableHead>
+                    <TableHead>{status === 'pending' ? '过期时间' : '决议时间'}</TableHead>
                     <TableHead className="text-right">操作</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -454,7 +454,11 @@ export default function ApprovalsPage() {
                         </div>
                       </TableCell>
                       <TableCell className="align-top text-xs text-muted-foreground">
-                        {formatTime(item.expires_at)}
+                        {status === 'pending'
+                          ? formatTime(item.expires_at)
+                          : item.resolved_at
+                            ? formatTime(item.resolved_at)
+                            : '—'}
                       </TableCell>
                       <TableCell className="text-right align-top">
                         <div className="flex justify-end gap-1">

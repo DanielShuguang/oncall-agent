@@ -60,6 +60,15 @@ class Approval(Base):
             postgresql_where=text("status = 'pending'"),
         ),
         Index("idx_approvals_pending", "status", "expires_at"),
+        # 已办按决议时间倒序翻页（ADR-0053）；部分索引只收有决议的行，
+        # pending 不占空间，查询里的 `resolved_at IS NOT NULL` 可命中它。
+        Index(
+            "idx_approvals_resolved",
+            "status",
+            "resolved_at",
+            "id",
+            postgresql_where=text("resolved_at IS NOT NULL"),
+        ),
     )
 
 

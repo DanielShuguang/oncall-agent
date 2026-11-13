@@ -19,6 +19,7 @@ from app.approvals.store import ApprovalStore, OnResolved
 from app.approvals.types import (
     ApprovalForbidden,
     ApprovalGroupBy,
+    ApprovalListCursor,
     ApprovalNotFound,
     ApprovalNotReady,
     ApprovalRecord,
@@ -167,19 +168,16 @@ class ApprovalService:
         *,
         status: str = "pending",
         limit: int = 100,
-        before: tuple[datetime, datetime, str] | None = None,
+        cursor: ApprovalListCursor | None = None,
     ) -> list[ApprovalRecord]:
         await self.expire_due()
         approver = self._is_approver(identity)
         # 审批人看全部待办；普通员工只看自己发起的
         requested_by = None if approver else identity.user_id
-        before_expires_at, before_created_at, before_id = before or (None, None, None)
         return await self._approvals.list(
             status=status,
             requested_by=requested_by,
-            before_expires_at=before_expires_at,
-            before_created_at=before_created_at,
-            before_id=before_id,
+            cursor=cursor,
             limit=limit,
         )
 

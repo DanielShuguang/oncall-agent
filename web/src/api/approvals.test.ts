@@ -1,8 +1,26 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { resolveApproval } from './approvals';
+import { listApprovals, resolveApproval } from './approvals';
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+describe('listApprovals', () => {
+  it('拼 status/limit/cursor 查询参数，cursor 为空时不带', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    fetchMock.mockImplementation(
+      async () => new Response(JSON.stringify({ items: [], next_cursor: null }), { status: 200 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await listApprovals('pending', 'cur-1', 25);
+    await listApprovals('approved');
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      '/api/approvals?status=pending&limit=25&cursor=cur-1',
+    );
+    expect(fetchMock.mock.calls[1]?.[0]).toBe('/api/approvals?status=approved&limit=50');
+  });
 });
 
 describe('resolveApproval', () => {

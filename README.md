@@ -169,8 +169,8 @@ oncall/
 | 模块 | 状态 | 验证方式 |
 |---|---|---|
 | 文档（12 篇 + 52 篇 ADR + 评测基线） | ✅ 完成 | — |
-| 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡 / 运行回放 / 成本页） | ✅ 可用 | `tsc --noEmit`、`oxlint 0`、`oxfmt --check` 通过；`vitest` 73/73；`pnpm build` 成功 |
-| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **480 passed + 37 skipped**；设 `ONCALL_TEST_DATABASE_URL`（指向一个可清空的库）后 **514 passed + 3 skipped**，再加 `ONCALL_TEST_REDIS_URL` 为 **517 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约与审批快照、引用快照与内容回收、个人预算与账本快照、工单自助查询、工单详情、会话列表/标题搜索/分页/重命名/移除/恢复、资产查询接表、运行过程回放与载荷上限、批量会话详情、工具配置变更历史、历史引用回填、已移除会话分页与搜索、已移除会话批量恢复、审批积压与等待统计、审批统计分组、审批列表分页、计量一致性） |
+| 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡 / 运行回放 / 成本页） | ✅ 可用 | `tsc --noEmit`、`oxlint 0`、`oxfmt --check` 通过；`vitest` 74/74；`pnpm build` 成功 |
+| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **481 passed + 38 skipped**；设 `ONCALL_TEST_DATABASE_URL`（指向一个可清空的库）后 **516 passed + 3 skipped**，再加 `ONCALL_TEST_REDIS_URL` 为 **519 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约与审批快照、引用快照与内容回收、个人预算与账本快照、工单自助查询、工单详情、会话列表/标题搜索/分页/重命名/移除/恢复、资产查询接表、运行过程回放与载荷上限、批量会话详情、工具配置变更历史、历史引用回填、已移除会话分页与搜索、已移除会话批量恢复、审批积压与等待统计、审批统计分组、审批列表分页、计量一致性） |
 | 本地 JWT（W1 D2） | ✅ 已完成 | `tests/test_auth.py` 20 条：签发/验签、过期、alg=none、401 JSON、OpenAPI Bearer、run 归属隔离 |
 | 事件落库 + 断线续传（D4） | ✅ 已完成 | `alembic upgrade head` + `alembic check` 无漂移；`tests/test_store_contract.py`（内存 + Postgres 契约）、`tests/test_chat_stream.py`（落库、幂等回放、503 语义） |
 | 最小 Agent 运行时（W1 D5） | ✅ 已完成 | `tests/test_agent_runtime.py` 9 条：工具真实执行、检索引用、写操作挂起审批、工具失败降级、步数/时长上限 |

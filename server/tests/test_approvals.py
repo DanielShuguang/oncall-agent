@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -309,9 +310,66 @@ async def test_approval_list_paginates_with_cursor(
     assert [item["approval_id"] for item in second.json()["items"]] == ids[2:]
     assert second.json()["next_cursor"] is None
 
+    third = await client.get(
+        f"/api/approvals?status=pending&limit=1&cursor={cursor}", headers=APPROVER
+    )
+    assert third.status_code == 200
+    assert [item["approval_id"] for item in third.json()["items"]] == ["a3"]
+    third_cursor = third.json()["next_cursor"]
+    assert isinstance(third_cursor, str) and third_cursor
+
+    empty = await client.get(
+        f"/api/approvals?status=pending&limit=1&cursor={third_cursor}", headers=APPROVER
+    )
+    assert empty.status_code == 200
+    assert empty.json() == {"items": [], "next_cursor": None}
+
     bad = await client.get("/api/approvals?status=pending&cursor=not-a-cursor", headers=APPROVER)
     assert bad.status_code == 400
     assert bad.json()["code"] == "INVALID_CURSOR"
+
+    missing_field = (
+        base64.urlsafe_b64encode(b'{"e":"2026-01-01T00:00:00+00:00"}').decode().rstrip("=")
+    )
+    bad_payload = await client.get(
+        f"/api/approvals?status=pending&cursor={missing_field}", headers=APPROVER
+    )
+    assert bad_payload.status_code == 400
+    assert bad_payload.json()["code"] == "INVALID_CURSOR"
+
+
+async def test_approval_list_keyset_ties_break_by_id() -> None:
+    """同时间戳只靠 id 兜底；内存排序必须与 Postgres 的 keyset 全序一致。"""
+    store = InMemoryApprovalStore()
+    base = datetime.now(UTC) + timedelta(hours=1)
+    for approval_id in ("b3", "b1", "b2"):
+        await store.create(
+            ApprovalRecord(
+                id=approval_id,
+                run_id=f"run_{approval_id}",
+                call_id=f"call_{approval_id}",
+                tool_name="create_ticket",
+                args={"title": approval_id},
+                risk_level="medium",
+                status="pending",
+                requested_by="u_102",
+                expires_at=base,
+                created_at=base,
+                state={},
+            )
+        )
+
+    first = await store.list(status="pending", limit=2)
+    assert [record.id for record in first] == ["b1", "b2"]
+    last = first[-1]
+    second = await store.list(
+        status="pending",
+        limit=2,
+        before_expires_at=last.expires_at,
+        before_created_at=last.created_at,
+        before_id=last.id,
+    )
+    assert [record.id for record in second] == ["b3"]
 
 
 async def test_resolve_before_approval_required_is_rejected(

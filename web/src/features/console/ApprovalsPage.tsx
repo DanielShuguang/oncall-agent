@@ -110,6 +110,7 @@ export default function ApprovalsPage() {
     const load = async () => {
       setLoading(true);
       setCursor(null);
+      setLoadingMore(false);
       try {
         const data = await listApprovals(status);
         if (!cancelled && listRequest.current === requestId) {
@@ -128,15 +129,24 @@ export default function ApprovalsPage() {
     void load();
     return () => {
       cancelled = true;
+      // 卸载/切状态后，在途的 refresh/loadMore 也不得再改新列表。
+      listRequest.current += 1;
     };
   }, [status]);
 
   const refresh = async () => {
     const requestId = ++listRequest.current;
-    const data = await listApprovals(status);
-    if (listRequest.current !== requestId) return;
-    setItems(data.items);
-    setCursor(data.next_cursor);
+    // 刷新期间禁用「加载更多」，也避免它被旧游标带到新列表里。
+    setLoadingMore(true);
+    try {
+      const data = await listApprovals(status);
+      if (listRequest.current !== requestId) return;
+      setItems(data.items);
+      setCursor(data.next_cursor);
+      setError(null);
+    } finally {
+      if (listRequest.current === requestId) setLoadingMore(false);
+    }
   };
 
   const loadMore = async () => {
@@ -148,6 +158,7 @@ export default function ApprovalsPage() {
       if (listRequest.current !== requestId) return;
       setItems((current) => [...current, ...data.items]);
       setCursor(data.next_cursor);
+      setError(null);
     } catch (exc) {
       if (listRequest.current === requestId) {
         setError(exc instanceof Error ? exc.message : '加载更多审批失败');

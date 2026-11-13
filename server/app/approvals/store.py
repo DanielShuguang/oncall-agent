@@ -55,8 +55,8 @@ class ApprovalStore(Protocol):
     ) -> list[ApprovalRecord]:
         """按 `(expires_at, created_at, id)` keyset 翻页（ADR-0052）。
 
-        `before_*` 必须同时给；游标只配合同一个 `status` 使用，否则
-        pending 优先的排序与 keyset 元组不是同一个全序。
+        `before_*` 必须同时给；游标只配合同一个 `status` 使用，跨状态复用
+        会从错误的元组位置开始，结果不可解释。
         """
         ...
 
@@ -170,7 +170,7 @@ class InMemoryApprovalStore:
             if (status is None or record.status == status)
             and (requested_by is None or record.requested_by == requested_by)
         ]
-        items.sort(key=lambda r: (r.status != "pending", r.expires_at, r.created_at, r.id))
+        items.sort(key=lambda r: (r.expires_at, r.created_at, r.id))
         if (
             before_expires_at is not None
             and before_created_at is not None

@@ -462,3 +462,45 @@ async def test_pg_approval_list_paginates(pg_approvals: tuple[Any, ...]) -> None
         before_id=last.id,
     )
     assert [record.id for record in second] == ids[2:]
+
+
+async def test_pg_approval_list_keyset_ties_break_by_id(pg_approvals: tuple[Any, ...]) -> None:
+    """同一时间戳的审批按 approval_id 兜底，内存与 Postgres 全序一致。"""
+    runs, approvals, _service, _sessionmaker = pg_approvals
+    base = datetime(2026, 11, 14, 12, 0, tzinfo=UTC)
+    ids = sorted(str(uuid.uuid4()) for _ in range(3))
+    for index, approval_id in enumerate(reversed(ids)):
+        run_id = str(uuid.uuid4())
+        await runs.create(
+            run_id=run_id,
+            user_id="u_102",
+            session_id=f"sess_tie_{index}",
+            message="帮我开一张报修工单",
+        )
+        await approvals.create(
+            ApprovalRecord(
+                id=approval_id,
+                run_id=run_id,
+                call_id=f"call_tie_{index}",
+                tool_name="create_ticket",
+                args={"title": f"tie{index}"},
+                risk_level="medium",
+                status="pending",
+                requested_by="u_102",
+                expires_at=base,
+                created_at=base,
+                state={},
+            )
+        )
+
+    first = await approvals.list(status="pending", limit=2)
+    assert [record.id for record in first] == ids[:2]
+    last = first[-1]
+    rest = await approvals.list(
+        status="pending",
+        limit=2,
+        before_expires_at=last.expires_at,
+        before_created_at=last.created_at,
+        before_id=last.id,
+    )
+    assert [record.id for record in rest] == ids[2:]

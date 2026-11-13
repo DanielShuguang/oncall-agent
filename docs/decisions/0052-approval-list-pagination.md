@@ -34,8 +34,8 @@ CREATE INDEX idx_approvals_pending ON approvals (status, expires_at);
    不静默从头开始。
 3. `next_cursor` 只在当前页取满时返回；下一页为空时返回 `items: []` 且
    `next_cursor: null`。`limit` 仍为 1–200、默认 50。
-4. 游标只配合同一个 `status` 使用：列表内部还有「pending 优先」的排序，
-   跨状态复用游标不可解释。UI 切状态/刷新时重置游标。
+4. 游标只配合同一个 `status` 使用：列表按 `status` 过滤，跨状态复用游标
+   会从错误的元组位置开始，结果不可解释。UI 切状态/刷新时重置游标。
 5. 无迁移、无新索引。`(status, expires_at)` 已能支撑待办第一页；已办状态
    在数据量变大后可能扫描更多行，属可接受代价，后续再评估 `resolved_at` 索引。
 6. 前端「加载更多」追加当前页并更新游标；状态切换、决议后刷新、卸载都会
@@ -55,10 +55,10 @@ CREATE INDEX idx_approvals_pending ON approvals (status, expires_at);
 
 ## 5. 验证
 
-- 默认 `pytest` **480 passed + 37 skipped**；真实 Postgres **514 passed + 3
-  skipped**；Postgres + Redis **517 passed**。
+- 默认 `pytest` **481 passed + 38 skipped**；真实 Postgres **516 passed + 3
+  skipped**；Postgres + Redis **519 passed**。
 - `ruff check` 通过、`ruff format --check` 187 files、`mypy app` 110 files。
-- 前端 `tsc`、**73 tests / 15 files**、`oxlint` 0/0（66 files、231 rules）、
+- 前端 `tsc`、**74 tests / 15 files**、`oxlint` 0/0（66 files、231 rules）、
   `oxfmt --check` 74 files、`pnpm build` 通过。
 - 覆盖：内存/Postgres keyset 翻页（含同时间戳按 id 兜底）、API 游标往返、
   非法游标 400、空页。无迁移。

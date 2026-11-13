@@ -1216,11 +1216,11 @@ Postgres + Redis **515 passed**。`ruff check` / `ruff format --check`（187 fil
 | 分页 | `limit` 1–200 默认 50；取满才给 `next_cursor`，下一页为空返回 `items: []` + null |
 | 语义 | 游标只配合同一个 `status`；翻页期间决议可能重复/跳过，刷新即回第一页 |
 | 存储 | 无迁移；待办复用 `(status, expires_at)` 索引；已办大数据量扫描列为待定 |
-| 前端 | 审批表底部「加载更多」追加；切状态/决议刷新/卸载递增 token，旧页不覆盖 |
+| 前端 | 审批表底部「加载更多」追加；切状态/决议刷新/卸载递增 token，旧页不覆盖；刷新期间禁用加载更多 |
 
-验证：默认 **480 passed + 37 skipped**；真实 Postgres **514 passed + 3 skipped**；
-Postgres + Redis **517 passed**；`ruff check` / `ruff format --check`（187 files）/
-`mypy app`（110 files）通过；前端 **73 tests / 15 files**、`oxlint` 0/0（66 files）、
+验证：默认 **481 passed + 38 skipped**；真实 Postgres **516 passed + 3 skipped**；
+Postgres + Redis **519 passed**；`ruff check` / `ruff format --check`（187 files）/
+`mypy app`（110 files）通过；前端 **74 tests / 15 files**、`oxlint` 0/0（66 files）、
 `oxfmt --check` 74 files、`pnpm build` 通过。无迁移。
 
 已知边界：没有总数/跳页；已办仍按 `expires_at` 排序，不做 `resolved_at` 过滤；

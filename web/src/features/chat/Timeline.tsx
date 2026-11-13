@@ -2,11 +2,16 @@
  *
  * 只读展示工具调用与审批，不回放 message.delta、步骤事件和审批人身份。
  * 事件过了保留期时由 `available=false` 明确说明「不可用」，不能装作没有调用。
+ * 筛选与耗时聚合在客户端完成，不改变详情接口（ADR-0045）。
  */
+
+import { useMemo, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import type { ApprovalTimelineItem, TimelineItem, ToolTimelineItem } from './types';
 import { asTruncatedPreview } from './timelinePayload';
+import { filterTimeline, formatDuration, summarizeTimeline } from './timelineView';
+import type { TimelineKindFilter } from './timelineView';
 
 const STATUS_LABEL: Record<string, string> = {
   running: '执行中',
@@ -82,31 +87,78 @@ interface Props {
   truncated: boolean;
 }
 
+const KIND_FILTERS: { value: TimelineKindFilter; label: string }[] = [
+  { value: 'all', label: '全部' },
+  { value: 'tool', label: '工具' },
+  { value: 'approval', label: '审批' },
+  { value: 'problem', label: '异常' },
+];
+
 export function Timeline({ items, available, truncated }: Props) {
+  const summary = useMemo(() => summarizeTimeline(items), [items]);
+  const [kind, setKind] = useState<TimelineKindFilter>('all');
+  const [toolQuery, setToolQuery] = useState('');
+  const visible = useMemo(
+    () => filterTimeline(items, { kind, tool: toolQuery }),
+    [items, kind, toolQuery],
+  );
+
   if (!available) {
     return <p className="mt-2 text-xs text-muted-foreground">运行过程记录已过保留期，无法回看。</p>;
   }
   if (items.length === 0) return null;
 
-  const toolCount = items.filter((item) => item.kind === 'tool').length;
-  const approvalCount = items.length - toolCount;
-
   return (
     <details className="mt-2 rounded-lg border bg-panel/40 px-3 py-2 text-xs">
       <summary className="cursor-pointer text-muted-foreground">
-        运行过程（{toolCount} 个工具调用
-        {approvalCount > 0 ? `，${approvalCount} 次审批` : ''}）
+        运行过程（{summary.toolCount} 个工具调用
+        {summary.approvalCount > 0 ? `，${summary.approvalCount} 次审批` : ''}）
+        {summary.totalDurationMs > 0 && ` · 工具耗时 ${formatDuration(summary.totalDurationMs)}`}
       </summary>
-      <div className="mt-2 space-y-2">
-        {items.map((item) => {
-          const key = `${item.kind}_${item.seq}`;
-          return item.kind === 'tool' ? (
-            <ToolRow key={key} item={item} />
-          ) : (
-            <ApprovalRow key={key} item={item} />
-          );
-        })}
+      <div className="mt-2 flex flex-wrap items-center gap-1">
+        {KIND_FILTERS.map((filter) => (
+          <button
+            key={filter.value}
+            type="button"
+            aria-pressed={kind === filter.value}
+            onClick={() => setKind(filter.value)}
+            className={`rounded-md border px-2 py-1 text-[11px] ${
+              kind === filter.value ? 'bg-panel text-foreground' : 'text-muted-foreground'
+            }`}
+          >
+            {filter.label}
+            {filter.value === 'problem' && summary.problemCount > 0
+              ? ` ${summary.problemCount}`
+              : ''}
+          </button>
+        ))}
+        <input
+          value={toolQuery}
+          onChange={(event) => setToolQuery(event.target.value)}
+          placeholder="按工具名筛选"
+          aria-label="按工具名筛选运行过程"
+          className="ml-auto w-32 rounded-md border bg-background px-2 py-1 text-[11px]"
+        />
       </div>
+      {summary.slowest !== null && (
+        <p className="mt-1 text-[11px] text-muted-foreground">
+          最慢：{summary.slowest.tool}（{formatDuration(summary.slowest.durationMs)}）
+        </p>
+      )}
+      {visible.length === 0 ? (
+        <p className="mt-2 text-muted-foreground">没有匹配的运行过程。</p>
+      ) : (
+        <div className="mt-2 space-y-2">
+          {visible.map((item) => {
+            const key = `${item.kind}_${item.seq}`;
+            return item.kind === 'tool' ? (
+              <ToolRow key={key} item={item} />
+            ) : (
+              <ApprovalRow key={key} item={item} />
+            );
+          })}
+        </div>
+      )}
       {truncated && (
         <p className="mt-2 text-muted-foreground">
           事件较长，只显示最早的 20 项，后续工具调用未展开。

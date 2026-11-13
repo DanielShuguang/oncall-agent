@@ -1019,6 +1019,32 @@ Postgres + Redis **504 passed**。`ruff check` / `ruff format --check`（186 fil
 
 ---
 
+## W6 后补：运行过程筛选与耗时聚合（ADR-0045）
+
+ADR-0035 的运行过程最多 20 项，工具与审批按事件顺序混排；能看完，但看不出「这轮为什么慢、
+哪一步失败」。ADR-0035 的待定里记着「搜索/筛选（按工具名、状态）与耗时聚合」，本轮用纯前端
+计算兑现：数据已经在批量详情里，不需要新接口，也不需要迁移。
+
+| 事项 | 落地 |
+|---|---|
+| 位置 | `web/src/features/chat/timelineView.ts` 三个纯函数：汇总、筛选、时长格式化；`Timeline.tsx` 只做状态与渲染 |
+| 筛选 | 类型「全部 / 工具 / 审批 / 异常」+ 工具名子串（大小写不敏感），两条件同时生效；不做多选与持久化 |
+| 异常口径 | 工具 `error`/`timeout`/`denied`，审批 `rejected`/`expired`；`pending`/`running`/`requires_approval` 不算；`truncated` 不算 |
+| 汇总 | 工具数、审批数、工具耗时之和、最慢工具（名称 + 毫秒）、异常数；只累加带 `duration_ms` 的工具结果，审批等待不计 |
+| 展示 | 汇总进 `<summary>` 行（收起也可见「工具耗时 1.2s」）；展开后显示筛选条与「最慢」提示；无匹配时给出明确空态 |
+| 不变 | 不改 `/runs/{id}`、批量详情与时间线投影；时间线仍最多 20 项；关闭折叠/切换会话即重置筛选 |
+
+验证：后端代码未改，默认 **469 passed + 35 skipped**、Postgres **501 passed + 3 skipped**、
+Postgres + Redis **504 passed** 沿用上一轮；前端 `tsc` 通过、**72 tests / 15 files**、
+`oxlint` 0/0（66 files、231 rules）、`oxfmt --check` 74 files、`pnpm build` 5.43s。
+新增 `timelineView.test.ts` 5 条覆盖汇总/筛选/格式边界；未改检索、提示词与多轮历史。
+
+已知边界：筛选只作用于当前回答的 20 项，不能跨 run 统计；「异常」是展示口径，不是新状态机；
+耗时是工具执行时间之和，不是端到端延迟；审批等待时长没有进入时间线；筛选状态不持久化。
+详见 [ADR-0045](decisions/0045-timeline-filter-summary.md)。
+
+---
+
 ## 每周固定动作
 
 | 时点 | 动作 |

@@ -21,6 +21,8 @@ export interface ApprovalOut {
 
 export interface ApprovalListResponse {
   items: ApprovalOut[];
+  /** 当前页取满时返回的 keyset 游标；没有更多为 null（ADR-0052） */
+  next_cursor: string | null;
 }
 
 export interface ApprovalDayStats {
@@ -59,8 +61,14 @@ export interface ApprovalResolveResponse {
 export type ApprovalDecision = 'approved' | 'rejected';
 export type ApprovalScope = 'once' | 'session';
 
-export function listApprovals(status = 'pending'): Promise<ApprovalListResponse> {
-  return getJson<ApprovalListResponse>(`/approvals?status=${encodeURIComponent(status)}`);
+export function listApprovals(
+  status = 'pending',
+  cursor: string | null = null,
+  limit = 50,
+): Promise<ApprovalListResponse> {
+  const params = new URLSearchParams({ status, limit: String(limit) });
+  if (cursor) params.set('cursor', cursor);
+  return getJson<ApprovalListResponse>(`/approvals?${params.toString()}`);
 }
 
 export function getApprovalStats(

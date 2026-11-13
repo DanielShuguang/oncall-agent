@@ -1203,6 +1203,32 @@ Postgres + Redis **515 passed**。`ruff check` / `ruff format --check`（187 fil
 
 ---
 
+## W6 后补：审批列表游标分页（ADR-0052）
+
+审批中心此前只能看 `GET /approvals` 的第一页（`limit` 最大 200），积压超过
+200 条时更早的审批在 UI 上到不了。统计、分组、趋势都做了，但逐条处理仍被
+「第一页」卡住。
+
+| 事项 | 落地 |
+|---|---|
+| 排序 | `(expires_at, created_at, approval_id)` 升序；id 只做同时间戳 tiebreaker，内存/PG 一致 |
+| 游标 | base64url JSON `{e,c,i}`，最长 512 字符；非法/缺字段 400 `INVALID_CURSOR`；不签名 |
+| 分页 | `limit` 1–200 默认 50；取满才给 `next_cursor`，下一页为空返回 `items: []` + null |
+| 语义 | 游标只配合同一个 `status`；翻页期间决议可能重复/跳过，刷新即回第一页 |
+| 存储 | 无迁移；待办复用 `(status, expires_at)` 索引；已办大数据量扫描列为待定 |
+| 前端 | 审批表底部「加载更多」追加；切状态/决议刷新/卸载递增 token，旧页不覆盖 |
+
+验证：默认 **480 passed + 37 skipped**；真实 Postgres **514 passed + 3 skipped**；
+Postgres + Redis **517 passed**；`ruff check` / `ruff format --check`（187 files）/
+`mypy app`（110 files）通过；前端 **73 tests / 15 files**、`oxlint` 0/0（66 files）、
+`oxfmt --check` 74 files、`pnpm build` 通过。无迁移。
+
+已知边界：没有总数/跳页；已办仍按 `expires_at` 排序，不做 `resolved_at` 过滤；
+游标不签名不过期；翻页期间状态变化会重复/跳过。详见
+[ADR-0052](decisions/0052-approval-list-pagination.md)。
+
+---
+
 ## 每周固定动作
 
 | 时点 | 动作 |

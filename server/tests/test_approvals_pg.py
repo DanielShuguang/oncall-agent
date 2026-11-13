@@ -23,6 +23,7 @@ from sqlalchemy.pool import NullPool
 
 from app.approvals.service import ApprovalService
 from app.approvals.store import PostgresApprovalStore
+from app.approvals.types import ApprovalRecord
 from app.core.store import PostgresRunStore
 from app.core.store import append_event_in_session as real_append_event_in_session
 from app.models import Approval, ApprovalGrant, Base
@@ -418,3 +419,46 @@ async def test_pg_stats_counts_pending_and_decided(
     clamped_groups = await approvals.stats(since=now - timedelta(days=7), now=now, group_by="tool")
     assert clamped_groups.groups[0].avg_wait_ms == 0
     assert clamped_groups.groups[0].max_wait_ms == 0
+
+
+async def test_pg_approval_list_paginates(pg_approvals: tuple[Any, ...]) -> None:
+    runs, approvals, _service, _sessionmaker = pg_approvals
+    base = datetime(2026, 11, 13, 12, 0, tzinfo=UTC)
+    ids: list[str] = []
+    for index in range(3):
+        run_id = str(uuid.uuid4())
+        await runs.create(
+            run_id=run_id,
+            user_id="u_102",
+            session_id=f"sess_page_{index}",
+            message="帮我开一张报修工单",
+        )
+        approval_id = str(uuid.uuid4())
+        await approvals.create(
+            ApprovalRecord(
+                id=approval_id,
+                run_id=run_id,
+                call_id=f"call_{index}",
+                tool_name="create_ticket",
+                args={"title": f"t{index}"},
+                risk_level="medium",
+                status="pending",
+                requested_by="u_102",
+                expires_at=base + timedelta(minutes=index),
+                created_at=base + timedelta(seconds=index),
+                state={},
+            )
+        )
+        ids.append(approval_id)
+
+    first = await approvals.list(status="pending", limit=2)
+    assert [record.id for record in first] == ids[:2]
+    last = first[-1]
+    second = await approvals.list(
+        status="pending",
+        limit=2,
+        before_expires_at=last.expires_at,
+        before_created_at=last.created_at,
+        before_id=last.id,
+    )
+    assert [record.id for record in second] == ids[2:]

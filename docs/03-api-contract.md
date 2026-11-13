@@ -42,7 +42,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | GET | `/runs/{run_id}/events?after_seq=` | 补拉事件（断线续传，兼容 `Last-Event-ID`） | W1 D4 |
 | GET | `/runs/{run_id}/stream` | 重连增量流（可选，v1 用轮询替代） | — |
 | POST | `/approvals/{id}/resolve` | 审批通过/拒绝 | W3 D14 |
-| GET | `/approvals?status=pending&limit=50` | 待办审批列表（含已办筛选） | W3 D14 / W5 D23 |
+| GET | `/approvals?status=pending&limit=50&cursor=` | 待办/已办审批列表（keyset 游标分页） | W3 D14 / W5 D23 / W6 后补 |
 | GET | `/approvals/stats?days=7&group_by=` | 审批积压、窗口内等待与按工具/审批人分组（仅审批人） | W6 后补 |
 | POST | `/admin/kb/documents` | 上传知识文档（multipart，≤10MB） | W2 D7 |
 | GET | `/admin/kb/documents` | 知识库文档列表 + chunk 总数 | W2 D7 |
@@ -555,7 +555,7 @@ Content-Type: application/json
 ## 4. 审批
 
 ```http
-GET /api/approvals?status=pending
+GET /api/approvals?status=pending&limit=50
 Authorization: Bearer <approver token>
 ```
 
@@ -578,13 +578,19 @@ Authorization: Bearer <approver token>
       "created_at": "2026-11-09T04:10:00Z",
       "resolved_at": null
     }
-  ]
+  ],
+  "next_cursor": "eyJlIjoiMjAyNi0xMS0wOVQwNDoyMDowMCswMDowMCIsImMiOi..."
 }
 ```
 
 - 审批人角色（`ONCALL_APPROVER_ROLES`，默认 `approver`）看全部待办；普通员工只看自己发起的
 - `status` 只接受 `pending|approved|rejected|expired`；打开列表时会把超时待办置 `expired`
-- `limit` 默认 50、范围 1–200；`expires_at` 升序，同时间按 `created_at` 升序
+- `limit` 默认 50、范围 1–200；按 `(expires_at, created_at, approval_id)` 升序
+- `cursor` 是 keyset 游标（base64url JSON，最长 512 字符）；当前页取满才返回
+  `next_cursor`，下一页为空时返回 `items: []` 且游标为 null；非法游标返回
+  `400 {"code":"INVALID_CURSOR"}`
+- 游标只配合同一个 `status` 使用；翻页期间审批被决议可能让后续页重复/跳过，
+  刷新即回第一页。游标不签名，服务端仍按当前身份过滤（ADR-0052）
 
 ```http
 GET /api/approvals/stats?days=7&group_by=tool

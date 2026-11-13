@@ -16,7 +16,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.approvals.service import ApprovalService
 from app.approvals.store import InMemoryApprovalStore
-from app.approvals.types import ApprovalNotReady
+from app.approvals.types import ApprovalNotReady, ApprovalRecord
 from app.core.store import InMemoryRunStore
 from app.schemas.event import EventType
 from app.tools.registry import Identity
@@ -271,6 +271,47 @@ async def test_approval_list_visibility(client: AsyncClient) -> None:
     other = auth_headers("u_555", ("employee",))
     other_res = await client.get("/api/approvals?status=pending", headers=other)
     assert other_res.json()["items"] == []
+
+
+async def test_approval_list_paginates_with_cursor(
+    client: AsyncClient, mem_approvals: InMemoryApprovalStore
+) -> None:
+    base = datetime.now(UTC) + timedelta(hours=1)
+    ids = ["a1", "a2", "a3"]
+    for index, approval_id in enumerate(ids):
+        await mem_approvals.create(
+            ApprovalRecord(
+                id=approval_id,
+                run_id=f"run_{index}",
+                call_id=f"call_{index}",
+                tool_name="create_ticket",
+                args={"title": f"t{index}"},
+                risk_level="medium",
+                status="pending",
+                requested_by="u_102",
+                expires_at=base + timedelta(minutes=index),
+                created_at=base + timedelta(seconds=index),
+                state={},
+            )
+        )
+
+    first = await client.get("/api/approvals?status=pending&limit=2", headers=APPROVER)
+    assert first.status_code == 200
+    first_body = first.json()
+    assert [item["approval_id"] for item in first_body["items"]] == ids[:2]
+    cursor = first_body["next_cursor"]
+    assert isinstance(cursor, str) and cursor
+
+    second = await client.get(
+        f"/api/approvals?status=pending&limit=2&cursor={cursor}", headers=APPROVER
+    )
+    assert second.status_code == 200
+    assert [item["approval_id"] for item in second.json()["items"]] == ids[2:]
+    assert second.json()["next_cursor"] is None
+
+    bad = await client.get("/api/approvals?status=pending&cursor=not-a-cursor", headers=APPROVER)
+    assert bad.status_code == 400
+    assert bad.json()["code"] == "INVALID_CURSOR"
 
 
 async def test_resolve_before_approval_required_is_rejected(

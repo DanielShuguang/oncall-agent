@@ -168,9 +168,9 @@ oncall/
 
 | 模块 | 状态 | 验证方式 |
 |---|---|---|
-| 文档（12 篇 + 51 篇 ADR + 评测基线） | ✅ 完成 | — |
+| 文档（12 篇 + 52 篇 ADR + 评测基线） | ✅ 完成 | — |
 | 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡 / 运行回放 / 成本页） | ✅ 可用 | `tsc --noEmit`、`oxlint 0`、`oxfmt --check` 通过；`vitest` 73/73；`pnpm build` 成功 |
-| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **479 passed + 36 skipped**；设 `ONCALL_TEST_DATABASE_URL`（指向一个可清空的库）后 **512 passed + 3 skipped**，再加 `ONCALL_TEST_REDIS_URL` 为 **515 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约与审批快照、引用快照与内容回收、个人预算与账本快照、工单自助查询、工单详情、会话列表/标题搜索/分页/重命名/移除/恢复、资产查询接表、运行过程回放与载荷上限、批量会话详情、工具配置变更历史、历史引用回填、已移除会话分页与搜索、已移除会话批量恢复、审批积压与等待统计、审批统计分组、计量一致性） |
+| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **480 passed + 37 skipped**；设 `ONCALL_TEST_DATABASE_URL`（指向一个可清空的库）后 **514 passed + 3 skipped**，再加 `ONCALL_TEST_REDIS_URL` 为 **517 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约与审批快照、引用快照与内容回收、个人预算与账本快照、工单自助查询、工单详情、会话列表/标题搜索/分页/重命名/移除/恢复、资产查询接表、运行过程回放与载荷上限、批量会话详情、工具配置变更历史、历史引用回填、已移除会话分页与搜索、已移除会话批量恢复、审批积压与等待统计、审批统计分组、审批列表分页、计量一致性） |
 | 本地 JWT（W1 D2） | ✅ 已完成 | `tests/test_auth.py` 20 条：签发/验签、过期、alg=none、401 JSON、OpenAPI Bearer、run 归属隔离 |
 | 事件落库 + 断线续传（D4） | ✅ 已完成 | `alembic upgrade head` + `alembic check` 无漂移；`tests/test_store_contract.py`（内存 + Postgres 契约）、`tests/test_chat_stream.py`（落库、幂等回放、503 语义） |
 | 最小 Agent 运行时（W1 D5） | ✅ 已完成 | `tests/test_agent_runtime.py` 9 条：工具真实执行、检索引用、写操作挂起审批、工具失败降级、步数/时长上限 |
@@ -193,6 +193,7 @@ oncall/
 | 预算可观测性（W6 后补） | ✅ 已完成 | 全局与个人账本加只读快照；预扣时间戳写进同一个 reservations hash（旧副本无 ts → 年龄未知、不报 stale），用户用当日集合枚举；`GET /admin/budgets/usage` 返回已用、未结算笔数/金额与 300 秒判据下的卡住笔数，账本故障 503 不降级；成本页合并配置与账本（未知花费显示「—」）；`tests/test_budget_usage.py`；[ADR-0028](docs/decisions/0028-budget-observability.md) |
 | 工单自助查询与详情（W6 后补） | ✅ 已完成 | `query_tickets` 注册为只读工具（2000ms、身份注入、只查 `requester=当前用户`，创建时间倒序取最近 N 条）；「我的工单/工单进度/修好了吗」等状态问法保持 `knowledge`（不再被「报修」误判成写操作），规则计划选中该工具，`finalize` 以工单表作答、不拼知识库引用；按 [ADR-0038](docs/decisions/0038-ticket-detail.md) 支持可选 `ticket_id`：按 `requester` 过滤的单条详情（描述/处理人/解决时间），查不到返回 null、不泄露存在性；`tests/test_tickets.py`、`test_tools_guard.py`、`test_agent_graph.py`；[ADR-0029](docs/decisions/0029-ticket-self-service-query.md) |
 | 审批积压与等待统计（W6 后补） | ✅ 已完成 | `GET /approvals/stats?days=7`（1–90，仅审批人）：待审数/最久已等 + 窗口内 `approved`/`rejected` 的已决议数、平均/最长等待；统计前先 `expire_due()`，过期不计入人工等待，负数归零；内存一次遍历、Postgres 两条聚合，不拉全表；审批中心顶部四张卡与 7/30/90 天窗口，响应另带 UTC 日稀疏 `daily`（ADR-0050）供按日趋势卡；可选 `group_by=tool|approver` 分组（前 20 组，[ADR-0051](docs/decisions/0051-approval-stats-groups.md)）；决议后刷新；无迁移、不返回逐条审批人；`tests/test_approval_stats.py`、`test_approvals_pg.py`；[ADR-0048](docs/decisions/0048-approval-stats.md) |
+| 审批列表游标分页（W6 后补） | ✅ 已完成 | `GET /approvals` 增加 `cursor`：按 `(expires_at, created_at, approval_id)` keyset 升序，`limit` 仍 1–200 默认 50；取满才给 `next_cursor`，非法游标 400 `INVALID_CURSOR`；游标只配合同一 `status`，翻页期间决议可能重复/跳过、刷新即回第一页；前端审批表底部「加载更多」，切状态/刷新带请求 token；无迁移、无新索引；`tests/test_approvals.py`、`test_approvals_pg.py`；[ADR-0052](docs/decisions/0052-approval-list-pagination.md) |
 | 会话列表与历史会话继续（W6 后补） | ✅ 已完成 | 不建表，按 `runs.session_id` 投影（复用 `idx_runs_user_session_time`，无迁移）；`GET /sessions` 只读本人、标题取最早非空 `input`；左侧会话栏点开最近 20 条 run，拼只读 transcript（正文过期/引用回收/未结束/失败各有占位），继续对话沿用同一 `session_id`；`tests/test_sessions_api.py`、`test_store_contract.py`（`_exercise_sessions`）、`web/src/features/chat/history.test.ts`；[ADR-0030](docs/decisions/0030-session-list.md) |
 | 会话列表与历史轮次分页（W6 后补） | ✅ 已完成 | `/sessions` 用 `(updated_at, session_id)` keyset 游标（base64url JSON，非法 400 `INVALID_CURSOR`）；会话内用 `/runs` 已有游标翻更早轮次（`prependHistory`）；翻页期间新 run 可能造成重复/跳过，刷新即重置；无新表/索引/迁移；[ADR-0033](docs/decisions/0033-session-history-pagination.md) |
 | 会话列表按标题搜索（W6 后补） | ✅ 已完成 | `GET /sessions?q=`（1–100 字符，本人，大小写不敏感子串）只匹配投影标题（最早非空 `input`），不搜正文/工具结果/审批理由；与 keyset 分页共用游标；Postgres 用 `row_number()` 子查询 + `strpos(lower(...))`（`%`/`_` 按字面量，不是通配符）；无新表/索引/迁移；`tests/test_sessions_api.py`、`test_store_contract.py`；[ADR-0039](docs/decisions/0039-session-search.md) |

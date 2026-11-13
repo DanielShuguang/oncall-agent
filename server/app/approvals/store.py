@@ -13,7 +13,7 @@ from dataclasses import replace
 from datetime import date, datetime
 from typing import TYPE_CHECKING, Any, Protocol
 
-from sqlalchemy import delete, func, select, text, tuple_, update
+from sqlalchemy import and_, delete, func, or_, select, text, tuple_, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.approvals.types import (
@@ -48,8 +48,17 @@ class ApprovalStore(Protocol):
         *,
         status: str | None = None,
         requested_by: str | None = None,
+        before_expires_at: datetime | None = None,
+        before_created_at: datetime | None = None,
+        before_id: str | None = None,
         limit: int = 100,
-    ) -> list[ApprovalRecord]: ...
+    ) -> list[ApprovalRecord]:
+        """按 `(expires_at, created_at, id)` keyset 翻页（ADR-0052）。
+
+        `before_*` 必须同时给；游标只配合同一个 `status` 使用，否则
+        pending 优先的排序与 keyset 元组不是同一个全序。
+        """
+        ...
 
     async def stats(
         self,
@@ -150,6 +159,9 @@ class InMemoryApprovalStore:
         *,
         status: str | None = None,
         requested_by: str | None = None,
+        before_expires_at: datetime | None = None,
+        before_created_at: datetime | None = None,
+        before_id: str | None = None,
         limit: int = 100,
     ) -> list[ApprovalRecord]:
         items = [
@@ -158,7 +170,18 @@ class InMemoryApprovalStore:
             if (status is None or record.status == status)
             and (requested_by is None or record.requested_by == requested_by)
         ]
-        items.sort(key=lambda r: (r.status != "pending", r.expires_at, r.created_at))
+        items.sort(key=lambda r: (r.status != "pending", r.expires_at, r.created_at, r.id))
+        if (
+            before_expires_at is not None
+            and before_created_at is not None
+            and before_id is not None
+        ):
+            cursor = (before_expires_at, before_created_at, before_id)
+            items = [
+                record
+                for record in items
+                if (record.expires_at, record.created_at, record.id) > cursor
+            ]
         return items[:limit]
 
     async def stats(
@@ -376,6 +399,9 @@ class PostgresApprovalStore:
         *,
         status: str | None = None,
         requested_by: str | None = None,
+        before_expires_at: datetime | None = None,
+        before_created_at: datetime | None = None,
+        before_id: str | None = None,
         limit: int = 100,
     ) -> list[ApprovalRecord]:
         query = select(Approval)
@@ -383,7 +409,26 @@ class PostgresApprovalStore:
             query = query.where(Approval.status == status)
         if requested_by is not None:
             query = query.where(Approval.requested_by == requested_by)
-        query = query.order_by(Approval.expires_at, Approval.created_at).limit(limit)
+        if (
+            before_expires_at is not None
+            and before_created_at is not None
+            and before_id is not None
+        ):
+            query = query.where(
+                or_(
+                    Approval.expires_at > before_expires_at,
+                    and_(
+                        Approval.expires_at == before_expires_at,
+                        Approval.created_at > before_created_at,
+                    ),
+                    and_(
+                        Approval.expires_at == before_expires_at,
+                        Approval.created_at == before_created_at,
+                        Approval.id > before_id,
+                    ),
+                )
+            )
+        query = query.order_by(Approval.expires_at, Approval.created_at, Approval.id).limit(limit)
         async with self._sessionmaker() as session:
             rows = (await session.scalars(query)).all()
         return [_record_from_row(row) for row in rows]

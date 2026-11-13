@@ -33,6 +33,8 @@ class ApprovalOut(BaseModel):
 
 class ApprovalListResponse(BaseModel):
     items: list[ApprovalOut]
+    #: 当前页取满时返回的 keyset 游标；没有更多为 None（ADR-0052）
+    next_cursor: str | None = None
 
 
 class ApprovalDayStatsOut(BaseModel):

@@ -69,7 +69,9 @@ interface ResolveState {
 export default function ApprovalsPage() {
   const [status, setStatus] = useState('pending');
   const [items, setItems] = useState<ApprovalOut[]>([]);
+  const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [resolver, setResolver] = useState<ResolveState | null>(null);
@@ -79,6 +81,8 @@ export default function ApprovalsPage() {
   const [statsGroupView, setStatsGroupView] = useState<StatsGroup>('none');
   // 初始加载与决议后刷新可能并发，旧响应不能覆盖新统计（同会话列表的做法）。
   const statsRequest = useRef(0);
+  // 列表分页也有竞态：切状态/刷新后在途的「加载更多」不能把旧页追加回来。
+  const listRequest = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -102,18 +106,23 @@ export default function ApprovalsPage() {
 
   useEffect(() => {
     let cancelled = false;
+    const requestId = ++listRequest.current;
     const load = async () => {
       setLoading(true);
+      setCursor(null);
       try {
         const data = await listApprovals(status);
-        if (!cancelled) {
+        if (!cancelled && listRequest.current === requestId) {
           setItems(data.items);
+          setCursor(data.next_cursor);
           setError(null);
         }
       } catch (exc) {
-        if (!cancelled) setError(exc instanceof Error ? exc.message : '审批列表加载失败');
+        if (!cancelled && listRequest.current === requestId) {
+          setError(exc instanceof Error ? exc.message : '审批列表加载失败');
+        }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && listRequest.current === requestId) setLoading(false);
       }
     };
     void load();
@@ -123,8 +132,29 @@ export default function ApprovalsPage() {
   }, [status]);
 
   const refresh = async () => {
+    const requestId = ++listRequest.current;
     const data = await listApprovals(status);
+    if (listRequest.current !== requestId) return;
     setItems(data.items);
+    setCursor(data.next_cursor);
+  };
+
+  const loadMore = async () => {
+    if (!cursor || loadingMore) return;
+    const requestId = listRequest.current;
+    setLoadingMore(true);
+    try {
+      const data = await listApprovals(status, cursor);
+      if (listRequest.current !== requestId) return;
+      setItems((current) => [...current, ...data.items]);
+      setCursor(data.next_cursor);
+    } catch (exc) {
+      if (listRequest.current === requestId) {
+        setError(exc instanceof Error ? exc.message : '加载更多审批失败');
+      }
+    } finally {
+      if (listRequest.current === requestId) setLoadingMore(false);
+    }
   };
 
   const openResolve = (approval: ApprovalOut, decision: ApprovalDecision) => {
@@ -442,6 +472,19 @@ export default function ApprovalsPage() {
                   ))}
                 </TableBody>
               </Table>
+            </div>
+          )}
+          {!loading && cursor && (
+            <div className="border-t p-3 text-center">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs"
+                disabled={loadingMore}
+                onClick={() => void loadMore()}
+              >
+                {loadingMore ? '加载中…' : '加载更多'}
+              </Button>
             </div>
           )}
         </CardContent>

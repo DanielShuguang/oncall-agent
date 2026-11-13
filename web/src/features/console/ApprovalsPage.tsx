@@ -29,13 +29,15 @@ import {
 } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
 import {
+  getApprovalStats,
   listApprovals,
   resolveApproval,
   type ApprovalDecision,
   type ApprovalOut,
   type ApprovalScope,
+  type ApprovalStats,
 } from '@/api/approvals';
-import { formatTime } from '@/lib/format';
+import { formatDurationMs, formatTime } from '@/lib/format';
 
 const STATUS_OPTIONS = [
   { value: 'pending', label: '待办' },
@@ -67,6 +69,22 @@ export default function ApprovalsPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [resolver, setResolver] = useState<ResolveState | null>(null);
+  const [stats, setStats] = useState<ApprovalStats | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getApprovalStats(7)
+      .then((data) => {
+        if (!cancelled) setStats(data);
+        return data;
+      })
+      .catch(() => {
+        if (!cancelled) setStats(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -118,6 +136,9 @@ export default function ApprovalsPage() {
       } catch (exc) {
         setError(exc instanceof Error ? exc.message : '决议已提交，但列表刷新失败');
       }
+      void getApprovalStats(7)
+        .then(setStats)
+        .catch(() => setStats(null));
     } catch (exc) {
       setResolver((current) =>
         current
@@ -157,6 +178,47 @@ export default function ApprovalsPage() {
           </SelectContent>
         </Select>
       </div>
+
+      {stats && (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <Card className="py-0">
+            <CardContent className="p-3">
+              <div className="text-[11px] text-muted-foreground">待审批</div>
+              <div className="mt-1 text-lg font-medium">{stats.pending_count}</div>
+              <div className="text-[11px] text-muted-foreground">
+                {stats.oldest_pending_age_s === null
+                  ? '没有积压'
+                  : `最久已等 ${formatDurationMs(stats.oldest_pending_age_s * 1000)}`}
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="py-0">
+            <CardContent className="p-3">
+              <div className="text-[11px] text-muted-foreground">近 {stats.days} 天已决议</div>
+              <div className="mt-1 text-lg font-medium">{stats.decided_count}</div>
+              <div className="text-[11px] text-muted-foreground">不含过期</div>
+            </CardContent>
+          </Card>
+          <Card className="py-0">
+            <CardContent className="p-3">
+              <div className="text-[11px] text-muted-foreground">平均等待</div>
+              <div className="mt-1 text-lg font-medium">
+                {stats.avg_wait_ms === null ? '—' : formatDurationMs(stats.avg_wait_ms)}
+              </div>
+              <div className="text-[11px] text-muted-foreground">发起 → 决议</div>
+            </CardContent>
+          </Card>
+          <Card className="py-0">
+            <CardContent className="p-3">
+              <div className="text-[11px] text-muted-foreground">最长等待</div>
+              <div className="mt-1 text-lg font-medium">
+                {stats.max_wait_ms === null ? '—' : formatDurationMs(stats.max_wait_ms)}
+              </div>
+              <div className="text-[11px] text-muted-foreground">窗口内已决议</div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {error && (
         <Card className="border-danger/30 bg-danger/5">

@@ -1098,6 +1098,34 @@ Postgres + Redis **507 passed**。
 
 ---
 
+## W6 后补：审批积压与等待统计（ADR-0048）
+
+审批中心此前只有列表：没有「现在压着多少单、最久等了多久、近一周平均/最长等待」。列表
+`limit` 最多 200，前端自己聚合既拿不到总数，也分不清「没有积压」和「没加载完」。
+ADR-0046 把单条审批的等待放进了运行过程，本轮补审批人视角的聚合。
+
+| 事项 | 落地 |
+|---|---|
+| 接口 | `GET /approvals/stats?days=7`（1–90，仅审批人；普通员工 403） |
+| 待办 | `pending_count`、`oldest_pending_age_s`；统计前先 `expire_due()` 收敛超时 |
+| 已决议 | 窗口内 `approved` + `rejected` 的 `decided_count` / `avg_wait_ms` / `max_wait_ms`；过期不计 |
+| 口径 | 等待 = `resolved_at - created_at`，负数归零；请求时快照，不缓存 |
+| 存储 | `ApprovalStore.stats(since, now)`：内存一次遍历；PG 两条聚合，不拉全表 |
+| 前端 | 审批中心顶部四张卡（待审批/最久已等、近 7 天已决议、平均等待、最长等待） |
+| 数据 | 无迁移；不返回审批人、不按人/工具分组；不新增索引 |
+
+验证：默认 **478 passed + 36 skipped**；真实 Postgres **511 passed + 3 skipped**；
+Postgres + Redis **514 passed**。
+`ruff check` / `ruff format --check`（187 files）/`mypy app`（110 files）通过；
+前端 `tsc`、**73 tests / 15 files**、`oxlint` 0/0（66 files）、`oxfmt --check` 74 files、
+`pnpm build` 276ms。不改表/事件/清理；未重跑 RAG 与多轮评测。
+
+已知边界：v1 固定近 7 天，没有时间选择器；只给聚合数字，不按审批人/工具分组、没有趋势与
+告警；统计是请求时快照，页面停留期间不会自动更新；`resolved_at` 没有单独索引，审批量
+到十万级再评估。详见 [ADR-0048](decisions/0048-approval-stats.md)。
+
+---
+
 ## 每周固定动作
 
 | 时点 | 动作 |

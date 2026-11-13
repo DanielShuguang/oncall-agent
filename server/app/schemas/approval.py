@@ -35,6 +35,17 @@ class ApprovalListResponse(BaseModel):
     items: list[ApprovalOut]
 
 
+class ApprovalStatsResponse(BaseModel):
+    """审批人视角的积压与窗口内等待（ADR-0048）。"""
+
+    days: int
+    pending_count: int
+    oldest_pending_age_s: int | None = None
+    decided_count: int
+    avg_wait_ms: int | None = None
+    max_wait_ms: int | None = None
+
+
 class ApprovalResolveResponse(BaseModel):
     approval: ApprovalOut
     run_id: str

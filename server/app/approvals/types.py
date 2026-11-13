@@ -41,6 +41,22 @@ class ApprovalRequestInfo:
 
 
 @dataclass(frozen=True)
+class ApprovalStats:
+    """审批积压与等待统计（ADR-0048）。
+
+    `oldest_pending_age_s` 是当前待办的「已等秒数」，用于发现卡住的单；
+    `avg_wait_ms` / `max_wait_ms` 只统计窗口内已决议（approved/rejected）的审批，
+    不把过期（expired）算成人工等待，避免把 TTL 时长混进流程指标。
+    """
+
+    pending_count: int
+    oldest_pending_age_s: int | None
+    decided_count: int
+    avg_wait_ms: int | None
+    max_wait_ms: int | None
+
+
+@dataclass(frozen=True)
 class ApprovalRecord:
     id: str
     run_id: str

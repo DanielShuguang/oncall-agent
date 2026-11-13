@@ -23,6 +23,15 @@ export interface ApprovalListResponse {
   items: ApprovalOut[];
 }
 
+export interface ApprovalStats {
+  days: number;
+  pending_count: number;
+  oldest_pending_age_s: number | null;
+  decided_count: number;
+  avg_wait_ms: number | null;
+  max_wait_ms: number | null;
+}
+
 export interface ApprovalResolveResponse {
   approval: ApprovalOut;
   run_id: string;
@@ -34,6 +43,10 @@ export type ApprovalScope = 'once' | 'session';
 
 export function listApprovals(status = 'pending'): Promise<ApprovalListResponse> {
   return getJson<ApprovalListResponse>(`/approvals?status=${encodeURIComponent(status)}`);
+}
+
+export function getApprovalStats(days = 7): Promise<ApprovalStats> {
+  return getJson<ApprovalStats>(`/approvals/stats?days=${days}`);
 }
 
 export function resolveApproval(

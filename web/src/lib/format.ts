@@ -16,6 +16,29 @@ export function formatDuration(start: string, end: string | null): string {
   return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;
 }
 
+/** 毫秒时长的统一展示：<1s 用 ms，<1min 保留 1 位小数，再进位到分/时/天。 */
+export function formatDurationMs(durationMs: number): string {
+  const clamped = Math.max(0, durationMs);
+  if (clamped < 1000) return `${Math.round(clamped)}ms`;
+  const totalSeconds = clamped / 1000;
+  // 59.95s 以上一律进位到「分」，否则 119999ms 会显示成「1m 60s」。
+  if (totalSeconds < 59.95) {
+    const seconds = totalSeconds.toFixed(1);
+    return `${seconds.endsWith('.0') ? seconds.slice(0, -2) : seconds}s`;
+  }
+  const wholeSeconds = Math.round(totalSeconds);
+  if (wholeSeconds < 3600) {
+    return `${Math.floor(wholeSeconds / 60)}m ${wholeSeconds % 60}s`;
+  }
+  // 审批等待可能以小时/天计，不能一直堆成「1440m 0s」。
+  const wholeMinutes = Math.floor(wholeSeconds / 60);
+  if (wholeMinutes < 1440) {
+    return `${Math.floor(wholeMinutes / 60)}h ${wholeMinutes % 60}m`;
+  }
+  const wholeHours = Math.floor(wholeMinutes / 60);
+  return `${Math.floor(wholeHours / 24)}d ${wholeHours % 24}h`;
+}
+
 export const STATUS_LABELS: Record<string, string> = {
   running: '执行中',
   awaiting_approval: '待审批',

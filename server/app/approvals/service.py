@@ -23,6 +23,7 @@ from app.approvals.types import (
     ApprovalRecord,
     ApprovalRequestInfo,
     ApprovalScopeUnsupported,
+    ApprovalStats,
 )
 from app.core.config import Settings, get_settings
 from app.core.logging import get_logger
@@ -171,6 +172,24 @@ class ApprovalService:
         # 审批人看全部待办；普通员工只看自己发起的
         requested_by = None if approver else identity.user_id
         return await self._approvals.list(status=status, requested_by=requested_by, limit=limit)
+
+    async def stats(
+        self,
+        identity: Identity,
+        *,
+        days: int,
+        now: datetime | None = None,
+    ) -> ApprovalStats:
+        """审批人视角的积压与等待统计（ADR-0048）。
+
+        先收敛已过期的待办，避免把 TTL 已过但尚未落状态的单算成「卡住」；
+        等待时长只统计窗口内 approved/rejected，不含 expired。
+        """
+        if not self._is_approver(identity):
+            raise ApprovalForbidden("需要审批人角色")
+        at = now or datetime.now(UTC)
+        await self.expire_due()
+        return await self._approvals.stats(since=at - timedelta(days=days), now=at)
 
     async def get(self, approval_id: str) -> ApprovalRecord | None:
         return await self._approvals.get(approval_id)

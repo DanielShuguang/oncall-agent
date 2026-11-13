@@ -22,7 +22,7 @@
 | — | [eval/multiturn-v2](eval/multiturn-v2.md) | 多轮评测基线（指代 + 话题切换 + 隔离对照，ADR-0024/0025） | 改 history / 检索参数前 |
 | — | [eval/multiturn-v1](eval/multiturn-v1.md) | 多轮历史基线（ADR-0025 修复前，9 条） | 只看历史对比 |
 | — | [eval/baseline-v0](eval/baseline-v0.md) | W2 历史基线（20 条） | 只看历史对比 |
-| — | [decisions/](decisions/) | 47 篇 ADR：为什么 React / Python / LangGraph / pgvector / SSE / Tailwind+oxc / 依赖版本 / shadcn / Postgres 存储 / 本地 JWT / 离线 RAG 向量化 / 显式调度 / 自研模型网关 / 工具覆盖存库 / 私有化交付 / 审批事务 / 孤儿 run 回收 / 引用全文预览 / 文档级可见性 / 多轮上下文 / 数据保留 / 回答内容回收 / 正文按时间保留 / 多轮评测 / 追问原句优先 / 按用户日预算 / 审批快照保留 / 预算可观测性 / 工单自助查询 / 会话列表 / 历史引用回放 / PDF 解析子进程隔离 / 会话历史分页 / 资产查询接表 / 历史运行过程回放 / 批量会话详情 / 工具配置变更历史 / 工单详情查询 / 会话搜索 / 会话重命名 / 会话从列表移除 / 历史引用回填 / 已移除会话恢复 / 运行过程载荷上限 / 运行过程筛选与耗时聚合 / 审批等待时长 / 已移除会话分页与搜索 | 面试前重读 |
+| — | [decisions/](decisions/) | 48 篇 ADR：为什么 React / Python / LangGraph / pgvector / SSE / Tailwind+oxc / 依赖版本 / shadcn / Postgres 存储 / 本地 JWT / 离线 RAG 向量化 / 显式调度 / 自研模型网关 / 工具覆盖存库 / 私有化交付 / 审批事务 / 孤儿 run 回收 / 引用全文预览 / 文档级可见性 / 多轮上下文 / 数据保留 / 回答内容回收 / 正文按时间保留 / 多轮评测 / 追问原句优先 / 按用户日预算 / 审批快照保留 / 预算可观测性 / 工单自助查询 / 会话列表 / 历史引用回放 / PDF 解析子进程隔离 / 会话历史分页 / 资产查询接表 / 历史运行过程回放 / 批量会话详情 / 工具配置变更历史 / 工单详情查询 / 会话搜索 / 会话重命名 / 会话从列表移除 / 历史引用回填 / 已移除会话恢复 / 运行过程载荷上限 / 运行过程筛选与耗时聚合 / 审批等待时长 / 已移除会话分页与搜索 / 审批积压与等待统计 | 面试前重读 |
 
 ## ADR（Architecture Decision Record）
 
@@ -75,6 +75,7 @@
 | [0045](decisions/0045-timeline-filter-summary.md) | 运行过程筛选与耗时聚合 | 纯前端：类型/工具名筛选、异常计数、工具耗时之和与最慢调用；只对已返回的 20 项计算，不改接口、无迁移；「异常」是展示口径，不是新状态机 |
 | [0046](decisions/0046-approval-wait.md) | 审批等待时长回放 | 审批项加 `requested_at` 与 `waited_ms`（事件差值，仅已决议项）；负数/孤儿省略；不进入工具耗时汇总，身份仍隐藏；无迁移 |
 | [0047](decisions/0047-hidden-session-pagination.md) | 已移除会话分页与搜索 | `GET /sessions/hidden` 增加 `(hidden_at, session_id)` keyset 游标与标题搜索；与主列表同口径、搜索不搜正文；无迁移/新索引 |
+| [0048](decisions/0048-approval-stats.md) | 审批积压与等待统计 | `GET /approvals/stats?days=7`（仅审批人）：待办数/最久等待 + 窗口内已决议的平均/最长等待；先收敛超时，过期不计；无迁移 |
 
 > ADR 的写法：背景 → 方案对比 → 决策 → 后果。面试被问"为什么这么做"时，直接念 ADR。
 

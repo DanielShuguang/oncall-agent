@@ -13,10 +13,10 @@ from dataclasses import replace
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Protocol
 
-from sqlalchemy import delete, select, text, tuple_, update
+from sqlalchemy import delete, func, select, text, tuple_, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from app.approvals.types import ApprovalRecord
+from app.approvals.types import ApprovalRecord, ApprovalStats
 from app.models.approval import Approval, ApprovalGrant
 
 if TYPE_CHECKING:
@@ -43,6 +43,10 @@ class ApprovalStore(Protocol):
         requested_by: str | None = None,
         limit: int = 100,
     ) -> list[ApprovalRecord]: ...
+
+    async def stats(self, *, since: datetime, now: datetime) -> ApprovalStats:
+        """当前积压与窗口内决议等待（ADR-0048），不返回审批人身份。"""
+        ...
 
     async def resolve(
         self,
@@ -139,6 +143,29 @@ class InMemoryApprovalStore:
         ]
         items.sort(key=lambda r: (r.status != "pending", r.expires_at, r.created_at))
         return items[:limit]
+
+    async def stats(self, *, since: datetime, now: datetime) -> ApprovalStats:
+        pending = [record for record in self._records.values() if record.is_pending]
+        oldest_age: int | None = None
+        if pending:
+            oldest = min(record.created_at for record in pending)
+            oldest_age = max(0, int((now - oldest).total_seconds()))
+        waits: list[int] = []
+        for record in self._records.values():
+            if record.status not in ("approved", "rejected"):
+                continue
+            if record.resolved_at is None or record.resolved_at < since:
+                continue
+            waits.append(
+                max(0, int((record.resolved_at - record.created_at).total_seconds() * 1000))
+            )
+        return ApprovalStats(
+            pending_count=len(pending),
+            oldest_pending_age_s=oldest_age,
+            decided_count=len(waits),
+            avg_wait_ms=round(sum(waits) / len(waits)) if waits else None,
+            max_wait_ms=max(waits) if waits else None,
+        )
 
     async def resolve(
         self,
@@ -295,6 +322,42 @@ class PostgresApprovalStore:
         async with self._sessionmaker() as session:
             rows = (await session.scalars(query)).all()
         return [_record_from_row(row) for row in rows]
+
+    async def stats(self, *, since: datetime, now: datetime) -> ApprovalStats:
+        wait_seconds = func.extract("epoch", Approval.resolved_at - Approval.created_at)
+        async with self._sessionmaker() as session:
+            pending_row = (
+                await session.execute(
+                    select(func.count(Approval.id), func.min(Approval.created_at)).where(
+                        Approval.status == "pending"
+                    )
+                )
+            ).one()
+            decided_row = (
+                await session.execute(
+                    select(
+                        func.count(Approval.id),
+                        func.avg(wait_seconds * 1000),
+                        func.max(wait_seconds * 1000),
+                    ).where(
+                        Approval.status.in_(("approved", "rejected")),
+                        Approval.resolved_at.is_not(None),
+                        Approval.resolved_at >= since,
+                    )
+                )
+            ).one()
+        pending_count = int(pending_row[0] or 0)
+        oldest = pending_row[1]
+        decided_count = int(decided_row[0] or 0)
+        return ApprovalStats(
+            pending_count=pending_count,
+            oldest_pending_age_s=(
+                max(0, int((now - oldest).total_seconds())) if oldest is not None else None
+            ),
+            decided_count=decided_count,
+            avg_wait_ms=(round(float(decided_row[1])) if decided_row[1] is not None else None),
+            max_wait_ms=(round(float(decided_row[2])) if decided_row[2] is not None else None),
+        )
 
     async def resolve(
         self,

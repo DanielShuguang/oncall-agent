@@ -343,3 +343,35 @@ async def test_pg_prunes_resolved_snapshots_and_expired_grants(
         )
     assert remaining == 1
     assert await approvals.prune_grants(expired_before=now) == 0
+
+
+async def test_pg_stats_counts_pending_and_decided(
+    pg_approvals: tuple[PostgresRunStore, PostgresApprovalStore, ApprovalService, Any],
+) -> None:
+    """真实 PG 上验证两条聚合：pending 积压与窗口内决议等待（ADR-0048）。"""
+    runs, approvals, service, _ = pg_approvals
+    approver = Identity(user_id="u_900", roles=frozenset({"approver"}))
+
+    first_run = await _new_run(runs)
+    await _request(runs, service, first_run)
+    second_run = await _new_run(runs)
+    second_id = await _request(runs, service, second_run)
+
+    now = datetime.now(UTC)
+    resolved, changed = await approvals.resolve(
+        second_id,
+        status="approved",
+        resolved_by="u_900",
+        reason=None,
+        scope="once",
+        at=now,
+    )
+    assert resolved is not None and changed
+
+    stats = await service.stats(approver, days=7, now=now)
+
+    assert stats.pending_count == 1
+    assert stats.oldest_pending_age_s is not None and stats.oldest_pending_age_s >= 0
+    assert stats.decided_count == 1
+    assert stats.avg_wait_ms is not None and stats.avg_wait_ms >= 0
+    assert stats.max_wait_ms == stats.avg_wait_ms

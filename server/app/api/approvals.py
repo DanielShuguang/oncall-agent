@@ -29,6 +29,7 @@ from app.schemas.approval import (
     ApprovalOut,
     ApprovalResolveRequest,
     ApprovalResolveResponse,
+    ApprovalStatsResponse,
 )
 from app.tools.registry import Identity
 
@@ -49,6 +50,30 @@ async def list_approvals(
         log.error("approval_list_failed", error=str(exc))
         raise ApiError(503, "DATABASE_UNAVAILABLE", "database unavailable") from exc
     return ApprovalListResponse(items=[ApprovalOut(**approval_payload(r)) for r in records])
+
+
+@router.get("/approvals/stats", response_model=ApprovalStatsResponse)
+async def approval_stats(
+    service: Annotated[ApprovalService, Depends(get_approval_service)],
+    identity: Annotated[Identity, Depends(get_identity)],
+    days: Annotated[int, Query(ge=1, le=90)] = 7,
+) -> ApprovalStatsResponse:
+    """审批积压与等待统计（ADR-0048），仅审批人可见。"""
+    try:
+        stats = await service.stats(identity, days=days)
+    except ApprovalForbidden as exc:
+        raise ApiError(403, "FORBIDDEN", str(exc)) from None
+    except SQLAlchemyError as exc:
+        log.error("approval_stats_failed", error=str(exc))
+        raise ApiError(503, "DATABASE_UNAVAILABLE", "database unavailable") from exc
+    return ApprovalStatsResponse(
+        days=days,
+        pending_count=stats.pending_count,
+        oldest_pending_age_s=stats.oldest_pending_age_s,
+        decided_count=stats.decided_count,
+        avg_wait_ms=stats.avg_wait_ms,
+        max_wait_ms=stats.max_wait_ms,
+    )
 
 
 @router.post("/approvals/{approval_id}/resolve", response_model=ApprovalResolveResponse)

@@ -23,7 +23,12 @@ from sqlalchemy.pool import NullPool
 
 from app.approvals.service import ApprovalService
 from app.approvals.store import PostgresApprovalStore
-from app.approvals.types import ApprovalRecord, PendingApprovalCursor, ResolvedApprovalCursor
+from app.approvals.types import (
+    ApprovalListFilters,
+    ApprovalRecord,
+    PendingApprovalCursor,
+    ResolvedApprovalCursor,
+)
 from app.core.store import PostgresRunStore
 from app.core.store import append_event_in_session as real_append_event_in_session
 from app.models import Approval, ApprovalGrant, Base
@@ -553,3 +558,70 @@ async def test_pg_resolved_list_orders_by_resolved_at(pg_approvals: tuple[Any, .
         cursor=ResolvedApprovalCursor(last.resolved_at, last.id),
     )
     assert [record.id for record in rest] == [ids[0]]
+
+
+async def test_pg_resolved_list_filters(pg_approvals: tuple[Any, ...]) -> None:
+    """已办筛选在真实库上同样生效：工具/审批人精确匹配，日期半开区间（ADR-0054）。"""
+    runs, approvals, _service, _sessionmaker = pg_approvals
+    base = datetime(2026, 11, 16, 12, 0, tzinfo=UTC)
+    spec = [
+        ("create_ticket", "u_900", base),
+        ("query_cmdb", "u_901", base + timedelta(days=1)),
+        ("create_ticket", "u_900", base + timedelta(days=2)),
+    ]
+    ids: list[str] = []
+    for index, (tool_name, resolver, resolved_at) in enumerate(spec):
+        run_id = str(uuid.uuid4())
+        await runs.create(
+            run_id=run_id,
+            user_id="u_102",
+            session_id=f"sess_filter_{index}",
+            message="帮我开一张报修工单",
+        )
+        approval_id = str(uuid.uuid4())
+        await approvals.create(
+            ApprovalRecord(
+                id=approval_id,
+                run_id=run_id,
+                call_id=f"call_filter_{index}",
+                tool_name=tool_name,
+                args={},
+                risk_level="medium",
+                status="pending",
+                requested_by="u_102",
+                expires_at=base + timedelta(hours=1),
+                created_at=base - timedelta(minutes=10),
+                state={},
+            )
+        )
+        await approvals.resolve(
+            approval_id,
+            status="approved",
+            resolved_by=resolver,
+            reason=None,
+            scope="once",
+            at=resolved_at,
+        )
+        ids.append(approval_id)
+
+    combined = await approvals.list(
+        status="approved",
+        filters=ApprovalListFilters(
+            tool_name="create_ticket",
+            resolved_by="u_900",
+            resolved_from=base,
+            resolved_to=base + timedelta(days=2),
+        ),
+    )
+    assert [record.id for record in combined] == [ids[0]]
+
+    open_ended = await approvals.list(
+        status="approved",
+        filters=ApprovalListFilters(resolved_from=base + timedelta(days=1)),
+    )
+    assert [record.id for record in open_ended] == [ids[2], ids[1]]
+
+    by_tool = await approvals.list(
+        status="approved", filters=ApprovalListFilters(tool_name="query_cmdb")
+    )
+    assert [record.id for record in by_tool] == [ids[1]]

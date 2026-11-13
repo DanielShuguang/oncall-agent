@@ -145,6 +145,27 @@ class ResolvedApprovalCursor:
 ApprovalListCursor = PendingApprovalCursor | ResolvedApprovalCursor
 
 
+@dataclass(frozen=True)
+class ApprovalListFilters:
+    """已办列表的筛选条件（ADR-0054）。
+
+    `tool_name` / `resolved_by` 是精确匹配；`resolved_from` 含、`resolved_to` 不含，
+    由 API 层把 UTC 日期转换成半开区间。待办列表没有审批人/决议时间，不接受筛选。
+    """
+
+    tool_name: str | None = None
+    resolved_by: str | None = None
+    resolved_from: datetime | None = None
+    resolved_to: datetime | None = None
+
+    @property
+    def active(self) -> bool:
+        return any(
+            value is not None
+            for value in (self.tool_name, self.resolved_by, self.resolved_from, self.resolved_to)
+        )
+
+
 class ApprovalRecorder(Protocol):
     """runtime 视角的审批能力：提交审批 + 查询会话级授权。"""
 

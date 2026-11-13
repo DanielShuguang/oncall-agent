@@ -61,13 +61,26 @@ export interface ApprovalResolveResponse {
 export type ApprovalDecision = 'approved' | 'rejected';
 export type ApprovalScope = 'once' | 'session';
 
+/** 已办筛选（ADR-0054）：日期是 UTC 自然日，start/end 由后端转成半开区间。 */
+export interface ApprovalListFilters {
+  tool?: string;
+  resolvedBy?: string;
+  resolvedFrom?: string;
+  resolvedTo?: string;
+}
+
 export function listApprovals(
   status = 'pending',
   cursor: string | null = null,
   limit = 50,
+  filters: ApprovalListFilters = {},
 ): Promise<ApprovalListResponse> {
   const params = new URLSearchParams({ status, limit: String(limit) });
   if (cursor) params.set('cursor', cursor);
+  if (filters.tool) params.set('tool', filters.tool);
+  if (filters.resolvedBy) params.set('resolved_by', filters.resolvedBy);
+  if (filters.resolvedFrom) params.set('resolved_from', filters.resolvedFrom);
+  if (filters.resolvedTo) params.set('resolved_to', filters.resolvedTo);
   return getJson<ApprovalListResponse>(`/approvals?${params.toString()}`);
 }
 

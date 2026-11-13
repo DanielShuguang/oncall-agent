@@ -22,6 +22,7 @@ from app.approvals.types import (
     ApprovalGroupBy,
     ApprovalGroupStats,
     ApprovalListCursor,
+    ApprovalListFilters,
     ApprovalRecord,
     ApprovalStats,
     PendingApprovalCursor,
@@ -51,15 +52,17 @@ class ApprovalStore(Protocol):
         *,
         status: str | None = None,
         requested_by: str | None = None,
+        filters: ApprovalListFilters | None = None,
         cursor: ApprovalListCursor | None = None,
         limit: int = 100,
     ) -> list[ApprovalRecord]:
-        """按 status 选择排序键的 keyset 翻页（ADR-0052 / ADR-0053）。
+        """按 status 选择排序键的 keyset 翻页（ADR-0052 / ADR-0053 / ADR-0054）。
 
         待办（`status="pending"` 或 `None`）按 `(expires_at, created_at, id)`
         升序，最急的在前；已办按 `(resolved_at, id)` 倒序，最近的决议在前。
-        游标只配合同一个 `status` 使用，跨状态复用会从错误的元组位置开始，
-        结果不可解释。
+        `filters` 只作用于已办：工具/审批人精确匹配，决议时间半开区间。
+        游标只配合同一个 `status` 和同一组筛选条件使用，跨状态/跨筛选复用
+        会从错误的元组位置开始，结果不可解释。
         """
         ...
 
@@ -162,9 +165,11 @@ class InMemoryApprovalStore:
         *,
         status: str | None = None,
         requested_by: str | None = None,
+        filters: ApprovalListFilters | None = None,
         cursor: ApprovalListCursor | None = None,
         limit: int = 100,
     ) -> list[ApprovalRecord]:
+        active_filters = filters or ApprovalListFilters()
         items = [
             record
             for record in self._records.values()
@@ -185,7 +190,24 @@ class InMemoryApprovalStore:
 
         # 已办按决议时间倒序：最近处理的在前（ADR-0053）。expired 也有
         # resolved_at（expire_due 写入），所以四类状态都能落在这个全序里。
-        decided = [record for record in items if record.resolved_at is not None]
+        decided = [
+            record
+            for record in items
+            if record.resolved_at is not None
+            and (active_filters.tool_name is None or record.tool_name == active_filters.tool_name)
+            and (
+                active_filters.resolved_by is None
+                or record.resolved_by == active_filters.resolved_by
+            )
+            and (
+                active_filters.resolved_from is None
+                or record.resolved_at >= active_filters.resolved_from
+            )
+            and (
+                active_filters.resolved_to is None
+                or record.resolved_at < active_filters.resolved_to
+            )
+        ]
         decided.sort(key=lambda r: (cast(datetime, r.resolved_at), r.id), reverse=True)
         if isinstance(cursor, ResolvedApprovalCursor):
             resolved_key = (cursor.resolved_at, cursor.approval_id)
@@ -411,9 +433,11 @@ class PostgresApprovalStore:
         *,
         status: str | None = None,
         requested_by: str | None = None,
+        filters: ApprovalListFilters | None = None,
         cursor: ApprovalListCursor | None = None,
         limit: int = 100,
     ) -> list[ApprovalRecord]:
+        active_filters = filters or ApprovalListFilters()
         query = select(Approval)
         if status is not None:
             query = query.where(Approval.status == status)
@@ -440,6 +464,14 @@ class PostgresApprovalStore:
             # 已办按决议时间倒序；resolved_at 为空的行只可能是 pending，已在
             # status 过滤时排除，这里再加一次是防脏数据混进来（ADR-0053）。
             query = query.where(Approval.resolved_at.is_not(None))
+            if active_filters.tool_name is not None:
+                query = query.where(Approval.tool_name == active_filters.tool_name)
+            if active_filters.resolved_by is not None:
+                query = query.where(Approval.resolved_by == active_filters.resolved_by)
+            if active_filters.resolved_from is not None:
+                query = query.where(Approval.resolved_at >= active_filters.resolved_from)
+            if active_filters.resolved_to is not None:
+                query = query.where(Approval.resolved_at < active_filters.resolved_to)
             if isinstance(cursor, ResolvedApprovalCursor):
                 query = query.where(
                     or_(

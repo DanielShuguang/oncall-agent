@@ -10,8 +10,9 @@ from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
 import json
-from datetime import datetime
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
@@ -24,6 +25,7 @@ from app.approvals.types import (
     ApprovalForbidden,
     ApprovalGroupBy,
     ApprovalListCursor,
+    ApprovalListFilters,
     ApprovalNotFound,
     ApprovalNotReady,
     ApprovalRecord,
@@ -52,8 +54,64 @@ def _cursor_error() -> ApiError:
     return ApiError(400, "INVALID_CURSOR", "cursor 无效，请从第一页重新拉取")
 
 
-def _encode_approval_cursor(record: ApprovalRecord) -> str:
-    """按记录的最终状态编码游标：待办用 e/c/i，已办用 r/i（ADR-0053）。"""
+def _approval_filters(
+    status: str,
+    *,
+    tool: str | None,
+    resolved_by: str | None,
+    resolved_from: date | None,
+    resolved_to: date | None,
+) -> ApprovalListFilters:
+    """把查询参数收敛成存储层筛选条件（ADR-0054）。"""
+    if status == "pending" and any(
+        value is not None for value in (tool, resolved_by, resolved_from, resolved_to)
+    ):
+        raise ApiError(422, "INVALID_FILTER", "待办列表不支持已办筛选")
+    tool_name = tool.strip() if tool is not None else None
+    approver = resolved_by.strip() if resolved_by is not None else None
+    if tool is not None and not tool_name:
+        raise ApiError(422, "INVALID_FILTER", "tool 不能为空")
+    if resolved_by is not None and not approver:
+        raise ApiError(422, "INVALID_FILTER", "resolved_by 不能为空")
+    if resolved_from is not None and resolved_to is not None and resolved_from > resolved_to:
+        raise ApiError(422, "INVALID_RANGE", "resolved_from 不能晚于 resolved_to")
+    if resolved_to == date.max:
+        raise ApiError(422, "INVALID_RANGE", "resolved_to 超出可表示范围")
+    start = (
+        datetime.combine(resolved_from, time.min, tzinfo=UTC) if resolved_from is not None else None
+    )
+    end = (
+        datetime.combine(resolved_to + timedelta(days=1), time.min, tzinfo=UTC)
+        if resolved_to is not None
+        else None
+    )
+    return ApprovalListFilters(
+        tool_name=tool_name,
+        resolved_by=approver,
+        resolved_from=start,
+        resolved_to=end,
+    )
+
+
+def _filter_fingerprint(filters: ApprovalListFilters) -> str | None:
+    """游标绑定筛选条件：筛选变了却拿旧游标翻页，必须显式重来。
+
+    指纹只做一致性校验，不是签名；游标本身仍可被构造，签名/过期见 ADR-0052 待定。
+    """
+    if not filters.active:
+        return None
+    payload = {
+        "t": filters.tool_name,
+        "b": filters.resolved_by,
+        "f": filters.resolved_from.isoformat() if filters.resolved_from else None,
+        "u": filters.resolved_to.isoformat() if filters.resolved_to else None,
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(encoded).hexdigest()[:16]
+
+
+def _encode_approval_cursor(record: ApprovalRecord, filter_fingerprint: str | None = None) -> str:
+    """按记录的最终状态编码游标：待办 e/c/i，已办 s/r/i（+ 筛选指纹 f）。"""
     if record.status == "pending":
         payload: dict[str, object] = {
             "e": record.expires_at.isoformat(),
@@ -67,6 +125,8 @@ def _encode_approval_cursor(record: ApprovalRecord) -> str:
         # 已办三种状态共用排序键，必须把 status 写进游标，避免 approved 的
         # 游标被静默用到 rejected 上（ADR-0053）。
         payload = {"s": record.status, "r": record.resolved_at.isoformat(), "i": record.id}
+        if filter_fingerprint is not None:
+            payload["f"] = filter_fingerprint
     raw = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode()
     return base64.urlsafe_b64encode(raw).decode().rstrip("=")
 
@@ -111,8 +171,12 @@ def _decode_pending_cursor(data: dict[str, object]) -> PendingApprovalCursor:
     )
 
 
-def _decode_resolved_cursor(data: dict[str, object], status: str) -> ResolvedApprovalCursor:
+def _decode_resolved_cursor(
+    data: dict[str, object], status: str, filter_fingerprint: str | None
+) -> ResolvedApprovalCursor:
     if data.get("s") != status or "r" not in data:
+        raise _cursor_error()
+    if data.get("f") != filter_fingerprint:
         raise _cursor_error()
     return ResolvedApprovalCursor(
         resolved_at=_cursor_time(data["r"]),
@@ -120,11 +184,13 @@ def _decode_resolved_cursor(data: dict[str, object], status: str) -> ResolvedApp
     )
 
 
-def _decode_approval_cursor(cursor: str, status: str) -> ApprovalListCursor:
+def _decode_approval_cursor(
+    cursor: str, status: str, filter_fingerprint: str | None
+) -> ApprovalListCursor:
     data = _cursor_payload(cursor)
     if status == "pending":
         return _decode_pending_cursor(data)
-    return _decode_resolved_cursor(data, status)
+    return _decode_resolved_cursor(data, status, filter_fingerprint)
 
 
 @router.get("/approvals", response_model=ApprovalListResponse)
@@ -133,17 +199,33 @@ async def list_approvals(
     identity: Annotated[Identity, Depends(get_identity)],
     status: Annotated[str, Query(pattern="^(pending|approved|rejected|expired)$")] = "pending",
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    tool: Annotated[str | None, Query(min_length=1, max_length=100)] = None,
+    resolved_by: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
+    resolved_from: Annotated[date | None, Query()] = None,
+    resolved_to: Annotated[date | None, Query()] = None,
     cursor: Annotated[str | None, Query(max_length=512)] = None,
 ) -> ApprovalListResponse:
-    before = _decode_approval_cursor(cursor, status) if cursor else None
+    filters = _approval_filters(
+        status,
+        tool=tool,
+        resolved_by=resolved_by,
+        resolved_from=resolved_from,
+        resolved_to=resolved_to,
+    )
+    fingerprint = _filter_fingerprint(filters)
+    before = _decode_approval_cursor(cursor, status, fingerprint) if cursor else None
     try:
-        records = await service.list_for(identity, status=status, limit=limit, cursor=before)
+        records = await service.list_for(
+            identity, status=status, limit=limit, filters=filters, cursor=before
+        )
     except SQLAlchemyError as exc:
         log.error("approval_list_failed", error=str(exc))
         raise ApiError(503, "DATABASE_UNAVAILABLE", "database unavailable") from exc
     return ApprovalListResponse(
         items=[ApprovalOut(**approval_payload(r)) for r in records],
-        next_cursor=_encode_approval_cursor(records[-1]) if len(records) == limit else None,
+        next_cursor=(
+            _encode_approval_cursor(records[-1], fingerprint) if len(records) == limit else None
+        ),
     )
 
 

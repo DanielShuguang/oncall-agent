@@ -27,12 +27,14 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import {
   getApprovalStats,
   listApprovals,
   resolveApproval,
   type ApprovalDecision,
+  type ApprovalListFilters,
   type ApprovalOut,
   type ApprovalScope,
   type ApprovalStats,
@@ -69,6 +71,11 @@ interface ResolveState {
 export default function ApprovalsPage() {
   const [status, setStatus] = useState('pending');
   const [items, setItems] = useState<ApprovalOut[]>([]);
+  const [filters, setFilters] = useState<ApprovalListFilters>({});
+  const [filterTool, setFilterTool] = useState('');
+  const [filterResolvedBy, setFilterResolvedBy] = useState('');
+  const [filterFrom, setFilterFrom] = useState('');
+  const [filterTo, setFilterTo] = useState('');
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -79,6 +86,7 @@ export default function ApprovalsPage() {
   const [statsDays, setStatsDays] = useState(7);
   const [statsGroup, setStatsGroup] = useState<StatsGroup>('none');
   const [statsGroupView, setStatsGroupView] = useState<StatsGroup>('none');
+  const hasActiveFilters = Object.keys(filters).length > 0;
   // 初始加载与决议后刷新可能并发，旧响应不能覆盖新统计（同会话列表的做法）。
   const statsRequest = useRef(0);
   // 列表分页也有竞态：切状态/刷新后在途的「加载更多」不能把旧页追加回来。
@@ -112,7 +120,7 @@ export default function ApprovalsPage() {
       setCursor(null);
       setLoadingMore(false);
       try {
-        const data = await listApprovals(status);
+        const data = await listApprovals(status, null, 50, filters);
         if (!cancelled && listRequest.current === requestId) {
           setItems(data.items);
           setCursor(data.next_cursor);
@@ -132,14 +140,14 @@ export default function ApprovalsPage() {
       // 卸载/切状态后，在途的 refresh/loadMore 也不得再改新列表。
       listRequest.current += 1;
     };
-  }, [status]);
+  }, [status, filters]);
 
   const refresh = async () => {
     const requestId = ++listRequest.current;
     // 刷新期间禁用「加载更多」，也避免它被旧游标带到新列表里。
     setLoadingMore(true);
     try {
-      const data = await listApprovals(status);
+      const data = await listApprovals(status, null, 50, filters);
       if (listRequest.current !== requestId) return;
       setItems(data.items);
       setCursor(data.next_cursor);
@@ -154,7 +162,7 @@ export default function ApprovalsPage() {
     const requestId = listRequest.current;
     setLoadingMore(true);
     try {
-      const data = await listApprovals(status, cursor);
+      const data = await listApprovals(status, cursor, 50, filters);
       if (listRequest.current !== requestId) return;
       setItems((current) => [...current, ...data.items]);
       setCursor(data.next_cursor);
@@ -179,6 +187,47 @@ export default function ApprovalsPage() {
     setLoadingMore(false);
     setError(null);
     setNotice(null);
+    if (next === 'pending') {
+      setFilters({});
+      setFilterTool('');
+      setFilterResolvedBy('');
+      setFilterFrom('');
+      setFilterTo('');
+    }
+  };
+
+  const resetList = (next: ApprovalListFilters) => {
+    listRequest.current += 1;
+    setItems([]);
+    setCursor(null);
+    setLoading(true);
+    setLoadingMore(false);
+    setError(null);
+    setNotice(null);
+    setFilters(next);
+  };
+
+  const applyFilters = () => {
+    if (filterFrom && filterTo && filterFrom > filterTo) {
+      setError('开始日期不能晚于结束日期');
+      return;
+    }
+    const tool = filterTool.trim();
+    const resolvedBy = filterResolvedBy.trim();
+    resetList({
+      ...(tool ? { tool } : {}),
+      ...(resolvedBy ? { resolvedBy } : {}),
+      ...(filterFrom ? { resolvedFrom: filterFrom } : {}),
+      ...(filterTo ? { resolvedTo: filterTo } : {}),
+    });
+  };
+
+  const clearFilters = () => {
+    setFilterTool('');
+    setFilterResolvedBy('');
+    setFilterFrom('');
+    setFilterTo('');
+    resetList({});
   };
 
   const openResolve = (approval: ApprovalOut, decision: ApprovalDecision) => {
@@ -273,6 +322,64 @@ export default function ApprovalsPage() {
           </SelectContent>
         </Select>
       </div>
+
+      {status !== 'pending' && (
+        <Card className="py-0">
+          <CardContent className="p-3">
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="space-y-1">
+                <div className="text-[11px] text-muted-foreground">工具</div>
+                <Input
+                  aria-label="按工具筛选"
+                  className="h-8 w-40 text-xs"
+                  placeholder="如 create_ticket"
+                  value={filterTool}
+                  onChange={(event) => setFilterTool(event.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <div className="text-[11px] text-muted-foreground">审批人</div>
+                <Input
+                  aria-label="按审批人筛选"
+                  className="h-8 w-36 text-xs"
+                  placeholder="user_id"
+                  value={filterResolvedBy}
+                  onChange={(event) => setFilterResolvedBy(event.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <div className="text-[11px] text-muted-foreground">决议开始</div>
+                <Input
+                  aria-label="决议开始日期"
+                  type="date"
+                  className="h-8 w-36 text-xs"
+                  value={filterFrom}
+                  onChange={(event) => setFilterFrom(event.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <div className="text-[11px] text-muted-foreground">决议结束</div>
+                <Input
+                  aria-label="决议结束日期"
+                  type="date"
+                  className="h-8 w-36 text-xs"
+                  value={filterTo}
+                  onChange={(event) => setFilterTo(event.target.value)}
+                />
+              </div>
+              <Button size="sm" className="h-8 text-xs" onClick={applyFilters}>
+                筛选
+              </Button>
+              <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={clearFilters}>
+                清除
+              </Button>
+            </div>
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              日期按 UTC 自然日；筛选条件会随游标绑定，改动后从第一页重新加载。
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       {stats && (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -404,7 +511,11 @@ export default function ApprovalsPage() {
             <div className="p-8 text-center text-xs text-muted-foreground">加载中…</div>
           ) : items.length === 0 ? (
             <div className="p-8 text-center text-xs text-muted-foreground">
-              {status === 'pending' ? '没有待办审批。' : '该状态下没有审批记录。'}
+              {status === 'pending'
+                ? '没有待办审批。'
+                : hasActiveFilters
+                  ? '没有符合筛选条件的审批。'
+                  : '该状态下没有审批记录。'}
             </div>
           ) : (
             <div className="overflow-x-auto">

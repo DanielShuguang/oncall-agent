@@ -20,6 +20,7 @@ from app.approvals.types import (
     ApprovalForbidden,
     ApprovalGroupBy,
     ApprovalListCursor,
+    ApprovalListFilters,
     ApprovalNotFound,
     ApprovalNotReady,
     ApprovalRecord,
@@ -168,6 +169,7 @@ class ApprovalService:
         *,
         status: str = "pending",
         limit: int = 100,
+        filters: ApprovalListFilters | None = None,
         cursor: ApprovalListCursor | None = None,
     ) -> list[ApprovalRecord]:
         await self.expire_due()
@@ -177,6 +179,7 @@ class ApprovalService:
         return await self._approvals.list(
             status=status,
             requested_by=requested_by,
+            filters=filters,
             cursor=cursor,
             limit=limit,
         )

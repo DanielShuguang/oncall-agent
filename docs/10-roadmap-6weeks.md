@@ -1255,6 +1255,32 @@ urgent 排序；脏数据 `resolved_at IS NULL` 会被隐藏；翻页期间新�
 
 ---
 
+## W6 后补：已办审批筛选（ADR-0054）
+
+ADR-0053 解决了已办按决议时间倒序，但审批人想找「某位审批人批过的
+`create_ticket`」或「某天批了什么」仍要一页页翻；统计里的分组是聚合，
+不能直接定位到记录。待办没有同类需求，因此只对已办开放筛选。
+
+| 事项 | 落地 |
+|---|---|
+| 参数 | `tool`（1–100）、`resolved_by`（1–64）、`resolved_from` / `resolved_to`（`YYYY-MM-DD`，UTC 自然日，结束日不含） |
+| 限制 | 仅 `approved|rejected|expired`；`pending`（含缺省）带任一筛选返回 422 `INVALID_FILTER`；起止倒置或 `resolved_to=9999-12-31` 返回 422 `INVALID_RANGE` |
+| 存储 | 无迁移、无新索引；沿用 `idx_approvals_resolved`，工具/审批人做索引后残余过滤 |
+| 游标 | 已办 `{s,r,i}`，带筛选时加 `f`（筛选条件 canonical JSON 的 SHA-256 前 16 hex）；换筛选复用旧游标返回 400 `INVALID_CURSOR`，无筛选旧游标仍可用 |
+| 前端 | 已办筛选卡（工具/审批人/起止日期）；应用或清除后重置列表与游标；切到待办清空筛选 |
+
+验证：默认 **485 passed + 40 skipped**；真实 Postgres **522 passed + 3 skipped**；
+Postgres + Redis **525 passed**；`ruff check` / `ruff format --check`（188 files）/
+`mypy app`（110 files）通过；前端 **75 tests / 15 files**、`oxlint` 0/0（66 files）、
+`oxfmt --check` 74 files、`pnpm build` 通过。无迁移。
+
+已知边界：筛选只覆盖已办，待办不支持；日期固定 UTC，无总数/跳页/导出；
+`f` 只是指纹不是签名，游标仍可伪造（仍按身份过滤）；工具/审批人无独立索引，
+大数据量下会退化为索引后过滤；翻页期间新决议仍可能重复/跳过。详见
+[ADR-0054](decisions/0054-approval-list-filters.md)。
+
+---
+
 ## 每周固定动作
 
 | 时点 | 动作 |

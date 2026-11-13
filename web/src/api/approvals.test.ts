@@ -21,6 +21,28 @@ describe('listApprovals', () => {
     );
     expect(fetchMock.mock.calls[1]?.[0]).toBe('/api/approvals?status=approved&limit=50');
   });
+
+  it('已办筛选只拼接非空参数（ADR-0054）', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    fetchMock.mockImplementation(
+      async () => new Response(JSON.stringify({ items: [], next_cursor: null }), { status: 200 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await listApprovals('approved', null, 25, {
+      tool: 'create_ticket',
+      resolvedBy: 'u_900',
+      resolvedFrom: '2026-11-01',
+      resolvedTo: '2026-11-02',
+    });
+    await listApprovals('approved', null, 25, { tool: '' });
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      '/api/approvals?status=approved&limit=25&tool=create_ticket&resolved_by=u_900' +
+        '&resolved_from=2026-11-01&resolved_to=2026-11-02',
+    );
+    expect(fetchMock.mock.calls[1]?.[0]).toBe('/api/approvals?status=approved&limit=25');
+  });
 });
 
 describe('resolveApproval', () => {

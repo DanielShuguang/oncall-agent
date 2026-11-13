@@ -18,6 +18,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.approvals.service import ApprovalService
 from app.approvals.store import InMemoryApprovalStore
 from app.approvals.types import (
+    ApprovalListFilters,
     ApprovalNotReady,
     ApprovalRecord,
     PendingApprovalCursor,
@@ -469,6 +470,141 @@ async def test_approval_list_resolved_paginates_with_cursor(
     )
     assert wrong_decided.status_code == 400
     assert wrong_decided.json()["code"] == "INVALID_CURSOR"
+
+
+async def test_resolved_list_filters_by_tool_approver_and_date() -> None:
+    """已办筛选：工具/审批人精确匹配，决议日期是 UTC 半开区间（ADR-0054）。"""
+    store = InMemoryApprovalStore()
+    base = datetime(2026, 11, 1, 12, tzinfo=UTC)
+    rows = [
+        ("f1", "create_ticket", "u_900", base),
+        ("f2", "query_cmdb", "u_901", base + timedelta(days=1)),
+        ("f3", "create_ticket", "u_900", base + timedelta(days=2)),
+    ]
+    for approval_id, tool_name, resolver, resolved_at in rows:
+        await store.create(
+            ApprovalRecord(
+                id=approval_id,
+                run_id=f"run_{approval_id}",
+                call_id=f"call_{approval_id}",
+                tool_name=tool_name,
+                args={},
+                risk_level="medium",
+                status="approved",
+                requested_by="u_102",
+                resolved_by=resolver,
+                expires_at=base,
+                created_at=base - timedelta(minutes=10),
+                resolved_at=resolved_at,
+                state={},
+            )
+        )
+
+    combined = await store.list(
+        status="approved",
+        filters=ApprovalListFilters(
+            tool_name="create_ticket",
+            resolved_by="u_900",
+            resolved_from=base,
+            resolved_to=base + timedelta(days=2),
+        ),
+    )
+    assert [record.id for record in combined] == ["f1"]
+
+    open_ended = await store.list(
+        status="approved",
+        filters=ApprovalListFilters(resolved_from=base + timedelta(days=1)),
+    )
+    assert [record.id for record in open_ended] == ["f3", "f2"]
+
+    by_tool = await store.list(
+        status="approved", filters=ApprovalListFilters(tool_name="query_cmdb")
+    )
+    assert [record.id for record in by_tool] == ["f2"]
+
+
+async def test_approval_list_filters_and_cursor_binding(
+    client: AsyncClient, mem_approvals: InMemoryApprovalStore
+) -> None:
+    """API 筛选参数、日期区间与游标绑定；筛选项不能带到待办列表（ADR-0054）。"""
+    base = datetime(2026, 11, 1, 12, tzinfo=UTC)
+    for index, (approval_id, tool_name, resolver, resolved_at) in enumerate(
+        [
+            ("f1", "create_ticket", "u_900", base),
+            ("f2", "create_ticket", "u_901", base + timedelta(hours=1)),
+            ("f3", "query_cmdb", "u_900", base + timedelta(days=1)),
+        ]
+    ):
+        await mem_approvals.create(
+            ApprovalRecord(
+                id=approval_id,
+                run_id=f"run_{index}",
+                call_id=f"call_{index}",
+                tool_name=tool_name,
+                args={},
+                risk_level="medium",
+                status="approved",
+                requested_by="u_102",
+                resolved_by=resolver,
+                expires_at=base,
+                created_at=base - timedelta(minutes=10),
+                resolved_at=resolved_at,
+                state={},
+            )
+        )
+
+    filtered = await client.get(
+        "/api/approvals?status=approved&tool=create_ticket&resolved_by=u_900"
+        "&resolved_from=2026-11-01&resolved_to=2026-11-01",
+        headers=APPROVER,
+    )
+    assert filtered.status_code == 200
+    assert [item["approval_id"] for item in filtered.json()["items"]] == ["f1"]
+
+    first = await client.get(
+        "/api/approvals?status=approved&tool=create_ticket&limit=1", headers=APPROVER
+    )
+    assert first.status_code == 200
+    assert [item["approval_id"] for item in first.json()["items"]] == ["f2"]
+    cursor = first.json()["next_cursor"]
+    assert isinstance(cursor, str) and cursor
+
+    # 用同一组筛选条件继续翻页，游标仍有效。
+    second = await client.get(
+        f"/api/approvals?status=approved&tool=create_ticket&limit=1&cursor={cursor}",
+        headers=APPROVER,
+    )
+    assert second.status_code == 200
+    assert [item["approval_id"] for item in second.json()["items"]] == ["f1"]
+
+    # 筛选条件变了却复用旧游标，必须显式重来，不能静默从错误位置继续。
+    mismatch = await client.get(
+        f"/api/approvals?status=approved&tool=query_cmdb&cursor={cursor}",
+        headers=APPROVER,
+    )
+    assert mismatch.status_code == 400
+    assert mismatch.json()["code"] == "INVALID_CURSOR"
+
+    pending_filter = await client.get("/api/approvals?status=pending&tool=x", headers=APPROVER)
+    assert pending_filter.status_code == 422
+    assert pending_filter.json()["code"] == "INVALID_FILTER"
+
+    bad_range = await client.get(
+        "/api/approvals?status=approved&resolved_from=2026-11-02&resolved_to=2026-11-01",
+        headers=APPROVER,
+    )
+    assert bad_range.status_code == 422
+    assert bad_range.json()["code"] == "INVALID_RANGE"
+
+    blank_tool = await client.get("/api/approvals?status=approved&tool=%20", headers=APPROVER)
+    assert blank_tool.status_code == 422
+    assert blank_tool.json()["code"] == "INVALID_FILTER"
+
+    max_end = await client.get(
+        "/api/approvals?status=approved&resolved_to=9999-12-31", headers=APPROVER
+    )
+    assert max_end.status_code == 422
+    assert max_end.json()["code"] == "INVALID_RANGE"
 
 
 async def test_resolve_before_approval_required_is_rejected(

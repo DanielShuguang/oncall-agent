@@ -627,6 +627,36 @@ async def _exercise_hidden_sessions(store: RunStore) -> None:
     assert await store.hide_session(user_id=user, session_id="sess_secret") is False
     assert await store.list_hidden_sessions(user_id=other, limit=10) == []
 
+    # 分页与搜索（ADR-0047）：再移除两个会话，验证 keyset 与标题匹配
+    await store.create(
+        run_id=str(uuid.uuid4()), user_id=user, session_id="sess_drop2", message="VPN 掉线"
+    )
+    await asyncio.sleep(0.001)
+    await store.create(
+        run_id=str(uuid.uuid4()), user_id=user, session_id="sess_drop3", message="邮箱打不开"
+    )
+    assert await store.hide_session(user_id=user, session_id="sess_drop2") is True
+    await asyncio.sleep(0.001)
+    assert await store.hide_session(user_id=user, session_id="sess_drop3") is True
+    first_page = await store.list_hidden_sessions(user_id=user, limit=2)
+    assert len(first_page) == 2
+    second_page = await store.list_hidden_sessions(
+        user_id=user,
+        limit=2,
+        before_hidden_at=first_page[-1].hidden_at,
+        before_session_id=first_page[-1].session_id,
+    )
+    assert [item.session_id for item in second_page] == ["sess_drop"]
+    assert [
+        item.session_id
+        for item in await store.list_hidden_sessions(user_id=user, limit=10, query="vpn")
+    ] == ["sess_drop2"]
+    assert [
+        item.session_id
+        for item in await store.list_hidden_sessions(user_id=user, limit=10, query="要移除")
+    ] == ["sess_drop"]
+    assert await store.list_hidden_sessions(user_id=user, limit=10, query="不存在") == []
+
     # 恢复（ADR-0043）：删除移除记录，会话重新出现在列表；没有移除过返回 False
     assert await store.unhide_session(user_id=user, session_id="sess_drop") is True
     assert {item.session_id for item in await store.list_sessions(user_id=user, limit=10)} == {
@@ -634,7 +664,8 @@ async def _exercise_hidden_sessions(store: RunStore) -> None:
         "sess_keep",
     }
     assert await store.list_sessions(user_id=user, limit=10, query="要移除") != []
-    assert await store.list_hidden_sessions(user_id=user, limit=10) == []
+    still_hidden = await store.list_hidden_sessions(user_id=user, limit=10)
+    assert {item.session_id for item in still_hidden} == {"sess_drop2", "sess_drop3"}
     assert await store.unhide_session(user_id=user, session_id="sess_drop") is False
     assert await store.unhide_session(user_id=user, session_id="sess_secret") is False
 

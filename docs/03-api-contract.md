@@ -34,7 +34,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | GET | `/sessions` | 当前用户的会话列表（keyset 游标，按活动倒序；可选 `q` 按标题搜索） | W6 后补 |
 | PATCH | `/sessions/{session_id}` | 改会话显示标题；`title: null` 恢复默认 | W6 后补 |
 | DELETE | `/sessions/{session_id}` | 从会话列表移除（软移除；不删 run/事件/审批，204） | W6 后补 |
-| GET | `/sessions/hidden` | 本人从列表移除的会话（按移除时间倒序，ADR-0043） | W6 后补 |
+| GET | `/sessions/hidden` | 本人从列表移除的会话（游标分页 + 标题搜索，ADR-0043/0047） | W6 后补 |
 | DELETE | `/sessions/{session_id}/hidden` | 恢复已移除的会话（只删 `hidden_sessions` 行，204） | W6 后补 |
 | GET | `/sessions/{session_id}/runs` | 一页会话详情（正文/引用/运行过程，一次返回） | W6 后补 |
 | GET | `/runs/{run_id}` | 单次运行详情（含指标与模型调用明细） | W1 D4 / W4 D19 |
@@ -486,10 +486,10 @@ Authorization: Bearer <token>
 - 移除后可以在「已移除的会话」里恢复（§3.7）；成功后前端若移除的是当前会话，会切到一个新会话
 - 库不可用时返回 `503 {"code":"DATABASE_UNAVAILABLE"}`
 
-### 3.7 已移除会话的查看与恢复（ADR-0043）
+### 3.7 已移除会话的查看与恢复（ADR-0043 / ADR-0047）
 
 ```http
-GET /api/sessions/hidden?limit=50
+GET /api/sessions/hidden?limit=20&cursor=eyJ0IjoiMjAyNi0xMS0xMlQwOTozMDowMFoiLCJzIjoic2Vzc18wMUgifQ&q=打印
 Authorization: Bearer <token>
 ```
 
@@ -502,7 +502,8 @@ Authorization: Bearer <token>
       "run_count": 2,
       "hidden_at": "2026-11-12T09:30:00Z"
     }
-  ]
+  ],
+  "next_cursor": "eyJ0IjoiMjAyNi0xMS0xMlQwOTozMDowMFoiLCJzIjoic2Vzc18wMUgifQ"
 }
 ```
 
@@ -512,16 +513,23 @@ Authorization: Bearer <token>
 ```
 
 - `GET /sessions/hidden` 只返回**本人**从列表移除的会话，按 `hidden_at DESC, session_id DESC`；
-  `limit` 1–50，默认 50，v1 没有分页
-- 标题口径与普通会话列表一致：自定义标题优先，否则最早一条非空 `input`，展示截到 60 字符；
-  `run_count` 是该会话仍存在的 run 数（移除不删 run）
+  `limit` 1–50，默认 50；`cursor` 是 `(hidden_at, session_id)` 的 keyset 游标（base64url JSON），
+  当前页取满时返回 `next_cursor`，下一页为空时为 `null`
+- 搜索 `q` 与主列表同口径：大小写不敏感，同时匹配显示标题（自定义标题优先）与首条非空
+  `input`；**不搜回答正文**。`q` 最长 100 字符，空白按没有搜索处理
+- 标题口径与普通会话列表一致：展示截到 60 字符；`run_count` 是该会话仍存在的 run 数
+  （移除不删 run）
+- 翻页期间恢复/移除会话会让列表变化，可能重复或跳过一页；刷新（重新展开）即重置。
+  移除时间本身不会变（重复移除保留第一次时间），所以已加载页的游标仍然稳定
+- 非法 `cursor` 返回 `400 {"code":"INVALID_CURSOR"}`；`q` 超过 100 字符返回 422
 - 恢复成功返回 `204 No Content`；之后该会话重新出现在 `GET /sessions` 与 `q` 搜索中，
   排序仍按最近一次 run 活动
 - 没移除过、或属于别人的会话，都返回 `404 {"detail":"session not found"}`（不泄露存在性）；
   重复恢复同样是 404（已无行可删）
 - 恢复只删 `hidden_sessions` 的一行：不重建/不删除 run、事件、审批、引用快照与自定义标题；
   已过保留期的正文不会因此重新出现
-- 库不可用时返回 `503 {"code":"DATABASE_UNAVAILABLE"}`；前端折叠区只在首次展开时请求
+- 库不可用时返回 `503 {"code":"DATABASE_UNAVAILABLE"}`；前端折叠区只在首次展开时请求，
+  搜索与「加载更多」都带当前关键词/游标，旧响应不会覆盖新结果
 
 ## 4. 审批
 

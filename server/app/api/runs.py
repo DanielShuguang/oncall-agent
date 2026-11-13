@@ -279,16 +279,37 @@ async def list_hidden_sessions(
     store: Annotated[RunStore, Depends(get_store)],
     identity: Annotated[Identity, Depends(get_identity)],
     limit: Annotated[int, Query(ge=1, le=50)] = 50,
+    cursor: Annotated[str | None, Query(max_length=512)] = None,
+    q: Annotated[str | None, Query(min_length=1, max_length=100)] = None,
 ) -> HiddenSessionListResponse:
-    """当前用户从列表移除的会话，按移除时间倒序（ADR-0043）。
+    """当前用户从列表移除的会话，按移除时间倒序（ADR-0043 / ADR-0047）。
 
     只用于「已移除」视图；普通列表与搜索始终排除这些会话（ADR-0041）。
     run、事件、审批与标题都没有删，恢复只是删掉 `hidden_sessions` 行。
+
+    `q` 与主列表同口径：只匹配显示标题（自定义标题优先，否则首条非空问题），
+    不搜回答正文；`cursor` 是 `(hidden_at, session_id)` 的 keyset 游标。
     """
+    before_hidden_at: datetime | None = None
+    before_session_id: str | None = None
+    if cursor:
+        before_hidden_at, before_session_id = _decode_session_cursor(cursor)
+    query = q.strip() if q is not None else None
     try:
-        items = await store.list_hidden_sessions(user_id=identity.user_id, limit=limit)
+        items = await store.list_hidden_sessions(
+            user_id=identity.user_id,
+            limit=limit,
+            before_hidden_at=before_hidden_at,
+            before_session_id=before_session_id,
+            query=query or None,
+        )
     except SQLAlchemyError as exc:
         raise ApiError(503, "DATABASE_UNAVAILABLE", "database unavailable") from exc
+    next_cursor = (
+        _encode_session_cursor(items[-1].hidden_at, items[-1].session_id)
+        if len(items) == limit
+        else None
+    )
     return HiddenSessionListResponse(
         items=[
             HiddenSessionOut(
@@ -298,7 +319,8 @@ async def list_hidden_sessions(
                 hidden_at=item.hidden_at,
             )
             for item in items
-        ]
+        ],
+        next_cursor=next_cursor,
     )
 
 

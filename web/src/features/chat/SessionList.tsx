@@ -41,6 +41,14 @@ interface SessionListProps {
   hiddenSessions: HiddenSession[];
   hiddenLoading: boolean;
   hiddenError: string | null;
+  /** 已移除视图的搜索与分页（ADR-0047） */
+  hiddenQuery: string;
+  hiddenDraftQuery: string;
+  hiddenHasMore: boolean;
+  hiddenLoadingMore: boolean;
+  onHiddenDraftChange: (value: string) => void;
+  onHiddenSearch: () => void;
+  onHiddenLoadMore: () => void;
   restoringId: string | null;
   onToggleHidden: () => void;
   onRestore: (sessionId: string) => void;
@@ -86,6 +94,13 @@ export function SessionList({
   hiddenSessions,
   hiddenLoading,
   hiddenError,
+  hiddenQuery,
+  hiddenDraftQuery,
+  hiddenHasMore,
+  hiddenLoadingMore,
+  onHiddenDraftChange,
+  onHiddenSearch,
+  onHiddenLoadMore,
   restoringId,
   onToggleHidden,
   onRestore,
@@ -271,10 +286,30 @@ export function SessionList({
         </Button>
         {hiddenOpen && (
           <div id="hidden-sessions" className="mt-1 max-h-56 space-y-1 overflow-y-auto pr-1">
+            <form
+              className="flex gap-1"
+              onSubmit={(event) => {
+                event.preventDefault();
+                onHiddenSearch();
+              }}
+            >
+              <input
+                value={hiddenDraftQuery}
+                onChange={(event) => onHiddenDraftChange(event.target.value)}
+                placeholder="搜索已移除"
+                aria-label="搜索已移除的会话"
+                className="h-7 min-w-0 flex-1 rounded-md border bg-transparent px-2 text-xs outline-none focus-visible:ring-1 focus-visible:ring-brand/40"
+              />
+              <Button size="sm" variant="outline" type="submit">
+                搜索
+              </Button>
+            </form>
             {hiddenLoading && <p className="px-1 py-1 text-xs text-muted-foreground">加载中…</p>}
             {hiddenError && <p className="px-1 py-1 text-xs text-danger">{hiddenError}</p>}
             {!hiddenLoading && !hiddenError && hiddenSessions.length === 0 && (
-              <p className="px-1 py-1 text-xs text-muted-foreground">没有已移除的会话。</p>
+              <p className="px-1 py-1 text-xs text-muted-foreground">
+                {hiddenQuery.trim() ? '没有匹配的已移除会话。' : '没有已移除的会话。'}
+              </p>
             )}
             {hiddenSessions.map((item) => (
               <div
@@ -297,6 +332,17 @@ export function SessionList({
                 </Button>
               </div>
             ))}
+            {hiddenHasMore && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="w-full"
+                disabled={hiddenLoadingMore || hiddenLoading}
+                onClick={onHiddenLoadMore}
+              >
+                {hiddenLoadingMore ? '加载中…' : '加载更多'}
+              </Button>
+            )}
           </div>
         )}
       </div>

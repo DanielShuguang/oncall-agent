@@ -1071,6 +1071,33 @@ Postgres + Redis **506 passed**。`ruff check` / `ruff format --check`（186 fil
 
 ---
 
+## W6 后补：已移除会话的分页与搜索（ADR-0047）
+
+ADR-0043 的「已移除的会话」只有最近 50 条、没有搜索。软移除不删 run，误移除与长期使用会让
+这个列表越积越多；主列表已经有标题搜索与 keyset 翻页，已移除视图却只能从头翻。本轮把两者
+对齐，仍然不改表、不加索引。
+
+| 事项 | 落地 |
+|---|---|
+| 接口 | `GET /sessions/hidden` 增加 `cursor` / `q`；`limit` 仍 1–50 默认 50 |
+| 游标 | `(hidden_at, session_id)` 的 keyset，base64url JSON；取满才给 `next_cursor` |
+| 搜索 | 与主列表同口径：大小写不敏感，匹配显示标题（自定义优先）与首条非空问题，不搜正文 |
+| 排序 | 仍按移除时间倒序；`hidden_at` 保留第一次移除时间，重复移除不会让游标失效 |
+| 前端 | 折叠区加搜索框与「加载更多」；请求仍带 token，旧响应不覆盖新关键词/新页 |
+| 数据 | 无迁移、无新索引；查询仍是 `hidden_sessions` + `runs`/`session_titles` 投影 |
+
+验证：默认 **472 passed + 35 skipped**；真实 Postgres **504 passed + 3 skipped**；
+Postgres + Redis **507 passed**。
+`ruff check` / `ruff format --check`（186 files）/`mypy app`（110 files）通过；
+前端 `tsc`、**73 tests / 15 files**、`oxlint` 0/0（66 files）、`oxfmt --check` 74 files、
+`pnpm build` 287ms。不改表/事件/清理；未重跑 RAG 与多轮评测。
+
+已知边界：搜索只覆盖标题与首条问题，不搜回答正文；翻页期间恢复/移除会话可能重复或跳过
+一页；`hidden_sessions` 的孤儿行仍不清理；管理员视角与批量恢复仍未做。
+详见 [ADR-0047](decisions/0047-hidden-session-pagination.md)。
+
+---
+
 ## 每周固定动作
 
 | 时点 | 动作 |

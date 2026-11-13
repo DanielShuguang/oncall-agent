@@ -488,12 +488,22 @@ class RunStore(Protocol):
         ...
 
     async def list_hidden_sessions(
-        self, *, user_id: str, limit: int = 50
+        self,
+        *,
+        user_id: str,
+        limit: int = 50,
+        before_hidden_at: datetime | None = None,
+        before_session_id: str | None = None,
+        query: str | None = None,
     ) -> list[HiddenSessionSummary]:
         """列出该用户从列表移除的会话，按移除时间倒序（ADR-0043）。
 
         标题与计数仍从 runs 投影；没有 run 的残留行不返回。只用于「已移除」
         视图，普通列表与搜索始终排除这些会话（ADR-0041）。
+
+        `(before_hidden_at, before_session_id)` 是上一页 keyset 游标（ADR-0047）。
+        `query` 与主列表同口径：大小写不敏感、同时匹配自定义标题与首条问题，
+        不搜回答正文。移除时间相同的会话按 `session_id` 倒序保证稳定。
         """
         ...
 
@@ -892,7 +902,13 @@ class InMemoryRunStore:
             return True
 
     async def list_hidden_sessions(
-        self, *, user_id: str, limit: int = 50
+        self,
+        *,
+        user_id: str,
+        limit: int = 50,
+        before_hidden_at: datetime | None = None,
+        before_session_id: str | None = None,
+        query: str | None = None,
     ) -> list[HiddenSessionSummary]:
         async with self._lock:
             by_session: dict[str, list[RunRecord]] = {}
@@ -900,6 +916,8 @@ class InMemoryRunStore:
                 if record.user_id == user_id:
                     by_session.setdefault(record.session_id, []).append(record)
             items: list[HiddenSessionSummary] = []
+            #: 首条非空 input 的原文；搜索同时匹配它和自定义标题（ADR-0040/0047）
+            generated: dict[str, str | None] = {}
             for (hidden_user, session_id), hidden_at in self._hidden_sessions.items():
                 if hidden_user != user_id:
                     continue
@@ -910,6 +928,7 @@ class InMemoryRunStore:
                 first_input = next(
                     (record.input for record in records if record.input.strip()), None
                 )
+                generated[session_id] = first_input
                 custom = self._session_titles.get((user_id, session_id))
                 items.append(
                     HiddenSessionSummary(
@@ -919,7 +938,20 @@ class InMemoryRunStore:
                         hidden_at=hidden_at,
                     )
                 )
+            if query:
+                needle = query.lower()
+                items = [
+                    item
+                    for item in items
+                    if _matches_session_query(needle, item.title, generated.get(item.session_id))
+                ]
             items.sort(key=lambda item: (item.hidden_at, item.session_id), reverse=True)
+            if before_hidden_at is not None and before_session_id is not None:
+                items = [
+                    item
+                    for item in items
+                    if (item.hidden_at, item.session_id) < (before_hidden_at, before_session_id)
+                ]
             return items[:limit]
 
     async def unhide_session(self, *, user_id: str, session_id: str) -> bool:
@@ -1503,7 +1535,13 @@ class PostgresRunStore:
         return True
 
     async def list_hidden_sessions(
-        self, *, user_id: str, limit: int = 50
+        self,
+        *,
+        user_id: str,
+        limit: int = 50,
+        before_hidden_at: datetime | None = None,
+        before_session_id: str | None = None,
+        query: str | None = None,
     ) -> list[HiddenSessionSummary]:
         # 标题口径与 list_sessions 一致：自定义标题优先，否则最早一条非空 input。
         # 按 hidden_at 排序而不是最近活动时间——「已移除」视图是运维/找回场景。
@@ -1525,11 +1563,12 @@ class PostgresRunStore:
             .subquery()
         )
         first_input = select(ranked.c.session_id, ranked.c.input).where(ranked.c.rn == 1).subquery()
+        title = func.coalesce(SessionTitleRow.title, first_input.c.input).label("title")
         stmt = (
             select(
                 HiddenSessionRow.session_id,
                 HiddenSessionRow.hidden_at,
-                func.coalesce(SessionTitleRow.title, first_input.c.input).label("title"),
+                title,
                 func.count(Run.id).label("run_count"),
             )
             .join(
@@ -1548,7 +1587,28 @@ class PostgresRunStore:
                 ),
             )
             .where(HiddenSessionRow.user_id == user_id)
-            .group_by(
+        )
+        if query:
+            # 与主列表同口径：strpos 保证 `%`/`_` 是字面量，同时匹配标题与首条问题
+            needle = query.lower()
+            stmt = stmt.where(
+                or_(
+                    func.strpos(func.lower(func.coalesce(SessionTitleRow.title, "")), needle) > 0,
+                    func.strpos(func.lower(func.coalesce(first_input.c.input, "")), needle) > 0,
+                )
+            )
+        if before_hidden_at is not None and before_session_id is not None:
+            stmt = stmt.where(
+                or_(
+                    HiddenSessionRow.hidden_at < before_hidden_at,
+                    and_(
+                        HiddenSessionRow.hidden_at == before_hidden_at,
+                        HiddenSessionRow.session_id < before_session_id,
+                    ),
+                )
+            )
+        stmt = (
+            stmt.group_by(
                 HiddenSessionRow.session_id,
                 HiddenSessionRow.hidden_at,
                 SessionTitleRow.title,

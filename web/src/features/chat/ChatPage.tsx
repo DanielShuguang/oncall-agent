@@ -68,6 +68,11 @@ export default function ChatPage() {
   const [hiddenSessions, setHiddenSessions] = useState<HiddenSession[]>([]);
   const [hiddenLoading, setHiddenLoading] = useState(false);
   const [hiddenError, setHiddenError] = useState<string | null>(null);
+  // 已移除视图的搜索与分页（ADR-0047）：与主列表共用「标题匹配」口径
+  const [hiddenQuery, setHiddenQuery] = useState('');
+  const [hiddenDraftQuery, setHiddenDraftQuery] = useState('');
+  const [hiddenCursor, setHiddenCursor] = useState<string | null>(null);
+  const [hiddenLoadingMore, setHiddenLoadingMore] = useState(false);
   const [restoringId, setRestoringId] = useState<string | null>(null);
   // 快速收起/展开时旧请求可能晚于新请求返回：只接受最后一次展开的结果。
   const hiddenRequest = useRef(0);
@@ -278,11 +283,35 @@ export default function ChatPage() {
       hiddenRequest.current += 1;
       setHiddenOpen(false);
       setHiddenLoading(false);
+      setHiddenLoadingMore(false);
       setHiddenSessions([]);
+      setHiddenQuery('');
+      setHiddenDraftQuery('');
+      setHiddenCursor(null);
     } catch (err) {
       setSessionsError(err instanceof Error ? err.message : '会话移除失败');
     } finally {
       setHidingId(null);
+    }
+  };
+
+  const loadHiddenFirstPage = async (query: string) => {
+    const requestId = ++hiddenRequest.current;
+    setHiddenLoading(true);
+    setHiddenLoadingMore(false);
+    setHiddenError(null);
+    try {
+      const page = await listHiddenSessions(50, null, query || null);
+      if (requestId === hiddenRequest.current) {
+        setHiddenSessions(page.items);
+        setHiddenCursor(page.next_cursor);
+      }
+    } catch (err) {
+      if (requestId === hiddenRequest.current) {
+        setHiddenError(err instanceof Error ? err.message : '已移除会话加载失败');
+      }
+    } finally {
+      if (requestId === hiddenRequest.current) setHiddenLoading(false);
     }
   };
 
@@ -291,21 +320,37 @@ export default function ChatPage() {
       hiddenRequest.current += 1;
       setHiddenOpen(false);
       setHiddenLoading(false);
+      setHiddenLoadingMore(false);
       return;
     }
-    const requestId = ++hiddenRequest.current;
     setHiddenOpen(true);
-    setHiddenLoading(true);
+    await loadHiddenFirstPage(hiddenQuery);
+  };
+
+  const onHiddenSearch = () => {
+    const nextQuery = hiddenDraftQuery.trim();
+    setHiddenQuery(nextQuery);
+    setHiddenCursor(null);
+    void loadHiddenFirstPage(nextQuery);
+  };
+
+  const onHiddenLoadMore = async () => {
+    if (!hiddenCursor || hiddenLoading || hiddenLoadingMore) return;
+    const requestId = ++hiddenRequest.current;
+    setHiddenLoadingMore(true);
     setHiddenError(null);
     try {
-      const items = await listHiddenSessions(50);
-      if (requestId === hiddenRequest.current) setHiddenSessions(items);
+      const page = await listHiddenSessions(50, hiddenCursor, hiddenQuery || null);
+      if (requestId === hiddenRequest.current) {
+        setHiddenSessions((prev) => [...prev, ...page.items]);
+        setHiddenCursor(page.next_cursor);
+      }
     } catch (err) {
       if (requestId === hiddenRequest.current) {
         setHiddenError(err instanceof Error ? err.message : '已移除会话加载失败');
       }
     } finally {
-      if (requestId === hiddenRequest.current) setHiddenLoading(false);
+      if (requestId === hiddenRequest.current) setHiddenLoadingMore(false);
     }
   };
 
@@ -355,6 +400,13 @@ export default function ChatPage() {
         hiddenSessions={hiddenSessions}
         hiddenLoading={hiddenLoading}
         hiddenError={hiddenError}
+        hiddenQuery={hiddenQuery}
+        hiddenDraftQuery={hiddenDraftQuery}
+        hiddenHasMore={hiddenCursor !== null}
+        hiddenLoadingMore={hiddenLoadingMore}
+        onHiddenDraftChange={setHiddenDraftQuery}
+        onHiddenSearch={onHiddenSearch}
+        onHiddenLoadMore={() => void onHiddenLoadMore()}
         restoringId={restoringId}
         onToggleHidden={() => void onToggleHiddenSessions()}
         onRestore={(id) => void onRestoreSession(id)}

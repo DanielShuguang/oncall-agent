@@ -513,6 +513,42 @@ async def test_hide_session_removes_from_list_and_search(
     assert (await client.get(f"/api/runs/{hidden_run_id}")).status_code == 200
 
 
+async def test_hidden_sessions_paginate_and_search(
+    client: AsyncClient, mem_store: InMemoryRunStore
+) -> None:
+    for session_id, message in (
+        ("sess_h1", "打印机离线"),
+        ("sess_h2", "VPN 掉线"),
+        ("sess_h3", "邮箱打不开"),
+    ):
+        await _run(mem_store, session_id, message)
+        await asyncio.sleep(0.002)
+        assert (await client.delete(f"/api/sessions/{session_id}")).status_code == 204
+
+    first = (await client.get("/api/sessions/hidden", params={"limit": 2})).json()
+    assert [item["session_id"] for item in first["items"]] == ["sess_h3", "sess_h2"]
+    assert first["next_cursor"]
+
+    second = (
+        await client.get(
+            "/api/sessions/hidden",
+            params={"limit": 2, "cursor": first["next_cursor"]},
+        )
+    ).json()
+    assert [item["session_id"] for item in second["items"]] == ["sess_h1"]
+    assert second["next_cursor"] is None
+
+    by_vpn = (await client.get("/api/sessions/hidden", params={"q": "vpn"})).json()
+    assert [item["session_id"] for item in by_vpn["items"]] == ["sess_h2"]
+    by_custom = (await client.get("/api/sessions/hidden", params={"q": "邮箱"})).json()
+    assert [item["session_id"] for item in by_custom["items"]] == ["sess_h3"]
+    assert (await client.get("/api/sessions/hidden", params={"q": "不存在"})).json()["items"] == []
+
+    bad = await client.get("/api/sessions/hidden", params={"cursor": "not-a-cursor"})
+    assert bad.status_code == 400
+    assert bad.json()["code"] == "INVALID_CURSOR"
+
+
 async def test_hide_session_is_scoped_and_reports_database_failure(
     client: AsyncClient, mem_store: InMemoryRunStore
 ) -> None:

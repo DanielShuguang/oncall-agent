@@ -138,6 +138,9 @@ CREATE TABLE hidden_sessions (
 > 的时间口径保存。没有外键、没有额外索引；重复移除幂等；`hidden_at` 保留第一次移除时间。
 > 恢复（[ADR-0043](decisions/0043-hidden-session-restore.md)）只删除这一行，会话随即重新参与
 > 列表与搜索，不重建任何 run/事件/审批。
+> 「已移除」视图的分页与标题搜索（[ADR-0047](decisions/0047-hidden-session-pagination.md)）仍走
+> 这张表 + `runs`/`session_titles` 的投影：keyset 用 `(hidden_at, session_id)`，搜索只匹配标题与
+> 首条非空问题；没有新增列/索引/迁移，量级仍由单用户被移除会话数决定。
 > 如果对应 run 后来被保留清理删掉，这里会留下孤儿行，当前不清理（表小，等真实量再定）。
 
 ### 2.2 run_events（事件，只追加）

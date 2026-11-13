@@ -66,10 +66,21 @@ export interface HiddenSession {
   hidden_at: string;
 }
 
-/** 已移除的会话（ADR-0043）；只影响列表，run/事件仍按保留期保存。 */
-export async function listHiddenSessions(limit = 50): Promise<HiddenSession[]> {
-  const page = await getJson<{ items: HiddenSession[] }>(`/sessions/hidden?limit=${limit}`);
-  return page.items;
+export interface HiddenSessionPage {
+  items: HiddenSession[];
+  next_cursor: string | null;
+}
+
+/** 已移除的会话（ADR-0043 / ADR-0047）；只影响列表，run/事件仍按保留期保存。 */
+export async function listHiddenSessions(
+  limit = 50,
+  cursor: string | null = null,
+  query: string | null = null,
+): Promise<HiddenSessionPage> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (cursor) params.set('cursor', cursor);
+  if (query) params.set('q', query);
+  return getJson<HiddenSessionPage>(`/sessions/hidden?${params.toString()}`);
 }
 
 /** 恢复已移除的会话（ADR-0043）：只删 hidden_sessions 行，恢复后重新参与列表与搜索。 */

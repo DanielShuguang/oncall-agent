@@ -33,9 +33,12 @@ CREATE INDEX idx_approvals_pending ON approvals (status, expires_at);
    最近的决议在前。`expired` 的 `resolved_at` 是 `expire_due` 收敛的时刻，
    因此四类状态都能落在这个全序里；`resolved_at IS NULL` 的脏数据不进入已办列表。
 3. 游标形状跟着状态走：待办是 base64url JSON `{"e","c","i"}`（ADR-0052），
-   已办是 `{"r","i"}`。解析时先看 `status` 再选解码器；把待办游标用到已办
-   （或反过来）返回 `400 {"code":"INVALID_CURSOR"}`，不静默从头开始。
-   ADR-0052 生成的已办游标在新版本失效，前端刷新即回第一页；待办游标继续有效。
+   已办是 `{"s","r","i"}`（`s` 是 `approved|rejected|expired`）。解析时先看
+   `status` 再选解码器，并校验 `s` 与请求状态一致；把待办游标用到已办、
+   把已办游标用到待办，或在三种已办状态之间混用，都返回
+   `400 {"code":"INVALID_CURSOR"}`，不静默从头开始。
+   ADR-0052 生成的已办游标（`{e,c,i}`）在新版本失效；本 ADR 最初版本的
+   `{r,i}` 游标也因新增 `s` 失效，刷新即回第一页；待办游标继续有效。
 4. 新增部分索引 `idx_approvals_resolved (status, resolved_at, id)
    WHERE resolved_at IS NOT NULL`（迁移 0018）。查询里本来就有
    `resolved_at IS NOT NULL`，可命中该索引；索引用默认升序，PostgreSQL 反向
@@ -65,7 +68,7 @@ CREATE INDEX idx_approvals_pending ON approvals (status, expires_at);
 - 前端 `tsc`、**74 tests / 15 files**、`oxlint` 0/0、`oxfmt --check` 74 files、
   `pnpm build` 通过。
 - 覆盖：内存/Postgres 已办倒序与同时间戳按 id 兜底、API 已办游标往返、
-  待办/已办游标形状不匹配 400、空页；迁移 0018 `upgrade → check → downgrade
+  待办/已办以及已办不同状态之间的游标混用 400、空页；迁移 0018 `upgrade → check → downgrade
   → upgrade` 无漂移。
 
 ## 6. 待定

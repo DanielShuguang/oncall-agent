@@ -462,6 +462,14 @@ async def test_approval_list_resolved_paginates_with_cursor(
     assert wrong.status_code == 400
     assert wrong.json()["code"] == "INVALID_CURSOR"
 
+    # 已办三种状态共用 `(resolved_at, id)` 排序键，但游标里带 status，
+    # approved 的游标不能静默用于 rejected（ADR-0053）。
+    wrong_decided = await client.get(
+        f"/api/approvals?status=rejected&cursor={cursor}", headers=APPROVER
+    )
+    assert wrong_decided.status_code == 400
+    assert wrong_decided.json()["code"] == "INVALID_CURSOR"
+
 
 async def test_resolve_before_approval_required_is_rejected(
     mem_store: InMemoryRunStore, mem_approvals: InMemoryApprovalStore

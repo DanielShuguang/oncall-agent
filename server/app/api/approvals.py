@@ -64,7 +64,9 @@ def _encode_approval_cursor(record: ApprovalRecord) -> str:
         if record.resolved_at is None:
             # 存储查询已过滤 resolved_at 为空的行；走到这里说明数据不变量被破坏。
             raise RuntimeError("decided approval is missing resolved_at")
-        payload = {"r": record.resolved_at.isoformat(), "i": record.id}
+        # 已办三种状态共用排序键，必须把 status 写进游标，避免 approved 的
+        # 游标被静默用到 rejected 上（ADR-0053）。
+        payload = {"s": record.status, "r": record.resolved_at.isoformat(), "i": record.id}
     raw = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode()
     return base64.urlsafe_b64encode(raw).decode().rstrip("=")
 
@@ -109,8 +111,8 @@ def _decode_pending_cursor(data: dict[str, object]) -> PendingApprovalCursor:
     )
 
 
-def _decode_resolved_cursor(data: dict[str, object]) -> ResolvedApprovalCursor:
-    if "r" not in data:
+def _decode_resolved_cursor(data: dict[str, object], status: str) -> ResolvedApprovalCursor:
+    if data.get("s") != status or "r" not in data:
         raise _cursor_error()
     return ResolvedApprovalCursor(
         resolved_at=_cursor_time(data["r"]),
@@ -122,7 +124,7 @@ def _decode_approval_cursor(cursor: str, status: str) -> ApprovalListCursor:
     data = _cursor_payload(cursor)
     if status == "pending":
         return _decode_pending_cursor(data)
-    return _decode_resolved_cursor(data)
+    return _decode_resolved_cursor(data, status)
 
 
 @router.get("/approvals", response_model=ApprovalListResponse)

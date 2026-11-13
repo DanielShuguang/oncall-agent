@@ -1239,7 +1239,7 @@ ADR-0052 解决了翻页，但已办仍沿用待办的 `(expires_at, created_at,
 | 事项 | 落地 |
 |---|---|
 | 排序 | `pending` 保持 `(expires_at, created_at, id)` 升序；`approved/rejected/expired` 改 `(resolved_at, id)` 倒序，最近决议在前 |
-| 游标 | 形状随状态：待办 `{e,c,i}`，已办 `{r,i}`；按 `status` 选解码器，混用 400 `INVALID_CURSOR`；旧的已办游标失效一次，刷新回第一页 |
+| 游标 | 形状随状态：待办 `{e,c,i}`，已办 `{s,r,i}`；按 `status` 选解码器，混用 400 `INVALID_CURSOR`；旧的已办游标失效一次，刷新回第一页 |
 | 索引 | 迁移 `0018`：部分索引 `idx_approvals_resolved (status, resolved_at, id) WHERE resolved_at IS NOT NULL`；待办仍用 `idx_approvals_pending` |
 | 前端 | 已办表头「决议时间」并显示 `resolved_at`；待办仍显示 `expires_at` |
 | 范围 | 不做按工具/审批人/日期筛选，不做总数/跳页/导出；沿用 ADR-0052 的取满给游标与请求 token |

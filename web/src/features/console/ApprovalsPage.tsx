@@ -168,6 +168,19 @@ export default function ApprovalsPage() {
     }
   };
 
+  const changeStatus = (next: string) => {
+    // 先让在途请求失效并清空旧列表：否则切到已办时，上一帧仍会渲染待办行，
+    // 且表头已变成「决议时间」（ADR-0053）。
+    listRequest.current += 1;
+    setStatus(next);
+    setItems([]);
+    setCursor(null);
+    setLoading(true);
+    setLoadingMore(false);
+    setError(null);
+    setNotice(null);
+  };
+
   const openResolve = (approval: ApprovalOut, decision: ApprovalDecision) => {
     setResolver({ approval, decision, reason: '', scope: 'once', submitting: false, error: null });
   };
@@ -247,13 +260,7 @@ export default function ApprovalsPage() {
             <SelectItem value="approver">按审批人</SelectItem>
           </SelectContent>
         </Select>
-        <Select
-          value={status}
-          onValueChange={(next) => {
-            setStatus(next);
-            setNotice(null);
-          }}
-        >
+        <Select value={status} onValueChange={changeStatus}>
           <SelectTrigger className="h-8 w-28 text-xs">
             <SelectValue />
           </SelectTrigger>

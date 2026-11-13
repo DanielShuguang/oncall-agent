@@ -1163,7 +1163,7 @@ ADR-0048 的统计接口已经支持 `days=1–90`，但前端固定 7 天，响
 | 接口 | `GET /approvals/stats?days=` 响应增加 `daily`（UTC 日期、只含有决议的日期） |
 | 粒度 | 每日 `decided_count` + `avg_wait_ms`；只算 approved/rejected，过期不计 |
 | 口径 | 稀疏不补零；与窗口汇总同一个 `since`；请求时快照 |
-| 存储 | 内存按 `resolved_at.date()` 分桶；PG `date_trunc('day', resolved_at)` + GROUP BY |
+| 存储 | 内存按 `resolved_at.date()` 分桶；PG `date_trunc('day', timezone('UTC', resolved_at))` + GROUP BY |
 | 前端 | 7/30/90 天切换（`days` 联动）；四卡后「按日决议」卡；不引图表依赖 |
 | 数据 | 无迁移、无新索引；不按人/工具分组、不告警 |
 

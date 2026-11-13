@@ -27,7 +27,8 @@ ADR-0048 的 `GET /approvals/stats?days=` 已经支持 1–90 天，但前端把
    `since` 不是日历日边界，补零会造出「窗口外半天」的假数据。
 3. 只统计 `approved` / `rejected`，与 `decided_count` 口径一致；`expired` 不进日趋势。
 4. 存储层一次聚合：内存遍历时按 `resolved_at.date()` 分桶；Postgres 用
-   `date_trunc('day', resolved_at)` + `GROUP BY`，与窗口汇总在同一次 `stats()` 调用返回。
+   `date_trunc('day', timezone('UTC', resolved_at))` + `GROUP BY`（显式转 UTC，避免受会话
+   时区影响），与窗口汇总在同一次 `stats()` 调用返回。
 5. API 响应加 `daily`；`day` 为 `YYYY-MM-DD`，`avg_wait_ms` 只在脏数据时为空。
 6. 前端提供 7/30/90 天切换，`days` 与 `daily` 使用同一个窗口；趋势卡只列文本行
    （日期 / 单数 / 平均等待），不引入图表依赖。

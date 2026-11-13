@@ -364,7 +364,8 @@ class PostgresApprovalStore:
                     )
                 )
             ).one()
-            day_column = func.date_trunc("day", Approval.resolved_at)
+            # date_trunc 对 timestamptz 使用会话时区；先转 UTC，保证分桶与文档口径一致（R6）。
+            day_column = func.date_trunc("day", func.timezone("UTC", Approval.resolved_at))
             daily_rows = (
                 await session.execute(
                     select(

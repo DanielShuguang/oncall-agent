@@ -6,6 +6,7 @@
 
 import { Badge } from '@/components/ui/badge';
 import type { ApprovalTimelineItem, TimelineItem, ToolTimelineItem } from './types';
+import { asTruncatedPreview } from './timelinePayload';
 
 const STATUS_LABEL: Record<string, string> = {
   running: '执行中',
@@ -22,23 +23,6 @@ const STATUS_LABEL: Record<string, string> = {
 
 function statusLabel(status: string): string {
   return STATUS_LABEL[status] ?? status;
-}
-
-interface TruncatedPreview {
-  truncated: true;
-  original_chars: number;
-  preview: string;
-}
-
-function asTruncatedPreview(value: unknown): TruncatedPreview | null {
-  if (typeof value !== 'object' || value === null) return null;
-  const record = value as Record<string, unknown>;
-  if (record.truncated !== true || typeof record.preview !== 'string') return null;
-  return {
-    truncated: true,
-    original_chars: typeof record.original_chars === 'number' ? record.original_chars : 0,
-    preview: record.preview,
-  };
 }
 
 function JsonBlock({ label, value }: { label: string; value: unknown }) {

@@ -168,12 +168,22 @@ def test_build_timeline_bounds_large_payloads() -> None:
             _event(
                 2,
                 EventType.TOOL_RESULT,
-                {"call_id": "call_big", "status": "ok", "result": {"rows": [big]}},
+                {
+                    "call_id": "call_big",
+                    "status": "error",
+                    "result": {"rows": [big]},
+                    "error": big,
+                },
             ),
             _event(
                 3,
                 EventType.TOOL_CALL,
                 {"call_id": "call_small", "tool": "query_cmdb", "args": {}, "write": False},
+            ),
+            _event(
+                4,
+                EventType.APPROVAL_REQUIRED,
+                {"approval_id": "ap_big", "tool": "create_ticket", "args": {"body": big}},
             ),
         ]
     )
@@ -184,6 +194,13 @@ def test_build_timeline_bounds_large_payloads() -> None:
     assert big_item["args"]["original_chars"] > MAX_TIMELINE_PAYLOAD_CHARS
     assert len(big_item["args"]["preview"]) == MAX_TIMELINE_PREVIEW_CHARS
     assert big_item["result"]["truncated"] is True
+    # 错误信息同样来自外部工具，不能绕过预算
+    assert big_item["error"].startswith(big[:MAX_TIMELINE_PREVIEW_CHARS])
+    assert big_item["error"].endswith("已截断）")
     # 小载荷原样保留，不额外加字段
     assert items[1]["args"] == {}
     assert "truncated" not in items[1]
+    # 审批参数也走同一预算
+    assert items[2]["kind"] == "approval"
+    assert items[2]["truncated"] is True
+    assert items[2]["args"]["truncated"] is True

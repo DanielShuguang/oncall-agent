@@ -50,6 +50,14 @@ def _bounded_payload(value: Any) -> tuple[Any, bool]:
     )
 
 
+def _bounded_text(value: str) -> tuple[str, bool]:
+    """错误信息同样来自外部工具（异常里可能带整段响应体），不能绕过预算。"""
+    if len(value) <= MAX_TIMELINE_PAYLOAD_CHARS:
+        return value, False
+    suffix = f"…（原始 {len(value)} 字符，已截断）"
+    return f"{value[:MAX_TIMELINE_PREVIEW_CHARS]}{suffix}", True
+
+
 def _text(value: Any) -> str | None:
     return value if isinstance(value, str) and value else None
 
@@ -108,7 +116,10 @@ def build_timeline(events: list[RunEvent]) -> tuple[list[dict[str, Any]], bool]:
                     result_item["truncated"] = True
             error = _text(payload.get("error"))
             if error is not None:
-                result_item["error"] = error
+                error_value, error_truncated = _bounded_text(error)
+                result_item["error"] = error_value
+                if error_truncated:
+                    result_item["truncated"] = True
             error_kind = _text(payload.get("error_kind"))
             if error_kind is not None:
                 result_item["error_kind"] = error_kind

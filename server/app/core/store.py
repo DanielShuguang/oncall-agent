@@ -515,6 +515,15 @@ class RunStore(Protocol):
         """
         ...
 
+    async def unhide_sessions(self, *, user_id: str, session_ids: Sequence[str]) -> int:
+        """批量恢复已移除的会话（ADR-0049）。
+
+        一次删除该用户名下多个 `hidden_sessions` 行，返回真正删掉的数量。
+        不存在、属于别人、或本来就没移除的 id 直接忽略：批量操作是部分成功
+        语义，不因一个 id 失效让整批失败。`session_ids` 由 API 去重并限制长度。
+        """
+        ...
+
     async def list_runs_without_citations(self, *, limit: int = 100) -> list[RunRecord]:
         """列出仍没有引用快照、且事件与正文都还保留着的 run（ADR-0042 回填用）。
 
@@ -957,6 +966,14 @@ class InMemoryRunStore:
     async def unhide_session(self, *, user_id: str, session_id: str) -> bool:
         async with self._lock:
             return self._hidden_sessions.pop((user_id, session_id), None) is not None
+
+    async def unhide_sessions(self, *, user_id: str, session_ids: Sequence[str]) -> int:
+        async with self._lock:
+            return sum(
+                1
+                for session_id in session_ids
+                if self._hidden_sessions.pop((user_id, session_id), None) is not None
+            )
 
     async def list_runs_without_citations(self, *, limit: int = 100) -> list[RunRecord]:
         async with self._lock:
@@ -1641,6 +1658,22 @@ class PostgresRunStore:
             )
             await session.commit()
         return deleted is not None
+
+    async def unhide_sessions(self, *, user_id: str, session_ids: Sequence[str]) -> int:
+        if not session_ids:
+            return 0
+        async with self._sessionmaker() as session:
+            result = await session.execute(
+                delete(HiddenSessionRow)
+                .where(
+                    HiddenSessionRow.user_id == user_id,
+                    HiddenSessionRow.session_id.in_(session_ids),
+                )
+                .returning(HiddenSessionRow.session_id)
+            )
+            restored = len(result.scalars().all())
+            await session.commit()
+        return restored
 
     async def list_runs_without_citations(self, *, limit: int = 100) -> list[RunRecord]:
         stmt = (

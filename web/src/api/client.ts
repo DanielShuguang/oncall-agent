@@ -89,6 +89,17 @@ export async function patch(path: string, body: unknown): Promise<void> {
   if (!res.ok) throw await toApiError(res, path);
 }
 
+/** 有响应体的 POST（如批量恢复，ADR-0049）：解析 JSON。 */
+export async function postJson<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${PREFIX}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw await toApiError(res, path);
+  return (await res.json()) as T;
+}
+
 export interface HealthResponse {
   status: 'ok' | 'degraded';
   env: string;

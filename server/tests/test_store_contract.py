@@ -684,6 +684,23 @@ async def _exercise_hidden_sessions(store: RunStore) -> None:
     assert await store.unhide_session(user_id=user, session_id="sess_drop") is False
     assert await store.unhide_session(user_id=user, session_id="sess_secret") is False
 
+    # 批量恢复（ADR-0049）：一次删多行；不存在/别人的/重复的 id 忽略
+    assert (
+        await store.unhide_sessions(
+            user_id=user,
+            session_ids=["sess_drop2", "sess_missing", "sess_secret", "sess_drop2"],
+        )
+        == 1
+    )
+    assert [
+        item.session_id for item in await store.list_hidden_sessions(user_id=user, limit=10)
+    ] == ["sess_drop3"]
+    assert await store.list_sessions(user_id=user, limit=10, query="vpn") != []
+    assert await store.unhide_sessions(user_id=user, session_ids=["sess_drop3"]) == 1
+    assert await store.list_hidden_sessions(user_id=user, limit=10) == []
+    assert await store.unhide_sessions(user_id=user, session_ids=["sess_drop3"]) == 0
+    assert await store.unhide_sessions(user_id=user, session_ids=[]) == 0
+
 
 async def _exercise_events_for_runs(store: RunStore) -> None:
     """批量取事件（ADR-0036）：按 run 分组、组内 seq 升序、每个 run 独立截断。"""

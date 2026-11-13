@@ -50,6 +50,12 @@ interface SessionListProps {
   onHiddenSearch: () => void;
   onHiddenLoadMore: () => void;
   restoringId: string | null;
+  /** 批量恢复（ADR-0049）：选中只覆盖当前已加载页 */
+  restoringBatch: boolean;
+  hiddenSelected: Set<string>;
+  onHiddenToggleSelect: (sessionId: string) => void;
+  onHiddenToggleAll: () => void;
+  onRestoreSelected: () => void;
   onToggleHidden: () => void;
   onRestore: (sessionId: string) => void;
 }
@@ -102,11 +108,19 @@ export function SessionList({
   onHiddenSearch,
   onHiddenLoadMore,
   restoringId,
+  restoringBatch,
+  hiddenSelected,
+  onHiddenToggleSelect,
+  onHiddenToggleAll,
+  onRestoreSelected,
   onToggleHidden,
   onRestore,
 }: SessionListProps) {
   // 行内二次确认，避免为一次移除引入额外的全局弹层（ADR-0041）
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const allHiddenSelected =
+    hiddenSessions.length > 0 &&
+    hiddenSessions.every((item) => hiddenSelected.has(item.session_id));
   return (
     <aside className="hidden w-56 shrink-0 flex-col gap-2 border-r p-3 sm:flex">
       <div className="flex items-center justify-between gap-2">
@@ -304,6 +318,25 @@ export function SessionList({
                 搜索
               </Button>
             </form>
+            <div className="flex items-center justify-between gap-1 px-1">
+              <label className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={allHiddenSelected}
+                  onChange={onHiddenToggleAll}
+                  aria-label="全选当前页已移除会话"
+                />
+                全选
+              </label>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={hiddenSelected.size === 0 || restoringBatch}
+                onClick={onRestoreSelected}
+              >
+                {restoringBatch ? '恢复中…' : `恢复选中（${hiddenSelected.size}）`}
+              </Button>
+            </div>
             {hiddenLoading && <p className="px-1 py-1 text-xs text-muted-foreground">加载中…</p>}
             {hiddenError && <p className="px-1 py-1 text-xs text-danger">{hiddenError}</p>}
             {!hiddenLoading && !hiddenError && hiddenSessions.length === 0 && (
@@ -314,9 +347,17 @@ export function SessionList({
             {hiddenSessions.map((item) => (
               <div
                 key={item.session_id}
-                className="flex items-center justify-between gap-1 rounded-md border bg-canvas p-1.5"
+                className="flex items-start gap-1.5 rounded-md border bg-canvas p-1.5"
               >
-                <div className="min-w-0">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={hiddenSelected.has(item.session_id)}
+                  onChange={() => onHiddenToggleSelect(item.session_id)}
+                  aria-label={`选择已移除会话 ${item.title ?? '无标题'}`}
+                  disabled={restoringBatch}
+                />
+                <div className="min-w-0 flex-1">
                   <span className="line-clamp-2 break-words text-xs">{item.title ?? '无标题'}</span>
                   <span className="block text-[11px] text-muted-foreground">
                     {item.run_count} 轮 · 移除于 {formatUpdated(item.hidden_at)}
@@ -325,7 +366,7 @@ export function SessionList({
                 <Button
                   size="sm"
                   variant="outline"
-                  disabled={restoringId !== null}
+                  disabled={restoringId !== null || restoringBatch}
                   onClick={() => onRestore(item.session_id)}
                 >
                   {restoringId === item.session_id ? '恢复中…' : '恢复'}

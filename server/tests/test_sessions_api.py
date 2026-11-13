@@ -549,6 +549,51 @@ async def test_hidden_sessions_paginate_and_search(
     assert bad.json()["code"] == "INVALID_CURSOR"
 
 
+async def test_restore_hidden_sessions_batch(
+    client: AsyncClient, mem_store: InMemoryRunStore
+) -> None:
+    for session_id, message in (("sess_b1", "打印机离线"), ("sess_b2", "VPN 掉线")):
+        await _run(mem_store, session_id, message)
+        assert (await client.delete(f"/api/sessions/{session_id}")).status_code == 204
+    await _run(mem_store, "sess_other", "别人的问题", user_id="u_205")
+
+    res = await client.post(
+        "/api/sessions/hidden/restore",
+        json={
+            "session_ids": [
+                "sess_b1",
+                "sess_b1",
+                "sess_b2",
+                "sess_missing",
+                "sess_other",
+            ]
+        },
+    )
+    assert res.status_code == 200
+    # 去重后 4 个请求；只有本人真正移除过的 2 个被恢复
+    assert res.json() == {"restored": 2, "requested": 4}
+    assert (await client.get("/api/sessions/hidden")).json()["items"] == []
+    restored = (await client.get("/api/sessions")).json()["items"]
+    assert {"sess_b1", "sess_b2"} <= {item["session_id"] for item in restored}
+
+    # 再恢复同一批是幂等的
+    again = await client.post(
+        "/api/sessions/hidden/restore",
+        json={"session_ids": ["sess_b1", "sess_b2"]},
+    )
+    assert again.status_code == 200
+    assert again.json() == {"restored": 0, "requested": 2}
+
+    # 空列表、超过 50 个、空字符串 id 都是 422
+    for payload in (
+        {"session_ids": []},
+        {"session_ids": [f"sess_{index}" for index in range(51)]},
+        {"session_ids": [""]},
+    ):
+        bad = await client.post("/api/sessions/hidden/restore", json=payload)
+        assert bad.status_code == 422
+
+
 async def test_hide_session_is_scoped_and_reports_database_failure(
     client: AsyncClient, mem_store: InMemoryRunStore
 ) -> None:
@@ -571,5 +616,10 @@ async def test_hide_session_is_scoped_and_reports_database_failure(
 
     mem_store.unhide_session = AsyncMock(side_effect=SQLAlchemyError("boom"))  # type: ignore[method-assign]
     res = await client.delete("/api/sessions/sess_any/hidden")
+    assert res.status_code == 503
+    assert res.json()["code"] == "DATABASE_UNAVAILABLE"
+
+    mem_store.unhide_sessions = AsyncMock(side_effect=SQLAlchemyError("boom"))  # type: ignore[method-assign]
+    res = await client.post("/api/sessions/hidden/restore", json={"session_ids": ["sess_any"]})
     assert res.status_code == 503
     assert res.json()["code"] == "DATABASE_UNAVAILABLE"

@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+
+SessionId = Annotated[str, StringConstraints(min_length=1, max_length=64)]
 
 
 class SessionRenameRequest(BaseModel):
@@ -29,3 +32,18 @@ class HiddenSessionListResponse(BaseModel):
     items: list[HiddenSessionOut]
     #: keyset 游标（ADR-0047）；只在当前页取满时返回，下一页为空时为 null
     next_cursor: str | None = None
+
+
+class HiddenSessionRestoreRequest(BaseModel):
+    """批量恢复已移除的会话（ADR-0049）；一次最多 50 个。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    session_ids: list[SessionId] = Field(min_length=1, max_length=50)
+
+
+class HiddenSessionRestoreResponse(BaseModel):
+    """批量恢复结果：部分成功，不存在的 id 只体现在 requested 与 restored 的差值。"""
+
+    restored: int
+    requested: int

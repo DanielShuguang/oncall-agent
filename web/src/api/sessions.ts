@@ -1,7 +1,7 @@
 /** 会话列表接口（ADR-0030/0033）。会话是 runs.session_id 的投影，没有独立表。 */
 
 import type { HistoryRun } from './runs';
-import { del, getJson, patch } from './client';
+import { del, getJson, patch, postJson } from './client';
 
 export interface SessionSummary {
   session_id: string;
@@ -86,4 +86,16 @@ export async function listHiddenSessions(
 /** 恢复已移除的会话（ADR-0043）：只删 hidden_sessions 行，恢复后重新参与列表与搜索。 */
 export async function restoreSession(sessionId: string): Promise<void> {
   await del(`/sessions/${encodeURIComponent(sessionId)}/hidden`);
+}
+
+export interface RestoreSessionsResult {
+  restored: number;
+  requested: number;
+}
+
+/** 批量恢复（ADR-0049）：最多 50 个，去重后处理；不存在的 id 忽略，返回实际恢复数。 */
+export async function restoreSessions(sessionIds: string[]): Promise<RestoreSessionsResult> {
+  return postJson<RestoreSessionsResult>('/sessions/hidden/restore', {
+    session_ids: sessionIds,
+  });
 }

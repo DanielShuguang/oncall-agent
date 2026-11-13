@@ -1126,6 +1126,32 @@ Postgres + Redis **514 passed**。
 
 ---
 
+## W6 后补：已移除会话的批量恢复（ADR-0049）
+
+ADR-0043/0047 的已移除视图只能一条一条恢复：误移除十几个会话就要发十几次 `DELETE`，
+中途失败还会留下「恢复了一半」的界面。软移除恢复只是删 `hidden_sessions` 的一行，批量
+操作没有数据一致性问题，缺的只是一个一次收多个 id 的入口。
+
+| 事项 | 落地 |
+|---|---|
+| 接口 | `POST /sessions/hidden/restore`，body `session_ids`；一次 1–50 个，服务端去重 |
+| 语义 | 只删本人隐藏行；不存在/别人的/本来没移除的 id 静默忽略（部分成功） |
+| 返回 | `{"restored": n, "requested": m}`，`m` 为去重后数量；重复调用幂等 |
+| 存储 | `RunStore.unhide_sessions`：内存逐个 `pop`；PG `DELETE ... RETURNING session_id` 计数 |
+| 前端 | 折叠区勾选 + 全选当前页 + 「恢复选中（N）」；成功后清选中、失效旧请求、重拉一页 |
+| 数据 | 无迁移、无新索引；不写事件/审计，不重建/删除 run、审批与引用快照 |
+
+验证：默认 **479 passed + 36 skipped**；真实 Postgres **512 passed + 3 skipped**；
+Postgres + Redis **515 passed**。
+`ruff check` / `ruff format --check`（187 files）/`mypy app`（110 files）通过；
+前端 `tsc`、**73 tests / 15 files**、`oxlint` 0/0（66 files）、`oxfmt --check` 74 files、
+`pnpm build` 252ms。不改表/事件/清理；未重跑 RAG 与多轮评测。
+
+已知边界：响应只有计数，不告诉用户哪些 id 被忽略；没有恢复审计、管理员跨用户恢复与
+「恢复并打开」；勾选只覆盖当前已加载页（最多 50 条/页）。
+
+---
+
 ## 每周固定动作
 
 | 时点 | 动作 |

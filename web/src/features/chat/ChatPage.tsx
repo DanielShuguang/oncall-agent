@@ -13,6 +13,7 @@ import {
   listSessions,
   renameSession,
   restoreSession,
+  restoreSessions,
   type HiddenSession,
   type SessionSummary,
 } from '@/api/sessions';
@@ -74,6 +75,9 @@ export default function ChatPage() {
   const [hiddenCursor, setHiddenCursor] = useState<string | null>(null);
   const [hiddenLoadingMore, setHiddenLoadingMore] = useState(false);
   const [restoringId, setRestoringId] = useState<string | null>(null);
+  // 批量恢复（ADR-0049）：一次最多 50 个，部分成功；选中只作用于当前已加载页
+  const [hiddenSelected, setHiddenSelected] = useState<Set<string>>(new Set());
+  const [restoringBatch, setRestoringBatch] = useState(false);
   // 快速收起/展开时旧请求可能晚于新请求返回：只接受最后一次展开的结果。
   const hiddenRequest = useRef(0);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -285,9 +289,10 @@ export default function ChatPage() {
       setHiddenLoading(false);
       setHiddenLoadingMore(false);
       setHiddenSessions([]);
+      setHiddenCursor(null);
+      setHiddenSelected(new Set());
       setHiddenQuery('');
       setHiddenDraftQuery('');
-      setHiddenCursor(null);
     } catch (err) {
       setSessionsError(err instanceof Error ? err.message : '会话移除失败');
     } finally {
@@ -321,6 +326,7 @@ export default function ChatPage() {
       setHiddenOpen(false);
       setHiddenLoading(false);
       setHiddenLoadingMore(false);
+      setHiddenSelected(new Set());
       return;
     }
     setHiddenOpen(true);
@@ -331,6 +337,7 @@ export default function ChatPage() {
     const nextQuery = hiddenDraftQuery.trim();
     setHiddenQuery(nextQuery);
     setHiddenCursor(null);
+    setHiddenSelected(new Set());
     void loadHiddenFirstPage(nextQuery);
   };
 
@@ -365,11 +372,53 @@ export default function ChatPage() {
       setHiddenLoading(false);
       setHiddenLoadingMore(false);
       setHiddenSessions((prev) => prev.filter((item) => item.session_id !== targetSessionId));
+      setHiddenSelected((prev) => {
+        const next = new Set(prev);
+        next.delete(targetSessionId);
+        return next;
+      });
       refreshSessions();
     } catch (err) {
       setHiddenError(err instanceof Error ? err.message : '会话恢复失败');
     } finally {
       setRestoringId(null);
+    }
+  };
+
+  const onHiddenToggleSelect = (targetSessionId: string) => {
+    setHiddenSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(targetSessionId)) next.delete(targetSessionId);
+      else next.add(targetSessionId);
+      return next;
+    });
+  };
+
+  const onHiddenToggleAll = () => {
+    setHiddenSelected((prev) => {
+      const allSelected =
+        hiddenSessions.length > 0 && hiddenSessions.every((item) => prev.has(item.session_id));
+      return allSelected ? new Set() : new Set(hiddenSessions.map((item) => item.session_id));
+    });
+  };
+
+  const onRestoreSelected = async () => {
+    if (restoringBatch || hiddenSelected.size === 0) return;
+    setRestoringBatch(true);
+    setHiddenError(null);
+    try {
+      await restoreSessions([...hiddenSelected]);
+      // 批量恢复同样让在途请求失效，并从服务端重新拉一页，避免部分成功时本地列表撒谎。
+      hiddenRequest.current += 1;
+      setHiddenLoading(false);
+      setHiddenLoadingMore(false);
+      setHiddenSelected(new Set());
+      refreshSessions();
+      await loadHiddenFirstPage(hiddenQuery);
+    } catch (err) {
+      setHiddenError(err instanceof Error ? err.message : '批量恢复失败');
+    } finally {
+      setRestoringBatch(false);
     }
   };
 
@@ -412,6 +461,11 @@ export default function ChatPage() {
         onHiddenSearch={onHiddenSearch}
         onHiddenLoadMore={() => void onHiddenLoadMore()}
         restoringId={restoringId}
+        restoringBatch={restoringBatch}
+        hiddenSelected={hiddenSelected}
+        onHiddenToggleSelect={onHiddenToggleSelect}
+        onHiddenToggleAll={onHiddenToggleAll}
+        onRestoreSelected={() => void onRestoreSelected()}
         onToggleHidden={() => void onToggleHiddenSessions()}
         onRestore={(id) => void onRestoreSession(id)}
       />

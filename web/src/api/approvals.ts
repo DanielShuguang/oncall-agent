@@ -30,6 +30,14 @@ export interface ApprovalDayStats {
   avg_wait_ms: number | null;
 }
 
+export interface ApprovalGroupStats {
+  /** 分组键：工具名，或审批人 user_id（缺失时为 unknown，ADR-0051） */
+  key: string;
+  decided_count: number;
+  avg_wait_ms: number | null;
+  max_wait_ms: number | null;
+}
+
 export interface ApprovalStats {
   days: number;
   pending_count: number;
@@ -38,6 +46,8 @@ export interface ApprovalStats {
   avg_wait_ms: number | null;
   max_wait_ms: number | null;
   daily: ApprovalDayStats[];
+  groups: ApprovalGroupStats[];
+  groups_truncated: boolean;
 }
 
 export interface ApprovalResolveResponse {
@@ -53,8 +63,13 @@ export function listApprovals(status = 'pending'): Promise<ApprovalListResponse>
   return getJson<ApprovalListResponse>(`/approvals?status=${encodeURIComponent(status)}`);
 }
 
-export function getApprovalStats(days = 7): Promise<ApprovalStats> {
-  return getJson<ApprovalStats>(`/approvals/stats?days=${days}`);
+export function getApprovalStats(
+  days = 7,
+  groupBy: 'tool' | 'approver' | null = null,
+): Promise<ApprovalStats> {
+  const params = new URLSearchParams({ days: String(days) });
+  if (groupBy !== null) params.set('group_by', groupBy);
+  return getJson<ApprovalStats>(`/approvals/stats?${params.toString()}`);
 }
 
 export function resolveApproval(

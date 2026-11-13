@@ -380,6 +380,18 @@ async def test_pg_stats_counts_pending_and_decided(
     assert stats.daily[0].decided_count == 1
     assert stats.daily[0].avg_wait_ms == stats.avg_wait_ms
 
+    by_tool = await service.stats(approver, days=7, now=now, group_by="tool")
+    assert len(by_tool.groups) == 1
+    assert by_tool.groups[0].key == "create_ticket"
+    assert by_tool.groups[0].decided_count == 1
+    assert by_tool.groups[0].avg_wait_ms == stats.avg_wait_ms
+    assert by_tool.groups[0].max_wait_ms == stats.max_wait_ms
+    assert by_tool.groups_truncated is False
+
+    by_approver = await service.stats(approver, days=7, now=now, group_by="approver")
+    assert len(by_approver.groups) == 1
+    assert by_approver.groups[0].key == "u_900"
+
     # 已过期待办即使还没被 expire_due 收敛，也不计入积压
     async with sessionmaker() as session:
         await session.execute(

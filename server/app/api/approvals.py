@@ -18,6 +18,7 @@ from app.api.errors import ApiError
 from app.approvals.service import ApprovalService, approval_payload
 from app.approvals.types import (
     ApprovalForbidden,
+    ApprovalGroupBy,
     ApprovalNotFound,
     ApprovalNotReady,
     ApprovalScopeUnsupported,
@@ -26,6 +27,7 @@ from app.core.logging import get_logger
 from app.core.store import RunStore, get_store
 from app.schemas.approval import (
     ApprovalDayStatsOut,
+    ApprovalGroupStatsOut,
     ApprovalListResponse,
     ApprovalOut,
     ApprovalResolveRequest,
@@ -58,10 +60,11 @@ async def approval_stats(
     service: Annotated[ApprovalService, Depends(get_approval_service)],
     identity: Annotated[Identity, Depends(get_identity)],
     days: Annotated[int, Query(ge=1, le=90)] = 7,
+    group_by: Annotated[ApprovalGroupBy | None, Query()] = None,
 ) -> ApprovalStatsResponse:
-    """审批积压与等待统计（ADR-0048），仅审批人可见。"""
+    """审批积压/等待统计（ADR-0048/0050/0051），仅审批人可见。"""
     try:
-        stats = await service.stats(identity, days=days)
+        stats = await service.stats(identity, days=days, group_by=group_by)
     except ApprovalForbidden as exc:
         raise ApiError(403, "FORBIDDEN", str(exc)) from None
     except SQLAlchemyError as exc:
@@ -80,6 +83,16 @@ async def approval_stats(
             )
             for day in stats.daily
         ],
+        groups=[
+            ApprovalGroupStatsOut(
+                key=group.key,
+                decided_count=group.decided_count,
+                avg_wait_ms=group.avg_wait_ms,
+                max_wait_ms=group.max_wait_ms,
+            )
+            for group in stats.groups
+        ],
+        groups_truncated=stats.groups_truncated,
     )
 
 

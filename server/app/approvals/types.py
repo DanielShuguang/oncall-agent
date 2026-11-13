@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 
 class ApprovalError(Exception):
@@ -53,6 +53,28 @@ class ApprovalDayStats:
     avg_wait_ms: int | None
 
 
+#: 统计分组维度；None 表示只要窗口汇总（ADR-0051）
+ApprovalGroupBy = Literal["tool", "approver"]
+
+#: 分组结果最多返回多少行，避免审批人/工具很多时把响应撑大
+MAX_STATS_GROUPS = 20
+
+
+@dataclass(frozen=True)
+class ApprovalGroupStats:
+    """窗口内某一维度的已决议数量与等待（ADR-0051）。
+
+    只聚合已决议（approved/rejected）的审批：待办还没有审批人归属，不能按
+    `resolved_by` 分组；按工具分组也不混入待办，保证各分组之和等于
+    `decided_count`。
+    """
+
+    key: str
+    decided_count: int
+    avg_wait_ms: int | None
+    max_wait_ms: int | None
+
+
 @dataclass(frozen=True)
 class ApprovalStats:
     """审批积压与等待统计（ADR-0048 / ADR-0050）。
@@ -69,6 +91,8 @@ class ApprovalStats:
     avg_wait_ms: int | None
     max_wait_ms: int | None
     daily: tuple[ApprovalDayStats, ...] = ()
+    groups: tuple[ApprovalGroupStats, ...] = ()
+    groups_truncated: bool = False
 
 
 @dataclass(frozen=True)

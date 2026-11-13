@@ -41,6 +41,8 @@ import { formatDurationMs, formatTime } from '@/lib/format';
 
 const STATS_DAYS = [7, 30, 90] as const;
 
+type StatsGroup = 'none' | 'tool' | 'approver';
+
 const STATUS_OPTIONS = [
   { value: 'pending', label: '待办' },
   { value: 'approved', label: '已批准' },
@@ -73,13 +75,14 @@ export default function ApprovalsPage() {
   const [resolver, setResolver] = useState<ResolveState | null>(null);
   const [stats, setStats] = useState<ApprovalStats | null>(null);
   const [statsDays, setStatsDays] = useState(7);
+  const [statsGroup, setStatsGroup] = useState<StatsGroup>('none');
   // 初始加载与决议后刷新可能并发，旧响应不能覆盖新统计（同会话列表的做法）。
   const statsRequest = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
     const requestId = ++statsRequest.current;
-    void getApprovalStats(statsDays)
+    void getApprovalStats(statsDays, statsGroup === 'none' ? null : statsGroup)
       .then((data) => {
         if (!cancelled && statsRequest.current === requestId) setStats(data);
         return data;
@@ -91,7 +94,7 @@ export default function ApprovalsPage() {
       cancelled = true;
       statsRequest.current += 1;
     };
-  }, [statsDays]);
+  }, [statsDays, statsGroup]);
 
   useEffect(() => {
     let cancelled = false;
@@ -144,7 +147,7 @@ export default function ApprovalsPage() {
         setError(exc instanceof Error ? exc.message : '决议已提交，但列表刷新失败');
       }
       const requestId = ++statsRequest.current;
-      void getApprovalStats(statsDays)
+      void getApprovalStats(statsDays, statsGroup === 'none' ? null : statsGroup)
         .then((data) => {
           if (statsRequest.current === requestId) setStats(data);
           return data;
@@ -186,6 +189,16 @@ export default function ApprovalsPage() {
             </Button>
           ))}
         </fieldset>
+        <Select value={statsGroup} onValueChange={(next) => setStatsGroup(next as StatsGroup)}>
+          <SelectTrigger className="h-8 w-32 text-xs" aria-label="分组维度">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">不分组</SelectItem>
+            <SelectItem value="tool">按工具</SelectItem>
+            <SelectItem value="approver">按审批人</SelectItem>
+          </SelectContent>
+        </Select>
         <Select
           value={status}
           onValueChange={(next) => {
@@ -274,6 +287,45 @@ export default function ApprovalsPage() {
                     </span>
                   </div>
                 ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {stats && statsGroup !== 'none' && (
+        <Card className="py-0">
+          <CardContent className="p-3">
+            <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+              <div className="text-xs font-medium">分组统计</div>
+              <div className="text-[11px] text-muted-foreground">
+                近 {stats.days} 天 · 按{statsGroup === 'tool' ? '工具' : '审批人'} · 只含已决议
+              </div>
+            </div>
+            {stats.groups.length === 0 ? (
+              <p className="text-xs text-muted-foreground">窗口内还没有已决议的审批。</p>
+            ) : (
+              <div className="space-y-1">
+                {stats.groups.map((group) => (
+                  <div
+                    key={group.key}
+                    className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs"
+                  >
+                    <span className="min-w-28 shrink-0 font-mono text-muted-foreground">
+                      {group.key}
+                    </span>
+                    <span>{group.decided_count} 单</span>
+                    <span className="text-muted-foreground">
+                      平均 {group.avg_wait_ms === null ? '—' : formatDurationMs(group.avg_wait_ms)}
+                    </span>
+                    <span className="text-muted-foreground">
+                      最长 {group.max_wait_ms === null ? '—' : formatDurationMs(group.max_wait_ms)}
+                    </span>
+                  </div>
+                ))}
+                {stats.groups_truncated && (
+                  <p className="text-[11px] text-muted-foreground">分组过多，只显示前 20 组。</p>
+                )}
               </div>
             )}
           </CardContent>

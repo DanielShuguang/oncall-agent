@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import replace
 from datetime import date, datetime
 from typing import TYPE_CHECKING, Any, Protocol
@@ -16,7 +16,14 @@ from typing import TYPE_CHECKING, Any, Protocol
 from sqlalchemy import delete, func, select, text, tuple_, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from app.approvals.types import ApprovalDayStats, ApprovalRecord, ApprovalStats
+from app.approvals.types import (
+    MAX_STATS_GROUPS,
+    ApprovalDayStats,
+    ApprovalGroupBy,
+    ApprovalGroupStats,
+    ApprovalRecord,
+    ApprovalStats,
+)
 from app.models.approval import Approval, ApprovalGrant
 
 if TYPE_CHECKING:
@@ -44,8 +51,18 @@ class ApprovalStore(Protocol):
         limit: int = 100,
     ) -> list[ApprovalRecord]: ...
 
-    async def stats(self, *, since: datetime, now: datetime) -> ApprovalStats:
-        """当前未过期待办与窗口内决议等待（ADR-0048），不返回审批人身份。"""
+    async def stats(
+        self,
+        *,
+        since: datetime,
+        now: datetime,
+        group_by: ApprovalGroupBy | None = None,
+    ) -> ApprovalStats:
+        """当前未过期待办与窗口内决议等待（ADR-0048/0051）。
+
+        `group_by` 只聚合已决议审批：待办没有审批人归属，不能按 `resolved_by`
+        分组；各分组之和等于 `decided_count`。返回最多 `MAX_STATS_GROUPS` 组。
+        """
         ...
 
     async def resolve(
@@ -144,7 +161,13 @@ class InMemoryApprovalStore:
         items.sort(key=lambda r: (r.status != "pending", r.expires_at, r.created_at))
         return items[:limit]
 
-    async def stats(self, *, since: datetime, now: datetime) -> ApprovalStats:
+    async def stats(
+        self,
+        *,
+        since: datetime,
+        now: datetime,
+        group_by: ApprovalGroupBy | None = None,
+    ) -> ApprovalStats:
         # 已过期但 expire_due 还没收敛到的单不算积压：它们不该再占用审批人注意力。
         pending = [
             record
@@ -173,6 +196,31 @@ class InMemoryApprovalStore:
             )
             for day, waited in sorted(per_day.items())
         )
+        groups: tuple[ApprovalGroupStats, ...] = ()
+        groups_truncated = False
+        if group_by is not None:
+            per_group: dict[str, list[int]] = {}
+            for record in self._records.values():
+                if record.status not in ("approved", "rejected"):
+                    continue
+                if record.resolved_at is None or record.resolved_at < since:
+                    continue
+                key = record.tool_name if group_by == "tool" else (record.resolved_by or "unknown")
+                waited_ms = max(
+                    0, int((record.resolved_at - record.created_at).total_seconds() * 1000)
+                )
+                per_group.setdefault(key, []).append(waited_ms)
+            ordered = sorted(per_group.items(), key=lambda item: (-len(item[1]), item[0]))
+            groups_truncated = len(ordered) > MAX_STATS_GROUPS
+            groups = tuple(
+                ApprovalGroupStats(
+                    key=key,
+                    decided_count=len(waited),
+                    avg_wait_ms=round(sum(waited) / len(waited)),
+                    max_wait_ms=max(waited),
+                )
+                for key, waited in ordered[:MAX_STATS_GROUPS]
+            )
         return ApprovalStats(
             pending_count=len(pending),
             oldest_pending_age_s=oldest_age,
@@ -180,6 +228,8 @@ class InMemoryApprovalStore:
             avg_wait_ms=round(sum(waits) / len(waits)) if waits else None,
             max_wait_ms=max(waits) if waits else None,
             daily=daily,
+            groups=groups,
+            groups_truncated=groups_truncated,
         )
 
     async def resolve(
@@ -338,7 +388,13 @@ class PostgresApprovalStore:
             rows = (await session.scalars(query)).all()
         return [_record_from_row(row) for row in rows]
 
-    async def stats(self, *, since: datetime, now: datetime) -> ApprovalStats:
+    async def stats(
+        self,
+        *,
+        since: datetime,
+        now: datetime,
+        group_by: ApprovalGroupBy | None = None,
+    ) -> ApprovalStats:
         wait_seconds = func.extract("epoch", Approval.resolved_at - Approval.created_at)
         async with self._sessionmaker() as session:
             pending_row = (
@@ -382,6 +438,33 @@ class PostgresApprovalStore:
                     .order_by(day_column)
                 )
             ).all()
+            group_rows: Sequence[Any] = ()
+            groups_truncated = False
+            if group_by is not None:
+                group_column = (
+                    Approval.tool_name
+                    if group_by == "tool"
+                    else func.coalesce(Approval.resolved_by, "unknown")
+                )
+                group_rows = (
+                    await session.execute(
+                        select(
+                            group_column,
+                            func.count(Approval.id),
+                            func.avg(wait_seconds * 1000),
+                            func.max(wait_seconds * 1000),
+                        )
+                        .where(
+                            Approval.status.in_(("approved", "rejected")),
+                            Approval.resolved_at.is_not(None),
+                            Approval.resolved_at >= since,
+                        )
+                        .group_by(group_column)
+                        .order_by(func.count(Approval.id).desc(), group_column.asc())
+                        .limit(MAX_STATS_GROUPS + 1)
+                    )
+                ).all()
+                groups_truncated = len(group_rows) > MAX_STATS_GROUPS
         pending_count = int(pending_row[0] or 0)
         oldest = pending_row[1]
         decided_count = int(decided_row[0] or 0)
@@ -393,6 +476,15 @@ class PostgresApprovalStore:
             )
             for row in daily_rows
         )
+        groups = tuple(
+            ApprovalGroupStats(
+                key=str(row[0]),
+                decided_count=int(row[1]),
+                avg_wait_ms=(round(float(row[2])) if row[2] is not None else None),
+                max_wait_ms=(round(float(row[3])) if row[3] is not None else None),
+            )
+            for row in group_rows[:MAX_STATS_GROUPS]
+        )
         return ApprovalStats(
             pending_count=pending_count,
             oldest_pending_age_s=(
@@ -402,6 +494,8 @@ class PostgresApprovalStore:
             avg_wait_ms=(round(float(decided_row[1])) if decided_row[1] is not None else None),
             max_wait_ms=(round(float(decided_row[2])) if decided_row[2] is not None else None),
             daily=daily,
+            groups=groups,
+            groups_truncated=groups_truncated,
         )
 
     async def resolve(

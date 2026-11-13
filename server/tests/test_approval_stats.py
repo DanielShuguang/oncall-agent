@@ -10,7 +10,12 @@ from httpx import AsyncClient
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.approvals.store import InMemoryApprovalStore
-from app.approvals.types import ApprovalDayStats, ApprovalRecord, ApprovalStats
+from app.approvals.types import (
+    ApprovalDayStats,
+    ApprovalGroupStats,
+    ApprovalRecord,
+    ApprovalStats,
+)
 from tests.support import auth_headers
 
 EMPLOYEE = auth_headers("u_102", ("employee",))
@@ -92,6 +97,27 @@ async def test_inmemory_stats_counts_pending_and_windowed_decisions() -> None:
     assert stats.max_wait_ms == 3_600_000
     # 两条决议都发生在 NOW 当天（UTC），窗口外的 old 与 expired 不进趋势
     assert stats.daily == (ApprovalDayStats(date(2026, 11, 13), 2, 2_700_000),)
+    assert stats.groups == ()
+    assert stats.groups_truncated is False
+
+    by_tool = await store.stats(since=NOW - timedelta(days=7), now=NOW, group_by="tool")
+    assert by_tool.groups == (
+        ApprovalGroupStats(
+            key="create_ticket",
+            decided_count=2,
+            avg_wait_ms=2_700_000,
+            max_wait_ms=3_600_000,
+        ),
+    )
+    by_approver = await store.stats(since=NOW - timedelta(days=7), now=NOW, group_by="approver")
+    assert by_approver.groups == (
+        ApprovalGroupStats(
+            key="u_900",
+            decided_count=2,
+            avg_wait_ms=2_700_000,
+            max_wait_ms=3_600_000,
+        ),
+    )
 
 
 async def test_inmemory_stats_empty_returns_nulls() -> None:
@@ -119,7 +145,7 @@ async def test_approval_stats_returns_aggregates(
         )
     )
 
-    res = await client.get("/api/approvals/stats?days=7", headers=APPROVER)
+    res = await client.get("/api/approvals/stats?days=7&group_by=tool", headers=APPROVER)
 
     assert res.status_code == 200
     body = res.json()
@@ -136,11 +162,23 @@ async def test_approval_stats_returns_aggregates(
             "avg_wait_ms": 3_600_000,
         }
     ]
+    assert body["groups"] == [
+        {
+            "key": "create_ticket",
+            "decided_count": 1,
+            "avg_wait_ms": 3_600_000,
+            "max_wait_ms": 3_600_000,
+        }
+    ]
+    assert body["groups_truncated"] is False
 
 
 async def test_approval_stats_validates_days(client: AsyncClient) -> None:
     for days in (0, 91):
         res = await client.get(f"/api/approvals/stats?days={days}", headers=APPROVER)
+        assert res.status_code == 422
+    for group_by in ("team", "TOOL"):
+        res = await client.get(f"/api/approvals/stats?group_by={group_by}", headers=APPROVER)
         assert res.status_code == 422
 
 

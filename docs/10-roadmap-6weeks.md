@@ -1177,6 +1177,32 @@ Postgres + Redis **515 passed**。`ruff check` / `ruff format --check`（187 fil
 
 ---
 
+## W6 后补：审批统计按工具/审批人分组（ADR-0051）
+
+ADR-0048 的统计只给总数，审批人看不出积压集中在哪个工具、哪位审批人手里；
+列表虽然有 `tool_name` / `resolved_by`，但要翻页自己聚合，和统计窗口对不上。
+本想把风险等级也一起下钻，但当前表里没有结构化的「风险分布」需求，先只做两个维度。
+
+| 事项 | 落地 |
+|---|---|
+| 接口 | `GET /approvals/stats?days=&group_by=tool\|approver`，可选、默认不分组，仍仅审批人 |
+| 口径 | 只聚合窗口内 `approved` + `rejected`；`pending` 无审批人归属、`expired` 不算人工决议 |
+| 分组键 | `tool` 用 `tool_name`；`approver` 用 `resolved_by`，缺失归入 `unknown` |
+| 排序 | 单数降序、键升序取前 20 组；超过时 `groups_truncated=true` |
+| 存储 | 内存分桶；Postgres 同一窗口 `GROUP BY` 聚合；无新表、无迁移、无新索引 |
+| 前端 | 窗口旁「不分组 / 按工具 / 按审批人」下拉；趋势卡后紧凑分组表；截断提示 |
+
+验证：默认 **479 passed + 36 skipped**；真实 Postgres **512 passed + 3 skipped**；
+Postgres + Redis **515 passed**。`ruff check` / `ruff format --check`（187 files）/
+`mypy app`（110 files）通过；前端 `tsc`、**73 tests / 15 files**、`oxlint` 0/0
+（66 files）、`oxfmt --check` 74 files、`pnpm build` 238ms。
+
+已知边界：最多 20 组，超过只看头部；`approver` 显示的是 `user_id`，没有姓名目录；
+不按状态/风险/优先级继续下钻，无告警、无导出；统计仍是请求时快照。详见
+[ADR-0051](decisions/0051-approval-stats-groups.md)。
+
+---
+
 ## 每周固定动作
 
 | 时点 | 动作 |

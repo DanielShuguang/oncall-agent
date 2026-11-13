@@ -43,7 +43,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | GET | `/runs/{run_id}/stream` | 重连增量流（可选，v1 用轮询替代） | — |
 | POST | `/approvals/{id}/resolve` | 审批通过/拒绝 | W3 D14 |
 | GET | `/approvals?status=pending&limit=50` | 待办审批列表（含已办筛选） | W3 D14 / W5 D23 |
-| GET | `/approvals/stats?days=7` | 审批积压与窗口内等待统计（仅审批人） | W6 后补 |
+| GET | `/approvals/stats?days=7&group_by=` | 审批积压、窗口内等待与按工具/审批人分组（仅审批人） | W6 后补 |
 | POST | `/admin/kb/documents` | 上传知识文档（multipart，≤10MB） | W2 D7 |
 | GET | `/admin/kb/documents` | 知识库文档列表 + chunk 总数 | W2 D7 |
 | GET | `/admin/kb/documents/{id}?preview=20` | 文档详情与切片预览（含 heading_path） | W2 D7 |
@@ -587,7 +587,7 @@ Authorization: Bearer <approver token>
 - `limit` 默认 50、范围 1–200；`expires_at` 升序，同时间按 `created_at` 升序
 
 ```http
-GET /api/approvals/stats?days=7
+GET /api/approvals/stats?days=7&group_by=tool
 Authorization: Bearer <approver token>
 ```
 
@@ -602,7 +602,12 @@ Authorization: Bearer <approver token>
   "daily": [
     {"day": "2026-11-09", "decided_count": 5, "avg_wait_ms": 1200000},
     {"day": "2026-11-10", "decided_count": 7, "avg_wait_ms": 2346000}
-  ]
+  ],
+  "groups": [
+    {"key": "create_ticket", "decided_count": 7, "avg_wait_ms": 1600000, "max_wait_ms": 3600000},
+    {"key": "query_cmdb", "decided_count": 5, "avg_wait_ms": 2100000, "max_wait_ms": 8640000}
+  ],
+  "groups_truncated": false
 }
 ```
 
@@ -616,7 +621,14 @@ Authorization: Bearer <approver token>
 - `daily` 按 **UTC 日期**分桶，只列窗口内真正有决议的日期（稀疏不补零）；每项
   `decided_count` / `avg_wait_ms` 与上面的已决议口径一致；前端提供 7/30/90 天切换，
   `days` 与 `daily` 使用同一个窗口（[ADR-0050](decisions/0050-approval-trend.md)）
-- 不返回 `resolved_by`、不按审批人/工具分组；库不可用返回 503，不返回 0 冒充「没有积压」
+- `group_by` 可选 `tool` / `approver`，默认不分组；只聚合窗口内 `approved` + `rejected`，
+  `pending` 没有审批人归属、`expired` 不算人工决议，均不进入分组；各分组之和等于
+  `decided_count`（`groups_truncated=false` 时）
+- 分组键：`tool` 用 `tool_name`；`approver` 用 `resolved_by`，缺失归入 `unknown`；
+  按单数降序、键升序取前 20 组，超过时 `groups_truncated=true`
+- 不返回逐条 `resolved_by`；`approver` 分组的 key 是审批人 `user_id`，只给审批人看聚合数字
+  （[ADR-0051](decisions/0051-approval-stats-groups.md)）
+- 库不可用返回 503，不返回 0 冒充「没有积压」
 
 ```http
 POST /api/approvals/{approval_id}/resolve

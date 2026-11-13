@@ -18,6 +18,7 @@ from sqlalchemy.exc import IntegrityError
 from app.approvals.store import ApprovalStore, OnResolved
 from app.approvals.types import (
     ApprovalForbidden,
+    ApprovalGroupBy,
     ApprovalNotFound,
     ApprovalNotReady,
     ApprovalRecord,
@@ -179,6 +180,7 @@ class ApprovalService:
         *,
         days: int,
         now: datetime | None = None,
+        group_by: ApprovalGroupBy | None = None,
     ) -> ApprovalStats:
         """审批人视角的积压与等待统计（ADR-0048）。
 
@@ -191,7 +193,9 @@ class ApprovalService:
             raise ApprovalForbidden("需要审批人角色")
         await self.expire_due()
         at = now or datetime.now(UTC)
-        return await self._approvals.stats(since=at - timedelta(days=days), now=at)
+        return await self._approvals.stats(
+            since=at - timedelta(days=days), now=at, group_by=group_by
+        )
 
     async def get(self, approval_id: str) -> ApprovalRecord | None:
         return await self._approvals.get(approval_id)

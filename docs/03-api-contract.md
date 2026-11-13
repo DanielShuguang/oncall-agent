@@ -583,11 +583,12 @@ Authorization: Bearer <approver token>
 ```
 
 - 仅审批人角色可读，普通员工 `403 {"code":"FORBIDDEN"}`；`days` 范围 1–90，默认 7
-- `pending_count` 是当前 `status=pending` 的数量；`oldest_pending_age_s` 是最老待办的
-  已等秒数（无待办为 `null`）
+- `pending_count` 是当前**未过期**待办的数量（`status=pending` 且 `expires_at > now`）；
+  `oldest_pending_age_s` 是最老未过期待办的已等秒数（无待办为 `null`）
 - `decided_count` 只统计窗口内 `approved` + `rejected`；等待 = `resolved_at - created_at`，
   过期（`expired`）不计入人工等待，负数按 0 处理
-- 统计前会先收敛超时待办，所以刚过 TTL 的单不会继续算作积压
+- 统计前会先收敛超时待办；聚合时还会排除已过期的 `pending`（即使单轮收敛上限没扫到），
+  所以刚过 TTL 的单不会继续算作积压
 - 不返回 `resolved_by`、不按审批人/工具分组；库不可用返回 503，不返回 0 冒充「没有积压」
 
 ```http

@@ -17,7 +17,7 @@ from typing import Any
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -349,11 +349,11 @@ async def test_pg_stats_counts_pending_and_decided(
     pg_approvals: tuple[PostgresRunStore, PostgresApprovalStore, ApprovalService, Any],
 ) -> None:
     """真实 PG 上验证两条聚合：pending 积压与窗口内决议等待（ADR-0048）。"""
-    runs, approvals, service, _ = pg_approvals
+    runs, approvals, service, sessionmaker = pg_approvals
     approver = Identity(user_id="u_900", roles=frozenset({"approver"}))
 
     first_run = await _new_run(runs)
-    await _request(runs, service, first_run)
+    first_id = await _request(runs, service, first_run)
     second_run = await _new_run(runs)
     second_id = await _request(runs, service, second_run)
 
@@ -375,3 +375,15 @@ async def test_pg_stats_counts_pending_and_decided(
     assert stats.decided_count == 1
     assert stats.avg_wait_ms is not None and stats.avg_wait_ms >= 0
     assert stats.max_wait_ms == stats.avg_wait_ms
+
+    # 已过期待办即使还没被 expire_due 收敛，也不计入积压
+    async with sessionmaker() as session:
+        await session.execute(
+            update(Approval)
+            .where(Approval.id == first_id)
+            .values(expires_at=now - timedelta(seconds=1))
+        )
+        await session.commit()
+    stale_stats = await approvals.stats(since=now - timedelta(days=7), now=now)
+    assert stale_stats.pending_count == 0
+    assert stale_stats.oldest_pending_age_s is None

@@ -45,7 +45,7 @@ class ApprovalStore(Protocol):
     ) -> list[ApprovalRecord]: ...
 
     async def stats(self, *, since: datetime, now: datetime) -> ApprovalStats:
-        """当前积压与窗口内决议等待（ADR-0048），不返回审批人身份。"""
+        """当前未过期待办与窗口内决议等待（ADR-0048），不返回审批人身份。"""
         ...
 
     async def resolve(
@@ -145,7 +145,12 @@ class InMemoryApprovalStore:
         return items[:limit]
 
     async def stats(self, *, since: datetime, now: datetime) -> ApprovalStats:
-        pending = [record for record in self._records.values() if record.is_pending]
+        # 已过期但 expire_due 还没收敛到的单不算积压：它们不该再占用审批人注意力。
+        pending = [
+            record
+            for record in self._records.values()
+            if record.is_pending and record.expires_at > now
+        ]
         oldest_age: int | None = None
         if pending:
             oldest = min(record.created_at for record in pending)
@@ -329,7 +334,10 @@ class PostgresApprovalStore:
             pending_row = (
                 await session.execute(
                     select(func.count(Approval.id), func.min(Approval.created_at)).where(
-                        Approval.status == "pending"
+                        Approval.status == "pending",
+                        # 与内存实现一致：已过期待办不计入积压，即使 expire_due
+                        # 因单轮上限还没扫到它。
+                        Approval.expires_at > now,
                     )
                 )
             ).one()

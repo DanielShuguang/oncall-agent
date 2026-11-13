@@ -47,6 +47,8 @@ async def test_inmemory_stats_counts_pending_and_windowed_decisions() -> None:
     store = InMemoryApprovalStore()
     await store.create(_record("p1", created_at=NOW - timedelta(seconds=90)))
     await store.create(_record("p2", created_at=NOW - timedelta(seconds=30)))
+    # 已过期但尚未被 expire_due 收敛的 pending 不算积压
+    await store.create(_record("stale", created_at=NOW - timedelta(hours=1)))
     await store.create(
         _record(
             "a1",

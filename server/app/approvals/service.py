@@ -182,13 +182,15 @@ class ApprovalService:
     ) -> ApprovalStats:
         """审批人视角的积压与等待统计（ADR-0048）。
 
-        先收敛已过期的待办，避免把 TTL 已过但尚未落状态的单算成「卡住」；
-        等待时长只统计窗口内 approved/rejected，不含 expired。
+        先收敛已过期的待办：统计口径是「还未过期、仍值得处理的积压」，不把
+        TTL 已过但尚未落状态的单算成「卡住」。收敛会改状态，所以时刻取在收敛
+        之后，年龄与窗口边界都以返回时的状态为准。等待时长只统计窗口内
+        approved/rejected，不含 expired。
         """
         if not self._is_approver(identity):
             raise ApprovalForbidden("需要审批人角色")
-        at = now or datetime.now(UTC)
         await self.expire_due()
+        at = now or datetime.now(UTC)
         return await self._approvals.stats(since=at - timedelta(days=days), now=at)
 
     async def get(self, approval_id: str) -> ApprovalRecord | None:

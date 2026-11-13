@@ -26,22 +26,23 @@ ADR-0046 把「某一个审批等了多久」放进了运行过程回放，但�
 | 在 `GET /approvals` 响应里附带统计 | 列表接口给普通员工也开放，会把审批人视角的数字带给他们；每次列表请求都多算聚合 |
 | 定时任务预计算到新表 | 统计是即时问题，新增表/迁移/调度不划算；数据量小，实时聚合毫秒级 |
 | 复用 `expires_at` 估算等待 | TTL 是配置值，不是真实人工等待；会把「还没处理」算成「处理了」 |
-| 新增独立统计接口（采纳） | 只读、按需聚合；权限与列表一致；不改变现有接口契约 |
+| 新增独立统计接口（采纳） | 按需聚合；沿用列表的过期收敛（会写 expired 状态）；权限与列表一致；不改变现有接口契约 |
 
 ## 3. 决策
 
 1. **接口**：`GET /api/approvals/stats?days=7`，`days` 1–90，默认 7；仅审批人角色，
    普通员工 403 `FORBIDDEN`；数据库故障 503，不返回 0 冒充「没有积压」。
 2. **指标**：
-   - `pending_count`：当前 `status='pending'` 的数量；
-   - `oldest_pending_age_s`：最老待办从 `created_at` 到请求时刻的秒数，无待办为 `null`；
+   - `pending_count`：当前**未过期**的待办数量（`status='pending'` 且 `expires_at > now`）；
+   - `oldest_pending_age_s`：最老未过期待办从 `created_at` 到请求时刻的秒数，无待办为 `null`；
    - `decided_count`：窗口内 `approved` + `rejected` 的数量；
    - `avg_wait_ms` / `max_wait_ms`：窗口内每单 `resolved_at - created_at` 的平均/最大值，
      无决议为 `null`。
    过期（`expired`）不计入人工等待，也不计入 `decided_count`——TTL 是系统行为，混进
    流程指标会虚高。
-3. **先收敛过期**：统计前复用 `expire_due()`，避免把 TTL 已过但尚未落状态的单算成
-   「卡住」。这是与列表接口一致的口径。
+3. **先收敛过期**：统计前复用 `expire_due()`（单轮最多 200 条），并在聚合条件里
+   同时要求 `expires_at > now`——即使积压超过单轮上限、还有已过期单没落状态，也不把
+   它们算成「卡住」。时刻取在收敛之后，年龄与窗口边界以返回时的状态为准。
 4. **存储层聚合**：`ApprovalStore.stats(since, now)`，内存实现一次遍历；Postgres 两条
    聚合查询（待办 `count/min(created_at)`，窗口内决议 `count/avg/max`），不在应用层
    拉全表。现有 `idx_approvals_pending(status, expires_at)` 覆盖待办计数；已决议窗口

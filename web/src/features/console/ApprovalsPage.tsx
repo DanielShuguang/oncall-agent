@@ -1,6 +1,6 @@
 /** 审批中心（W5 D23）：待办 / 已办可筛，审批人才能决议。 */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -70,19 +70,23 @@ export default function ApprovalsPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [resolver, setResolver] = useState<ResolveState | null>(null);
   const [stats, setStats] = useState<ApprovalStats | null>(null);
+  // 初始加载与决议后刷新可能并发，旧响应不能覆盖新统计（同会话列表的做法）。
+  const statsRequest = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
+    const requestId = ++statsRequest.current;
     void getApprovalStats(7)
       .then((data) => {
-        if (!cancelled) setStats(data);
+        if (!cancelled && statsRequest.current === requestId) setStats(data);
         return data;
       })
       .catch(() => {
-        if (!cancelled) setStats(null);
+        if (!cancelled && statsRequest.current === requestId) setStats(null);
       });
     return () => {
       cancelled = true;
+      statsRequest.current += 1;
     };
   }, []);
 
@@ -136,9 +140,15 @@ export default function ApprovalsPage() {
       } catch (exc) {
         setError(exc instanceof Error ? exc.message : '决议已提交，但列表刷新失败');
       }
+      const requestId = ++statsRequest.current;
       void getApprovalStats(7)
-        .then(setStats)
-        .catch(() => setStats(null));
+        .then((data) => {
+          if (statsRequest.current === requestId) setStats(data);
+          return data;
+        })
+        .catch(() => {
+          if (statsRequest.current === requestId) setStats(null);
+        });
     } catch (exc) {
       setResolver((current) =>
         current

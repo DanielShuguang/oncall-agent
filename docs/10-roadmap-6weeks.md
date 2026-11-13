@@ -993,6 +993,32 @@ Postgres + Redis **503 passed**。会话 API/契约子集在真实 PG 上 **25 p
 
 ---
 
+## W6 后补：运行过程载荷上限（ADR-0044）
+
+ADR-0035 的运行过程把工具参数与结果原样回放，ADR-0036 的批量详情又会一页拼多个 run；
+事件本身没有大小上限，外部 MCP/HTTP 工具返回大 JSON 时，详情响应会无界增长。
+本轮只在读取侧加预算，不改事件、不迁移；超限载荷保留「有过大结果」的事实与预览。
+
+| 事项 | 落地 |
+|---|---|
+| 预算 | 单个 `args` / `result` 的紧凑 JSON 超过 4096 字符即裁剪，预览前 1024 字符 |
+| 标识 | 超限字段替换为 `{"truncated": true, "original_chars": N, "preview": "..."}`，条目带 `truncated: true` |
+| 范围 | 工具参数/结果、审批参数；时间线仍最多 20 项，本 ADR 只解决单条字节 |
+| 不变 | 事件与 `runs` 里的原始载荷不动；无迁移；保留期内仍可从事件核对完整内容 |
+| 前端 | 预览按纯文本渲染，标注「原始 N 字符，已截断」，不再把包装对象当 JSON 解析 |
+| 不做 | 按工具配置预算、响应总预算、服务端压缩、管理员查看完整载荷接口 |
+
+验证：默认 **469 passed + 35 skipped**；真实 Postgres **501 passed + 3 skipped**；
+Postgres + Redis **504 passed**。`ruff check` / `ruff format --check`（186 files）/
+`mypy app`（110 files）通过；前端 **65 tests / 13 files**、`tsc` / `oxlint` /
+`oxfmt --check` / `pnpm build` 通过。无迁移、无 SQL 变化；检索/提示词/多轮未改，未重跑评测。
+
+已知边界：预览不是完整结果，排障要查事件；按字符而非 UTF-8 字节计数；
+单个响应仍可能接近 20 × 1KB 的预览上限；没有按工具区分预算。详见
+[ADR-0044](decisions/0044-timeline-payload-cap.md)。
+
+---
+
 ## 每周固定动作
 
 | 时点 | 动作 |

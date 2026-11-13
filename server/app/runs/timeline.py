@@ -14,15 +14,40 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from app.schemas.event import EventType, RunEvent
 
 MAX_TIMELINE_ITEMS = 20
+# 单个工具参数/结果的序列化预算（字符数）。工具可能来自外部 MCP/HTTP，
+# 不能假设返回值一定小；只在读取侧裁剪，事件里的原始 payload 不动（ADR-0044）。
+MAX_TIMELINE_PAYLOAD_CHARS = 4096
+MAX_TIMELINE_PREVIEW_CHARS = 1024
 
 
 def _mapping(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, dict) else {}
+
+
+def _bounded_payload(value: Any) -> tuple[Any, bool]:
+    """超过预算的参数/结果压成带原文前缀的摘要，保留「有过大载荷」这个事实。"""
+    if value is None:
+        return None, False
+    try:
+        text = json.dumps(value, ensure_ascii=False, default=str, separators=(",", ":"))
+    except (TypeError, ValueError):
+        text = str(value)
+    if len(text) <= MAX_TIMELINE_PAYLOAD_CHARS:
+        return value, False
+    return (
+        {
+            "truncated": True,
+            "original_chars": len(text),
+            "preview": text[:MAX_TIMELINE_PREVIEW_CHARS],
+        },
+        True,
+    )
 
 
 def _text(value: Any) -> str | None:
@@ -53,16 +78,19 @@ def build_timeline(events: list[RunEvent]) -> tuple[list[dict[str, Any]], bool]:
             tool = _text(payload.get("tool"))
             if call_id is None or tool is None:
                 continue
+            args_value, args_truncated = _bounded_payload(_mapping(payload.get("args")))
             tool_item: dict[str, Any] = {
                 "kind": "tool",
                 "seq": event.seq,
                 "call_id": call_id,
                 "tool": tool,
-                "args": _mapping(payload.get("args")),
+                "args": args_value,
                 # 只认真正的布尔值：旧事件或脏数据里的 "false" 不能被当成写操作
                 "write": payload.get("write") is True,
                 "status": "running",
             }
+            if args_truncated:
+                tool_item["truncated"] = True
             items.append(tool_item)
             tools[call_id] = tool_item
         elif event.type is EventType.TOOL_RESULT:
@@ -74,7 +102,10 @@ def build_timeline(events: list[RunEvent]) -> tuple[list[dict[str, Any]], bool]:
                 continue
             result_item["status"] = _text(payload.get("status")) or "unknown"
             if payload.get("result") is not None:
-                result_item["result"] = payload["result"]
+                result_value, result_truncated = _bounded_payload(payload["result"])
+                result_item["result"] = result_value
+                if result_truncated:
+                    result_item["truncated"] = True
             error = _text(payload.get("error"))
             if error is not None:
                 result_item["error"] = error
@@ -92,17 +123,20 @@ def build_timeline(events: list[RunEvent]) -> tuple[list[dict[str, Any]], bool]:
             tool = _text(payload.get("tool"))
             if approval_id is None or tool is None:
                 continue
+            args_value, args_truncated = _bounded_payload(_mapping(payload.get("args")))
             approval_item: dict[str, Any] = {
                 "kind": "approval",
                 "seq": event.seq,
                 "approval_id": approval_id,
                 "tool": tool,
-                "args": _mapping(payload.get("args")),
+                "args": args_value,
                 "risk_level": _text(payload.get("risk_level")) or "medium",
                 "reason": _text(payload.get("reason")),
                 "expires_at": _text(payload.get("expires_at")),
                 "status": "pending",
             }
+            if args_truncated:
+                approval_item["truncated"] = True
             items.append(approval_item)
             approvals[approval_id] = approval_item
         elif event.type is EventType.APPROVAL_RESOLVED:
@@ -119,4 +153,9 @@ def build_timeline(events: list[RunEvent]) -> tuple[list[dict[str, Any]], bool]:
     return items[:MAX_TIMELINE_ITEMS], len(items) > MAX_TIMELINE_ITEMS
 
 
-__all__ = ["MAX_TIMELINE_ITEMS", "build_timeline"]
+__all__ = [
+    "MAX_TIMELINE_ITEMS",
+    "MAX_TIMELINE_PAYLOAD_CHARS",
+    "MAX_TIMELINE_PREVIEW_CHARS",
+    "build_timeline",
+]

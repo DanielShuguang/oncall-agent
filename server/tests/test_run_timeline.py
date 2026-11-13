@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from app.runs.timeline import MAX_TIMELINE_ITEMS, build_timeline
+from app.runs.timeline import (
+    MAX_TIMELINE_ITEMS,
+    MAX_TIMELINE_PAYLOAD_CHARS,
+    MAX_TIMELINE_PREVIEW_CHARS,
+    build_timeline,
+)
 from app.schemas.event import EventType, RunEvent
 
 
@@ -149,3 +154,36 @@ def test_build_timeline_truncates_and_tolerates_malformed_payloads() -> None:
     assert items[0]["status"] == "unknown"
     assert "duration_ms" not in items[0]
     assert "attempts" not in items[0]
+
+
+def test_build_timeline_bounds_large_payloads() -> None:
+    big = "x" * (MAX_TIMELINE_PAYLOAD_CHARS + 100)
+    items, _ = build_timeline(
+        [
+            _event(
+                1,
+                EventType.TOOL_CALL,
+                {"call_id": "call_big", "tool": "query_cmdb", "args": {"q": big}, "write": False},
+            ),
+            _event(
+                2,
+                EventType.TOOL_RESULT,
+                {"call_id": "call_big", "status": "ok", "result": {"rows": [big]}},
+            ),
+            _event(
+                3,
+                EventType.TOOL_CALL,
+                {"call_id": "call_small", "tool": "query_cmdb", "args": {}, "write": False},
+            ),
+        ]
+    )
+
+    big_item = items[0]
+    assert big_item["truncated"] is True
+    assert big_item["args"]["truncated"] is True
+    assert big_item["args"]["original_chars"] > MAX_TIMELINE_PAYLOAD_CHARS
+    assert len(big_item["args"]["preview"]) == MAX_TIMELINE_PREVIEW_CHARS
+    assert big_item["result"]["truncated"] is True
+    # 小载荷原样保留，不额外加字段
+    assert items[1]["args"] == {}
+    assert "truncated" not in items[1]

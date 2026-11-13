@@ -22,7 +22,7 @@
 | — | [eval/multiturn-v2](eval/multiturn-v2.md) | 多轮评测基线（指代 + 话题切换 + 隔离对照，ADR-0024/0025） | 改 history / 检索参数前 |
 | — | [eval/multiturn-v1](eval/multiturn-v1.md) | 多轮历史基线（ADR-0025 修复前，9 条） | 只看历史对比 |
 | — | [eval/baseline-v0](eval/baseline-v0.md) | W2 历史基线（20 条） | 只看历史对比 |
-| — | [decisions/](decisions/) | 43 篇 ADR：为什么 React / Python / LangGraph / pgvector / SSE / Tailwind+oxc / 依赖版本 / shadcn / Postgres 存储 / 本地 JWT / 离线 RAG 向量化 / 显式调度 / 自研模型网关 / 工具覆盖存库 / 私有化交付 / 审批事务 / 孤儿 run 回收 / 引用全文预览 / 文档级可见性 / 多轮上下文 / 数据保留 / 回答内容回收 / 正文按时间保留 / 多轮评测 / 追问原句优先 / 按用户日预算 / 审批快照保留 / 预算可观测性 / 工单自助查询 / 会话列表 / 历史引用回放 / PDF 解析子进程隔离 / 会话历史分页 / 资产查询接表 / 历史运行过程回放 / 批量会话详情 / 工具配置变更历史 / 工单详情查询 / 会话搜索 / 会话重命名 / 会话从列表移除 / 历史引用回填 / 已移除会话恢复 | 面试前重读 |
+| — | [decisions/](decisions/) | 44 篇 ADR：为什么 React / Python / LangGraph / pgvector / SSE / Tailwind+oxc / 依赖版本 / shadcn / Postgres 存储 / 本地 JWT / 离线 RAG 向量化 / 显式调度 / 自研模型网关 / 工具覆盖存库 / 私有化交付 / 审批事务 / 孤儿 run 回收 / 引用全文预览 / 文档级可见性 / 多轮上下文 / 数据保留 / 回答内容回收 / 正文按时间保留 / 多轮评测 / 追问原句优先 / 按用户日预算 / 审批快照保留 / 预算可观测性 / 工单自助查询 / 会话列表 / 历史引用回放 / PDF 解析子进程隔离 / 会话历史分页 / 资产查询接表 / 历史运行过程回放 / 批量会话详情 / 工具配置变更历史 / 工单详情查询 / 会话搜索 / 会话重命名 / 会话从列表移除 / 历史引用回填 / 已移除会话恢复 / 运行过程载荷上限 | 面试前重读 |
 
 ## ADR（Architecture Decision Record）
 
@@ -71,6 +71,7 @@
 | [0041](decisions/0041-session-remove.md) | 会话从列表移除 | 旁挂 `hidden_sessions`（迁移 0017、复合主键、无外键）：`DELETE /sessions/{id}` 软移除，204/404/503、幂等；只过滤列表与标题搜索，不删 run/事件/审批，直连详情仍可读；v1 无恢复 |
 | [0042](decisions/0042-citation-backfill.md) | 历史引用回填 | 一次性 CLI `backfill-citations`（`--dry-run`/`--limit`）：只处理无快照、正文与事件都未清理的 run，从最后一条 `message.completed` 重建并条件写入；不改读路径/保留语义，无迁移 |
 | [0043](decisions/0043-hidden-session-restore.md) | 已移除会话恢复 | `GET /sessions/hidden` 列本人移除项、`DELETE /sessions/{id}/hidden` 只删 `hidden_sessions` 行；恢复后重新参与列表与搜索，不碰 run/事件/审批；无迁移 |
+| [0044](decisions/0044-timeline-payload-cap.md) | 运行过程载荷上限 | 读取侧把单个工具参数/结果压到 4096 字符（前 1024 字符预览），条目带 `truncated`；事件与 DB 原始载荷不动；无迁移 |
 
 > ADR 的写法：背景 → 方案对比 → 决策 → 后果。面试被问"为什么这么做"时，直接念 ADR。
 

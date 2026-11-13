@@ -85,6 +85,8 @@ export interface ToolTimelineItem {
   error_kind?: string;
   duration_ms?: number;
   attempts?: number;
+  /** 参数或结果超过服务端预算，只返回了截断预览（ADR-0044） */
+  truncated?: boolean;
 }
 
 export interface ApprovalTimelineItem {
@@ -99,6 +101,8 @@ export interface ApprovalTimelineItem {
   status: string;
   resolved_at?: string;
   decision_reason?: string;
+  /** 审批参数超过服务端预算，只返回了截断预览（ADR-0044） */
+  truncated?: boolean;
 }
 
 export type TimelineItem = ToolTimelineItem | ApprovalTimelineItem;

@@ -375,6 +375,10 @@ async def test_pg_stats_counts_pending_and_decided(
     assert stats.decided_count == 1
     assert stats.avg_wait_ms is not None and stats.avg_wait_ms >= 0
     assert stats.max_wait_ms == stats.avg_wait_ms
+    assert len(stats.daily) == 1
+    assert stats.daily[0].day == now.date()
+    assert stats.daily[0].decided_count == 1
+    assert stats.daily[0].avg_wait_ms == stats.avg_wait_ms
 
     # 已过期待办即使还没被 expire_due 收敛，也不计入积压
     async with sessionmaker() as session:

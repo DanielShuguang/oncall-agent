@@ -39,6 +39,8 @@ import {
 } from '@/api/approvals';
 import { formatDurationMs, formatTime } from '@/lib/format';
 
+const STATS_DAYS = [7, 30, 90] as const;
+
 const STATUS_OPTIONS = [
   { value: 'pending', label: '待办' },
   { value: 'approved', label: '已批准' },
@@ -70,13 +72,14 @@ export default function ApprovalsPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [resolver, setResolver] = useState<ResolveState | null>(null);
   const [stats, setStats] = useState<ApprovalStats | null>(null);
+  const [statsDays, setStatsDays] = useState(7);
   // 初始加载与决议后刷新可能并发，旧响应不能覆盖新统计（同会话列表的做法）。
   const statsRequest = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
     const requestId = ++statsRequest.current;
-    void getApprovalStats(7)
+    void getApprovalStats(statsDays)
       .then((data) => {
         if (!cancelled && statsRequest.current === requestId) setStats(data);
         return data;
@@ -88,7 +91,7 @@ export default function ApprovalsPage() {
       cancelled = true;
       statsRequest.current += 1;
     };
-  }, []);
+  }, [statsDays]);
 
   useEffect(() => {
     let cancelled = false;
@@ -141,7 +144,7 @@ export default function ApprovalsPage() {
         setError(exc instanceof Error ? exc.message : '决议已提交，但列表刷新失败');
       }
       const requestId = ++statsRequest.current;
-      void getApprovalStats(7)
+      void getApprovalStats(statsDays)
         .then((data) => {
           if (statsRequest.current === requestId) setStats(data);
           return data;
@@ -169,6 +172,20 @@ export default function ApprovalsPage() {
           审批人看到全部待办，普通员工只看到自己发起的；通过后从快照恢复 <code>act</code>，
           拒绝后不执行写工具。
         </div>
+        <fieldset className="flex items-center gap-1">
+          <legend className="sr-only">统计时间窗口</legend>
+          {STATS_DAYS.map((days) => (
+            <Button
+              key={days}
+              size="sm"
+              variant={statsDays === days ? 'secondary' : 'ghost'}
+              aria-pressed={statsDays === days}
+              onClick={() => setStatsDays(days)}
+            >
+              {days} 天
+            </Button>
+          ))}
+        </fieldset>
         <Select
           value={status}
           onValueChange={(next) => {
@@ -228,6 +245,39 @@ export default function ApprovalsPage() {
             </CardContent>
           </Card>
         </div>
+      )}
+
+      {stats && (
+        <Card className="py-0">
+          <CardContent className="p-3">
+            <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+              <div className="text-xs font-medium">按日决议</div>
+              <div className="text-[11px] text-muted-foreground">
+                近 {stats.days} 天 · UTC · 只列有决议的日期
+              </div>
+            </div>
+            {stats.daily.length === 0 ? (
+              <p className="text-xs text-muted-foreground">窗口内还没有已决议的审批。</p>
+            ) : (
+              <div className="space-y-1">
+                {stats.daily.map((day) => (
+                  <div
+                    key={day.day}
+                    className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs"
+                  >
+                    <span className="w-12 shrink-0 text-muted-foreground">{day.day.slice(5)}</span>
+                    <span>{day.decided_count} 单</span>
+                    <span className="text-muted-foreground">
+                      {day.avg_wait_ms === null
+                        ? '平均等待 —'
+                        : `平均等待 ${formatDurationMs(day.avg_wait_ms)}`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
       )}
 
       {error && (

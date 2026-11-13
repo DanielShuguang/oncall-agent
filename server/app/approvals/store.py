@@ -10,13 +10,13 @@ import asyncio
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
-from datetime import datetime
+from datetime import date, datetime
 from typing import TYPE_CHECKING, Any, Protocol
 
 from sqlalchemy import delete, func, select, text, tuple_, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from app.approvals.types import ApprovalRecord, ApprovalStats
+from app.approvals.types import ApprovalDayStats, ApprovalRecord, ApprovalStats
 from app.models.approval import Approval, ApprovalGrant
 
 if TYPE_CHECKING:
@@ -156,20 +156,30 @@ class InMemoryApprovalStore:
             oldest = min(record.created_at for record in pending)
             oldest_age = max(0, int((now - oldest).total_seconds()))
         waits: list[int] = []
+        per_day: dict[date, list[int]] = {}
         for record in self._records.values():
             if record.status not in ("approved", "rejected"):
                 continue
             if record.resolved_at is None or record.resolved_at < since:
                 continue
-            waits.append(
-                max(0, int((record.resolved_at - record.created_at).total_seconds() * 1000))
+            waited_ms = max(0, int((record.resolved_at - record.created_at).total_seconds() * 1000))
+            waits.append(waited_ms)
+            per_day.setdefault(record.resolved_at.date(), []).append(waited_ms)
+        daily = tuple(
+            ApprovalDayStats(
+                day=day,
+                decided_count=len(waited),
+                avg_wait_ms=round(sum(waited) / len(waited)),
             )
+            for day, waited in sorted(per_day.items())
+        )
         return ApprovalStats(
             pending_count=len(pending),
             oldest_pending_age_s=oldest_age,
             decided_count=len(waits),
             avg_wait_ms=round(sum(waits) / len(waits)) if waits else None,
             max_wait_ms=max(waits) if waits else None,
+            daily=daily,
         )
 
     async def resolve(
@@ -354,9 +364,34 @@ class PostgresApprovalStore:
                     )
                 )
             ).one()
+            day_column = func.date_trunc("day", Approval.resolved_at)
+            daily_rows = (
+                await session.execute(
+                    select(
+                        day_column,
+                        func.count(Approval.id),
+                        func.avg(wait_seconds * 1000),
+                    )
+                    .where(
+                        Approval.status.in_(("approved", "rejected")),
+                        Approval.resolved_at.is_not(None),
+                        Approval.resolved_at >= since,
+                    )
+                    .group_by(day_column)
+                    .order_by(day_column)
+                )
+            ).all()
         pending_count = int(pending_row[0] or 0)
         oldest = pending_row[1]
         decided_count = int(decided_row[0] or 0)
+        daily = tuple(
+            ApprovalDayStats(
+                day=row[0].date(),
+                decided_count=int(row[1]),
+                avg_wait_ms=(round(float(row[2])) if row[2] is not None else None),
+            )
+            for row in daily_rows
+        )
         return ApprovalStats(
             pending_count=pending_count,
             oldest_pending_age_s=(
@@ -365,6 +400,7 @@ class PostgresApprovalStore:
             decided_count=decided_count,
             avg_wait_ms=(round(float(decided_row[1])) if decided_row[1] is not None else None),
             max_wait_ms=(round(float(decided_row[2])) if decided_row[2] is not None else None),
+            daily=daily,
         )
 
     async def resolve(

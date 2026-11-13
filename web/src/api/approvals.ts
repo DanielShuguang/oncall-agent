@@ -23,6 +23,13 @@ export interface ApprovalListResponse {
   items: ApprovalOut[];
 }
 
+export interface ApprovalDayStats {
+  /** UTC 日期，YYYY-MM-DD；只含窗口内真正有决议的日期（ADR-0050） */
+  day: string;
+  decided_count: number;
+  avg_wait_ms: number | null;
+}
+
 export interface ApprovalStats {
   days: number;
   pending_count: number;
@@ -30,6 +37,7 @@ export interface ApprovalStats {
   decided_count: number;
   avg_wait_ms: number | null;
   max_wait_ms: number | null;
+  daily: ApprovalDayStats[];
 }
 
 export interface ApprovalResolveResponse {

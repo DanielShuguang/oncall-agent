@@ -25,6 +25,7 @@ from app.approvals.types import (
 from app.core.logging import get_logger
 from app.core.store import RunStore, get_store
 from app.schemas.approval import (
+    ApprovalDayStatsOut,
     ApprovalListResponse,
     ApprovalOut,
     ApprovalResolveRequest,
@@ -73,6 +74,12 @@ async def approval_stats(
         decided_count=stats.decided_count,
         avg_wait_ms=stats.avg_wait_ms,
         max_wait_ms=stats.max_wait_ms,
+        daily=[
+            ApprovalDayStatsOut(
+                day=day.day, decided_count=day.decided_count, avg_wait_ms=day.avg_wait_ms
+            )
+            for day in stats.daily
+        ],
     )
 
 

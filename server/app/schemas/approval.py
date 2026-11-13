@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -35,8 +35,16 @@ class ApprovalListResponse(BaseModel):
     items: list[ApprovalOut]
 
 
+class ApprovalDayStatsOut(BaseModel):
+    """按 UTC 日期聚合的已决议趋势（ADR-0050）；只含窗口内有决议的日期。"""
+
+    day: date
+    decided_count: int
+    avg_wait_ms: int | None = None
+
+
 class ApprovalStatsResponse(BaseModel):
-    """审批人视角的积压与窗口内等待（ADR-0048）。"""
+    """审批人视角的积压、窗口内等待与按日趋势（ADR-0048 / ADR-0050）。"""
 
     days: int
     pending_count: int
@@ -44,6 +52,7 @@ class ApprovalStatsResponse(BaseModel):
     decided_count: int
     avg_wait_ms: int | None = None
     max_wait_ms: int | None = None
+    daily: list[ApprovalDayStatsOut] = Field(default_factory=list)
 
 
 class ApprovalResolveResponse(BaseModel):

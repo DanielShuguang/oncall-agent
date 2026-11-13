@@ -1120,9 +1120,10 @@ Postgres + Redis **514 passed**。
 前端 `tsc`、**73 tests / 15 files**、`oxlint` 0/0（66 files）、`oxfmt --check` 74 files、
 `pnpm build` 276ms。不改表/事件/清理；未重跑 RAG 与多轮评测。
 
-已知边界：v1 固定近 7 天，没有时间选择器；只给聚合数字，不按审批人/工具分组、没有趋势与
-告警；统计是请求时快照，页面停留期间不会自动更新；`resolved_at` 没有单独索引，审批量
-到十万级再评估。详见 [ADR-0048](decisions/0048-approval-stats.md)。
+已知边界：当时固定近 7 天、没有时间选择器与趋势；只给聚合数字，不按审批人/工具分组、
+没有告警；统计是请求时快照，页面停留期间不会自动更新；`resolved_at` 没有单独索引，审批量
+到十万级再评估。窗口选择与按日趋势后来由 ADR-0050 补上。详见
+[ADR-0048](decisions/0048-approval-stats.md)。
 
 ---
 
@@ -1149,6 +1150,30 @@ Postgres + Redis **515 passed**。
 
 已知边界：响应只有计数，不告诉用户哪些 id 被忽略；没有恢复审计、管理员跨用户恢复与
 「恢复并打开」；勾选只覆盖当前已加载页（最多 50 条/页）。
+
+---
+
+## W6 后补：审批统计的按日趋势与时间窗口（ADR-0050）
+
+ADR-0048 的统计接口已经支持 `days=1–90`，但前端固定 7 天，响应也只有窗口汇总：
+审批人看不到「哪天压得多、哪天的决议等得久」，也判断不了积压是突发还是持续。
+
+| 事项 | 落地 |
+|---|---|
+| 接口 | `GET /approvals/stats?days=` 响应增加 `daily`（UTC 日期、只含有决议的日期） |
+| 粒度 | 每日 `decided_count` + `avg_wait_ms`；只算 approved/rejected，过期不计 |
+| 口径 | 稀疏不补零；与窗口汇总同一个 `since`；请求时快照 |
+| 存储 | 内存按 `resolved_at.date()` 分桶；PG `date_trunc('day', resolved_at)` + GROUP BY |
+| 前端 | 7/30/90 天切换（`days` 联动）；四卡后「按日决议」卡；不引图表依赖 |
+| 数据 | 无迁移、无新索引；不按人/工具分组、不告警 |
+
+验证：默认 **479 passed + 36 skipped**；真实 Postgres **512 passed + 3 skipped**；
+Postgres + Redis **515 passed**。`ruff check` / `ruff format --check`（187 files）/
+`mypy app`（110 files）通过；前端 `tsc`、**73 tests / 15 files**、`oxlint` 0/0
+（66 files）、`oxfmt --check` 74 files、`pnpm build` 300ms。
+
+已知边界：只到 UTC 日粒度，窗口内没有决议的日期不出现；不按审批人/工具分组、无告警；
+统计是请求时快照，页面停留不自动更新。详见 [ADR-0050](decisions/0050-approval-trend.md)。
 
 ---
 

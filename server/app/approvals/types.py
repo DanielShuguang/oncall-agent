@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Protocol
 
 
@@ -41,12 +41,26 @@ class ApprovalRequestInfo:
 
 
 @dataclass(frozen=True)
+class ApprovalDayStats:
+    """按 UTC 日期聚合的已决议数量与平均等待（ADR-0050）。
+
+    只包含窗口内真正有决议的日期，不做零填充：调用方按返回的日期画趋势即可，
+    避免为了补零把窗口边界与 `since` 的滚动窗口语义搅在一起。
+    """
+
+    day: date
+    decided_count: int
+    avg_wait_ms: int | None
+
+
+@dataclass(frozen=True)
 class ApprovalStats:
-    """审批积压与等待统计（ADR-0048）。
+    """审批积压与等待统计（ADR-0048 / ADR-0050）。
 
     `oldest_pending_age_s` 是当前待办的「已等秒数」，用于发现卡住的单；
     `avg_wait_ms` / `max_wait_ms` 只统计窗口内已决议（approved/rejected）的审批，
     不把过期（expired）算成人工等待，避免把 TTL 时长混进流程指标。
+    `daily` 是同一窗口内按 UTC 日期分桶的稀疏趋势（ADR-0050）。
     """
 
     pending_count: int
@@ -54,6 +68,7 @@ class ApprovalStats:
     decided_count: int
     avg_wait_ms: int | None
     max_wait_ms: int | None
+    daily: tuple[ApprovalDayStats, ...] = ()
 
 
 @dataclass(frozen=True)

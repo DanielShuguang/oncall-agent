@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from unittest.mock import AsyncMock
 
 from httpx import AsyncClient
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.approvals.store import InMemoryApprovalStore
-from app.approvals.types import ApprovalRecord, ApprovalStats
+from app.approvals.types import ApprovalDayStats, ApprovalRecord, ApprovalStats
 from tests.support import auth_headers
 
 EMPLOYEE = auth_headers("u_102", ("employee",))
@@ -90,6 +90,8 @@ async def test_inmemory_stats_counts_pending_and_windowed_decisions() -> None:
     assert stats.decided_count == 2
     assert stats.avg_wait_ms == 2_700_000
     assert stats.max_wait_ms == 3_600_000
+    # 两条决议都发生在 NOW 当天（UTC），窗口外的 old 与 expired 不进趋势
+    assert stats.daily == (ApprovalDayStats(date(2026, 11, 13), 2, 2_700_000),)
 
 
 async def test_inmemory_stats_empty_returns_nulls() -> None:
@@ -127,6 +129,13 @@ async def test_approval_stats_returns_aggregates(
     assert body["decided_count"] == 1
     assert body["avg_wait_ms"] == 3_600_000
     assert body["max_wait_ms"] == 3_600_000
+    assert body["daily"] == [
+        {
+            "day": (now - timedelta(hours=1)).date().isoformat(),
+            "decided_count": 1,
+            "avg_wait_ms": 3_600_000,
+        }
+    ]
 
 
 async def test_approval_stats_validates_days(client: AsyncClient) -> None:

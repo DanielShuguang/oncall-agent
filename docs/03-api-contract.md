@@ -598,7 +598,11 @@ Authorization: Bearer <approver token>
   "oldest_pending_age_s": 5400,
   "decided_count": 12,
   "avg_wait_ms": 1812000,
-  "max_wait_ms": 8640000
+  "max_wait_ms": 8640000,
+  "daily": [
+    {"day": "2026-11-09", "decided_count": 5, "avg_wait_ms": 1200000},
+    {"day": "2026-11-10", "decided_count": 7, "avg_wait_ms": 2346000}
+  ]
 }
 ```
 
@@ -609,6 +613,9 @@ Authorization: Bearer <approver token>
   过期（`expired`）不计入人工等待，负数按 0 处理
 - 统计前会先收敛超时待办；聚合时还会排除已过期的 `pending`（即使单轮收敛上限没扫到），
   所以刚过 TTL 的单不会继续算作积压
+- `daily` 按 **UTC 日期**分桶，只列窗口内真正有决议的日期（稀疏不补零）；每项
+  `decided_count` / `avg_wait_ms` 与上面的已决议口径一致；前端提供 7/30/90 天切换，
+  `days` 与 `daily` 使用同一个窗口（[ADR-0050](decisions/0050-approval-trend.md)）
 - 不返回 `resolved_by`、不按审批人/工具分组；库不可用返回 503，不返回 0 冒充「没有积压」
 
 ```http

@@ -31,12 +31,13 @@ def _record(
     created_at: datetime = NOW,
     resolved_at: datetime | None = None,
     requested_by: str = "u_102",
+    tool_name: str = "create_ticket",
 ) -> ApprovalRecord:
     return ApprovalRecord(
         id=approval_id,
         run_id=str(uuid.uuid4()),
         call_id="call_1",
-        tool_name="create_ticket",
+        tool_name=tool_name,
         args={},
         risk_level="medium",
         status=status,

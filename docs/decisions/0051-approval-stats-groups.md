@@ -29,7 +29,8 @@ ADR-0050 又补了 UTC 日粒度的 `daily`。但这些数字只回答「整体�
    取值 `tool` / `approver`，默认不分组；仍仅审批人角色可读。
 2. 分组只聚合**窗口内已决议**（`approved` + `rejected`）的审批；
    `pending` 没有审批人归属、`expired` 不是人工决议，都不进入分组。
-   各分组 `decided_count` 之和等于同一响应的 `decided_count`。
+   各分组 `decided_count` 之和等于同一响应的 `decided_count`（未截断时）。
+   等待时长按 0 下限处理（决议早于创建的脏数据），内存与 Postgres 口径一致。
 3. 分组键：`tool` 用 `tool_name`；`approver` 用 `resolved_by`，
    缺失（老数据/系统决议）归入 `unknown`。
 4. 按 `decided_count` 降序、分组键升序取前 20 组；超过 20 组时
@@ -62,8 +63,8 @@ ADR-0050 又补了 UTC 日粒度的 `daily`。但这些数字只回答「整体�
 - `ruff check` 通过、`ruff format --check` **187 files**、`mypy app` **110 files**。
 - 前端 `tsc --noEmit` 通过、**73 tests / 15 files**、`oxlint` 0/0（66 files、
   231 rules）、`oxfmt --check` 74 files、`pnpm build` 238ms。
-- 新增/覆盖：内存分组（tool/approver、`unknown` 不参与空表）、API `group_by`
-  合法/非法值、PG 分组 SQL 与 `groups_truncated`。
+- 新增/覆盖：内存分组（tool/approver、`unknown` 不参与空表）、21 组截断、
+  API `group_by` 合法/非法值、PG 分组 SQL、PG 负等待夹到 0。
 
 ## 6. 待定
 

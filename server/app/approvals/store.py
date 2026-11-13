@@ -395,7 +395,10 @@ class PostgresApprovalStore:
         now: datetime,
         group_by: ApprovalGroupBy | None = None,
     ) -> ApprovalStats:
-        wait_seconds = func.extract("epoch", Approval.resolved_at - Approval.created_at)
+        # 内存实现把负等待夹到 0；PG 也必须一致，否则脏数据会让 avg/max 变负。
+        wait_seconds = func.greatest(
+            func.extract("epoch", Approval.resolved_at - Approval.created_at), 0
+        )
         async with self._sessionmaker() as session:
             pending_row = (
                 await session.execute(

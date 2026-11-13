@@ -403,3 +403,18 @@ async def test_pg_stats_counts_pending_and_decided(
     stale_stats = await approvals.stats(since=now - timedelta(days=7), now=now)
     assert stale_stats.pending_count == 0
     assert stale_stats.oldest_pending_age_s is None
+
+    # 脏数据（决议早于创建）不能让平均/最长等待变成负数。
+    async with sessionmaker() as session:
+        await session.execute(
+            update(Approval)
+            .where(Approval.id == second_id)
+            .values(created_at=now + timedelta(hours=1))
+        )
+        await session.commit()
+    clamped = await approvals.stats(since=now - timedelta(days=7), now=now)
+    assert clamped.avg_wait_ms == 0
+    assert clamped.max_wait_ms == 0
+    clamped_groups = await approvals.stats(since=now - timedelta(days=7), now=now, group_by="tool")
+    assert clamped_groups.groups[0].avg_wait_ms == 0
+    assert clamped_groups.groups[0].max_wait_ms == 0

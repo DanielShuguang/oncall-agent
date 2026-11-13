@@ -76,6 +76,7 @@ export default function ApprovalsPage() {
   const [stats, setStats] = useState<ApprovalStats | null>(null);
   const [statsDays, setStatsDays] = useState(7);
   const [statsGroup, setStatsGroup] = useState<StatsGroup>('none');
+  const [statsGroupView, setStatsGroupView] = useState<StatsGroup>('none');
   // 初始加载与决议后刷新可能并发，旧响应不能覆盖新统计（同会话列表的做法）。
   const statsRequest = useRef(0);
 
@@ -84,7 +85,10 @@ export default function ApprovalsPage() {
     const requestId = ++statsRequest.current;
     void getApprovalStats(statsDays, statsGroup === 'none' ? null : statsGroup)
       .then((data) => {
-        if (!cancelled && statsRequest.current === requestId) setStats(data);
+        if (!cancelled && statsRequest.current === requestId) {
+          setStats(data);
+          setStatsGroupView(statsGroup);
+        }
         return data;
       })
       .catch(() => {
@@ -149,7 +153,10 @@ export default function ApprovalsPage() {
       const requestId = ++statsRequest.current;
       void getApprovalStats(statsDays, statsGroup === 'none' ? null : statsGroup)
         .then((data) => {
-          if (statsRequest.current === requestId) setStats(data);
+          if (statsRequest.current === requestId) {
+            setStats(data);
+            setStatsGroupView(statsGroup);
+          }
           return data;
         })
         .catch(() => {
@@ -293,7 +300,7 @@ export default function ApprovalsPage() {
         </Card>
       )}
 
-      {stats && statsGroup !== 'none' && (
+      {stats && statsGroup !== 'none' && statsGroupView === statsGroup && (
         <Card className="py-0">
           <CardContent className="p-3">
             <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">

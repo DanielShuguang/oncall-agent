@@ -1263,7 +1263,7 @@ ADR-0053 解决了已办按决议时间倒序，但审批人想找「某位审�
 
 | 事项 | 落地 |
 |---|---|
-| 参数 | `tool`（1–100）、`resolved_by`（1–64）、`resolved_from` / `resolved_to`（`YYYY-MM-DD`，UTC 自然日，结束日不含） |
+| 参数 | `tool`（1–64）、`resolved_by`（1–64）、`resolved_from` / `resolved_to`（`YYYY-MM-DD`，UTC 自然日，结束日不含） |
 | 限制 | 仅 `approved|rejected|expired`；`pending`（含缺省）带任一筛选返回 422 `INVALID_FILTER`；起止倒置或 `resolved_to=9999-12-31` 返回 422 `INVALID_RANGE` |
 | 存储 | 无迁移、无新索引；沿用 `idx_approvals_resolved`，工具/审批人做索引后残余过滤 |
 | 游标 | 已办 `{s,r,i}`，带筛选时加 `f`（筛选条件 canonical JSON 的 SHA-256 前 16 hex）；换筛选复用旧游标返回 400 `INVALID_CURSOR`，无筛选旧游标仍可用 |

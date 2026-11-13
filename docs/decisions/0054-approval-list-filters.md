@@ -27,9 +27,10 @@ ADR-0053 把已办审批改成按 `resolved_at` 倒序，解决了「最近的�
    任一出现且 `status=pending` 时返回 `422 INVALID_FILTER`；待办列表保持原样。
    `status` 缺省仍是 `pending`，所以「不带 status 只带筛选」也会被拒绝，调用方
    必须显式写 `status=approved|rejected|expired`。
-2. **工具/审批人精确匹配，日期按 UTC 自然日半开区间**。`tool` 去空白后 1–100
-   字符，`resolved_by` 去空白后 1–64 字符；`resolved_from` 含当天 00:00，
-   `resolved_to` 不含当天（内部转成次日 00:00）。`resolved_from > resolved_to`
+2. **工具/审批人精确匹配，日期按 UTC 自然日半开区间**。`tool` 去空白后 1–64
+   字符（与 `approvals.tool_name` 列宽一致），`resolved_by` 去空白后 1–64 字符；
+   `resolved_from` 含当天 00:00，`resolved_to` 不含当天（内部转成次日 00:00）。
+   `resolved_from > resolved_to`
    返回 `422 INVALID_RANGE`；`resolved_to=9999-12-31` 无法安全加一天，也返回
    `422 INVALID_RANGE`。日期参数只接受 `YYYY-MM-DD`，不做时区换算。
 3. **不新增索引、不改排序**。继续使用 `idx_approvals_resolved` 的
@@ -40,11 +41,14 @@ ADR-0053 把已办审批改成按 `resolved_at` 倒序，解决了「最近的�
    把筛选条件按固定键 `{"t","b","f","u"}` 做 canonical JSON（键排序、无空格）
    后取 SHA-256 前 16 个 hex。没有筛选时仍返回 `{s,r,i}`，旧游标继续可用；
    有筛选时解码必须同时匹配 `s` 和 `f`，否则 `400 INVALID_CURSOR`。这样换工具、
-   换审批人、改日期范围后旧游标不会静默续翻。
+   换审批人、改日期范围后旧游标不会静默续翻。游标里的 `i` 还必须是 UUID：
+   `approvals.id` 是 UUID 列，非 UUID 会在 Postgres 存储层被翻译成
+   `ApprovalInvalidCursor`，API 再回 400，而不是把数据库类型错误暴露成 503。
 5. **前端只给已办显示筛选卡**。工具、审批人、决议开始/结束日期四个输入 +
    「筛选 / 清除」；点筛选先做 `from > to` 的客户端提示，再重置列表和游标；
-   切换状态时清空筛选与输入，避免把已办条件带进待办。筛选条件变化一律从第一页
-   重新加载，不保留「每个状态一套筛选」。
+   切到待办时清空筛选与输入，避免把已办条件带进待办；`approved|rejected|expired`
+   之间保留同一组筛选，方便用同一条件对照。筛选条件变化一律从第一页重新加载，
+   不保留「每个状态一套筛选」。
 6. **身份与可见性不变**。筛选叠加在现有 `requested_by` 可见范围之上：审批人看
    全部，普通员工仍只看自己发起的审批；筛选不能绕过这条边界。
 
@@ -65,7 +69,9 @@ ADR-0053 把已办审批改成按 `resolved_at` 倒序，解决了「最近的�
 - 默认 `pytest`：**485 passed + 40 skipped**；真实 Postgres：**522 passed + 3
   skipped**；Postgres + Redis：**525 passed**。
 - 新增用例：内存筛选（工具/审批人/日期组合）、API 筛选 + 游标换筛选 400 +
-  待办带筛选 422 + 起止倒置 422、PG 筛选；前端 `listApprovals` 查询参数。
+  待办带筛选 422 + 起止倒置 422 + 超长工具 422、PG 筛选；前端
+  `listApprovals` 查询参数。审阅补强覆盖：普通员工不能借工具名看到别人的审批；
+  Postgres 存储把非 UUID 游标翻译成 `ApprovalInvalidCursor`，API 回 400 而不是 503。
 - `ruff check` / `ruff format --check`（188 files）/ `mypy app`（110 files）通过；
   前端 `tsc`、**75 tests / 15 files**、`oxlint` 0/0、`oxfmt --check` 74 files、
   `pnpm build` 通过。无迁移。

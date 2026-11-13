@@ -32,6 +32,14 @@ class ApprovalNotReady(ApprovalError):
     """run 还没进入 awaiting_approval（approval.required 尚未落库）。"""
 
 
+class ApprovalInvalidCursor(ApprovalError):
+    """游标里的审批 ID 不是 Postgres 可接受的 UUID。
+
+    UUID 是存储层的主键类型；长度校验挡不住 `not-a-uuid` 这类游标，直接拼进
+    `id < ...` 会触发数据库类型错误，把客户端问题伪装成 503（ADR-0054 审阅补强）。
+    """
+
+
 @dataclass(frozen=True)
 class ApprovalRequestInfo:
     """提交审批后回给 runtime 的最小信息。"""

@@ -24,6 +24,7 @@ from app.approvals.service import ApprovalService, approval_payload
 from app.approvals.types import (
     ApprovalForbidden,
     ApprovalGroupBy,
+    ApprovalInvalidCursor,
     ApprovalListCursor,
     ApprovalListFilters,
     ApprovalNotFound,
@@ -199,7 +200,7 @@ async def list_approvals(
     identity: Annotated[Identity, Depends(get_identity)],
     status: Annotated[str, Query(pattern="^(pending|approved|rejected|expired)$")] = "pending",
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
-    tool: Annotated[str | None, Query(min_length=1, max_length=100)] = None,
+    tool: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
     resolved_by: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
     resolved_from: Annotated[date | None, Query()] = None,
     resolved_to: Annotated[date | None, Query()] = None,
@@ -218,6 +219,8 @@ async def list_approvals(
         records = await service.list_for(
             identity, status=status, limit=limit, filters=filters, cursor=before
         )
+    except ApprovalInvalidCursor:
+        raise _cursor_error() from None
     except SQLAlchemyError as exc:
         log.error("approval_list_failed", error=str(exc))
         raise ApiError(503, "DATABASE_UNAVAILABLE", "database unavailable") from exc

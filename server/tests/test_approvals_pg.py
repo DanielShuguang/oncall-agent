@@ -24,6 +24,7 @@ from sqlalchemy.pool import NullPool
 from app.approvals.service import ApprovalService
 from app.approvals.store import PostgresApprovalStore
 from app.approvals.types import (
+    ApprovalInvalidCursor,
     ApprovalListFilters,
     ApprovalRecord,
     PendingApprovalCursor,
@@ -558,6 +559,13 @@ async def test_pg_resolved_list_orders_by_resolved_at(pg_approvals: tuple[Any, .
         cursor=ResolvedApprovalCursor(last.resolved_at, last.id),
     )
     assert [record.id for record in rest] == [ids[0]]
+
+    # 游标里的 id 不是 UUID 时不能把数据库类型错误伪装成 503；存储层抛领域异常。
+    with pytest.raises(ApprovalInvalidCursor):
+        await approvals.list(
+            status="approved",
+            cursor=ResolvedApprovalCursor(base, "not-a-uuid"),
+        )
 
 
 async def test_pg_resolved_list_filters(pg_approvals: tuple[Any, ...]) -> None:

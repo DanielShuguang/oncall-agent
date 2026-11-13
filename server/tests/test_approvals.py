@@ -18,6 +18,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.approvals.service import ApprovalService
 from app.approvals.store import InMemoryApprovalStore
 from app.approvals.types import (
+    ApprovalInvalidCursor,
     ApprovalListFilters,
     ApprovalNotReady,
     ApprovalRecord,
@@ -524,7 +525,7 @@ async def test_resolved_list_filters_by_tool_approver_and_date() -> None:
 
 
 async def test_approval_list_filters_and_cursor_binding(
-    client: AsyncClient, mem_approvals: InMemoryApprovalStore
+    client: AsyncClient, mem_approvals: InMemoryApprovalStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """API 筛选参数、日期区间与游标绑定；筛选项不能带到待办列表（ADR-0054）。"""
     base = datetime(2026, 11, 1, 12, tzinfo=UTC)
@@ -552,6 +553,24 @@ async def test_approval_list_filters_and_cursor_binding(
                 state={},
             )
         )
+    # 筛选叠加在 requested_by 可见范围之上；普通员工不能借工具名看到别人的审批。
+    await mem_approvals.create(
+        ApprovalRecord(
+            id="f4",
+            run_id="run_f4",
+            call_id="call_f4",
+            tool_name="secret_tool",
+            args={},
+            risk_level="medium",
+            status="approved",
+            requested_by="u_555",
+            resolved_by="u_900",
+            expires_at=base,
+            created_at=base - timedelta(minutes=10),
+            resolved_at=base,
+            state={},
+        )
+    )
 
     filtered = await client.get(
         "/api/approvals?status=approved&tool=create_ticket&resolved_by=u_900"
@@ -605,6 +624,37 @@ async def test_approval_list_filters_and_cursor_binding(
     )
     assert max_end.status_code == 422
     assert max_end.json()["code"] == "INVALID_RANGE"
+
+    # tool 与 approvals.tool_name 列宽一致；超长值在参数层就被拒绝。
+    too_long_tool = await client.get(
+        f"/api/approvals?status=approved&tool={'x' * 65}", headers=APPROVER
+    )
+    assert too_long_tool.status_code == 422
+
+    approver_secret = await client.get(
+        "/api/approvals?status=approved&tool=secret_tool", headers=APPROVER
+    )
+    assert [item["approval_id"] for item in approver_secret.json()["items"]] == ["f4"]
+    employee_secret = await client.get(
+        "/api/approvals?status=approved&tool=secret_tool", headers=EMPLOYEE
+    )
+    assert employee_secret.status_code == 200
+    assert employee_secret.json()["items"] == []
+
+    # Postgres 存储把非 UUID 的游标翻译成领域异常，API 必须回 400 而不是 503。
+    async def fail_on_cursor(*, cursor: object = None, **kwargs: object) -> list[object]:
+        if cursor is not None:
+            raise ApprovalInvalidCursor("cursor approval id is not a UUID")
+        return await original_list(**kwargs)
+
+    original_list = mem_approvals.list
+    monkeypatch.setattr(mem_approvals, "list", fail_on_cursor)
+    bad_uuid = await client.get(
+        f"/api/approvals?status=approved&tool=create_ticket&cursor={cursor}",
+        headers=APPROVER,
+    )
+    assert bad_uuid.status_code == 400
+    assert bad_uuid.json()["code"] == "INVALID_CURSOR"
 
 
 async def test_resolve_before_approval_required_is_rejected(

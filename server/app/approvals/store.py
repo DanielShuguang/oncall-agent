@@ -21,6 +21,7 @@ from app.approvals.types import (
     ApprovalDayStats,
     ApprovalGroupBy,
     ApprovalGroupStats,
+    ApprovalInvalidCursor,
     ApprovalListCursor,
     ApprovalListFilters,
     ApprovalRecord,
@@ -438,6 +439,13 @@ class PostgresApprovalStore:
         limit: int = 100,
     ) -> list[ApprovalRecord]:
         active_filters = filters or ApprovalListFilters()
+        if cursor is not None:
+            # 内存实现允许任意字符串 id（测试用 a1/f1），Postgres 的 approvals.id
+            # 是 UUID；伪造游标要在进查询前翻译成 400，不能让 asyncpg 把它变成 503。
+            try:
+                uuid.UUID(cursor.approval_id)
+            except ValueError as exc:
+                raise ApprovalInvalidCursor("cursor approval id is not a UUID") from exc
         query = select(Approval)
         if status is not None:
             query = query.where(Approval.status == status)

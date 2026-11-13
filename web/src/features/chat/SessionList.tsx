@@ -324,14 +324,15 @@ export function SessionList({
                   type="checkbox"
                   checked={allHiddenSelected}
                   onChange={onHiddenToggleAll}
-                  aria-label="全选当前页已移除会话"
+                  disabled={hiddenSessions.length === 0 || restoringBatch || restoringId !== null}
+                  aria-label="全选已加载的已移除会话"
                 />
                 全选
               </label>
               <Button
                 size="sm"
                 variant="outline"
-                disabled={hiddenSelected.size === 0 || restoringBatch}
+                disabled={hiddenSelected.size === 0 || restoringBatch || restoringId !== null}
                 onClick={onRestoreSelected}
               >
                 {restoringBatch ? '恢复中…' : `恢复选中（${hiddenSelected.size}）`}

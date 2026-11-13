@@ -71,6 +71,8 @@ export default function ChatPage() {
   const [hiddenError, setHiddenError] = useState<string | null>(null);
   // 已移除视图的搜索与分页（ADR-0047）：与主列表共用「标题匹配」口径
   const [hiddenQuery, setHiddenQuery] = useState('');
+  // 批量恢复期间用户仍可能改搜索词；重拉第一页必须用最新关键词，而不是提交时的闭包值。
+  const hiddenQueryRef = useRef(hiddenQuery);
   const [hiddenDraftQuery, setHiddenDraftQuery] = useState('');
   const [hiddenCursor, setHiddenCursor] = useState<string | null>(null);
   const [hiddenLoadingMore, setHiddenLoadingMore] = useState(false);
@@ -89,6 +91,10 @@ export default function ChatPage() {
   const historyRequest = useRef(0);
   // 刷新会替换整个会话列表：加载更多/初始加载的旧页回来时不能 append 到新列表上。
   const sessionsRequest = useRef(0);
+
+  useEffect(() => {
+    hiddenQueryRef.current = hiddenQuery;
+  }, [hiddenQuery]);
 
   useEffect(() => {
     let cancelled = false;
@@ -403,7 +409,7 @@ export default function ChatPage() {
   };
 
   const onRestoreSelected = async () => {
-    if (restoringBatch || hiddenSelected.size === 0) return;
+    if (restoringBatch || restoringId !== null || hiddenSelected.size === 0) return;
     setRestoringBatch(true);
     setHiddenError(null);
     try {
@@ -414,7 +420,7 @@ export default function ChatPage() {
       setHiddenLoadingMore(false);
       setHiddenSelected(new Set());
       refreshSessions();
-      await loadHiddenFirstPage(hiddenQuery);
+      await loadHiddenFirstPage(hiddenQueryRef.current);
     } catch (err) {
       setHiddenError(err instanceof Error ? err.message : '批量恢复失败');
     } finally {

@@ -280,7 +280,9 @@ GET /api/runs/{run_id}
       "risk_level": "high",
       "reason": "将创建工单",
       "status": "approved",
+      "requested_at": "2026-11-09T02:05:31.000Z",
       "resolved_at": "2026-11-09T02:11:04.100Z",
+      "waited_ms": 333100,
       "decision_reason": "确认报修"
     }
   ],
@@ -336,6 +338,9 @@ GET /api/runs/{run_id}
 > `{"truncated": true, "original_chars": N, "preview": "<前 1024 字符>"}`；
 > 工具 `error` 超过 4096 字符时截到 1024 字符并追加「…（原始 N 字符，已截断）」。
 > 该条目带 `truncated: true`；事件中的原始载荷不变（[ADR-0044](decisions/0044-timeline-payload-cap.md)）。
+> 审批项带 `requested_at`（发起事件时间）与 `waited_ms`（发起到决议的毫秒数，仅已决议项有；
+> 决议早于发起的脏数据省略该字段），用于区分工具执行耗时与人工等待
+> （[ADR-0046](decisions/0046-approval-wait.md)）。等待时长不进入工具耗时汇总。
 > 为保护内部治理信息，审批卡不返回 `resolved_by` 与 `scope`。列表接口不返回这些字段；
 > 历史过程只读，不提供重试/批准/拒绝。
 

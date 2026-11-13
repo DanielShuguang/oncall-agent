@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from typing import Any
 
 from app.schemas.event import EventType, RunEvent
@@ -78,6 +79,7 @@ def build_timeline(events: list[RunEvent]) -> tuple[list[dict[str, Any]], bool]:
     items: list[dict[str, Any]] = []
     tools: dict[str, dict[str, Any]] = {}
     approvals: dict[str, dict[str, Any]] = {}
+    approval_started: dict[str, datetime] = {}
 
     for event in events:
         payload = event.payload
@@ -144,19 +146,28 @@ def build_timeline(events: list[RunEvent]) -> tuple[list[dict[str, Any]], bool]:
                 "risk_level": _text(payload.get("risk_level")) or "medium",
                 "reason": _text(payload.get("reason")),
                 "expires_at": _text(payload.get("expires_at")),
+                "requested_at": event.ts.isoformat(),
                 "status": "pending",
             }
             if args_truncated:
                 approval_item["truncated"] = True
             items.append(approval_item)
             approvals[approval_id] = approval_item
+            approval_started[approval_id] = event.ts
         elif event.type is EventType.APPROVAL_RESOLVED:
             approval_id = _text(payload.get("approval_id"))
-            resolved_item = approvals.get(approval_id) if approval_id else None
+            if approval_id is None:
+                continue
+            resolved_item = approvals.get(approval_id)
             if resolved_item is None:
                 continue
             resolved_item["status"] = _text(payload.get("status")) or "unknown"
             resolved_item["resolved_at"] = event.ts.isoformat()
+            started = approval_started.get(approval_id)
+            if started is not None:
+                waited_ms = int((event.ts - started).total_seconds() * 1000)
+                if waited_ms >= 0:
+                    resolved_item["waited_ms"] = waited_ms
             reason = _text(payload.get("reason"))
             if reason is not None:
                 resolved_item["decision_reason"] = reason

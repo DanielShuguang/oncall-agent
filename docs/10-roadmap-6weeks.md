@@ -1040,8 +1040,34 @@ Postgres + Redis **504 passed** 沿用上一轮；前端 `tsc` 通过、**72 tes
 新增 `timelineView.test.ts` 5 条覆盖汇总/筛选/格式边界；未改检索、提示词与多轮历史。
 
 已知边界：筛选只作用于当前回答的 20 项，不能跨 run 统计；「异常」是展示口径，不是新状态机；
-耗时是工具执行时间之和，不是端到端延迟；审批等待时长没有进入时间线；筛选状态不持久化。
-详见 [ADR-0045](decisions/0045-timeline-filter-summary.md)。
+耗时是工具执行时间之和，不是端到端延迟；审批等待时长当时没有进入时间线（后由 ADR-0046 补上）；
+筛选状态不持久化。详见 [ADR-0045](decisions/0045-timeline-filter-summary.md)。
+
+---
+
+## W6 后补：审批等待时长回放（ADR-0046）
+
+工具耗时只说明机器执行时间；涉及写操作时，人审批的等待往往才是整轮最长的一段。时间线此前
+只显示审批状态与理由，不显示等了多久。`approval.required` / `approval.resolved` 事件都带
+服务端 `ts`，差值就是等待时长——不需要新表、迁移或额外查询。
+
+| 事项 | 落地 |
+|---|---|
+| 字段 | 审批项新增 `requested_at`（发起事件时间）与 `waited_ms`（发起到决议的毫秒数，仅已决议项有） |
+| 边界 | 决议早于发起的脏数据省略 `waited_ms`；孤儿决议仍忽略；待审批项不给 0，也不按当前时间猜 |
+| 展示 | 审批卡片显示「等待 2m 3s」，复用 `formatDuration`，与工具耗时同一套格式 |
+| 汇总 | 不进入工具耗时之和，也不参与「最慢」；人工等待与机器耗时分开看 |
+| 身份 | 仍不返回 `resolved_by` / `scope`；等待时长不泄露审批人 |
+| 数据 | 事件本来就带 `ts`，历史 run 直接可算；无迁移、无回填、无定时任务 |
+
+验证：默认 **471 passed + 35 skipped**；真实 Postgres **503 passed + 3 skipped**；
+Postgres + Redis **506 passed**。`ruff check` / `ruff format --check`（186 files）/`mypy app`
+（110 files）通过；前端 `tsc`、**72 tests / 15 files**、`oxlint` 0/0（66 files）、
+`oxfmt --check` 74 files、`pnpm build` 712ms。不改表/事件/清理；未重跑 RAG 与多轮评测。
+
+已知边界：只显示已决议审批的等待；事件时间不是审批系统受理时间，秒级误差可接受；等待时长
+不进入汇总、不能跨 run 统计；待审批项的「已等待多久」需要按当前时间另算。
+详见 [ADR-0046](decisions/0046-approval-wait.md)。
 
 ---
 

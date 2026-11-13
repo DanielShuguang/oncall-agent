@@ -71,6 +71,9 @@ function ApprovalRow({ item }: { item: ApprovalTimelineItem }) {
         <Badge variant="outline">{item.tool}</Badge>
         <span className="text-muted-foreground">{statusLabel(item.status)}</span>
         <span className="text-muted-foreground">· 风险 {item.risk_level}</span>
+        {typeof item.waited_ms === 'number' && (
+          <span className="text-muted-foreground">· 等待 {formatDuration(item.waited_ms)}</span>
+        )}
       </div>
       {item.reason && <div className="mt-1 text-muted-foreground">审批理由：{item.reason}</div>}
       {item.decision_reason && (

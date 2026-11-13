@@ -98,6 +98,10 @@ export interface ApprovalTimelineItem {
   risk_level: string;
   reason?: string;
   expires_at?: string;
+  /** 审批发起时间（服务端事件时间；ADR-0046） */
+  requested_at?: string;
+  /** 从发起到决议的等待毫秒；只有已决议的审批才有（ADR-0046） */
+  waited_ms?: number;
   status: string;
   resolved_at?: string;
   decision_reason?: string;

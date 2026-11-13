@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 from app.runs.timeline import (
     MAX_TIMELINE_ITEMS,
     MAX_TIMELINE_PAYLOAD_CHARS,
@@ -11,8 +13,20 @@ from app.runs.timeline import (
 from app.schemas.event import EventType, RunEvent
 
 
-def _event(seq: int, etype: EventType, payload: dict[str, object]) -> RunEvent:
-    return RunEvent(seq=seq, run_id="run_1", type=etype, payload=payload)
+def _event(
+    seq: int,
+    etype: EventType,
+    payload: dict[str, object],
+    *,
+    ts: datetime | None = None,
+) -> RunEvent:
+    return RunEvent(
+        seq=seq,
+        run_id="run_1",
+        type=etype,
+        payload=payload,
+        ts=ts or datetime.now(UTC),
+    )
 
 
 def test_build_timeline_merges_tool_call_and_result() -> None:
@@ -93,9 +107,58 @@ def test_build_timeline_merges_approval_and_hides_resolver() -> None:
     assert item["status"] == "approved"
     assert item["decision_reason"] == "同意"
     assert item["resolved_at"].endswith("+00:00")
+    assert item["requested_at"]
+    assert item["waited_ms"] >= 0
     # 审批人身份与授权范围属于内部治理信息，不进历史回放
     assert "resolved_by" not in item
     assert "scope" not in item
+
+
+def test_build_timeline_reports_approval_wait() -> None:
+    started = datetime(2026, 1, 1, tzinfo=UTC)
+    items, _ = build_timeline(
+        [
+            _event(
+                1,
+                EventType.APPROVAL_REQUIRED,
+                {"approval_id": "apr_1", "tool": "create_ticket", "args": {}},
+                ts=started,
+            ),
+            _event(
+                2,
+                EventType.APPROVAL_RESOLVED,
+                {"approval_id": "apr_1", "status": "approved"},
+                ts=started + timedelta(seconds=90),
+            ),
+        ]
+    )
+
+    item = items[0]
+    assert item["requested_at"] == started.isoformat()
+    assert item["resolved_at"] == (started + timedelta(seconds=90)).isoformat()
+    assert item["waited_ms"] == 90_000
+
+
+def test_build_timeline_omits_negative_approval_wait() -> None:
+    started = datetime(2026, 1, 1, tzinfo=UTC)
+    items, _ = build_timeline(
+        [
+            _event(
+                1,
+                EventType.APPROVAL_REQUIRED,
+                {"approval_id": "apr_1", "tool": "create_ticket", "args": {}},
+                ts=started,
+            ),
+            _event(
+                2,
+                EventType.APPROVAL_RESOLVED,
+                {"approval_id": "apr_1", "status": "approved"},
+                ts=started - timedelta(seconds=1),
+            ),
+        ]
+    )
+
+    assert "waited_ms" not in items[0]
 
 
 def test_build_timeline_keeps_pending_approval_and_ignores_orphans() -> None:

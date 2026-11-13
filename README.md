@@ -168,9 +168,9 @@ oncall/
 
 | 模块 | 状态 | 验证方式 |
 |---|---|---|
-| 文档（12 篇 + 45 篇 ADR + 评测基线） | ✅ 完成 | — |
+| 文档（12 篇 + 46 篇 ADR + 评测基线） | ✅ 完成 | — |
 | 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡 / 运行回放 / 成本页） | ✅ 可用 | `tsc --noEmit`、`oxlint 0`、`oxfmt --check` 通过；`vitest` 72/72；`pnpm build` 成功 |
-| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **469 passed + 35 skipped**；设 `ONCALL_TEST_DATABASE_URL`（指向一个可清空的库）后 **501 passed + 3 skipped**，再加 `ONCALL_TEST_REDIS_URL` 为 **504 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约与审批快照、引用快照与内容回收、个人预算与账本快照、工单自助查询、工单详情、会话列表/标题搜索/分页/重命名/移除/恢复、资产查询接表、运行过程回放与载荷上限、批量会话详情、工具配置变更历史、历史引用回填、计量一致性） |
+| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **471 passed + 35 skipped**；设 `ONCALL_TEST_DATABASE_URL`（指向一个可清空的库）后 **503 passed + 3 skipped**，再加 `ONCALL_TEST_REDIS_URL` 为 **506 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约与审批快照、引用快照与内容回收、个人预算与账本快照、工单自助查询、工单详情、会话列表/标题搜索/分页/重命名/移除/恢复、资产查询接表、运行过程回放与载荷上限、批量会话详情、工具配置变更历史、历史引用回填、计量一致性） |
 | 本地 JWT（W1 D2） | ✅ 已完成 | `tests/test_auth.py` 20 条：签发/验签、过期、alg=none、401 JSON、OpenAPI Bearer、run 归属隔离 |
 | 事件落库 + 断线续传（D4） | ✅ 已完成 | `alembic upgrade head` + `alembic check` 无漂移；`tests/test_store_contract.py`（内存 + Postgres 契约）、`tests/test_chat_stream.py`（落库、幂等回放、503 语义） |
 | 最小 Agent 运行时（W1 D5） | ✅ 已完成 | `tests/test_agent_runtime.py` 9 条：工具真实执行、检索引用、写操作挂起审批、工具失败降级、步数/时长上限 |
@@ -201,7 +201,7 @@ oncall/
 | 历史引用回填（W6 后补） | ✅ 已完成 | `make backfill-citations` / `python -m app.cli backfill-citations`：只处理无快照、正文与事件都未清理的 run，从最后一条 `message.completed` 重建（字段白名单/截断/最多 50），`set_citations` 条件写、可重复执行、`--dry-run` 不写库；不改读路径与保留语义；无迁移；`tests/test_citation_backfill.py`；[ADR-0042](docs/decisions/0042-citation-backfill.md) |
 | PDF 解析子进程隔离（W6 后补） | ✅ 已完成 | `.pdf` 在 `spawn` 子进程里解析（PyMuPDF/pypdf 逻辑不变），60 秒超时先 terminate 再 kill；崩溃/超时/管道异常都收敛成 `ParseError` → 上传接口 422，不再带走 API；本机实测 1 页文本 PDF 预热后 5 次中位数约 0.30 秒启动开销（Linux/大文件未测），未做内存 rlimit/常驻池；`test_rag_pdf_isolation.py`；[ADR-0032](docs/decisions/0032-pdf-parse-subprocess.md) |
 | 资产查询接表（W6 后补） | ✅ 已完成 | `query_cmdb` 改读 `assets` 表（内存/PG 双实现），`owner_id` 从 schema 删除、由 `ToolGuard` 注入，模型传身份字段会被 `validate_args` 拒绝；返回 `{"assets": [...], "count": N}`，空列表是合法结果，`finalize` 支持单台/多台/空/失败；换真实 CMDB 只替换 repository；无迁移；`tests/test_assets.py`、`test_assets_pg.py`；[ADR-0034](docs/decisions/0034-cmdb-assets-table.md) |
-| 历史运行过程回放（W6 后补） | ✅ 已完成 | `GET /runs/{id}` 从 `tool.call/result`、`approval.required/resolved` 投影只读 `timeline`，按 `call_id` / `approval_id` 合并，步骤与 `message.delta` 不进入；最多 20 项、超出 `timeline_truncated=true`；单条工具参数/结果的紧凑 JSON 或错误信息超过 4096 字符时只保留前 1024 字符预览并标 `truncated`（[ADR-0044](docs/decisions/0044-timeline-payload-cap.md)）；历史回答下方折叠展示，可按类型/异常/工具名筛选并汇总工具耗时与最慢调用（[ADR-0045](docs/decisions/0045-timeline-filter-summary.md)）；跟随回答可见性，正文回收/过期/事件清理时 `timeline_available=false`；不返回审批人 `resolved_by`/`scope`；只读；无新表/迁移；`tests/test_run_timeline.py`、`test_runs_api.py`；[ADR-0035](docs/decisions/0035-run-timeline-replay.md) |
+| 历史运行过程回放（W6 后补） | ✅ 已完成 | `GET /runs/{id}` 从 `tool.call/result`、`approval.required/resolved` 投影只读 `timeline`，按 `call_id` / `approval_id` 合并，步骤与 `message.delta` 不进入；最多 20 项、超出 `timeline_truncated=true`；单条工具参数/结果的紧凑 JSON 或错误信息超过 4096 字符时只保留前 1024 字符预览并标 `truncated`（[ADR-0044](docs/decisions/0044-timeline-payload-cap.md)）；历史回答下方折叠展示，可按类型/异常/工具名筛选并汇总工具耗时与最慢调用（[ADR-0045](docs/decisions/0045-timeline-filter-summary.md)）；审批卡片显示发起、决议时间与等待时长（[ADR-0046](docs/decisions/0046-approval-wait.md)）；跟随回答可见性，正文回收/过期/事件清理时 `timeline_available=false`；不返回审批人 `resolved_by`/`scope`；只读；无新表/迁移；`tests/test_run_timeline.py`、`test_runs_api.py`；[ADR-0035](docs/decisions/0035-run-timeline-replay.md) |
 | 批量会话详情（W6 后补） | ✅ 已完成 | 新增 `GET /sessions/{id}/runs`：一页 run 的正文/引用/运行过程一次返回，打开会话与加载更早各只发 1 次请求（原来 21 次前端请求，且每条详情服务端还要另查事件与可见性）；整页引用合并成一次可见性查询，事件按 run 批量取（Postgres 窗口函数）；不含 `model_calls`，无新表/迁移；无游标且查不到会话返回 404，游标越界返回 200 空页；`tests/test_sessions_api.py`、`test_store_contract.py`（`_exercise_events_for_runs`）；[ADR-0036](docs/decisions/0036-session-detail-batch.md) |
 | 工具配置变更历史（W6 后补） | ✅ 已完成 | 新增追加式 `tool_setting_changes`（迁移 0015）：每个真正变化的工具一行，`before`/`after` 存完整覆盖快照，与 `tool_settings` 写入同事务；`GET /admin/tools/{name}/history?limit=`（admin-only、倒序、最多 100）；ToolsPage 每行「历史」Dialog 展示时间/操作人/来源/`before → after`；历史长期保留、不提供回滚；`tests/test_tool_history.py`、`test_tool_history_pg.py`；[ADR-0037](docs/decisions/0037-tool-setting-history.md) |
 
@@ -331,7 +331,8 @@ W6 基线（3 轮均值，mock 规则路径，口径见 [baseline-v1](docs/eval/
   「运行过程」折叠区回放（[ADR-0035](docs/decisions/0035-run-timeline-replay.md)），可按类型/
   异常/工具名筛选并汇总工具耗时与最慢调用（[ADR-0045](docs/decisions/0045-timeline-filter-summary.md)），
   但最多 20 项、单条工具参数/结果/错误信息超过 4096 字符只显示前 1024 字符预览（[ADR-0044](docs/decisions/0044-timeline-payload-cap.md)），
-  完整内容要在保留期内查事件；筛选只作用于当前回答、不能跨 run 统计；不显示审批人；
+  完整内容要在保留期内查事件；筛选只作用于当前回答、不能跨 run 统计；不显示审批人，
+  审批等待只对已决议项显示、不计入工具耗时汇总（[ADR-0046](docs/decisions/0046-approval-wait.md)）；
   正文被回收/过期或事件已清理后不可回看。
   会话历史改为一页一次请求（[ADR-0036](docs/decisions/0036-session-detail-batch.md)），
   但仍是游标翻页、不能跳到某一轮，批量响应也没有单条 run 字节上限。

@@ -51,7 +51,7 @@ function ToolRow({ item }: { item: ToolTimelineItem }) {
         <Badge variant={item.write ? 'destructive' : 'secondary'}>{item.tool}</Badge>
         <span className="text-muted-foreground">{statusLabel(item.status)}</span>
         {typeof item.duration_ms === 'number' && (
-          <span className="text-muted-foreground">· {item.duration_ms}ms</span>
+          <span className="text-muted-foreground">· {formatDuration(item.duration_ms)}</span>
         )}
         {typeof item.attempts === 'number' && item.attempts > 1 && (
           <span className="text-muted-foreground">· 重试{item.attempts - 1}次</span>

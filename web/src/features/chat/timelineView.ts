@@ -76,12 +76,14 @@ export function filterTimeline(
 }
 
 export function formatDuration(durationMs: number): string {
-  if (durationMs < 1000) return `${Math.max(0, Math.round(durationMs))}ms`;
-  if (durationMs < 60_000) {
-    const seconds = (durationMs / 1000).toFixed(1);
+  const clamped = Math.max(0, durationMs);
+  if (clamped < 1000) return `${Math.round(clamped)}ms`;
+  const totalSeconds = clamped / 1000;
+  // 59.95s 以上一律进位到「分」，否则 119999ms 会显示成「1m 60s」。
+  if (totalSeconds < 59.95) {
+    const seconds = totalSeconds.toFixed(1);
     return `${seconds.endsWith('.0') ? seconds.slice(0, -2) : seconds}s`;
   }
-  const minutes = Math.floor(durationMs / 60_000);
-  const seconds = Math.round((durationMs % 60_000) / 1000);
-  return `${minutes}m ${seconds}s`;
+  const wholeSeconds = Math.round(totalSeconds);
+  return `${Math.floor(wholeSeconds / 60)}m ${wholeSeconds % 60}s`;
 }

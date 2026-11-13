@@ -89,7 +89,10 @@ describe('formatDuration', () => {
     expect(formatDuration(999)).toBe('999ms');
     expect(formatDuration(1000)).toBe('1s');
     expect(formatDuration(1200)).toBe('1.2s');
+    expect(formatDuration(59_949)).toBe('59.9s');
+    expect(formatDuration(59_999)).toBe('1m 0s');
     expect(formatDuration(60_000)).toBe('1m 0s');
+    expect(formatDuration(119_999)).toBe('2m 0s');
     expect(formatDuration(63_000)).toBe('1m 3s');
   });
 });

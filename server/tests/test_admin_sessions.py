@@ -1,4 +1,4 @@
-"""会话恢复审计的管理端读取（ADR-0059）。"""
+"""会话恢复审计的管理端读取（ADR-0059/0060/0061）。"""
 
 from __future__ import annotations
 
@@ -220,6 +220,14 @@ async def test_session_restore_audits_filter_by_session(
     assert missing.status_code == 200
     assert missing.json()["items"] == []
 
+    combined = await client.get(
+        "/api/admin/session-restores",
+        headers=ADMIN,
+        params={"user_id": "u_102", "session_id": "sess_a"},
+    )
+    assert combined.status_code == 200
+    assert [item["user_id"] for item in combined.json()["items"]] == ["u_102"]
+
     # 游标绑定 session 过滤：同用户、换 session_id 也必须 400
     mismatch = await client.get(
         "/api/admin/session-restores",
@@ -229,24 +237,26 @@ async def test_session_restore_audits_filter_by_session(
     assert mismatch.status_code == 400
     assert mismatch.json()["code"] == "INVALID_CURSOR"
 
-    # ADR-0060 旧游标没有 `s`；没有 session 过滤时仍然可用
+    # 无 session 过滤时保持 ADR-0060 的 {t,i,u} 形状（滚动升级兼容）
     legacy_body = await client.get(
         "/api/admin/session-restores", headers=ADMIN, params={"limit": 1}
     )
-    raw = base64.urlsafe_b64decode(legacy_body.json()["next_cursor"] + "==")
-    legacy_payload = json.loads(raw)
-    legacy_payload.pop("s")
-    legacy_cursor = (
-        base64.urlsafe_b64encode(json.dumps(legacy_payload, separators=(",", ":")).encode())
-        .decode()
-        .rstrip("=")
-    )
+    legacy_cursor = legacy_body.json()["next_cursor"]
+    raw = base64.urlsafe_b64decode(legacy_cursor + "==")
+    assert "s" not in json.loads(raw)
     legacy = await client.get(
         "/api/admin/session-restores",
         headers=ADMIN,
         params={"limit": 1, "cursor": legacy_cursor},
     )
     assert legacy.status_code == 200
+    legacy_with_session = await client.get(
+        "/api/admin/session-restores",
+        headers=ADMIN,
+        params={"session_id": "sess_a", "cursor": legacy_cursor},
+    )
+    assert legacy_with_session.status_code == 400
+    assert legacy_with_session.json()["code"] == "INVALID_CURSOR"
 
 
 async def test_session_restore_audits_reject_bad_params(client: AsyncClient) -> None:

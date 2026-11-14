@@ -88,7 +88,7 @@
 | [0058](decisions/0058-approval-hourly-distribution.md) | 审批统计按小时分布 | stats 新增 `hourly`（UTC 0–23 稀疏分布，含单数与平均等待）；与 daily 同窗口/同口径；PG `date_part` + 内存归桶；无迁移、无新索引 |
 | [0059](decisions/0059-session-restore-audit.md) | 已移除会话的恢复审计 | 新增 `session_restore_audits`（一次恢复一行，JSONB 实际恢复 id，CHECK 计数一致）；删除与审计同事务；`GET /admin/session-restores`；独立 365 天保留；迁移 `0019`；分页见 ADR-0060，按 session 反查见 ADR-0061 |
 | [0060](decisions/0060-session-restore-audit-pagination.md) | 会话恢复审计列表分页 | `GET /admin/session-restores` 增加 `cursor`/`next_cursor`：`(restored_at, id)` 倒序 keyset，游标绑定 `user_id`，非法/换过滤 400；无迁移、无新索引；不做导出/总数/前端 |
-| [0061](decisions/0061-session-restore-audit-session-filter.md) | 恢复审计按 session 反查 | `GET /admin/session-restores` 增加 `session_id`（1–64），PG `session_ids @>`；迁移 `0020` 加 `jsonb_path_ops` GIN；游标扩为 `{t,i,u,s}` 并绑定过滤，旧 `{t,i,u}` 只兼容无 session 过滤；不做前端/导出/总数 |
+| [0061](decisions/0061-session-restore-audit-session-filter.md) | 恢复审计按 session 反查 | `GET /admin/session-restores` 增加 `session_id`（1–64），PG `session_ids @>`；迁移 `0020` 加 `jsonb_path_ops` GIN；带过滤时游标增加 `s` 并绑定该过滤，无过滤仍是 `{t,i,u}`，旧游标只兼容无 session 过滤；不做前端/导出/总数 |
 
 > ADR 的写法：背景 → 方案对比 → 决策 → 后果。面试被问"为什么这么做"时，直接念 ADR。
 

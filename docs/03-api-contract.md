@@ -783,11 +783,11 @@ Authorization: Bearer <admin token>
 - 管理接口，要求 `ONCALL_ADMIN_ROLES`；`user_id` 可选，`limit` 1–200 默认 50；
   `session_id`（1–64）可选，命中 `session_ids` 数组中的任一元素即可（ADR-0061）；
   按 `restored_at DESC, id DESC` 返回，支持 `cursor` keyset 分页（ADR-0060）
-- 游标是 base64url JSON `{t, i, u, s}`：`t` 为上一页最后一条的 `restored_at`，`i` 为其
-  UUID，`u`/`s` 为本次 `user_id`/`session_id` 过滤（无过滤时为 `null`）；切换
-  `user_id` 或 `session_id` 后复用旧游标返回 400。取满 `limit` 才给
-  `next_cursor`；未取满时为 `null`；恰好取满时仍给游标，下一页为空。
-  非法游标 400 `INVALID_CURSOR`。
+- 游标是 base64url JSON `{t, i, u}`；带 `session_id` 过滤时增加 `s`。`t` 为上一页
+  最后一条的 `restored_at`，`i` 为其 UUID，`u` 为本次 `user_id`，`s` 为本次
+  `session_id`（无过滤时省略，保持 ADR-0060 的形状）。切换 `user_id` 或
+  `session_id` 后复用旧游标返回 400。取满 `limit` 才给 `next_cursor`；未取满时
+  为 `null`；恰好取满时仍给游标，下一页为空。非法游标 400 `INVALID_CURSOR`。
   ADR-0060 的旧游标没有 `s`，只继续支持「没有 `session_id` 过滤」的请求
 - 一次恢复操作一行（单条 `DELETE /sessions/{id}/hidden` 或批量恢复各写一行）；
   `session_ids` 只含真正恢复的 id，`requested_count` 是去重后的请求数，

@@ -1438,9 +1438,9 @@ Postgres + Redis **533 passed**；`ruff check` / `ruff format --check`（192 fil
 
 已知边界：游标不是签名令牌，客户端可伪造时间/UUID 跳记录，但只能读管理员本就
 可见的数据；没有总数；翻页期间的新恢复不会出现在旧游标后续页；切换
-`user_id` 必须从第一页重新拉取。ADR-0061 增加了 `session_id` 过滤，游标随之
-扩展为 `{t,i,u,s}`；旧游标只继续支持无 session 过滤的请求。详见
-[ADR-0060](decisions/0060-session-restore-audit-pagination.md)。
+`user_id` 必须从第一页重新拉取。ADR-0061 增加了 `session_id` 过滤：带过滤时
+游标增加 `s`，无过滤时仍保持 `{t,i,u}`；旧游标只继续支持无 session 过滤的请求。
+详见 [ADR-0060](decisions/0060-session-restore-audit-pagination.md)。
 
 ---
 
@@ -1455,7 +1455,7 @@ Postgres + Redis **533 passed**；`ruff check` / `ruff format --check`（192 fil
 | 接口 | `GET /admin/session-restores` 增加可选 `session_id`（1–64）；与 `user_id`/`limit`/`cursor` 可组合 |
 | 查询 | PG `session_ids @> '["<session_id>"]'`；内存 `session_id in record.session_ids` |
 | 索引 | 迁移 `0020`：`idx_session_restore_audits_sessions USING gin (session_ids jsonb_path_ops)`，只服务包含查询 |
-| 游标 | base64url JSON `{t, i, u, s}`；`s` 为本次 `session_id` 过滤；换过滤复用旧游标 400 `INVALID_CURSOR` |
+| 游标 | 无过滤保持 `{t, i, u}`；带 `session_id` 过滤时增加 `s`；换过滤复用旧游标 400 `INVALID_CURSOR` |
 | 兼容 | ADR-0060 旧游标没有 `s`，只在不带 `session_id` 的请求里继续可用 |
 | 范围 | 不做前端管理页/CSV/总数/跳页；仍为管理员只读，`limit` 1–200 默认 50 |
 

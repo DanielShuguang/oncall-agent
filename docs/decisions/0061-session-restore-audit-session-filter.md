@@ -38,8 +38,9 @@ JSONB 数组，只存真正恢复的 id。管理接口可以按 `user_id` 看「
    `idx_session_restore_audits_sessions`：
    `USING gin (session_ids jsonb_path_ops)`。只服务 `@>` 包含查询，不替代已有的
    `(user_id, restored_at DESC)` 与 `(restored_at)` 索引。
-4. 游标从 `{t, i, u}` 扩展为 `{t, i, u, s}`：`s` 是本次 `session_id` 过滤
-   （无过滤时为 `null`）。切换 `session_id` 后复用旧游标返回 400
+4. 游标在无过滤时保持 ADR-0060 的 `{t, i, u}`；带 `session_id` 过滤时增加
+   `s`。这样滚动升级期间旧实例仍能解析新实例返回的无过滤游标；只有真正带
+   session 过滤的游标才是新形状。切换 `session_id` 后复用旧游标返回 400
    `INVALID_CURSOR`，避免把两个过滤结果拼在一起。
 5. 兼容 ADR-0060 的旧游标：没有 `s` 的游标只在不带 `session_id` 的请求里继续
    可用；一旦请求带 `session_id`，旧游标按过滤不匹配处理。旧游标因此不需要

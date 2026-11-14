@@ -53,8 +53,11 @@ def _encode_cursor(
         "t": record.restored_at.isoformat(),
         "i": record.audit_id,
         "u": user_id,
-        "s": session_id,
     }
+    # 无 session 过滤时保持 ADR-0060 的 `{t,i,u}` 形状：滚动升级期间旧实例
+    # 仍能解析新实例返回的游标；只有真正带过滤时才增加 `s`。
+    if session_id is not None:
+        payload["s"] = session_id
     raw = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
 

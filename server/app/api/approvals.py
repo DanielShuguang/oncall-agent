@@ -10,12 +10,14 @@ from __future__ import annotations
 
 import base64
 import binascii
+import csv
 import hashlib
+import io
 import json
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.deps import get_approval_service, get_identity
@@ -49,6 +51,24 @@ from app.tools.registry import Identity
 
 router = APIRouter(tags=["approvals"])
 log = get_logger(__name__)
+
+#: 导出是同步请求，必须有上限；超过上限只导出当前排序的前 N 条并显式告知截断（ADR-0056）。
+MAX_EXPORT_ROWS = 5000
+CSV_HEADERS = (
+    "approval_id",
+    "run_id",
+    "call_id",
+    "tool",
+    "risk_level",
+    "status",
+    "requested_by",
+    "resolved_by",
+    "scope",
+    "created_at",
+    "expires_at",
+    "resolved_at",
+    "reason",
+)
 
 
 def _cursor_error() -> ApiError:
@@ -192,6 +212,90 @@ def _decode_approval_cursor(
     if status == "pending":
         return _decode_pending_cursor(data)
     return _decode_resolved_cursor(data, status, filter_fingerprint)
+
+
+def _csv_cell(value: object) -> str:
+    """CSV 单元格：日期用 ISO 8601，并挡住 Excel 公式注入（ADR-0056）。"""
+    if value is None:
+        text = ""
+    elif isinstance(value, datetime):
+        text = value.isoformat()
+    else:
+        text = str(value)
+    # Excel/WPS 会把以这些字符开头的单元格当公式；前置单引号让它按文本显示。
+    if text.startswith(("=", "+", "-", "@", "\t", "\r")):
+        return "'" + text
+    return text
+
+
+def _approvals_csv(records: list[ApprovalRecord]) -> str:
+    """导出审批元数据；不导出 args，避免把工具参数里的敏感值带进表格。"""
+    buffer = io.StringIO()
+    buffer.write("\ufeff")  # Excel 识别 UTF-8
+    writer = csv.writer(buffer, lineterminator="\r\n")
+    writer.writerow(CSV_HEADERS)
+    for record in records:
+        writer.writerow(
+            [
+                _csv_cell(record.id),
+                _csv_cell(record.run_id),
+                _csv_cell(record.call_id),
+                _csv_cell(record.tool_name),
+                _csv_cell(record.risk_level),
+                _csv_cell(record.status),
+                _csv_cell(record.requested_by),
+                _csv_cell(record.resolved_by),
+                _csv_cell(record.scope),
+                _csv_cell(record.created_at),
+                _csv_cell(record.expires_at),
+                _csv_cell(record.resolved_at),
+                _csv_cell(record.reason),
+            ]
+        )
+    return buffer.getvalue()
+
+
+@router.get("/approvals/export")
+async def export_approvals(
+    service: Annotated[ApprovalService, Depends(get_approval_service)],
+    identity: Annotated[Identity, Depends(get_identity)],
+    status: Annotated[str, Query(pattern="^(pending|approved|rejected|expired)$")] = "pending",
+    tool: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
+    resolved_by: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
+    resolved_from: Annotated[date | None, Query()] = None,
+    resolved_to: Annotated[date | None, Query()] = None,
+) -> Response:
+    """按当前筛选导出审批 CSV（ADR-0056）；不属于导出任务队列，超上限即截断。"""
+    filters = _approval_filters(
+        status,
+        tool=tool,
+        resolved_by=resolved_by,
+        resolved_from=resolved_from,
+        resolved_to=resolved_to,
+    )
+    try:
+        records = await service.list_for(
+            identity,
+            status=status,
+            limit=MAX_EXPORT_ROWS + 1,
+            filters=filters,
+        )
+    except SQLAlchemyError as exc:
+        log.error("approval_export_failed", error=str(exc))
+        raise ApiError(503, "DATABASE_UNAVAILABLE", "database unavailable") from exc
+    truncated = len(records) > MAX_EXPORT_ROWS
+    rows = records[:MAX_EXPORT_ROWS]
+    filename = f"approvals-{status}-{datetime.now(UTC):%Y%m%d-%H%M%S}.csv"
+    return Response(
+        content=_approvals_csv(rows),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+            "X-Export-Count": str(len(rows)),
+            "X-Export-Truncated": "true" if truncated else "false",
+        },
+    )
 
 
 @router.get("/approvals", response_model=ApprovalListResponse)

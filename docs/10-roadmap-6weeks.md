@@ -1307,6 +1307,33 @@ Postgres + Redis **525 passed**；`ruff check` / `ruff format --check`（188 fil
 
 ---
 
+## W6 后补：审批列表导出 CSV（ADR-0056）
+
+审批中心已经能筛、能翻页，但审计/交接/离线对账仍只能截屏或复制表格；逐页拼接
+既容易漏，也没有稳定列格式。导出不是分页的替代品，而是一次性快照：最多 5000
+条，按当前筛选和排序导出，超出显式截断。`args` 可能含身份/主机名等敏感值，
+不进入 CSV；审批理由属于审批元数据，按权限可见。
+
+| 事项 | 落地 |
+|---|---|
+| 接口 | `GET /approvals/export`，参数与列表一致（`status`、`tool`、`resolved_by`、`resolved_from`、`resolved_to`）；不接收 `cursor`/`limit` |
+| 排序 | 待办 `(expires_at, created_at, approval_id)` 升序；已办 `(resolved_at, approval_id)` 倒序；筛选只对已办，待办带筛选 422 `INVALID_FILTER` |
+| 上限 | `MAX_EXPORT_ROWS = 5000`；内部取 5001 条判断截断，响应头 `X-Export-Count` / `X-Export-Truncated` |
+| CSV | UTF-8 BOM + CRLF；列含审批元数据与 `reason`，**不含 `args`**；时间 ISO 8601 UTC；`= + - @ \t \r` 开头的单元格前置单引号防公式注入 |
+| 身份 | 审批人导出全部，普通员工只导出自己发起的；不新增权限，不绕过 `requested_by` |
+| 前端 | 「导出 CSV」按当前状态 + 已应用筛选下载 Blob（带 Bearer 的 fetch）；提示行数，截断提示前 5000 条；失败不清空列表 |
+
+验证：默认 **487 passed + 40 skipped**；真实 Postgres **524 passed + 3 skipped**；
+Postgres + Redis **527 passed**；`ruff check` / `ruff format --check`（188 files）/
+`mypy app`（110 files）通过；前端 **80 tests / 16 files**、`oxlint` 0/0（68 files）、
+`oxfmt --check` 76 files、`pnpm build` 通过。无迁移。
+
+已知边界：CSV 不带截断标记，直接调 API 的客户端必须读 `X-Export-Truncated`；
+超过 5000 条没有异步导出；不导出 `args`；没有下载审计；导出查询期间的新决议
+不进入快照。详见 [ADR-0056](decisions/0056-approval-export-csv.md)。
+
+---
+
 ## 每周固定动作
 
 | 时点 | 动作 |

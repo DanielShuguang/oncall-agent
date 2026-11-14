@@ -43,6 +43,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | GET | `/runs/{run_id}/stream` | 重连增量流（可选，v1 用轮询替代） | — |
 | POST | `/approvals/{id}/resolve` | 审批通过/拒绝 | W3 D14 |
 | GET | `/approvals?status=pending&limit=50` | 待办/已办审批列表（keyset 游标分页；已办可加 `tool/resolved_by/resolved_from/resolved_to` 筛选） | W3 D14 / W5 D23 / W6 后补 |
+| GET | `/approvals/export?status=approved&tool=` | 按当前状态/筛选导出审批 CSV（最多 5000 条；响应头告知截断） | W6 后补 |
 | GET | `/approvals/stats?days=7&group_by=` | 审批积压、窗口内等待与按工具/审批人分组（仅审批人） | W6 后补 |
 | POST | `/admin/kb/documents` | 上传知识文档（multipart，≤10MB） | W2 D7 |
 | GET | `/admin/kb/documents` | 知识库文档列表 + chunk 总数 | W2 D7 |
@@ -628,6 +629,44 @@ Authorization: Bearer <approver token>
 - 前端已办列表显示「决议时间」（`resolved_at`），待办仍显示「到期时间」；
   已办还提供工具、审批人、决议日期筛选，筛选条件变化后从第一页重新加载；
   旧已办游标（ADR-0052 的 `{e,c,i}` 或初版 `{r,i}`）失效一次，刷新即回第一页
+
+```http
+GET /api/approvals/export?status=approved&tool=create_ticket&resolved_from=2026-11-01
+Authorization: Bearer <approver token>
+```
+
+```http
+HTTP/1.1 200 OK
+Content-Type: text/csv; charset=utf-8
+Content-Disposition: attachment; filename="approvals-approved-20261114-050000.csv"
+Cache-Control: no-store
+X-Export-Count: 2
+X-Export-Truncated: false
+```
+
+```csv
+approval_id,run_id,call_id,tool,risk_level,status,requested_by,resolved_by,scope,created_at,expires_at,resolved_at,reason
+3f1c...,9a17...,call_1,create_ticket,medium,approved,u_102,u_900,once,2026-11-01T04:10:00+00:00,2026-11-01T04:20:00+00:00,2026-11-01T04:15:00+00:00,已核对身份
+```
+
+- 导出与列表使用同一组参数与身份范围（ADR-0056）：`status`、`tool`、
+  `resolved_by`、`resolved_from`、`resolved_to`；不接收 `cursor`/`limit`。
+- 排序与列表一致：待办按 `(expires_at, created_at, approval_id)` 升序，已办按
+  `(resolved_at, approval_id)` 倒序；筛选只对已办生效，`status=pending` 带任一
+  筛选项返回 `422 {"code":"INVALID_FILTER"}`。
+- 最多导出 **5000 条**。内部多取一条判断截断；响应头 `X-Export-Count` 是实际
+  行数，`X-Export-Truncated` 为 `true` 时表示只导出了当前排序的前 5000 条。
+  客户端需要提示用户缩小筛选，不能把截断结果当成全量。
+- 列固定为 `approval_id, run_id, call_id, tool, risk_level, status,
+  requested_by, resolved_by, scope, created_at, expires_at, resolved_at, reason`；
+  **不导出 `args`**（工具参数可能含敏感值，留在审批详情里按权限查看）。
+- 时间统一 ISO 8601（UTC）；UTF-8 BOM + CRLF，方便 Excel 打开；以
+  `= + - @ \t \r` 开头的单元格前置单引号，防止表格把审批理由当公式执行。
+- 审批人可导出全部（仍受筛选约束）；普通员工只能导出自己发起的。响应带
+  `Cache-Control: no-store`，不落浏览器缓存。
+- 前端按钮使用当前已应用的 `status` + `filters`，通过带 Bearer 的 `fetch`
+  下载 Blob；成功后提示行数，截断时提示「已导出前 5000 条」。
+- 数据库不可用返回 `503 {"code":"DATABASE_UNAVAILABLE"}`。
 
 ```http
 GET /api/approvals/stats?days=7&group_by=tool

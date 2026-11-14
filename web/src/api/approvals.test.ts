@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { listApprovals, resolveApproval } from './approvals';
+import { exportApprovalsCsv, listApprovals, resolveApproval } from './approvals';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -42,6 +42,39 @@ describe('listApprovals', () => {
         '&resolved_from=2026-11-01&resolved_to=2026-11-02',
     );
     expect(fetchMock.mock.calls[1]?.[0]).toBe('/api/approvals?status=approved&limit=25');
+  });
+});
+
+describe('exportApprovalsCsv', () => {
+  it('按状态与筛选拼导出参数，并读取截断响应头（ADR-0056）', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    fetchMock.mockResolvedValue(
+      new Response('approval_id\r\n', {
+        status: 200,
+        headers: {
+          'Content-Type': 'text/csv; charset=utf-8',
+          'X-Export-Count': '3',
+          'X-Export-Truncated': 'true',
+        },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await exportApprovalsCsv('approved', {
+      tool: 'create_ticket',
+      resolvedBy: 'u_900',
+      resolvedFrom: '2026-11-01',
+    });
+
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(url).toBe(
+      '/api/approvals/export?status=approved&tool=create_ticket&resolved_by=u_900' +
+        '&resolved_from=2026-11-01',
+    );
+    expect(init?.method).toBeUndefined();
+    expect(result.count).toBe(3);
+    expect(result.truncated).toBe(true);
+    expect(await result.blob.text()).toBe('approval_id\r\n');
   });
 });
 

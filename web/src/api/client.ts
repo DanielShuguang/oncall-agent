@@ -59,6 +59,13 @@ export async function getJson<T>(path: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
+/** 二进制下载（如审批 CSV，ADR-0056）：错误仍是统一 JSON 错误，成功时不要把 body 当 JSON。 */
+export async function getFile(path: string): Promise<{ blob: Blob; headers: Headers }> {
+  const res = await fetch(`${PREFIX}${path}`, { headers: authHeaders() });
+  if (!res.ok) throw await toApiError(res, path);
+  return { blob: await res.blob(), headers: res.headers };
+}
+
 /**
  * multipart 上传：**不要手写 Content-Type**，浏览器要自己补 boundary。
  * 单独一个函数而不是给 getJson 加分支，避免以后有人把 JSON body 和 FormData 混用。

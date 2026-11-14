@@ -30,6 +30,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import {
+  exportApprovalsCsv,
   getApprovalStats,
   listApprovals,
   resolveApproval,
@@ -59,6 +60,15 @@ const STATUS_TONES: Record<string, string> = {
   expired: 'border-line bg-muted text-muted-foreground',
 };
 
+function downloadBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
 interface ResolveState {
   approval: ApprovalOut;
   decision: ApprovalDecision;
@@ -81,6 +91,10 @@ export default function ApprovalsPage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportMessage, setExportMessage] = useState<{ text: string; failed: boolean } | null>(
+    null,
+  );
   const [resolver, setResolver] = useState<ResolveState | null>(null);
   const [stats, setStats] = useState<ApprovalStats | null>(null);
   const [statsDays, setStatsDays] = useState(7);
@@ -176,6 +190,28 @@ export default function ApprovalsPage() {
     }
   };
 
+  const exportCsv = async () => {
+    setExporting(true);
+    setExportMessage(null);
+    try {
+      const result = await exportApprovalsCsv(status, filters);
+      downloadBlob(result.blob, `approvals-${status}.csv`);
+      setExportMessage({
+        failed: false,
+        text: result.truncated
+          ? `已导出前 ${result.count} 条；超过 5000 条上限，已截断。`
+          : `已导出 ${result.count} 条审批。`,
+      });
+    } catch (exc) {
+      setExportMessage({
+        failed: true,
+        text: exc instanceof Error ? exc.message : '导出失败',
+      });
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const changeStatus = (next: string) => {
     // 先让在途请求失效并清空旧列表：否则切到已办时，上一帧仍会渲染待办行，
     // 且表头已变成「决议时间」（ADR-0053）。
@@ -187,6 +223,7 @@ export default function ApprovalsPage() {
     setLoadingMore(false);
     setError(null);
     setNotice(null);
+    setExportMessage(null);
     if (next === 'pending') {
       setFilters({});
       setFilterTool('');
@@ -204,6 +241,7 @@ export default function ApprovalsPage() {
     setLoadingMore(false);
     setError(null);
     setNotice(null);
+    setExportMessage(null);
     setFilters(next);
   };
 
@@ -321,7 +359,22 @@ export default function ApprovalsPage() {
             ))}
           </SelectContent>
         </Select>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 text-xs"
+          disabled={exporting}
+          onClick={() => void exportCsv()}
+        >
+          {exporting ? '导出中…' : '导出 CSV'}
+        </Button>
       </div>
+
+      {exportMessage && (
+        <p className={exportMessage.failed ? 'text-xs text-danger' : 'text-xs text-ok'}>
+          {exportMessage.text}
+        </p>
+      )}
 
       {status !== 'pending' && (
         <Card className="py-0">

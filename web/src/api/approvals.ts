@@ -1,6 +1,6 @@
 /** 审批接口：契约见 docs/03-api-contract.md §4。 */
 
-import { getJson } from './client';
+import { getFile, getJson } from './client';
 
 export interface ApprovalOut {
   approval_id: string;
@@ -69,6 +69,13 @@ export interface ApprovalListFilters {
   resolvedTo?: string;
 }
 
+function applyApprovalFilters(params: URLSearchParams, filters: ApprovalListFilters): void {
+  if (filters.tool) params.set('tool', filters.tool);
+  if (filters.resolvedBy) params.set('resolved_by', filters.resolvedBy);
+  if (filters.resolvedFrom) params.set('resolved_from', filters.resolvedFrom);
+  if (filters.resolvedTo) params.set('resolved_to', filters.resolvedTo);
+}
+
 export function listApprovals(
   status = 'pending',
   cursor: string | null = null,
@@ -77,11 +84,29 @@ export function listApprovals(
 ): Promise<ApprovalListResponse> {
   const params = new URLSearchParams({ status, limit: String(limit) });
   if (cursor) params.set('cursor', cursor);
-  if (filters.tool) params.set('tool', filters.tool);
-  if (filters.resolvedBy) params.set('resolved_by', filters.resolvedBy);
-  if (filters.resolvedFrom) params.set('resolved_from', filters.resolvedFrom);
-  if (filters.resolvedTo) params.set('resolved_to', filters.resolvedTo);
+  applyApprovalFilters(params, filters);
   return getJson<ApprovalListResponse>(`/approvals?${params.toString()}`);
+}
+
+export interface ApprovalExport {
+  blob: Blob;
+  count: number;
+  /** 服务端最多导出 5000 条；超出时只返回当前排序的前 5000 条（ADR-0056）。 */
+  truncated: boolean;
+}
+
+export async function exportApprovalsCsv(
+  status = 'pending',
+  filters: ApprovalListFilters = {},
+): Promise<ApprovalExport> {
+  const params = new URLSearchParams({ status });
+  applyApprovalFilters(params, filters);
+  const { blob, headers } = await getFile(`/approvals/export?${params.toString()}`);
+  return {
+    blob,
+    count: Number(headers.get('X-Export-Count') ?? 0) || 0,
+    truncated: headers.get('X-Export-Truncated') === 'true',
+  };
 }
 
 export function getApprovalStats(

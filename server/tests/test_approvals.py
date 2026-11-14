@@ -6,6 +6,8 @@
 from __future__ import annotations
 
 import base64
+import csv
+import io
 import json
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -655,6 +657,142 @@ async def test_approval_list_filters_and_cursor_binding(
     )
     assert bad_uuid.status_code == 400
     assert bad_uuid.json()["code"] == "INVALID_CURSOR"
+
+
+async def test_export_approvals_csv(
+    client: AsyncClient, mem_approvals: InMemoryApprovalStore
+) -> None:
+    """导出受身份与筛选约束；Csv 处理引号/换行/公式注入（ADR-0056）。"""
+    base = datetime(2026, 11, 1, 12, tzinfo=UTC)
+    rows = [
+        (
+            "e1",
+            "create_ticket",
+            "u_102",
+            "u_900",
+            '需要, "加急"\n下一行',
+            base,
+        ),
+        (
+            "e2",
+            "query_cmdb",
+            "u_555",
+            "u_901",
+            '=HYPERLINK("http://evil")',
+            base + timedelta(hours=1),
+        ),
+        (
+            "e3",
+            "create_ticket",
+            "u_102",
+            "u_900",
+            "-看起来像负数",
+            base + timedelta(hours=2),
+        ),
+    ]
+    for approval_id, tool_name, requester, resolver, reason, resolved_at in rows:
+        await mem_approvals.create(
+            ApprovalRecord(
+                id=approval_id,
+                run_id=f"run_{approval_id}",
+                call_id=f"call_{approval_id}",
+                tool_name=tool_name,
+                args={"token": "should-not-appear"},
+                risk_level="medium",
+                status="approved",
+                requested_by=requester,
+                resolved_by=resolver,
+                reason=reason,
+                expires_at=base,
+                created_at=base - timedelta(minutes=10),
+                resolved_at=resolved_at,
+                state={},
+            )
+        )
+
+    res = await client.get("/api/approvals/export?status=approved", headers=APPROVER)
+    assert res.status_code == 200
+    assert res.headers["content-type"].startswith("text/csv")
+    assert res.headers["content-disposition"].startswith(
+        'attachment; filename="approvals-approved-'
+    )
+    assert res.headers["cache-control"] == "no-store"
+    assert res.headers["x-export-count"] == "3"
+    assert res.headers["x-export-truncated"] == "false"
+    assert res.text.startswith("\ufeff")
+    # BOM 单独去掉再解析；csv.reader 会保留单元格里的逗号、引号与换行。
+    parsed = list(csv.reader(io.StringIO(res.text[1:])))
+    assert parsed[0] == [
+        "approval_id",
+        "run_id",
+        "call_id",
+        "tool",
+        "risk_level",
+        "status",
+        "requested_by",
+        "resolved_by",
+        "scope",
+        "created_at",
+        "expires_at",
+        "resolved_at",
+        "reason",
+    ]
+    by_id = {row[0]: row for row in parsed[1:]}
+    assert [row[0] for row in parsed[1:]] == ["e3", "e2", "e1"]
+    assert by_id["e1"][-1] == '需要, "加急"\n下一行'
+    assert by_id["e2"][-1].startswith("'=")
+    assert by_id["e3"][-1].startswith("'-")
+    assert "should-not-appear" not in res.text
+
+    # 普通员工只能导出自己发起的；工具筛选也不会绕过身份范围。
+    employee = await client.get("/api/approvals/export?status=approved", headers=EMPLOYEE)
+    assert employee.headers["x-export-count"] == "2"
+    assert [row[0] for row in list(csv.reader(io.StringIO(employee.text[1:])))[1:]] == [
+        "e3",
+        "e1",
+    ]
+    filtered = await client.get(
+        "/api/approvals/export?status=approved&tool=query_cmdb", headers=APPROVER
+    )
+    assert filtered.headers["x-export-count"] == "1"
+
+
+async def test_export_approvals_truncates_and_rejects_pending_filters(
+    client: AsyncClient, mem_approvals: InMemoryApprovalStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """导出上限显式截断；待办不支持已办筛选（ADR-0056）。"""
+    base = datetime(2026, 11, 1, 12, tzinfo=UTC)
+    for index in range(3):
+        await mem_approvals.create(
+            ApprovalRecord(
+                id=f"t{index}",
+                run_id=f"run_t{index}",
+                call_id=f"call_t{index}",
+                tool_name="create_ticket",
+                args={},
+                risk_level="medium",
+                status="approved",
+                requested_by="u_102",
+                resolved_by="u_900",
+                expires_at=base,
+                created_at=base - timedelta(minutes=10),
+                resolved_at=base + timedelta(minutes=index),
+                state={},
+            )
+        )
+    monkeypatch.setattr("app.api.approvals.MAX_EXPORT_ROWS", 2)
+
+    res = await client.get("/api/approvals/export?status=approved", headers=APPROVER)
+    assert res.status_code == 200
+    assert res.headers["x-export-count"] == "2"
+    assert res.headers["x-export-truncated"] == "true"
+    assert len(list(csv.reader(io.StringIO(res.text[1:])))) == 3
+
+    pending_filter = await client.get(
+        "/api/approvals/export?status=pending&tool=x", headers=APPROVER
+    )
+    assert pending_filter.status_code == 422
+    assert pending_filter.json()["code"] == "INVALID_FILTER"
 
 
 async def test_resolve_before_approval_required_is_rejected(

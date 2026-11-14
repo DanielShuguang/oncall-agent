@@ -88,12 +88,19 @@ export async function restoreSession(sessionId: string): Promise<void> {
   await del(`/sessions/${encodeURIComponent(sessionId)}/hidden`);
 }
 
+export interface RestoreSessionsItem {
+  session_id: string;
+  restored: boolean;
+}
+
 export interface RestoreSessionsResult {
   restored: number;
   requested: number;
+  /** 与去重后的请求顺序一致；false 表示不存在、属于别人或本来就没移除（ADR-0055） */
+  items: RestoreSessionsItem[];
 }
 
-/** 批量恢复（ADR-0049）：最多 50 个，去重后处理；不存在的 id 忽略，返回实际恢复数。 */
+/** 批量恢复（ADR-0049/0055）：最多 50 个，去重后处理；逐条返回是否真正恢复。 */
 export async function restoreSessions(sessionIds: string[]): Promise<RestoreSessionsResult> {
   return postJson<RestoreSessionsResult>('/sessions/hidden/restore', {
     session_ids: sessionIds,

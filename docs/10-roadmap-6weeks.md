@@ -1150,6 +1150,7 @@ Postgres + Redis **515 passed**。
 
 已知边界：响应只有计数，不告诉用户哪些 id 被忽略；没有恢复审计、管理员跨用户恢复与
 「恢复并打开」；勾选只覆盖当前已加载页（最多 50 条/页）。
+其中「逐条结果」已由 [ADR-0055](decisions/0055-hidden-restore-results.md) 处理，其余仍未做。
 
 ---
 
@@ -1278,6 +1279,31 @@ Postgres + Redis **525 passed**；`ruff check` / `ruff format --check`（188 fil
 `f` 只是指纹不是签名，游标仍可伪造（仍按身份过滤）；工具/审批人无独立索引，
 大数据量下会退化为索引后过滤；翻页期间新决议仍可能重复/跳过。详见
 [ADR-0054](decisions/0054-approval-list-filters.md)。
+
+---
+
+## W6 后补：批量恢复逐条结果（ADR-0055）
+
+ADR-0049 的批量恢复只返回 `restored`/`requested` 两个计数。用户一次勾选多个已移除
+会话时，如果只成功一部分（另一个标签页已恢复、列表里混进失效 id），界面只能告诉
+「恢复了 8 个」，无法指出剩下的是谁；重新拉列表后失败项已经消失，只能自己对照。
+
+| 事项 | 落地 |
+|---|---|
+| 返回 | 保留 `restored`/`requested`，新增 `items: [{session_id, restored}]`，顺序与去重后的请求一致 |
+| 语义 | `restored: false` 合并「不存在 / 属于别人 / 本来没移除」；不返回 `forbidden`，不泄露存在性 |
+| 存储 | `RunStore.unhide_sessions` 从 `int` 改为 `set[str]`；内存收集 `pop` 成功的 id，PG 用 `DELETE ... RETURNING` |
+| 前端 | 已移除折叠区显示中性提示「已恢复 N 个；M 个未恢复（可能已被恢复或不在本人已移除列表）」；仍重拉列表 |
+| 范围 | 无迁移、无新索引、无审计；不做管理员跨用户恢复/「恢复并打开」 |
+
+验证：默认 **485 passed + 40 skipped**；真实 Postgres **522 passed + 3 skipped**；
+Postgres + Redis **525 passed**；`ruff check` / `ruff format --check`（188 files）/
+`mypy app`（110 files）通过；前端 **75 tests / 15 files**、`oxlint` 0/0（66 files）、
+`oxfmt --check` 74 files、`pnpm build` 通过。无迁移。
+
+已知边界：`restored: false` 不区分原因；没有恢复审计、管理员跨用户恢复与
+「恢复并打开」；勾选仍只覆盖当前已加载页（最多 50 条/页）。详见
+[ADR-0055](decisions/0055-hidden-restore-results.md)。
 
 ---
 

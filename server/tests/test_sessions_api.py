@@ -571,7 +571,16 @@ async def test_restore_hidden_sessions_batch(
     )
     assert res.status_code == 200
     # 去重后 4 个请求；只有本人真正移除过的 2 个被恢复
-    assert res.json() == {"restored": 2, "requested": 4}
+    assert res.json() == {
+        "restored": 2,
+        "requested": 4,
+        "items": [
+            {"session_id": "sess_b1", "restored": True},
+            {"session_id": "sess_b2", "restored": True},
+            {"session_id": "sess_missing", "restored": False},
+            {"session_id": "sess_other", "restored": False},
+        ],
+    }
     assert (await client.get("/api/sessions/hidden")).json()["items"] == []
     restored = (await client.get("/api/sessions")).json()["items"]
     assert {"sess_b1", "sess_b2"} <= {item["session_id"] for item in restored}
@@ -582,7 +591,14 @@ async def test_restore_hidden_sessions_batch(
         json={"session_ids": ["sess_b1", "sess_b2"]},
     )
     assert again.status_code == 200
-    assert again.json() == {"restored": 0, "requested": 2}
+    assert again.json() == {
+        "restored": 0,
+        "requested": 2,
+        "items": [
+            {"session_id": "sess_b1", "restored": False},
+            {"session_id": "sess_b2", "restored": False},
+        ],
+    }
 
     # 空列表、超过 50 个、空字符串 id 都是 422
     for payload in (

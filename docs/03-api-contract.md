@@ -36,7 +36,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | DELETE | `/sessions/{session_id}` | 从会话列表移除（软移除；不删 run/事件/审批，204） | W6 后补 |
 | GET | `/sessions/hidden` | 本人从列表移除的会话（游标分页 + 标题搜索，ADR-0043/0047） | W6 后补 |
 | DELETE | `/sessions/{session_id}/hidden` | 恢复已移除的会话（只删 `hidden_sessions` 行，204） | W6 后补 |
-| POST | `/sessions/hidden/restore` | 批量恢复已移除会话（最多 50，部分成功，返回 restored/requested） | W6 后补 |
+| POST | `/sessions/hidden/restore` | 批量恢复已移除会话（最多 50，部分成功，返回逐条结果） | W6 后补 |
 | GET | `/sessions/{session_id}/runs` | 一页会话详情（正文/引用/运行过程，一次返回） | W6 后补 |
 | GET | `/runs/{run_id}` | 单次运行详情（含指标与模型调用明细） | W1 D4 / W4 D19 |
 | GET | `/runs/{run_id}/events?after_seq=` | 补拉事件（断线续传，兼容 `Last-Event-ID`） | W1 D4 |
@@ -523,7 +523,14 @@ Content-Type: application/json
 ```
 
 ```json
-{"restored": 2, "requested": 2}
+{
+  "restored": 2,
+  "requested": 2,
+  "items": [
+    {"session_id": "sess_01H...", "restored": true},
+    {"session_id": "sess_02H...", "restored": true}
+  ]
+}
 ```
 
 - `GET /sessions/hidden` 只返回**本人**从列表移除的会话，按 `hidden_at DESC, session_id DESC`；
@@ -547,9 +554,11 @@ Content-Type: application/json
 - `POST /sessions/hidden/restore` 一次 1–50 个，服务端去重保序；空列表、超过 50 个或空白
   id 返回 422
 - 只删**本人**的 `hidden_sessions` 行；不存在、属于别人、或本来就没移除的 id 静默忽略
-  （部分成功），响应只给计数、不逐条解释，避免泄露别人的会话是否存在
-- 返回 `{"restored": n, "requested": m}`；`requested` 是去重后的数量；重复调用幂等
-  （`restored` 为 0）
+  （部分成功）。逐条结果的 `restored: false` 刻意合并这三类，不区分「不存在」与「属于
+  别人」，避免泄露别人的会话是否存在
+- 返回 `{"restored": n, "requested": m, "items": [...]}`；`items` 与去重后的请求顺序一致，
+  `requested` 是去重后的数量；未要求逐条结果的旧客户端仍可只读计数；重复调用幂等
+  （`restored` 为 0，所有 `items[].restored` 为 false）
 - 与单条恢复一样只删行：不重建/不删除 run、事件、审批与引用快照；库故障返回 503
 
 ## 4. 审批

@@ -41,6 +41,8 @@ interface SessionListProps {
   hiddenSessions: HiddenSession[];
   hiddenLoading: boolean;
   hiddenError: string | null;
+  /** 批量恢复后的部分成功提示（ADR-0055）；不占用错误样式 */
+  hiddenNotice: string | null;
   /** 已移除视图的搜索与分页（ADR-0047） */
   hiddenQuery: string;
   hiddenDraftQuery: string;
@@ -100,6 +102,7 @@ export function SessionList({
   hiddenSessions,
   hiddenLoading,
   hiddenError,
+  hiddenNotice,
   hiddenQuery,
   hiddenDraftQuery,
   hiddenHasMore,
@@ -340,6 +343,11 @@ export function SessionList({
             </div>
             {hiddenLoading && <p className="px-1 py-1 text-xs text-muted-foreground">加载中…</p>}
             {hiddenError && <p className="px-1 py-1 text-xs text-danger">{hiddenError}</p>}
+            {hiddenNotice && (
+              <p className="px-1 py-1 text-xs text-muted-foreground" aria-live="polite">
+                {hiddenNotice}
+              </p>
+            )}
             {!hiddenLoading && !hiddenError && hiddenSessions.length === 0 && (
               <p className="px-1 py-1 text-xs text-muted-foreground">
                 {hiddenQuery.trim() ? '没有匹配的已移除会话。' : '没有已移除的会话。'}

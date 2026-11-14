@@ -515,12 +515,13 @@ class RunStore(Protocol):
         """
         ...
 
-    async def unhide_sessions(self, *, user_id: str, session_ids: Sequence[str]) -> int:
-        """批量恢复已移除的会话（ADR-0049）。
+    async def unhide_sessions(self, *, user_id: str, session_ids: Sequence[str]) -> set[str]:
+        """批量恢复已移除的会话（ADR-0049/0055）。
 
-        一次删除该用户名下多个 `hidden_sessions` 行，返回真正删掉的数量。
-        不存在、属于别人、或本来就没移除的 id 直接忽略：批量操作是部分成功
-        语义，不因一个 id 失效让整批失败。`session_ids` 由 API 去重并限制长度。
+        一次删除该用户名下多个 `hidden_sessions` 行，返回真正删掉的 session_id。
+        不存在、属于别人、或本来就没移除的 id 不会出现在结果里：批量操作是
+        部分成功语义，不因一个 id 失效让整批失败。`session_ids` 由 API 去重并
+        限制长度；返回集合用于逐条结果，不保证顺序。
         """
         ...
 
@@ -967,13 +968,13 @@ class InMemoryRunStore:
         async with self._lock:
             return self._hidden_sessions.pop((user_id, session_id), None) is not None
 
-    async def unhide_sessions(self, *, user_id: str, session_ids: Sequence[str]) -> int:
+    async def unhide_sessions(self, *, user_id: str, session_ids: Sequence[str]) -> set[str]:
         async with self._lock:
-            return sum(
-                1
+            return {
+                session_id
                 for session_id in session_ids
                 if self._hidden_sessions.pop((user_id, session_id), None) is not None
-            )
+            }
 
     async def list_runs_without_citations(self, *, limit: int = 100) -> list[RunRecord]:
         async with self._lock:
@@ -1659,9 +1660,9 @@ class PostgresRunStore:
             await session.commit()
         return deleted is not None
 
-    async def unhide_sessions(self, *, user_id: str, session_ids: Sequence[str]) -> int:
+    async def unhide_sessions(self, *, user_id: str, session_ids: Sequence[str]) -> set[str]:
         if not session_ids:
-            return 0
+            return set()
         async with self._sessionmaker() as session:
             result = await session.execute(
                 delete(HiddenSessionRow)
@@ -1671,7 +1672,7 @@ class PostgresRunStore:
                 )
                 .returning(HiddenSessionRow.session_id)
             )
-            restored = len(result.scalars().all())
+            restored = set(result.scalars().all())
             await session.commit()
         return restored
 

@@ -56,6 +56,8 @@ ADR-0043 给「已移除的会话」加了单条恢复，ADR-0047 又给它补�
 ## 待定
 
 - 逐条结果（`restored` / `missing` / `forbidden`）与前端提示；
+  `restored` 布尔结果已由 [ADR-0055](0055-hidden-restore-results.md) 实现；
+  `missing`/`forbidden` 因不泄露存在性刻意不区分。
 - 恢复操作的审计（谁在何时恢复了哪些会话）；
 - 管理员跨用户恢复与批量清理隐藏行；
 - 「恢复并打开」的一次点击路径。

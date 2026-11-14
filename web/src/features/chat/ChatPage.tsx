@@ -77,9 +77,10 @@ export default function ChatPage() {
   const [hiddenCursor, setHiddenCursor] = useState<string | null>(null);
   const [hiddenLoadingMore, setHiddenLoadingMore] = useState(false);
   const [restoringId, setRestoringId] = useState<string | null>(null);
-  // 批量恢复（ADR-0049）：一次最多 50 个，部分成功；选中只作用于当前已加载页
+  // 批量恢复（ADR-0049/0055）：一次最多 50 个，部分成功；选中只作用于当前已加载页
   const [hiddenSelected, setHiddenSelected] = useState<Set<string>>(new Set());
   const [restoringBatch, setRestoringBatch] = useState(false);
+  const [hiddenNotice, setHiddenNotice] = useState<string | null>(null);
   // 快速收起/展开时旧请求可能晚于新请求返回：只接受最后一次展开的结果。
   const hiddenRequest = useRef(0);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -299,6 +300,7 @@ export default function ChatPage() {
       setHiddenSelected(new Set());
       setHiddenQuery('');
       setHiddenDraftQuery('');
+      setHiddenNotice(null);
     } catch (err) {
       setSessionsError(err instanceof Error ? err.message : '会话移除失败');
     } finally {
@@ -333,6 +335,7 @@ export default function ChatPage() {
       setHiddenLoading(false);
       setHiddenLoadingMore(false);
       setHiddenSelected(new Set());
+      setHiddenNotice(null);
       return;
     }
     setHiddenOpen(true);
@@ -344,6 +347,7 @@ export default function ChatPage() {
     setHiddenQuery(nextQuery);
     setHiddenCursor(null);
     setHiddenSelected(new Set());
+    setHiddenNotice(null);
     void loadHiddenFirstPage(nextQuery);
   };
 
@@ -371,6 +375,7 @@ export default function ChatPage() {
     if (restoringId) return;
     setRestoringId(targetSessionId);
     setHiddenError(null);
+    setHiddenNotice(null);
     try {
       await restoreSession(targetSessionId);
       // 恢复也是列表变更：让在途的已移除请求失效，避免旧页把刚恢复的会话写回来（ADR-0047）。
@@ -412,8 +417,15 @@ export default function ChatPage() {
     if (restoringBatch || restoringId !== null || hiddenSelected.size === 0) return;
     setRestoringBatch(true);
     setHiddenError(null);
+    setHiddenNotice(null);
     try {
-      await restoreSessions([...hiddenSelected]);
+      const result = await restoreSessions([...hiddenSelected]);
+      const failed = result.items.filter((item) => !item.restored).length;
+      setHiddenNotice(
+        failed === 0
+          ? `已恢复 ${result.restored} 个会话。`
+          : `已恢复 ${result.restored} 个会话；${failed} 个未恢复（可能已被恢复或不在本人已移除列表）。`,
+      );
       // 批量恢复同样让在途请求失效，并从服务端重新拉一页，避免部分成功时本地列表撒谎。
       hiddenRequest.current += 1;
       setHiddenLoading(false);
@@ -459,6 +471,7 @@ export default function ChatPage() {
         hiddenSessions={hiddenSessions}
         hiddenLoading={hiddenLoading}
         hiddenError={hiddenError}
+        hiddenNotice={hiddenNotice}
         hiddenQuery={hiddenQuery}
         hiddenDraftQuery={hiddenDraftQuery}
         hiddenHasMore={hiddenCursor !== null}

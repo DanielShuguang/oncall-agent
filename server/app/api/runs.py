@@ -44,6 +44,7 @@ from app.schemas.event import RunStatus
 from app.schemas.session import (
     HiddenSessionListResponse,
     HiddenSessionOut,
+    HiddenSessionRestoreItem,
     HiddenSessionRestoreRequest,
     HiddenSessionRestoreResponse,
     SessionRenameRequest,
@@ -352,21 +353,32 @@ async def restore_sessions(
     store: Annotated[RunStore, Depends(get_store)],
     identity: Annotated[Identity, Depends(get_identity)],
 ) -> HiddenSessionRestoreResponse:
-    """批量恢复从列表移除的会话（ADR-0049）。
+    """批量恢复从列表移除的会话（ADR-0049/0055）。
 
     一次最多 50 个；只删当前用户名下的 `hidden_sessions` 行。批量是部分成功
     语义：不存在的、别人的、本来就没移除的 id 直接忽略，`restored` 是真正
-    恢复的数量，`requested` 是去重后的请求数量。重复执行幂等。
+    恢复的数量，`requested` 是去重后的请求数量。`items` 按去重后的请求顺序
+    逐条说明结果；不区分「不存在」与「属于别人」，避免泄露存在性。重复执行幂等。
     """
     session_ids = list(dict.fromkeys(body.session_ids))
     try:
-        restored = await store.unhide_sessions(
+        restored_ids = await store.unhide_sessions(
             user_id=identity.user_id,
             session_ids=session_ids,
         )
     except SQLAlchemyError as exc:
         raise ApiError(503, "DATABASE_UNAVAILABLE", "database unavailable") from exc
-    return HiddenSessionRestoreResponse(restored=restored, requested=len(session_ids))
+    return HiddenSessionRestoreResponse(
+        restored=len(restored_ids),
+        requested=len(session_ids),
+        items=[
+            HiddenSessionRestoreItem(
+                session_id=session_id,
+                restored=session_id in restored_ids,
+            )
+            for session_id in session_ids
+        ],
+    )
 
 
 @router.patch("/sessions/{session_id}", status_code=204)

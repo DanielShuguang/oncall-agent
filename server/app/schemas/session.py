@@ -42,8 +42,16 @@ class HiddenSessionRestoreRequest(BaseModel):
     session_ids: list[SessionId] = Field(min_length=1, max_length=50)
 
 
+class HiddenSessionRestoreItem(BaseModel):
+    """批量恢复的逐条结果（ADR-0055）；顺序与去重后的请求一致。"""
+
+    session_id: str
+    restored: bool
+
+
 class HiddenSessionRestoreResponse(BaseModel):
-    """批量恢复结果：部分成功，不存在的 id 只体现在 requested 与 restored 的差值。"""
+    """批量恢复结果：保留计数，同时逐条说明哪些 id 真正恢复了（ADR-0055）。"""
 
     restored: int
     requested: int
+    items: list[HiddenSessionRestoreItem]

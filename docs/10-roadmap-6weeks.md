@@ -1506,9 +1506,9 @@ Postgres + Redis **536 passed**；`ruff check` / `ruff format --check`（194 fil
 |---|---|
 | 入口 | 管理后台新增 `/console/audits` Tab「审计」，懒加载 `AuditPage` |
 | 列表 | 恢复时间、用户、请求/实际条数、恢复的会话 id；keyset 每页 20 条，「加载更多」 |
-| 过滤 | `user_id`/`session_id` 精确匹配；点「筛选」才应用，「清除」回全部；改动后从第一页重载 |
+| 过滤 | `user_id`/`session_id` 精确匹配；点「筛选」才应用，「清除」回全部；应用/清除立即清空旧行并从第一页重载 |
 | 导出 | 复用 `GET /admin/session-restores/export`，按当前已应用过滤导出；最多 5000 条，截断有提示；下载触发复用 `web/src/lib/download.ts` |
-| 权限 | 仍由 `require_admin` 判定；非管理员显示 403 错误卡，前端不伪造权限 |
+| 权限 | 仍由 `require_admin` 判定；非管理员请求返回 403，页面显示错误卡，前端不伪造权限 |
 | 范围 | 无迁移、无后端改动；不做总数/跳页/编辑/删除/下载审计；不显示会话正文 |
 
 验证：前端 **84 tests / 17 files**；`tsc --noEmit`、`oxlint` 0/0（72 files/231 rules）、

@@ -90,7 +90,7 @@
 | [0060](decisions/0060-session-restore-audit-pagination.md) | 会话恢复审计列表分页 | `GET /admin/session-restores` 增加 `cursor`/`next_cursor`：`(restored_at, id)` 倒序 keyset，游标绑定 `user_id`，非法/换过滤 400；无迁移、无新索引；不做导出/总数；前端页面见 ADR-0063 |
 | [0061](decisions/0061-session-restore-audit-session-filter.md) | 恢复审计按 session 反查 | `GET /admin/session-restores` 增加 `session_id`（1–64），PG `session_ids @>`；迁移 `0020` 加 `jsonb_path_ops` GIN；带过滤时游标增加 `s` 并绑定该过滤，无过滤仍是 `{t,i,u}`，旧游标只兼容无 session 过滤；不做总数；导出见 0062，页面见 0063 |
 | [0062](decisions/0062-session-restore-audit-export.md) | 会话恢复审计 CSV 导出 | `GET /admin/session-restores/export`：`user_id`/`session_id` 过滤，不接收 cursor/limit；最多 5000 条，`X-Export-*` 告知截断；CSV 六列（`session_ids` 为 JSON 数组，不含正文）；BOM/CRLF/公式注入防护；抽出 `app/core/csv.py` 与审批导出共用；无迁移；页面见 0063 |
-| [0063](decisions/0063-session-restore-audit-console.md) | 会话恢复审计管理页 | 管理后台新增 `/console/audits`：复用列表/导出接口，按用户/会话精确过滤、20 条/页「加载更多」、导出当前过滤结果；只读、无总数、无后端/迁移；非管理员显示 403 |
+| [0063](decisions/0063-session-restore-audit-console.md) | 会话恢复审计管理页 | 管理后台新增 `/console/audits`：复用列表/导出接口，按用户/会话精确过滤、20 条/页「加载更多」、导出当前过滤结果；只读、无总数、无后端/迁移；非管理员请求 403 |
 
 > ADR 的写法：背景 → 方案对比 → 决策 → 后果。面试被问"为什么这么做"时，直接念 ADR。
 

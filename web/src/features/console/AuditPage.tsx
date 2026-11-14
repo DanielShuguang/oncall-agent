@@ -117,10 +117,21 @@ export default function AuditPage() {
     }
   };
 
-  const applyFilters = () => {
+  const resetForFilters = () => {
+    // 立即失效旧列表/旧导出，避免 setFilters 生效前的一帧里旧行显示在新过滤条件下。
+    listRequest.current += 1;
+    setItems([]);
+    setCursor(null);
+    setLoading(true);
+    setLoadingMore(false);
+    setError(null);
     exportRequest.current += 1;
     setExporting(false);
     setExportMessage(null);
+  };
+
+  const applyFilters = () => {
+    resetForFilters();
     const userId = filterUserId.trim();
     const sessionId = filterSessionId.trim();
     setFilters({
@@ -130,9 +141,7 @@ export default function AuditPage() {
   };
 
   const clearFilters = () => {
-    exportRequest.current += 1;
-    setExporting(false);
-    setExportMessage(null);
+    resetForFilters();
     setFilterUserId('');
     setFilterSessionId('');
     setFilters({});
@@ -171,6 +180,7 @@ export default function AuditPage() {
                 aria-label="按用户筛选恢复审计"
                 className="h-8 w-40 text-xs"
                 placeholder="user_id"
+                maxLength={64}
                 value={filterUserId}
                 onChange={(event) => setFilterUserId(event.target.value)}
               />
@@ -181,6 +191,7 @@ export default function AuditPage() {
                 aria-label="按会话筛选恢复审计"
                 className="h-8 w-48 text-xs"
                 placeholder="session_id"
+                maxLength={64}
                 value={filterSessionId}
                 onChange={(event) => setFilterSessionId(event.target.value)}
               />

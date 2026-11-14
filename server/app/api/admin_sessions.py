@@ -125,12 +125,19 @@ async def session_restore_stats(
     store: Annotated[RunStore, Depends(get_store)],
     _admin: Annotated[Identity, Depends(require_admin)],
     days: Annotated[int, Query(ge=1, le=365)] = 30,
+    user_id: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
+    session_id: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
 ) -> SessionRestoreAuditStatsOut:
-    """窗口内恢复活动汇总（ADR-0065）；日趋势按 UTC 稀疏聚合，不做图表数据补零。"""
+    """窗口内恢复活动汇总（ADR-0065/0066）；过滤与列表一致，按 UTC 稀疏聚合。"""
     until = datetime.now(UTC)
     since = until - timedelta(days=days)
     try:
-        stats = await store.session_restore_audit_stats(since=since, until=until)
+        stats = await store.session_restore_audit_stats(
+            since=since,
+            until=until,
+            user_id=user_id,
+            session_id=session_id,
+        )
     except SQLAlchemyError as exc:
         log.error("session_restore_audit_stats_failed", error=str(exc))
         raise ApiError(503, "DATABASE_UNAVAILABLE", "会话恢复审计暂不可用") from exc

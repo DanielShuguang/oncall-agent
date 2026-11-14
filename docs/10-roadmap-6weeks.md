@@ -1562,18 +1562,43 @@ Postgres + Redis **537 passed**；`ruff check` / `ruff format --check`（194 fil
 | 汇总 | `restores` 是审计行数（操作次数）；`sessions` 是 `restored_count` 之和；`users` 是去重操作者数 |
 | 日趋势 | `daily` 按 `restored_at` 的 UTC 自然日聚合，只含有活动的日期，升序、不补零；`restores`/`sessions` 与总汇总一致 |
 | 存储 | 无迁移、无新索引；复用 `idx_session_restore_audits_time`；一条汇总 + 一条按日分组，两条查询非同一快照 |
-| 前端 | 审计页顶部「近 7/30/90 天」切换与三个汇总数字；统计为全部用户，不随列表过滤；不做图表/按天明细表 |
-| 范围 | 不做按用户/会话过滤、统计缓存、统计 CSV、下载审计、可配置时区 |
+| 前端 | 审计页顶部「近 7/30/90 天」切换与三个汇总数字；统计跟随下方已应用的 `user_id`/`session_id` 过滤（ADR-0066），无过滤时显示全部用户；不做图表/按天明细表 |
+| 范围 | 不做统计缓存、统计 CSV、下载审计、可配置时区；按用户/会话过滤由 ADR-0066 补上 |
 
 验证：默认 **499 passed + 40 skipped**；真实 Postgres **536 passed + 3 skipped**；
 Postgres + Redis **539 passed**；`ruff check` / `ruff format --check`（194 files）/
 `mypy app`（113 files）通过；前端 **85 tests / 17 files**、`tsc --noEmit`、
 `oxlint` 0/0（72 files）、`oxfmt --check` 80 files、`pnpm build` 通过。无迁移。
 
-已知边界：`restores` 是操作次数，不等于会话数；统计是全局的，不能按当前列表过滤
-下钻；365 天窗口可能较慢，当前不做缓存/近似值；统计与列表/导出不是同一快照；
-旧后端无该接口时页面只显示统计错误，不影响列表。详见
-[ADR-0065](decisions/0065-session-restore-audit-stats.md)。
+已知边界：`restores` 是操作次数，不等于会话数；统计默认全局，按已应用
+`user_id`/`session_id` 过滤由 ADR-0066 补上；365 天窗口可能较慢，当前不做缓存/
+近似值；统计与列表/导出不是同一快照；旧后端无该接口时页面只显示统计错误，
+不影响列表。详见 [ADR-0065](decisions/0065-session-restore-audit-stats.md)。
+
+---
+
+## W6 后补：会话恢复审计统计按过滤（ADR-0066）
+
+ADR-0065 的统计是全局的，但列表、首屏总数与导出都支持 `user_id`/`session_id`；
+管理员想看「这个用户最近 30 天恢复了多少次」时，统计卡却仍是全部用户，三个入口
+口径不一致。统计接口直接复用列表的过滤条件，不新增表或聚合路径。
+
+| 事项 | 落地 |
+|---|---|
+| 接口 | `GET /admin/session-restores/stats?days=30&user_id=&session_id=`；两个过滤可选，1–64，越界 422 |
+| 口径 | 过滤同时作用于汇总与 `daily`；`users` 是过滤后的去重操作者数；不带过滤时为全局统计 |
+| 存储 | 无迁移、无新索引；`user_id` 走 `(user_id, restored_at)`，`session_id` 走 JSONB GIN；仍是两条查询 |
+| 前端 | 统计卡跟随下方已应用的列表过滤，无过滤显示「全部用户」，有过滤显示「当前过滤」；旧响应按独立 token 丢弃 |
+| 范围 | 不做日期范围统计、按天下钻、统计缓存/CSV/图表；统计失败不影响列表/导出 |
+
+验证：默认 **499 passed + 40 skipped**；真实 Postgres **536 passed + 3 skipped**；
+Postgres + Redis **539 passed**；`ruff check` / `ruff format --check`（194 files）/
+`mypy app`（113 files）通过；前端 **85 tests / 17 files**、`tsc --noEmit`、
+`oxlint` 0/0（72 files）、`oxfmt --check` 80 files、`pnpm build` 通过。无迁移。
+
+已知边界：统计与列表/导出不是同一快照；过滤变化会重新请求统计；仍不能按日期
+范围或某一天下钻；旧后端无该接口时页面只显示统计错误。详见
+[ADR-0066](decisions/0066-session-restore-audit-stats-filters.md)。
 
 ---
 

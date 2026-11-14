@@ -80,6 +80,11 @@ export async function exportSessionRestoreAuditsCsv(
   };
 }
 
-export function getSessionRestoreAuditStats(days: number): Promise<SessionRestoreAuditStats> {
-  return getJson<SessionRestoreAuditStats>(`/admin/session-restores/stats?days=${days}`);
+export function getSessionRestoreAuditStats(
+  days: number,
+  filters: SessionRestoreAuditFilters = {},
+): Promise<SessionRestoreAuditStats> {
+  const params = new URLSearchParams({ days: String(days) });
+  applyFilters(params, filters);
+  return getJson<SessionRestoreAuditStats>(`/admin/session-restores/stats?${params.toString()}`);
 }

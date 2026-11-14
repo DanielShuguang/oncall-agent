@@ -30,19 +30,20 @@ describe('listSessionRestoreAudits', () => {
 describe('getSessionRestoreAuditStats', () => {
   it('按天数请求统计', async () => {
     const fetchMock = vi.fn<typeof fetch>();
-    fetchMock.mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          days: 7,
-          since: '2026-11-07T00:00:00Z',
-          until: '2026-11-14T00:00:00Z',
-          restores: 2,
-          users: 2,
-          sessions: 3,
-          daily: [{ day: '2026-11-14', restores: 2, sessions: 3 }],
-        }),
-        { status: 200 },
-      ),
+    fetchMock.mockImplementation(
+      async () =>
+        new Response(
+          JSON.stringify({
+            days: 7,
+            since: '2026-11-07T00:00:00Z',
+            until: '2026-11-14T00:00:00Z',
+            restores: 2,
+            users: 2,
+            sessions: 3,
+            daily: [{ day: '2026-11-14', restores: 2, sessions: 3 }],
+          }),
+          { status: 200 },
+        ),
     );
     vi.stubGlobal('fetch', fetchMock);
 
@@ -50,6 +51,11 @@ describe('getSessionRestoreAuditStats', () => {
 
     expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/admin/session-restores/stats?days=7');
     expect(stats.sessions).toBe(3);
+
+    await getSessionRestoreAuditStats(30, { userId: 'u_102', sessionId: 'sess_a' });
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      '/api/admin/session-restores/stats?days=30&user_id=u_102&session_id=sess_a',
+    );
   });
 });
 

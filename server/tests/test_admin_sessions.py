@@ -385,6 +385,20 @@ async def test_session_restore_audits_reject_bad_params(client: AsyncClient) -> 
     assert (
         await client.get("/api/admin/session-restores/stats", headers=ADMIN, params={"days": 366})
     ).status_code == 422
+    assert (
+        await client.get(
+            "/api/admin/session-restores/stats",
+            headers=ADMIN,
+            params={"user_id": "x" * 65},
+        )
+    ).status_code == 422
+    assert (
+        await client.get(
+            "/api/admin/session-restores/stats",
+            headers=ADMIN,
+            params={"session_id": "x" * 65},
+        )
+    ).status_code == 422
 
 
 async def test_session_restore_audit_stats(
@@ -432,6 +446,36 @@ async def test_session_restore_audit_stats(
     days = [day["day"] for day in month_body["daily"]]
     assert days == sorted(days)
     assert len(days) == 2
+
+    by_user = await client.get(
+        "/api/admin/session-restores/stats",
+        headers=ADMIN,
+        params={"days": 7, "user_id": "u_102"},
+    )
+    assert by_user.status_code == 200
+    assert (
+        by_user.json()["restores"],
+        by_user.json()["users"],
+        by_user.json()["sessions"],
+    ) == (1, 1, 1)
+    by_session = await client.get(
+        "/api/admin/session-restores/stats",
+        headers=ADMIN,
+        params={"days": 7, "session_id": "sess_b"},
+    )
+    assert by_session.status_code == 200
+    assert by_session.json()["restores"] == 1
+    missing = await client.get(
+        "/api/admin/session-restores/stats",
+        headers=ADMIN,
+        params={"days": 7, "user_id": "u_missing"},
+    )
+    assert missing.status_code == 200
+    assert (missing.json()["restores"], missing.json()["users"], missing.json()["daily"]) == (
+        0,
+        0,
+        [],
+    )
 
 
 async def test_session_restore_audit_stats_return_503_on_store_failure(

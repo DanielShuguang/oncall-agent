@@ -38,7 +38,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | DELETE | `/sessions/{session_id}/hidden` | 恢复已移除的会话（只删 `hidden_sessions` 行，204） | W6 后补 |
 | POST | `/sessions/hidden/restore` | 批量恢复已移除会话（最多 50，部分成功，返回逐条结果） | W6 后补 |
 | GET | `/admin/session-restores` | 会话恢复审计（按用户/会话过滤，最近在前，游标分页；第一页附总数） | W6 后补 |
-| GET | `/admin/session-restores/stats` | 会话恢复审计统计（窗口内恢复次数/用户数/会话数/UTC 日趋势） | W6 后补 |
+| GET | `/admin/session-restores/stats` | 会话恢复审计统计（窗口内恢复次数/用户数/会话数/UTC 日趋势，可按用户/会话过滤） | W6 后补 |
 | GET | `/admin/session-restores/export` | 会话恢复审计 CSV 导出（按用户/会话过滤，最多 5000 条） | W6 后补 |
 | GET | `/sessions/{session_id}/runs` | 一页会话详情（正文/引用/运行过程，一次返回） | W6 后补 |
 | GET | `/runs/{run_id}` | 单次运行详情（含指标与模型调用明细） | W1 D4 / W4 D19 |
@@ -804,10 +804,10 @@ Authorization: Bearer <admin token>
   正文保留期清理；库不可用返回 `503 {"code":"DATABASE_UNAVAILABLE"}`，不返回空列表
 - `next_cursor` 只表示还有下一页；总数看第一页 `total`，不提供页码/跳页
 
-统计（ADR-0065）：
+统计（ADR-0065/0066）：
 
 ```http
-GET /api/admin/session-restores/stats?days=30
+GET /api/admin/session-restores/stats?days=30&user_id=u_102
 Authorization: Bearer <admin token>
 ```
 
@@ -827,6 +827,8 @@ Authorization: Bearer <admin token>
 ```
 
 - 管理接口，要求 `ONCALL_ADMIN_ROLES`；`days` 1–365，默认 30，越界 422
+- 可选 `user_id`/`session_id`（1–64），与列表同一过滤；不带时为全局统计，
+  带过滤时汇总与 `daily` 都只统计匹配的审计行，`users` 是过滤后的去重操作者数
 - 窗口为 `[until - days, until]`，`until` 取服务端当前 UTC 时间；`since`/`until`
   原样返回，客户端不需要猜边界
 - `restores` 是窗口内恢复**操作次数**（审计行数）；`sessions` 是真正恢复的
@@ -834,8 +836,8 @@ Authorization: Bearer <admin token>
   会话算一次操作、多个会话
 - `daily` 按 `restored_at` 的 UTC 自然日聚合，只含有恢复活动的日期，升序、不补零；
   每项 `restores` 是操作数，`sessions` 是当天恢复会话数。日汇总之和与总汇总一致
-- 统计是全局的，不接收 `user_id`/`session_id` 过滤，也不受列表当前过滤影响；
-  按用户/会话看明细仍用列表或导出
+- 统计默认全局；传 `user_id`/`session_id` 时与列表、首屏 `total`、导出使用
+  同一过滤口径。管理页统计卡跟随下方已应用的过滤，无过滤时显示「全部用户」
 - 无迁移、无新索引，复用 `idx_session_restore_audits_time`；统计与列表是两条
   独立查询，不是同一快照。库不可用返回 503 `DATABASE_UNAVAILABLE`，不返回
   全 0 冒充「没有恢复」

@@ -599,13 +599,19 @@ class RunStore(Protocol):
         ...
 
     async def session_restore_audit_stats(
-        self, *, since: datetime, until: datetime
+        self,
+        *,
+        since: datetime,
+        until: datetime,
+        user_id: str | None = None,
+        session_id: str | None = None,
     ) -> SessionRestoreAuditStats:
-        """窗口 `[since, until]` 内的恢复审计汇总（ADR-0065）。
+        """窗口 `[since, until]` 内的恢复审计汇总（ADR-0065/0066）。
 
         只统计 `restored_at` 落在窗口内的审计行；`sessions` 用
         `restored_count` 求和，而不是 JSONB 数组长度。`daily` 按 UTC 自然日
         稀疏聚合，空日不补零。窗口由调用方计算，store 不做时区转换。
+        `user_id`/`session_id` 与列表同一过滤口径；都不带时是全局统计。
         """
         ...
 
@@ -1121,13 +1127,20 @@ class InMemoryRunStore:
             )
 
     async def session_restore_audit_stats(
-        self, *, since: datetime, until: datetime
+        self,
+        *,
+        since: datetime,
+        until: datetime,
+        user_id: str | None = None,
+        session_id: str | None = None,
     ) -> SessionRestoreAuditStats:
         async with self._lock:
             records = [
                 record
                 for record in self._session_restore_audits
                 if since <= record.restored_at <= until
+                and (user_id is None or record.user_id == user_id)
+                and (session_id is None or session_id in record.session_ids)
             ]
         per_day: dict[date, list[int]] = {}
         users: set[str] = set()
@@ -1929,12 +1942,21 @@ class PostgresRunStore:
             return int((await session.scalar(stmt)) or 0)
 
     async def session_restore_audit_stats(
-        self, *, since: datetime, until: datetime
+        self,
+        *,
+        since: datetime,
+        until: datetime,
+        user_id: str | None = None,
+        session_id: str | None = None,
     ) -> SessionRestoreAuditStats:
-        window = (
+        conditions = [
             SessionRestoreAuditRow.restored_at >= since,
             SessionRestoreAuditRow.restored_at <= until,
-        )
+        ]
+        if user_id is not None:
+            conditions.append(SessionRestoreAuditRow.user_id == user_id)
+        if session_id is not None:
+            conditions.append(SessionRestoreAuditRow.session_ids.contains([session_id]))
         summary = (
             select(
                 func.count(),
@@ -1942,7 +1964,7 @@ class PostgresRunStore:
                 func.coalesce(func.sum(SessionRestoreAuditRow.restored_count), 0),
             )
             .select_from(SessionRestoreAuditRow)
-            .where(*window)
+            .where(*conditions)
         )
         day_column = func.date(func.timezone("UTC", SessionRestoreAuditRow.restored_at))
         daily = (
@@ -1951,7 +1973,7 @@ class PostgresRunStore:
                 func.count(),
                 func.coalesce(func.sum(SessionRestoreAuditRow.restored_count), 0),
             )
-            .where(*window)
+            .where(*conditions)
             .group_by(day_column)
             .order_by(day_column)
         )

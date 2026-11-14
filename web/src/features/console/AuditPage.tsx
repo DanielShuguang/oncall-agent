@@ -90,7 +90,7 @@ export default function AuditPage() {
       setStatsLoading(true);
       setStatsError(null);
       try {
-        const data = await getSessionRestoreAuditStats(statsDays);
+        const data = await getSessionRestoreAuditStats(statsDays, filters);
         if (!cancelled && statsRequest.current === requestId) setStats(data);
       } catch (exc) {
         if (!cancelled && statsRequest.current === requestId) {
@@ -105,7 +105,7 @@ export default function AuditPage() {
       cancelled = true;
       statsRequest.current += 1;
     };
-  }, [statsDays]);
+  }, [statsDays, filters]);
 
   const loadMore = async () => {
     if (!cursor || loadingMore) return;
@@ -210,7 +210,9 @@ export default function AuditPage() {
       <Card className="py-0">
         <CardContent className="space-y-3 p-3">
           <div className="flex flex-wrap items-center gap-2">
-            <div className="text-xs font-medium">恢复活动 · 全部用户</div>
+            <div className="text-xs font-medium">
+              {hasActiveFilters ? '恢复活动 · 当前过滤' : '恢复活动 · 全部用户'}
+            </div>
             <div className="ml-auto flex items-center gap-1">
               {STATS_DAYS.map((days) => (
                 <Button
@@ -248,7 +250,7 @@ export default function AuditPage() {
           ) : null}
           {stats && !statsLoading && !statsError ? (
             <p className="text-[11px] text-muted-foreground">
-              UTC 日期；{stats.daily.length} 个日期有恢复记录。统计不随下方用户/会话过滤变化。
+              UTC 日期；{stats.daily.length} 个日期有恢复记录。统计跟随下方已应用的过滤。
             </p>
           ) : null}
         </CardContent>

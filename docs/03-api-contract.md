@@ -761,7 +761,7 @@ POST /api/approvals/{approval_id}/resolve
 ### 会话恢复审计（ADR-0059/0060/0061/0062/0064）
 
 ```http
-GET /api/admin/session-restores?user_id=u_102&session_id=sess_a&limit=20&cursor=<base64url>
+GET /api/admin/session-restores?user_id=u_102&session_id=sess_a&limit=20
 Authorization: Bearer <admin token>
 ```
 
@@ -777,7 +777,7 @@ Authorization: Bearer <admin token>
       "restored_at": "2026-11-14T03:20:00Z"
     }
   ],
-  "next_cursor": "eyJ0IjoiMjAyNi0xMS0xNFQwMzoyMDowMCswMDowMCIsImkiOiI4ZjE0ZTQ1Zi1jZWVhLTRlOGYtOWQ3YS0yYjNjNGQ1ZTZmNzAiLCJ1IjoidV8xMDIiLCJzIjoic2Vzc19hIn0",
+  "next_cursor": null,
   "total": 1
 }
 ```

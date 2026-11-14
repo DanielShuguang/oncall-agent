@@ -1,4 +1,4 @@
-/** 会话恢复审计（W6 后补）：管理端只读列表、过滤、翻页与 CSV 导出（ADR-0063）。 */
+/** 会话恢复审计（W6 后补）：管理端只读列表、过滤、翻页、首屏总数与 CSV 导出（ADR-0063/0064）。 */
 
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';

@@ -816,9 +816,9 @@ Authorization: Bearer <admin token>
   "days": 30,
   "since": "2026-10-15T00:00:00Z",
   "until": "2026-11-14T00:00:00Z",
-  "restores": 12,
-  "users": 5,
-  "sessions": 18,
+  "restores": 3,
+  "users": 1,
+  "sessions": 5,
   "daily": [
     { "day": "2026-11-13", "restores": 2, "sessions": 3 },
     { "day": "2026-11-14", "restores": 1, "sessions": 2 }
@@ -833,7 +833,8 @@ Authorization: Bearer <admin token>
   原样返回，客户端不需要猜边界
 - `restores` 是窗口内恢复**操作次数**（审计行数）；`sessions` 是真正恢复的
   会话数之和（`restored_count`）；`users` 是去重后的操作者数。一次批量恢复多个
-  会话算一次操作、多个会话
+  会话算一次操作、多个会话。按 `session_id` 过滤时匹配的是包含该会话的整行审计，
+  `sessions` 仍是这些行的 `restored_count` 之和，可能大于 1
 - `daily` 按 `restored_at` 的 UTC 自然日聚合，只含有恢复活动的日期，升序、不补零；
   每项 `restores` 是操作数，`sessions` 是当天恢复会话数。日汇总之和与总汇总一致
 - 统计默认全局；传 `user_id`/`session_id` 时与列表、首屏 `total`、导出使用

@@ -1596,8 +1596,9 @@ Postgres + Redis **539 passed**；`ruff check` / `ruff format --check`（194 fil
 `mypy app`（113 files）通过；前端 **85 tests / 17 files**、`tsc --noEmit`、
 `oxlint` 0/0（72 files）、`oxfmt --check` 80 files、`pnpm build` 通过。无迁移。
 
-已知边界：统计与列表/导出不是同一快照；过滤变化会重新请求统计；仍不能按日期
-范围或某一天下钻；旧后端无该接口时页面只显示统计错误。详见
+已知边界：统计与列表/导出不是同一快照；过滤变化会重新请求统计；按
+`session_id` 过滤时 `sessions` 仍是匹配行 `restored_count` 之和，可能大于 1；
+仍不能按日期范围或某一天下钻；旧后端无该接口时页面只显示统计错误。详见
 [ADR-0066](decisions/0066-session-restore-audit-stats-filters.md)。
 
 ---

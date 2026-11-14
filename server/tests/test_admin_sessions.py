@@ -453,10 +453,24 @@ async def test_session_restore_audit_stats(
         params={"days": 7, "user_id": "u_102"},
     )
     assert by_user.status_code == 200
+    by_user_body = by_user.json()
     assert (
-        by_user.json()["restores"],
-        by_user.json()["users"],
-        by_user.json()["sessions"],
+        by_user_body["restores"],
+        by_user_body["users"],
+        by_user_body["sessions"],
+    ) == (1, 1, 1)
+    assert sum(day["restores"] for day in by_user_body["daily"]) == 1
+    assert sum(day["sessions"] for day in by_user_body["daily"]) == 1
+    by_both = await client.get(
+        "/api/admin/session-restores/stats",
+        headers=ADMIN,
+        params={"days": 7, "user_id": "u_102", "session_id": "sess_a"},
+    )
+    assert by_both.status_code == 200
+    assert (
+        by_both.json()["restores"],
+        by_both.json()["users"],
+        by_both.json()["sessions"],
     ) == (1, 1, 1)
     by_session = await client.get(
         "/api/admin/session-restores/stats",
@@ -464,7 +478,11 @@ async def test_session_restore_audit_stats(
         params={"days": 7, "session_id": "sess_b"},
     )
     assert by_session.status_code == 200
-    assert by_session.json()["restores"] == 1
+    assert (
+        by_session.json()["restores"],
+        by_session.json()["users"],
+        by_session.json()["sessions"],
+    ) == (1, 1, 1)
     missing = await client.get(
         "/api/admin/session-restores/stats",
         headers=ADMIN,

@@ -122,7 +122,7 @@ class SessionRestoreAuditDayStats:
 
 @dataclass(frozen=True)
 class SessionRestoreAuditStats:
-    """窗口内的恢复审计汇总（ADR-0065）。
+    """窗口内的恢复审计汇总（ADR-0065/0066/0067）。
 
     `restores` 是操作次数（审计行数），`sessions` 是真正恢复的会话数之和；
     `users` 是去重后的操作者数。`daily` 只含有操作的 UTC 自然日，不补零。
@@ -615,7 +615,7 @@ class RunStore(Protocol):
         user_id: str | None = None,
         session_id: str | None = None,
     ) -> SessionRestoreAuditStats:
-        """窗口 `[since, until]` 内的恢复审计汇总（ADR-0065/0066）。
+        """窗口 `[since, until]` 内的恢复审计汇总（ADR-0065/0066/0067）。
 
         只统计 `restored_at` 落在窗口内的审计行；`sessions` 用
         `restored_count` 求和，而不是 JSONB 数组长度。`daily` 按 UTC 自然日

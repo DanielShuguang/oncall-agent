@@ -1617,7 +1617,7 @@ Postgres + Redis **539 passed**；`ruff check` / `ruff format --check`（194 fil
 | 统计 | `days` 改为可选（默认 30）；有日期范围时不能同时传 `days`，返回的 `days` 为闭区间天数 |
 | 游标 | 列表游标按需增加 `d: "from:to"`；不带范围时保持 `{t,i,u}`/`{t,i,u,s}`；换范围复用游标 400 |
 | 存储 | 无迁移、无新索引，复用 `idx_session_restore_audits_time`；list/count/导出/统计同一组条件 |
-| 前端 | 审计页增加起止日期输入并校验两端/顺序；统计卡与列表、导出跟随同一组已应用过滤，有范围时隐藏 7/30/90 快捷按钮 |
+| 前端 | 审计页增加起止日期输入并校验两端/顺序；统计卡与列表、导出跟随同一组已应用过滤，有范围时隐藏 7/30/90 快捷按钮；应用/清除过滤或切换统计窗口时立即清旧列表与旧统计 |
 
 验证：默认 **500 passed + 40 skipped**；真实 Postgres **537 passed + 3 skipped**；
 Postgres + Redis **540 passed**；`ruff check` / `ruff format --check`（194 files）/

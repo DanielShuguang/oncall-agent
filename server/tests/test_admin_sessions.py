@@ -503,6 +503,46 @@ async def test_session_restore_audits_filter_by_date_range(
     assert stats_body["restores"] == 2
     assert len(stats_body["daily"]) == 1
 
+    # 日期范围与既有过滤条件组合：列表、游标与统计都必须同时生效。
+    combo_stats = await client.get(
+        "/api/admin/session-restores/stats",
+        headers=ADMIN,
+        params={"restored_from": today, "restored_to": today, "user_id": "u_102"},
+    )
+    assert combo_stats.status_code == 200
+    assert combo_stats.json()["restores"] == 1
+    assert combo_stats.json()["users"] == 1
+    assert combo_stats.json()["sessions"] == 1
+
+    combo_page = await client.get(
+        "/api/admin/session-restores",
+        headers=ADMIN,
+        params={
+            "restored_from": today,
+            "restored_to": today,
+            "session_id": "sess_a",
+            "limit": 1,
+        },
+    )
+    assert combo_page.status_code == 200
+    assert [item["session_ids"] for item in combo_page.json()["items"]] == [["sess_a"]]
+    combo_cursor = combo_page.json()["next_cursor"]
+    assert combo_cursor
+    combo_next = await client.get(
+        "/api/admin/session-restores",
+        headers=ADMIN,
+        params={
+            "restored_from": today,
+            "restored_to": today,
+            "session_id": "sess_a",
+            "limit": 1,
+            "cursor": combo_cursor,
+        },
+    )
+    assert combo_next.status_code == 200
+    assert combo_next.json()["items"] == []
+    assert combo_next.json()["next_cursor"] is None
+
     for params in (
         {"restored_from": today},
         {"restored_to": today},

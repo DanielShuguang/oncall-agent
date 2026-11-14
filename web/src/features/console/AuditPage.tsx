@@ -157,7 +157,8 @@ export default function AuditPage() {
   };
 
   const resetForFilters = () => {
-    // 立即失效旧列表/旧导出，避免 setFilters 生效前的一帧里旧行显示在新过滤条件下。
+    // 立即失效旧列表/旧导出/旧统计，避免 setFilters 生效前的一帧里旧数据
+    // 显示在新过滤条件下。
     listRequest.current += 1;
     setItems([]);
     setTotal(null);
@@ -168,6 +169,20 @@ export default function AuditPage() {
     exportRequest.current += 1;
     setExporting(false);
     setExportMessage(null);
+    statsRequest.current += 1;
+    setStats(null);
+    setStatsLoading(true);
+    setStatsError(null);
+  };
+
+  const changeStatsDays = (days: number) => {
+    if (days === statsDays) return;
+    // 切换窗口时立即清掉旧窗口统计；effect 随后会按新窗口重新请求。
+    statsRequest.current += 1;
+    setStats(null);
+    setStatsLoading(true);
+    setStatsError(null);
+    setStatsDays(days);
   };
 
   const applyFilters = () => {
@@ -245,7 +260,7 @@ export default function AuditPage() {
                     size="sm"
                     className="h-7 px-2 text-xs"
                     aria-pressed={statsDays === days}
-                    onClick={() => setStatsDays(days)}
+                    onClick={() => changeStatsDays(days)}
                   >
                     近 {days} 天
                   </Button>

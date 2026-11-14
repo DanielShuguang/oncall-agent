@@ -3,7 +3,8 @@
 - 状态：已采纳
 - 日期：2026-11-14
 - 相关：[ADR-0059](0059-session-restore-audit.md)、[ADR-0060](0060-session-restore-audit-pagination.md)、
-  [ADR-0062](0062-session-restore-audit-export.md)、[ADR-0065](0065-session-restore-audit-stats.md)、
+  [ADR-0062](0062-session-restore-audit-export.md)、[ADR-0064](0064-session-restore-audit-total.md)、
+  [ADR-0065](0065-session-restore-audit-stats.md)、
   [ADR-0066](0066-session-restore-audit-stats-filters.md)
 
 ## 背景
@@ -52,7 +53,8 @@
 6. **前端跟随已应用过滤**：审计页新增起止日期输入；应用时校验两端与顺序，
    清除时一并清空。统计卡与列表、导出使用同一组已应用的过滤；有日期范围时隐藏
    「近 7/30/90 天」快捷按钮并显示自定义范围，避免出现「按钮选 7 天、实际按日期
-   范围统计」的错觉。
+   范围统计」的错觉。应用/清除过滤或切换统计窗口时立即清空旧列表/旧统计并
+   递增请求 token，避免新条件下闪现旧数据或旧响应回写。
 7. **范围**：不做单端开放区间、按小时/按天下钻、统计缓存、页码/跳页；日期范围
    本身已可通过游标翻页。列表/计数/统计仍是独立查询，不是同一快照。
 
@@ -80,9 +82,10 @@
 - `ruff check` 通过；`ruff format --check` **194 files**；`mypy app` **113 source files**
 - 前端：**85 tests / 17 files**、`tsc --noEmit`、`oxlint` 0/0（72 files）、
   `oxfmt --check` 80 files、`pnpm build` 通过
-- 覆盖：列表日期过滤/首屏 total/翻页/换范围游标 400/旧范围与空结果、导出
-  `X-Export-Count`、统计 `days=1` 与 `daily`、单端/倒置/超 365 天 422、
-  统计同时带 `days` 与范围 422；内存与 Postgres store 契约均覆盖范围 list/count。
+- 覆盖：列表日期过滤/首屏 total/翻页/换范围游标 400/旧范围与空结果、日期范围
+  与 `user_id`/`session_id` 组合过滤及组合游标；导出 `X-Export-Count`、统计
+  `days=1` 与 `daily`、单端/倒置/超 365 天 422、统计同时带 `days` 与范围 422；
+  内存与 Postgres store 契约均覆盖范围 list/count。
 
 ## 待定
 

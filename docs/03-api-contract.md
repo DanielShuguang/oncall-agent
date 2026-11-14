@@ -759,7 +759,7 @@ POST /api/approvals/{approval_id}/resolve
 > 引用全文只要求登录，且受文档级可见性约束（[ADR-0018](decisions/0018-citation-fulltext-preview.md)、
 > [ADR-0019](decisions/0019-document-level-access.md)）。
 
-### 会话恢复审计（ADR-0059/0060/0061/0062/0064/0065/0067）
+### 会话恢复审计（ADR-0059/0060/0061/0062/0064/0065/0066/0067）
 
 ```http
 GET /api/admin/session-restores?user_id=u_102&session_id=sess_a&restored_from=2026-11-01&restored_to=2026-11-14&limit=20
@@ -820,8 +820,8 @@ Authorization: Bearer <admin token>
 ```json
 {
   "days": 30,
-  "since": "2026-10-15T00:00:00Z",
-  "until": "2026-11-14T00:00:00Z",
+  "since": "2026-10-15T08:00:00Z",
+  "until": "2026-11-14T08:00:00Z",
   "restores": 3,
   "users": 1,
   "sessions": 5,

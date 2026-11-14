@@ -1149,7 +1149,7 @@ Postgres + Redis **515 passed**。
 `pnpm build` 252ms。不改表/事件/清理；未重跑 RAG 与多轮评测。
 
 已知边界：响应只有计数，不告诉用户哪些 id 被忽略；恢复审计已由
-[ADR-0059](decisions/0059-session-restore-audit.md) 补上（管理接口，无前端），仍无管理员
+[ADR-0059](decisions/0059-session-restore-audit.md) 补上（管理接口与只读页见 ADR-0059/0063），仍无管理员
 跨用户恢复与「恢复并打开」；勾选只覆盖当前已加载页（最多 50 条/页）。
 其中「逐条结果」已由 [ADR-0055](decisions/0055-hidden-restore-results.md) 处理，
 「恢复审计」已由 [ADR-0059](decisions/0059-session-restore-audit.md) 处理，其余仍未做。
@@ -1304,7 +1304,7 @@ Postgres + Redis **525 passed**；`ruff check` / `ruff format --check`（188 fil
 `oxfmt --check` 76 files、`pnpm build` 通过。无迁移。
 
 已知边界：`restored: false` 不区分原因；恢复审计已由
-[ADR-0059](decisions/0059-session-restore-audit.md) 补上（管理接口，无前端），仍无
+[ADR-0059](decisions/0059-session-restore-audit.md) 补上（管理接口与只读页见 ADR-0059/0063），仍无
 管理员跨用户恢复与「恢复并打开」；勾选仍只覆盖当前已加载页（最多 50 条/页）。详见
 [ADR-0055](decisions/0055-hidden-restore-results.md)。
 
@@ -1402,7 +1402,7 @@ UTC；与 `daily` 是同一窗口的两个切面，不额外校验两者之和�
 | 表 | `session_restore_audits`：一次恢复一行，`session_ids` 只存真正恢复的 id，`requested_count` 为去重后的请求数，CHECK 保证 `restored_count = jsonb_array_length(session_ids)`；迁移 `0019` |
 | 原子性 | 删除 `hidden_sessions` 与插入审计在同一事务；插入失败回滚恢复；没有真正恢复任何会话时不写行 |
 | 保留 | 独立配置 `ONCALL_SESSION_RESTORE_AUDIT_RETENTION_DAYS=365`，接入 `RetentionSweeper`、`prune` CLI 与后台日志；不复用事件/正文保留期 |
-| 范围 | 不做导出、不做前端管理页、不做按 session 反查与防篡改；分页已由 ADR-0060 补上；管理接口不可用返回 503 |
+| 范围 | 前端管理页已由 ADR-0063 补上；不做防篡改；分页、按 session 反查与 CSV 导出分别由 ADR-0060/0061/0062 补上；管理接口不可用返回 503 |
 
 验证：默认 **492 passed + 40 skipped**；真实 Postgres **529 passed + 3 skipped**；
 Postgres + Redis **532 passed**；`ruff check` / `ruff format --check`（192 files）/
@@ -1429,7 +1429,7 @@ Postgres + Redis **532 passed**；`ruff check` / `ruff format --check`（192 fil
 | 游标 | base64url JSON `{t, i, u}`：时间、审计 UUID、本次 `user_id` 过滤；切换过滤条件复用旧游标 400 `INVALID_CURSOR` |
 | 返回 | 取满 `limit` 才给 `next_cursor`；未取满时 `null`；恰好取满仍给游标、下一页为空；非法游标 400，不降级为空列表 |
 | 存储 | 不加迁移/索引，复用 `idx_session_restore_audits_user_time` 与 `idx_session_restore_audits_time`；内存/PG 同一排序 |
-| 范围 | 不做导出/总数/跳页/前端管理页；仍为管理员只读，`limit` 1–200 默认 50 |
+| 范围 | 不做导出/总数/跳页；仍为管理员只读，`limit` 1–200 默认 50；前端管理页由 ADR-0063 补上 |
 
 验证：默认 **493 passed + 40 skipped**；真实 Postgres **530 passed + 3 skipped**；
 Postgres + Redis **533 passed**；`ruff check` / `ruff format --check`（192 files）/
@@ -1457,7 +1457,7 @@ Postgres + Redis **533 passed**；`ruff check` / `ruff format --check`（192 fil
 | 索引 | 迁移 `0020`：`idx_session_restore_audits_sessions USING gin (session_ids jsonb_path_ops)`，只服务包含查询 |
 | 游标 | 无过滤保持 `{t, i, u}`；带 `session_id` 过滤时增加 `s`；换过滤复用旧游标 400 `INVALID_CURSOR` |
 | 兼容 | ADR-0060 旧游标没有 `s`，只在不带 `session_id` 的请求里继续可用 |
-| 范围 | 不做前端管理页/总数/跳页；仍为管理员只读，`limit` 1–200 默认 50；CSV 导出由 ADR-0062 补上 |
+| 范围 | 不做总数/跳页；仍为管理员只读，`limit` 1–200 默认 50；前端管理页由 ADR-0063 补上；CSV 导出由 ADR-0062 补上 |
 
 验证：默认 **494 passed + 40 skipped**；真实 Postgres **531 passed + 3 skipped**；
 Postgres + Redis **534 passed**；`ruff check` / `ruff format --check`（193 files）/
@@ -1483,7 +1483,7 @@ Postgres + Redis **534 passed**；`ruff check` / `ruff format --check`（193 fil
 | 字段 | `audit_id, user_id, restored_at, requested_count, restored_count, session_ids`；`session_ids` 为 JSON 数组；不含会话正文/消息 |
 | 格式 | UTF-8 BOM + CRLF，时间 ISO 8601 UTC；`= + - @` 等开头前置单引号防公式注入；`Cache-Control: no-store` |
 | 复用 | 抽出 `app/core/csv.py`，审批导出与审计导出共用单元格转义；无迁移、无新索引 |
-| 范围 | 不做异步导出、总数、下载审计与前端管理页；导出期间新增恢复不进入本次文件 |
+| 范围 | 不做异步导出、总数与下载审计；前端管理页由 ADR-0063 补上；导出期间新增恢复不进入本次文件 |
 
 验证：默认 **496 passed + 40 skipped**；真实 Postgres **533 passed + 3 skipped**；
 Postgres + Redis **536 passed**；`ruff check` / `ruff format --check`（194 files）/
@@ -1493,6 +1493,32 @@ Postgres + Redis **536 passed**；`ruff check` / `ruff format --check`（194 fil
 已知边界：导出是同步请求，超 5000 条只给前 5000 条；管理员可导出所有用户审计
 （与列表权限一致）；下载动作不落审计；CSV 不是防篡改证据。详见
 [ADR-0062](decisions/0062-session-restore-audit-export.md)。
+
+---
+
+## W6 后补：会话恢复审计管理页（ADR-0063）
+
+审计表、过滤、分页与 CSV 导出都只有管理员 API；交接、对账时要求管理员自己
+拼 `curl` 与 base64url 游标，非技术管理员基本用不了。页面只读复用现有接口，
+不新增后端聚合层。
+
+| 事项 | 落地 |
+|---|---|
+| 入口 | 管理后台新增 `/console/audits` Tab「审计」，懒加载 `AuditPage` |
+| 列表 | 恢复时间、用户、请求/实际条数、恢复的会话 id；keyset 每页 20 条，「加载更多」 |
+| 过滤 | `user_id`/`session_id` 精确匹配；点「筛选」才应用，「清除」回全部；改动后从第一页重载 |
+| 导出 | 复用 `GET /admin/session-restores/export`，按当前已应用过滤导出；最多 5000 条，截断有提示；下载触发复用 `web/src/lib/download.ts` |
+| 权限 | 仍由 `require_admin` 判定；非管理员显示 403 错误卡，前端不伪造权限 |
+| 范围 | 无迁移、无后端改动；不做总数/跳页/编辑/删除/下载审计；不显示会话正文 |
+
+验证：前端 **84 tests / 17 files**；`tsc --noEmit`、`oxlint` 0/0（72 files/231 rules）、
+`oxfmt --check`（80 files）、`pnpm build` 通过。后端未改，沿用默认
+**496 passed + 40 skipped**、真实 Postgres **533 + 3**、Postgres + Redis
+**536 passed**、`ruff` 194 files / `mypy` 113 files。
+
+已知边界：没有总数，只能按「已加载 N 条」判断；大审计量仍要靠过滤或导出；
+会话 id 不做名称映射；页面只是审计表的只读视图，CSV 不是防篡改证据。详见
+[ADR-0063](decisions/0063-session-restore-audit-console.md)。
 
 ---
 

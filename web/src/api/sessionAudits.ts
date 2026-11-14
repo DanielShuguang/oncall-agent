@@ -1,0 +1,62 @@
+/** 会话恢复审计接口：契约见 docs/03 §5（ADR-0059/0060/0061/0062）。 */
+
+import { getFile, getJson } from './client';
+
+export interface SessionRestoreAudit {
+  id: string;
+  user_id: string;
+  session_ids: string[];
+  requested_count: number;
+  restored_count: number;
+  restored_at: string;
+}
+
+export interface SessionRestoreAuditListResponse {
+  items: SessionRestoreAudit[];
+  /** 取满 `limit` 时给下一页游标；否则为 null（ADR-0060）。 */
+  next_cursor: string | null;
+}
+
+export interface SessionRestoreAuditFilters {
+  userId?: string;
+  sessionId?: string;
+}
+
+export interface SessionRestoreAuditExport {
+  blob: Blob;
+  count: number;
+  /** 服务端最多导出 5000 条；超出时只含当前排序的前 5000 条（ADR-0062）。 */
+  truncated: boolean;
+}
+
+function applyFilters(params: URLSearchParams, filters: SessionRestoreAuditFilters): void {
+  if (filters.userId) params.set('user_id', filters.userId);
+  if (filters.sessionId) params.set('session_id', filters.sessionId);
+}
+
+export function listSessionRestoreAudits(
+  filters: SessionRestoreAuditFilters = {},
+  cursor: string | null = null,
+  limit = 20,
+): Promise<SessionRestoreAuditListResponse> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (cursor) params.set('cursor', cursor);
+  applyFilters(params, filters);
+  return getJson<SessionRestoreAuditListResponse>(`/admin/session-restores?${params.toString()}`);
+}
+
+export async function exportSessionRestoreAuditsCsv(
+  filters: SessionRestoreAuditFilters = {},
+): Promise<SessionRestoreAuditExport> {
+  const params = new URLSearchParams();
+  applyFilters(params, filters);
+  const query = params.toString();
+  const { blob, headers } = await getFile(
+    `/admin/session-restores/export${query ? `?${query}` : ''}`,
+  );
+  return {
+    blob,
+    count: Number(headers.get('X-Export-Count') ?? 0) || 0,
+    truncated: headers.get('X-Export-Truncated') === 'true',
+  };
+}

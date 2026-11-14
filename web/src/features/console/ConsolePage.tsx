@@ -10,6 +10,7 @@ const PAGES: Record<string, { component: LazyExoticComponent<ComponentType>; loa
   perms: { component: lazy(() => import('./PermsPage')), loading: '加载权限矩阵…' },
   approvals: { component: lazy(() => import('./ApprovalsPage')), loading: '加载审批中心…' },
   cost: { component: lazy(() => import('./CostPage')), loading: '加载成本页…' },
+  audits: { component: lazy(() => import('./AuditPage')), loading: '加载恢复审计…' },
 };
 
 const PANELS = [
@@ -32,6 +33,12 @@ const PANELS = [
     label: '成本',
     title: '成本看板（按天 / 模型 / 用户聚合 + Top run）',
     milestone: 'W4 D19',
+  },
+  {
+    key: 'audits',
+    label: '审计',
+    title: '会话恢复审计（按用户 / 会话过滤、游标翻页、CSV 导出）',
+    milestone: 'W6 后补',
   },
 ];
 

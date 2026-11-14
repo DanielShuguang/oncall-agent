@@ -41,6 +41,7 @@ import {
   type ApprovalStats,
 } from '@/api/approvals';
 import { formatDurationMs, formatTime } from '@/lib/format';
+import { downloadBlob } from '@/lib/download';
 
 const STATS_DAYS = [7, 30, 90] as const;
 
@@ -63,18 +64,6 @@ const STATUS_TONES: Record<string, string> = {
 function formatHourRange(hour: number): string {
   const label = String(hour).padStart(2, '0');
   return `${label}:00–${label}:59`;
-}
-
-function downloadBlob(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = filename;
-  // Firefox/Safari 对游离节点或立即 revoke 的兼容性差：先挂到文档，再延迟回收。
-  document.body.append(anchor);
-  anchor.click();
-  anchor.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 interface ResolveState {

@@ -72,10 +72,12 @@ ADR-0059 的 `GET /admin/session-restores` 只支持 `user_id` 与 `limit`，默
   前端未改，沿用 **81 tests / 16 files**、`oxlint` 0/0、`oxfmt --check` 76 files、
   `pnpm build`。
 - API：3 条用户审计 + 1 条其他用户审计，`limit=2` 翻三页（2/2/0），`next_cursor`
-  在最后一页为 `null`，三页 id 不重复；非法游标 400；全量游标复用到
+  在空页为 `null`，三页 id 不重复；非法游标 400；全量游标复用到
   `user_id` 过滤 400。
 - 存储契约（内存 + Postgres）：3 条审计按 `(restored_at, id)` 倒序，limit=2 后
   用最后一条的 `(restored_at, audit_id)` 取下一页，恰好 1 条且与第一页不重叠。
+- 同一 `restored_at` 的两条审计按 `id` 倒序；把游标里的 UUID 改成大写后仍从
+  同一位置继续（解码时统一归一化）。
 - 无迁移、无前端改动；审批/会话的其他分页行为未变。
 
 ## 6. 待定

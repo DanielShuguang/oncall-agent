@@ -67,8 +67,8 @@ def _decode_cursor(cursor: str, user_id: str | None) -> tuple[datetime, str]:
         restored_at = datetime.fromisoformat(str(data["t"]))
         if restored_at.tzinfo is None:
             raise ValueError("cursor timestamp must be timezone-aware")
-        audit_id = str(data["i"])
-        uuid.UUID(audit_id)
+        # UUID 字符串大小写/urn 形式都合法；归一化后内存与 PG 的排序才一致
+        audit_id = str(uuid.UUID(str(data["i"])))
     except (ValueError, TypeError, binascii.Error, json.JSONDecodeError):
         raise _cursor_error() from None
     return restored_at, audit_id

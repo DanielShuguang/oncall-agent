@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import json
 import uuid
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 
 from httpx import AsyncClient
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.core.store import InMemoryRunStore
+from app.core.store import InMemoryRunStore, SessionRestoreAuditRecord
 from tests.support import auth_headers
 
 ADMIN = auth_headers(user_id="admin_1", roles=("admin",))
@@ -100,6 +103,59 @@ async def test_session_restore_audits_paginate(
         item["id"] for item in first_body["items"] + second_body["items"] + third_body["items"]
     ]
     assert len(all_ids) == len(set(all_ids)) == 4
+
+    # 同一 restored_at 时按 id 倒序；游标里的 UUID 大小写不影响位置
+    tie_time = datetime(2026, 11, 14, tzinfo=UTC)
+    tie_ids = [str(uuid.UUID(int=index)) for index in (2, 3)]
+    mem_store._session_restore_audits.extend(
+        [
+            SessionRestoreAuditRecord(
+                audit_id=audit_id,
+                user_id="u_300",
+                session_ids=(f"sess_tie_{audit_id[-4:]}",),
+                requested_count=1,
+                restored_count=1,
+                restored_at=tie_time,
+            )
+            for audit_id in tie_ids
+        ]
+    )
+
+    tie_first = await client.get(
+        "/api/admin/session-restores",
+        headers=ADMIN,
+        params={"user_id": "u_300", "limit": 1},
+    )
+    assert tie_first.status_code == 200
+    tie_first_body = tie_first.json()
+    assert [item["id"] for item in tie_first_body["items"]] == [tie_ids[1]]
+
+    # 把游标里的 UUID 改成大写；归一化后仍能从同一位置继续
+    raw = base64.urlsafe_b64decode(tie_first_body["next_cursor"] + "==")
+    payload = json.loads(raw)
+    payload["i"] = payload["i"].upper()
+    upper_cursor = (
+        base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":")).encode())
+        .decode()
+        .rstrip("=")
+    )
+    tie_second = await client.get(
+        "/api/admin/session-restores",
+        headers=ADMIN,
+        params={"user_id": "u_300", "limit": 1, "cursor": upper_cursor},
+    )
+    assert tie_second.status_code == 200
+    tie_second_body = tie_second.json()
+    assert [item["id"] for item in tie_second_body["items"]] == [tie_ids[0]]
+
+    tie_third = await client.get(
+        "/api/admin/session-restores",
+        headers=ADMIN,
+        params={"user_id": "u_300", "limit": 1, "cursor": tie_second_body["next_cursor"]},
+    )
+    assert tie_third.status_code == 200
+    assert tie_third.json()["items"] == []
+    assert tie_third.json()["next_cursor"] is None
 
     bad_cursor = await client.get(
         "/api/admin/session-restores", headers=ADMIN, params={"cursor": "not-a-cursor"}

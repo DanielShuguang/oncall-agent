@@ -784,7 +784,7 @@ Authorization: Bearer <admin token>
   按 `restored_at DESC, id DESC` 返回，支持 `cursor` keyset 分页（ADR-0060）
 - 游标是 base64url JSON `{t, i, u}`：`t` 为上一页最后一条的 `restored_at`，`i` 为其
   UUID，`u` 为本次 `user_id` 过滤；切换 `user_id` 后复用旧游标返回 400。取满
-  `limit` 才给 `next_cursor`，最后一页为 `null`；非法游标 400 `INVALID_CURSOR`
+  `limit` 才给 `next_cursor`；未取满时为 `null`（已到最后一页）；非法游标 400 `INVALID_CURSOR`
 - 一次恢复操作一行（单条 `DELETE /sessions/{id}/hidden` 或批量恢复各写一行）；
   `session_ids` 只含真正恢复的 id，`requested_count` 是去重后的请求数，
   `requested_count - restored_count` 是本次未恢复的数量。没有真正恢复任何会话

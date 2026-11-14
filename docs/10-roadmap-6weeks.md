@@ -1427,7 +1427,7 @@ Postgres + Redis **532 passed**；`ruff check` / `ruff format --check`（192 fil
 | 接口 | `GET /admin/session-restores` 增加可选 `cursor`（≤512）；响应增加 `next_cursor` |
 | 排序 | `(restored_at, id)` 倒序；游标表示「严格早于这个元组」；`id` 只做同时间戳 tiebreaker |
 | 游标 | base64url JSON `{t, i, u}`：时间、审计 UUID、本次 `user_id` 过滤；切换过滤条件复用旧游标 400 `INVALID_CURSOR` |
-| 返回 | 取满 `limit` 才给 `next_cursor`；最后一页 `null`；非法游标 400，不降级为空列表 |
+| 返回 | 取满 `limit` 才给 `next_cursor`；未取满时 `null`（已到最后一页）；非法游标 400，不降级为空列表 |
 | 存储 | 不加迁移/索引，复用 `idx_session_restore_audits_user_time` 与 `idx_session_restore_audits_time`；内存/PG 同一排序 |
 | 范围 | 不做导出/总数/跳页/前端管理页；仍为管理员只读，`limit` 1–200 默认 50 |
 

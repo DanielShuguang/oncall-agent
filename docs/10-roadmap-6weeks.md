@@ -1626,7 +1626,8 @@ Postgres + Redis **540 passed**；`ruff check` / `ruff format --check`（194 fil
 
 已知边界：日期按 UTC 自然日解释，不随浏览器时区变化；365 天窗口可能覆盖大部分
 审计行，当前不做额外索引/缓存；列表、计数与统计是独立查询，不是同一快照；
-不支持单端开放区间、按小时/按天下钻、页码/跳页。详见
+不支持单端开放区间、按小时/按天下钻、页码/跳页。旧后端会忽略未知的
+`restored_from`/`restored_to` 参数，部署需前后端同版本。详见
 [ADR-0067](decisions/0067-session-restore-audit-date-range.md)。
 
 ---

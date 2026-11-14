@@ -788,7 +788,8 @@ Authorization: Bearer <admin token>
   按 `restored_at DESC, id DESC` 返回，支持 `cursor` keyset 分页（ADR-0060）
 - `restored_from`/`restored_to`（`YYYY-MM-DD`）可选，按 `restored_at` 的 UTC 自然日
   闭区间过滤（ADR-0067）。两端必须同时提供，`from <= to`，跨度最多 365 天，否则
-  422 `INVALID_RANGE`；`since=from 00:00:00Z`、`until=to 23:59:59.999999Z`
+  422 `INVALID_RANGE`；`since=from 00:00:00Z`、`until=to 23:59:59.999999Z`。
+  旧后端会忽略这两个未知参数并返回未过滤结果，部署时需前后端同版本
 - 游标是 base64url JSON `{t, i, u}`；带 `session_id` 过滤时增加 `s`，带日期范围
   时增加 `d`（`from:to`）。`t` 为上一页最后一条的 `restored_at`，`i` 为其 UUID，
   `u` 为本次 `user_id`，`s` 为本次 `session_id`（无过滤时省略，保持 ADR-0060 的

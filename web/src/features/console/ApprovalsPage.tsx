@@ -90,6 +90,7 @@ export default function ApprovalsPage() {
   const [filterFrom, setFilterFrom] = useState('');
   const [filterTo, setFilterTo] = useState('');
   const [cursor, setCursor] = useState<string | null>(null);
+  const [total, setTotal] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -143,6 +144,7 @@ export default function ApprovalsPage() {
         if (!cancelled && listRequest.current === requestId) {
           setItems(data.items);
           setCursor(data.next_cursor);
+          setTotal(data.total ?? null);
           setError(null);
         }
       } catch (exc) {
@@ -170,6 +172,7 @@ export default function ApprovalsPage() {
       if (listRequest.current !== requestId) return;
       setItems(data.items);
       setCursor(data.next_cursor);
+      setTotal(data.total ?? null);
       setError(null);
     } finally {
       if (listRequest.current === requestId) setLoadingMore(false);
@@ -228,6 +231,7 @@ export default function ApprovalsPage() {
     setStatus(next);
     setItems([]);
     setCursor(null);
+    setTotal(null);
     setLoading(true);
     setLoadingMore(false);
     setError(null);
@@ -248,6 +252,7 @@ export default function ApprovalsPage() {
     listRequest.current += 1;
     setItems([]);
     setCursor(null);
+    setTotal(null);
     setLoading(true);
     setLoadingMore(false);
     setError(null);
@@ -573,6 +578,11 @@ export default function ApprovalsPage() {
 
       <Card className="gap-0 py-0">
         <CardContent className="p-0">
+          {!loading && total !== null && total > 0 && (
+            <div className="border-b px-3 py-2 text-[11px] text-muted-foreground">
+              共 {total} 条{items.length < total ? `，已显示 ${items.length} 条` : ''}
+            </div>
+          )}
           {loading ? (
             <div className="p-8 text-center text-xs text-muted-foreground">加载中…</div>
           ) : items.length === 0 ? (

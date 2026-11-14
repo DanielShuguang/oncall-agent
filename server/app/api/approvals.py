@@ -319,10 +319,15 @@ async def list_approvals(
     )
     fingerprint = _filter_fingerprint(filters)
     before = _decode_approval_cursor(cursor, status, fingerprint) if cursor else None
+    total: int | None = None
     try:
         records = await service.list_for(
             identity, status=status, limit=limit, filters=filters, cursor=before
         )
+        if cursor is None:
+            # 首屏计数与列表同一口径；后续页不再算，避免每次「加载更多」都
+            # 多一次 COUNT（ADR-0057）。
+            total = await service.count_for(identity, status=status, filters=filters, expire=False)
     except ApprovalInvalidCursor:
         raise _cursor_error() from None
     except SQLAlchemyError as exc:
@@ -333,6 +338,7 @@ async def list_approvals(
         next_cursor=(
             _encode_approval_cursor(records[-1], fingerprint) if len(records) == limit else None
         ),
+        total=total,
     )
 
 

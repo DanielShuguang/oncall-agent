@@ -309,6 +309,7 @@ async def test_approval_list_paginates_with_cursor(
     assert first.status_code == 200
     first_body = first.json()
     assert [item["approval_id"] for item in first_body["items"]] == ids[:2]
+    assert first_body["total"] == 3
     cursor = first_body["next_cursor"]
     assert isinstance(cursor, str) and cursor
 
@@ -318,6 +319,7 @@ async def test_approval_list_paginates_with_cursor(
     assert second.status_code == 200
     assert [item["approval_id"] for item in second.json()["items"]] == ids[2:]
     assert second.json()["next_cursor"] is None
+    assert second.json()["total"] is None
 
     third = await client.get(
         f"/api/approvals?status=pending&limit=1&cursor={cursor}", headers=APPROVER
@@ -331,7 +333,7 @@ async def test_approval_list_paginates_with_cursor(
         f"/api/approvals?status=pending&limit=1&cursor={third_cursor}", headers=APPROVER
     )
     assert empty.status_code == 200
-    assert empty.json() == {"items": [], "next_cursor": None}
+    assert empty.json() == {"items": [], "next_cursor": None, "total": None}
 
     bad = await client.get("/api/approvals?status=pending&cursor=not-a-cursor", headers=APPROVER)
     assert bad.status_code == 400
@@ -513,17 +515,39 @@ async def test_resolved_list_filters_by_tool_approver_and_date() -> None:
         ),
     )
     assert [record.id for record in combined] == ["f1"]
+    assert (
+        await store.count(
+            status="approved",
+            filters=ApprovalListFilters(
+                tool_name="create_ticket",
+                resolved_by="u_900",
+                resolved_from=base,
+                resolved_to=base + timedelta(days=2),
+            ),
+        )
+        == 1
+    )
 
     open_ended = await store.list(
         status="approved",
         filters=ApprovalListFilters(resolved_from=base + timedelta(days=1)),
     )
     assert [record.id for record in open_ended] == ["f3", "f2"]
+    assert (
+        await store.count(
+            status="approved", filters=ApprovalListFilters(resolved_from=base + timedelta(days=1))
+        )
+        == 2
+    )
 
     by_tool = await store.list(
         status="approved", filters=ApprovalListFilters(tool_name="query_cmdb")
     )
     assert [record.id for record in by_tool] == ["f2"]
+    assert (
+        await store.count(status="approved", filters=ApprovalListFilters(tool_name="query_cmdb"))
+        == 1
+    )
 
 
 async def test_approval_list_filters_and_cursor_binding(
@@ -581,12 +605,14 @@ async def test_approval_list_filters_and_cursor_binding(
     )
     assert filtered.status_code == 200
     assert [item["approval_id"] for item in filtered.json()["items"]] == ["f1"]
+    assert filtered.json()["total"] == 1
 
     first = await client.get(
         "/api/approvals?status=approved&tool=create_ticket&limit=1", headers=APPROVER
     )
     assert first.status_code == 200
     assert [item["approval_id"] for item in first.json()["items"]] == ["f2"]
+    assert first.json()["total"] == 2
     cursor = first.json()["next_cursor"]
     assert isinstance(cursor, str) and cursor
 
@@ -597,6 +623,7 @@ async def test_approval_list_filters_and_cursor_binding(
     )
     assert second.status_code == 200
     assert [item["approval_id"] for item in second.json()["items"]] == ["f1"]
+    assert second.json()["total"] is None
 
     # 筛选条件变了却复用旧游标，必须显式重来，不能静默从错误位置继续。
     mismatch = await client.get(
@@ -637,11 +664,13 @@ async def test_approval_list_filters_and_cursor_binding(
         "/api/approvals?status=approved&tool=secret_tool", headers=APPROVER
     )
     assert [item["approval_id"] for item in approver_secret.json()["items"]] == ["f4"]
+    assert approver_secret.json()["total"] == 1
     employee_secret = await client.get(
         "/api/approvals?status=approved&tool=secret_tool", headers=EMPLOYEE
     )
     assert employee_secret.status_code == 200
     assert employee_secret.json()["items"] == []
+    assert employee_secret.json()["total"] == 0
 
     # Postgres 存储把非 UUID 的游标翻译成领域异常，API 必须回 400 而不是 503。
     async def fail_on_cursor(*, cursor: object = None, **kwargs: object) -> list[object]:

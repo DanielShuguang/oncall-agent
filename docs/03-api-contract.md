@@ -42,7 +42,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | GET | `/runs/{run_id}/events?after_seq=` | 补拉事件（断线续传，兼容 `Last-Event-ID`） | W1 D4 |
 | GET | `/runs/{run_id}/stream` | 重连增量流（可选，v1 用轮询替代） | — |
 | POST | `/approvals/{id}/resolve` | 审批通过/拒绝 | W3 D14 |
-| GET | `/approvals?status=pending&limit=50` | 待办/已办审批列表（keyset 游标分页；已办可加 `tool/resolved_by/resolved_from/resolved_to` 筛选） | W3 D14 / W5 D23 / W6 后补 |
+| GET | `/approvals?status=pending&limit=50` | 待办/已办审批列表（keyset 游标分页；第一页附总数；已办可加 `tool/resolved_by/resolved_from/resolved_to` 筛选） | W3 D14 / W5 D23 / W6 后补 |
 | GET | `/approvals/export?status=approved&tool=create_ticket` | 按当前状态/筛选导出审批 CSV（最多 5000 条；响应头告知截断） | W6 后补 |
 | GET | `/approvals/stats?days=7&group_by=` | 审批积压、窗口内等待与按工具/审批人分组（仅审批人） | W6 后补 |
 | POST | `/admin/kb/documents` | 上传知识文档（multipart，≤10MB） | W2 D7 |
@@ -589,13 +589,18 @@ Authorization: Bearer <approver token>
       "resolved_at": null
     }
   ],
-  "next_cursor": "eyJlIjoiMjAyNi0xMS0wOVQwNDoyMDowMCswMDowMCIsImMiOi..."
+  "next_cursor": "eyJlIjoiMjAyNi0xMS0wOVQwNDoyMDowMCswMDowMCIsImMiOi...",
+  "total": 1
 }
 ```
 
 - 审批人角色（`ONCALL_APPROVER_ROLES`，默认 `approver`）看全部待办；普通员工只看自己发起的
 - `status` 只接受 `pending|approved|rejected|expired`；打开列表时会把超时待办置 `expired`
 - `limit` 默认 50、范围 1–200
+- `total` 只在**没有 `cursor` 的第一页**返回，是同一 `status`、同一组已办筛选和同一
+  身份范围（审批人看全部，普通员工只看自己发起）下的总数；后续页为 `null`。
+  计数与列表分开查询（首屏多一次 `COUNT`），大数据量下可能比列表慢；不返回总数
+  时客户端按「未知」处理，不显示「共 N 条」（[ADR-0057](decisions/0057-approval-list-total.md)）
 - 排序按 `status` 分流（ADR-0053）：`pending` 按 `(expires_at, created_at,
   approval_id)` 升序，最急的在前；`approved|rejected|expired` 按
   `(resolved_at, approval_id)` 倒序，最近的决议在前（`expired` 的
@@ -626,6 +631,8 @@ Authorization: Bearer <approver token>
   `approved|rejected|expired` 之间都不能混用；翻页期间审批被决议可能让后续页
   重复/跳过，刷新即回第一页。游标不签名，服务端仍按当前身份过滤
   （ADR-0052 / ADR-0053 / ADR-0054）
+- 前端列表在首屏显示「共 N 条」；加载更多后显示「共 N 条，已显示 M 条」，
+  切状态/筛选/刷新会重新取第一页总数
 - 前端已办列表显示「决议时间」（`resolved_at`），待办仍显示「到期时间」；
   已办还提供工具、审批人、决议日期筛选，筛选条件变化后从第一页重新加载；
   旧已办游标（ADR-0052 的 `{e,c,i}` 或初版 `{r,i}`）失效一次，刷新即回第一页

@@ -184,6 +184,29 @@ class ApprovalService:
             limit=limit,
         )
 
+    async def count_for(
+        self,
+        identity: Identity,
+        *,
+        status: str = "pending",
+        filters: ApprovalListFilters | None = None,
+        expire: bool = True,
+    ) -> int:
+        """与 `list_for` 同一身份/筛选口径的总数（ADR-0057）。
+
+        `expire=False` 供列表接口在刚调用过 `list_for` 后使用，避免同一请求里
+        重复扫描待办；独立调用时保持默认收敛过期。
+        """
+        if expire:
+            await self.expire_due()
+        approver = self._is_approver(identity)
+        requested_by = None if approver else identity.user_id
+        return await self._approvals.count(
+            status=status,
+            requested_by=requested_by,
+            filters=filters,
+        )
+
     async def stats(
         self,
         identity: Identity,

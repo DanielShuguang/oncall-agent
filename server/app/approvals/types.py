@@ -173,6 +173,26 @@ class ApprovalListFilters:
             for value in (self.tool_name, self.resolved_by, self.resolved_from, self.resolved_to)
         )
 
+    def matches(
+        self,
+        *,
+        tool_name: str,
+        resolved_by: str | None,
+        resolved_at: datetime | None,
+    ) -> bool:
+        """内存存储/首屏计数共用同一套筛选语义，避免列表与总数口径分叉。"""
+        if self.tool_name is not None and tool_name != self.tool_name:
+            return False
+        if self.resolved_by is not None and resolved_by != self.resolved_by:
+            return False
+        if self.resolved_from is not None and (
+            resolved_at is None or resolved_at < self.resolved_from
+        ):
+            return False
+        return self.resolved_to is None or (
+            resolved_at is not None and resolved_at < self.resolved_to
+        )
+
 
 class ApprovalRecorder(Protocol):
     """runtime 视角的审批能力：提交审批 + 查询会话级授权。"""

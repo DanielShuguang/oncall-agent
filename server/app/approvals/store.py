@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from sqlalchemy import and_, delete, func, or_, select, text, tuple_, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.approvals.types import (
     MAX_STATS_GROUPS,
@@ -64,6 +65,20 @@ class ApprovalStore(Protocol):
         `filters` 只作用于已办：工具/审批人精确匹配，决议时间半开区间。
         游标只配合同一个 `status` 和同一组筛选条件使用，跨状态/跨筛选复用
         会从错误的元组位置开始，结果不可解释。
+        """
+        ...
+
+    async def count(
+        self,
+        *,
+        status: str | None = None,
+        requested_by: str | None = None,
+        filters: ApprovalListFilters | None = None,
+    ) -> int:
+        """与 `list` 同一 status/身份/筛选口径的计数（ADR-0057）。
+
+        不受游标影响；API 只在第一页调用，用于「共 N 条」。已办仍要求
+        `resolved_at` 非空，避免脏数据让计数与列表不一致。
         """
         ...
 
@@ -195,18 +210,10 @@ class InMemoryApprovalStore:
             record
             for record in items
             if record.resolved_at is not None
-            and (active_filters.tool_name is None or record.tool_name == active_filters.tool_name)
-            and (
-                active_filters.resolved_by is None
-                or record.resolved_by == active_filters.resolved_by
-            )
-            and (
-                active_filters.resolved_from is None
-                or record.resolved_at >= active_filters.resolved_from
-            )
-            and (
-                active_filters.resolved_to is None
-                or record.resolved_at < active_filters.resolved_to
+            and active_filters.matches(
+                tool_name=record.tool_name,
+                resolved_by=record.resolved_by,
+                resolved_at=record.resolved_at,
             )
         ]
         decided.sort(key=lambda r: (cast(datetime, r.resolved_at), r.id), reverse=True)
@@ -218,6 +225,37 @@ class InMemoryApprovalStore:
                 if (cast(datetime, record.resolved_at), record.id) < resolved_key
             ]
         return decided[:limit]
+
+    async def count(
+        self,
+        *,
+        status: str | None = None,
+        requested_by: str | None = None,
+        filters: ApprovalListFilters | None = None,
+    ) -> int:
+        active_filters = filters or ApprovalListFilters()
+        total = 0
+        for record in self._records.values():
+            if status is not None and record.status != status:
+                continue
+            if requested_by is not None and record.requested_by != requested_by:
+                continue
+            # 与 list 一致：筛选只作用于已办；待办带筛选由 API 拒绝。
+            if (
+                status is not None
+                and status != "pending"
+                and (
+                    record.resolved_at is None
+                    or not active_filters.matches(
+                        tool_name=record.tool_name,
+                        resolved_by=record.resolved_by,
+                        resolved_at=record.resolved_at,
+                    )
+                )
+            ):
+                continue
+            total += 1
+        return total
 
     async def stats(
         self,
@@ -382,6 +420,20 @@ class InMemoryApprovalStore:
             return len(candidates)
 
 
+def _resolved_filter_conditions(filters: ApprovalListFilters) -> list[ColumnElement[bool]]:
+    """已办筛选的 SQL 条件；列表与计数共用，避免两边口径漂移（ADR-0057）。"""
+    conditions: list[ColumnElement[bool]] = []
+    if filters.tool_name is not None:
+        conditions.append(Approval.tool_name == filters.tool_name)
+    if filters.resolved_by is not None:
+        conditions.append(Approval.resolved_by == filters.resolved_by)
+    if filters.resolved_from is not None:
+        conditions.append(Approval.resolved_at >= filters.resolved_from)
+    if filters.resolved_to is not None:
+        conditions.append(Approval.resolved_at < filters.resolved_to)
+    return conditions
+
+
 class PostgresApprovalStore:
     def __init__(self, sessionmaker: async_sessionmaker[AsyncSession]) -> None:
         self._sessionmaker = sessionmaker
@@ -472,14 +524,8 @@ class PostgresApprovalStore:
             # 已办按决议时间倒序；resolved_at 为空的行只可能是 pending，已在
             # status 过滤时排除，这里再加一次是防脏数据混进来（ADR-0053）。
             query = query.where(Approval.resolved_at.is_not(None))
-            if active_filters.tool_name is not None:
-                query = query.where(Approval.tool_name == active_filters.tool_name)
-            if active_filters.resolved_by is not None:
-                query = query.where(Approval.resolved_by == active_filters.resolved_by)
-            if active_filters.resolved_from is not None:
-                query = query.where(Approval.resolved_at >= active_filters.resolved_from)
-            if active_filters.resolved_to is not None:
-                query = query.where(Approval.resolved_at < active_filters.resolved_to)
+            for condition in _resolved_filter_conditions(active_filters):
+                query = query.where(condition)
             if isinstance(cursor, ResolvedApprovalCursor):
                 query = query.where(
                     or_(
@@ -495,6 +541,26 @@ class PostgresApprovalStore:
         async with self._sessionmaker() as session:
             rows = (await session.scalars(query)).all()
         return [_record_from_row(row) for row in rows]
+
+    async def count(
+        self,
+        *,
+        status: str | None = None,
+        requested_by: str | None = None,
+        filters: ApprovalListFilters | None = None,
+    ) -> int:
+        active_filters = filters or ApprovalListFilters()
+        query = select(func.count(Approval.id))
+        if status is not None:
+            query = query.where(Approval.status == status)
+        if requested_by is not None:
+            query = query.where(Approval.requested_by == requested_by)
+        if status is not None and status != "pending":
+            query = query.where(Approval.resolved_at.is_not(None))
+            for condition in _resolved_filter_conditions(active_filters):
+                query = query.where(condition)
+        async with self._sessionmaker() as session:
+            return int((await session.scalar(query)) or 0)
 
     async def stats(
         self,

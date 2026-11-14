@@ -1334,6 +1334,32 @@ Postgres + Redis **527 passed**；`ruff check` / `ruff format --check`（188 fil
 
 ---
 
+## W6 后补：审批列表首屏总数（ADR-0057）
+
+审批列表是 keyset 游标分页，前端只能「加载更多」，看不到当前状态下总共多少单；
+统计接口给的是积压/窗口汇总，不能回答某个筛选下有多少条。用户在进入列表时
+需要知道规模，加载更多时需要知道还剩多少。
+
+| 事项 | 落地 |
+|---|---|
+| 接口 | `GET /approvals` 响应增加 `total`；只在**没有 `cursor`** 的第一页返回，后续页为 `null` |
+| 口径 | 与列表同一 `status`、同一组已办筛选、同一身份范围；待办仍不带筛选 |
+| 存储 | 新增 `ApprovalStore.count`；内存复用 `ApprovalListFilters.matches`，PG 用 `count(id)` 并复用筛选条件 |
+| 服务 | 列表后调用 `count_for(expire=False)`，避免同一请求重复收敛超时待办 |
+| 前端 | 列表顶部「共 N 条」；未加载完显示「共 N 条，已显示 M 条」；切状态/筛选/刷新重新计数 |
+| 数据 | 无迁移、无新索引；首屏多一次 `COUNT`，不做缓存/近似计数 |
+
+验证：默认 **487 passed + 40 skipped**；真实 Postgres **524 passed + 3 skipped**；
+Postgres + Redis **527 passed**；`ruff check` / `ruff format --check`（188 files）/
+`mypy app`（110 files）通过；前端 **80 tests / 16 files**、`oxlint` 0/0（68 files）、
+`oxfmt --check` 76 files、`pnpm build` 通过。无迁移。
+
+已知边界：`total` 与列表是两次查询，不是同一快照；大数据量下计数可能比列表慢；
+没有页码/跳页；加载更多不重新计数；普通员工只数自己发起的审批。详见
+[ADR-0057](decisions/0057-approval-list-total.md)。
+
+---
+
 ## 每周固定动作
 
 | 时点 | 动作 |

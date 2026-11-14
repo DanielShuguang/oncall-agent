@@ -35,6 +35,8 @@ class ApprovalListResponse(BaseModel):
     items: list[ApprovalOut]
     #: 当前页取满时返回的 keyset 游标；没有更多为 None（ADR-0052）
     next_cursor: str | None = None
+    #: 第一页返回同一 status/筛选/身份口径的总数；后续页为 None（ADR-0057）
+    total: int | None = None
 
 
 class ApprovalDayStatsOut(BaseModel):

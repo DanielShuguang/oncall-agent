@@ -23,6 +23,8 @@ export interface ApprovalListResponse {
   items: ApprovalOut[];
   /** 当前页取满时返回的 keyset 游标；没有更多为 null（ADR-0052） */
   next_cursor: string | null;
+  /** 第一页返回总数；后续页为 null，旧后端可能没有该字段（ADR-0057） */
+  total?: number | null;
 }
 
 export interface ApprovalDayStats {

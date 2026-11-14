@@ -457,6 +457,7 @@ async def test_pg_approval_list_paginates(pg_approvals: tuple[Any, ...]) -> None
         )
         ids.append(approval_id)
 
+    assert await approvals.count(status="pending") == 3
     first = await approvals.list(status="pending", limit=2)
     assert [record.id for record in first] == ids[:2]
     last = first[-1]
@@ -622,14 +623,38 @@ async def test_pg_resolved_list_filters(pg_approvals: tuple[Any, ...]) -> None:
         ),
     )
     assert [record.id for record in combined] == [ids[0]]
+    assert (
+        await approvals.count(
+            status="approved",
+            filters=ApprovalListFilters(
+                tool_name="create_ticket",
+                resolved_by="u_900",
+                resolved_from=base,
+                resolved_to=base + timedelta(days=2),
+            ),
+        )
+        == 1
+    )
 
     open_ended = await approvals.list(
         status="approved",
         filters=ApprovalListFilters(resolved_from=base + timedelta(days=1)),
     )
     assert [record.id for record in open_ended] == [ids[2], ids[1]]
+    assert (
+        await approvals.count(
+            status="approved", filters=ApprovalListFilters(resolved_from=base + timedelta(days=1))
+        )
+        == 2
+    )
 
     by_tool = await approvals.list(
         status="approved", filters=ApprovalListFilters(tool_name="query_cmdb")
     )
     assert [record.id for record in by_tool] == [ids[1]]
+    assert (
+        await approvals.count(
+            status="approved", filters=ApprovalListFilters(tool_name="query_cmdb")
+        )
+        == 1
+    )

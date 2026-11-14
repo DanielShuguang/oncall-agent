@@ -57,10 +57,15 @@ export interface ApprovalStats {
   avg_wait_ms: number | null;
   max_wait_ms: number | null;
   daily: ApprovalDayStats[];
+  /** 旧后端（ADR-0058 之前）没有该字段；getApprovalStats 统一补空数组 */
   hourly: ApprovalHourStats[];
   groups: ApprovalGroupStats[];
   groups_truncated: boolean;
 }
+
+type ApprovalStatsPayload = Omit<ApprovalStats, 'hourly'> & {
+  hourly?: ApprovalHourStats[];
+};
 
 export interface ApprovalResolveResponse {
   approval: ApprovalOut;
@@ -119,13 +124,14 @@ export async function exportApprovalsCsv(
   };
 }
 
-export function getApprovalStats(
+export async function getApprovalStats(
   days = 7,
   groupBy: 'tool' | 'approver' | null = null,
 ): Promise<ApprovalStats> {
   const params = new URLSearchParams({ days: String(days) });
   if (groupBy !== null) params.set('group_by', groupBy);
-  return getJson<ApprovalStats>(`/approvals/stats?${params.toString()}`);
+  const data = await getJson<ApprovalStatsPayload>(`/approvals/stats?${params.toString()}`);
+  return { ...data, hourly: data.hourly ?? [] };
 }
 
 export function resolveApproval(

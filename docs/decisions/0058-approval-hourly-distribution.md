@@ -67,11 +67,12 @@ ADR-0048、0050、0051 的「待定」都记着「按小时趋势」。但「趋
 - 默认 **487 passed + 40 skipped**；真实 Postgres **524 passed + 3 skipped**；
   Postgres + Redis **527 passed**。
 - `ruff check` / `ruff format --check`（188 files）/ `mypy app`（110 files）通过。
-- 前端 `tsc`、**80 tests / 16 files**、`oxlint` 0/0（68 files）、
+- 前端 `tsc`、**81 tests / 16 files**、`oxlint` 0/0（68 files）、
   `oxfmt --check` 76 files、`pnpm build` 通过。
 - 覆盖：内存在 09:30Z / 11:00Z 两条决议 → `hour=9`/`hour=11` 各 1 条且平均等待
   分别正确；API 响应含 `hourly`；Postgres 的 `date_part` 小时与 `daily` 同批记录；
-  `hourly` 不包含 `expired`。
+  `hourly` 不包含 `expired`；前端 `getApprovalStats` 对旧后端缺少 `hourly` 的响应
+  补空数组（新增 1 条单测）。
 - 无迁移。
 
 ## 6. 待定

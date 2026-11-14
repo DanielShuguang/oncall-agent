@@ -1378,7 +1378,7 @@ Postgres + Redis **527 passed**；`ruff check` / `ruff format --check`（188 fil
 
 验证：默认 **487 passed + 40 skipped**；真实 Postgres **524 passed + 3 skipped**；
 Postgres + Redis **527 passed**；`ruff check` / `ruff format --check`（188 files）/
-`mypy app`（110 files）通过；前端 **80 tests / 16 files**、`oxlint` 0/0（68 files）、
+`mypy app`（110 files）通过；前端 **81 tests / 16 files**、`oxlint` 0/0（68 files）、
 `oxfmt --check` 76 files、`pnpm build` 通过。无迁移。
 
 已知边界：`hourly` 是分布不是时间序列，不能定位到某一天的具体小时；时区固定

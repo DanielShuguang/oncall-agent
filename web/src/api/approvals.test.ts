@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { exportApprovalsCsv, listApprovals, resolveApproval } from './approvals';
+import { exportApprovalsCsv, getApprovalStats, listApprovals, resolveApproval } from './approvals';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -42,6 +42,34 @@ describe('listApprovals', () => {
         '&resolved_from=2026-11-01&resolved_to=2026-11-02',
     );
     expect(fetchMock.mock.calls[1]?.[0]).toBe('/api/approvals?status=approved&limit=25');
+  });
+});
+
+describe('getApprovalStats', () => {
+  it('旧后端没有 hourly 时补空数组（ADR-0058）', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          days: 7,
+          pending_count: 0,
+          oldest_pending_age_s: null,
+          decided_count: 0,
+          avg_wait_ms: null,
+          max_wait_ms: null,
+          daily: [],
+          groups: [],
+          groups_truncated: false,
+        }),
+        { status: 200 },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const stats = await getApprovalStats();
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/approvals/stats?days=7');
+    expect(stats.hourly).toEqual([]);
   });
 });
 

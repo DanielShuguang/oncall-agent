@@ -20,12 +20,14 @@ docs/02 §4 定义了保留期，但之前只有配置项、没有执行者：`r
   挂起的审批永不清理，决议证据（参数/理由/结论）保留（ADR-0027）。
 - 过期授权（`approval_grants`）按当前时间删除：过期的授权不再授予任何权限，
   删行不改变授权语义（ADR-0027）。
+- 恢复审计（`session_restore_audits`）按独立保留期清理（ADR-0059）：恢复动作是
+  治理审计，不是会话内容，默认保留 365 天；按 `restored_at` 判断。
 - 不删 `runs` 行：运行列表、成本口径、失败率都依赖它；多轮上下文按 `output`
   是否为空自然跳过已清空的历史轮次。
 
-步骤顺序是「事件 → 正文 → 审批快照 → 过期授权 → 计量」：同一轮里先删事件再清
-正文，正文不会比事件活得更久（多副本下也只在同一批次内先后）；审批快照与正文
-同阈值清理，放在正文之后只是让同一轮里先处理产品正文。
+步骤顺序是「事件 → 正文 → 审批快照 → 过期授权 → 恢复审计 → 计量」：同一轮里
+先删事件再清正文，正文不会比事件活得更久（多副本下也只在同一批次内先后）；审批
+快照与正文同阈值清理，放在正文之后只是让同一轮里先处理产品正文。
 
 清理是幂等的：`events_pruned_at` / `content_pruned_at` 一旦写入，这场 run 不会
 再被选中；审批快照清空后 `state` 为空对象，过期授权删掉即不再存在，都不需要
@@ -51,6 +53,8 @@ class RetentionResult:
     events_before: datetime
     calls_before: datetime
     content_before: datetime
+    #: 恢复审计的清理阈值（ADR-0059）；独立于正文/事件保留期
+    session_restores_before: datetime
     run_ids: list[str] = field(default_factory=list)
     events: int = 0
     calls: int = 0
@@ -60,6 +64,8 @@ class RetentionResult:
     approval_snapshots: int = 0
     #: 过期授权被删除的条数（按当前时间判断，不跟随内容保留期）
     approval_grants: int = 0
+    #: 被删除的恢复审计条数
+    session_restores: int = 0
     #: 本轮的批大小，用来解释 `capped` 与吞吐
     batch: int = 0
     #: 跑到批次上限时仍有候选（`dry_run` 表示预览被截断）；积压可能还没清完
@@ -102,6 +108,7 @@ class RetentionSweeper:
         events_before = at - timedelta(days=self._settings.event_retention_days)
         calls_before = at - timedelta(days=self._settings.model_call_retention_days)
         content_before = at - timedelta(days=self._settings.run_content_retention_days)
+        audits_before = at - timedelta(days=self._settings.session_restore_audit_retention_days)
 
         run_ids: list[str] = []
         content_run_ids: list[str] = []
@@ -109,6 +116,7 @@ class RetentionSweeper:
         calls = 0
         snapshots = 0
         grants = 0
+        session_restores = 0
         capped = False
         for _ in range(rounds):
             pruned = await self._store.prune_events(
@@ -126,6 +134,10 @@ class RetentionSweeper:
             pruned_grants = await self._approvals.prune_grants(
                 expired_before=at, limit=batch, dry_run=dry_run
             )
+            # 恢复审计按自己的保留期删，不复用正文阈值（ADR-0059）
+            pruned_session_restores = await self._store.prune_session_restore_audits(
+                restored_before=audits_before, limit=batch, dry_run=dry_run
+            )
             pruned_calls = await self._calls.prune_calls(
                 created_before=calls_before, limit=batch, dry_run=dry_run
             )
@@ -135,6 +147,7 @@ class RetentionSweeper:
             calls += pruned_calls
             snapshots += pruned_snapshots
             grants += pruned_grants
+            session_restores += pruned_session_restores
             # 都取不满一批才收手：只满足一部分时继续排空其余；达到批次上限
             # 则留给下一轮，保证单次扫描的锁与事务量有上界
             if (
@@ -142,6 +155,7 @@ class RetentionSweeper:
                 and len(pruned_content.run_ids) < batch
                 and pruned_snapshots < batch
                 and pruned_grants < batch
+                and pruned_session_restores < batch
                 and pruned_calls < batch
             ):
                 break
@@ -153,12 +167,14 @@ class RetentionSweeper:
             events_before=events_before,
             calls_before=calls_before,
             content_before=content_before,
+            session_restores_before=audits_before,
             run_ids=run_ids,
             events=events,
             calls=calls,
             content_run_ids=content_run_ids,
             approval_snapshots=snapshots,
             approval_grants=grants,
+            session_restores=session_restores,
             batch=batch,
             capped=capped,
             dry_run=dry_run,

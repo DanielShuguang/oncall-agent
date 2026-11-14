@@ -37,6 +37,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | GET | `/sessions/hidden` | 本人从列表移除的会话（游标分页 + 标题搜索，ADR-0043/0047） | W6 后补 |
 | DELETE | `/sessions/{session_id}/hidden` | 恢复已移除的会话（只删 `hidden_sessions` 行，204） | W6 后补 |
 | POST | `/sessions/hidden/restore` | 批量恢复已移除会话（最多 50，部分成功，返回逐条结果） | W6 后补 |
+| GET | `/admin/session-restores` | 会话恢复审计（按用户过滤，最近在前） | W6 后补 |
 | GET | `/sessions/{session_id}/runs` | 一页会话详情（正文/引用/运行过程，一次返回） | W6 后补 |
 | GET | `/runs/{run_id}` | 单次运行详情（含指标与模型调用明细） | W1 D4 / W4 D19 |
 | GET | `/runs/{run_id}/events?after_seq=` | 补拉事件（断线续传，兼容 `Last-Event-ID`） | W1 D4 |
@@ -755,6 +756,37 @@ POST /api/approvals/{approval_id}/resolve
 > 本节除「引用跳全文」外都是管理接口（要求 `ONCALL_ADMIN_ROLES`）；
 > 引用全文只要求登录，且受文档级可见性约束（[ADR-0018](decisions/0018-citation-fulltext-preview.md)、
 > [ADR-0019](decisions/0019-document-level-access.md)）。
+
+### 会话恢复审计（ADR-0059）
+
+```http
+GET /api/admin/session-restores?user_id=u_102&limit=20
+Authorization: Bearer <admin token>
+```
+
+```json
+{
+  "items": [
+    {
+      "id": "8f14e45f-ceea-4e8f-9d7a-2b3c4d5e6f70",
+      "user_id": "u_102",
+      "session_ids": ["sess_a", "sess_b"],
+      "requested_count": 3,
+      "restored_count": 2,
+      "restored_at": "2026-11-14T03:20:00Z"
+    }
+  ]
+}
+```
+
+- 管理接口，要求 `ONCALL_ADMIN_ROLES`；`user_id` 可选，`limit` 1–200 默认 50；
+  按 `restored_at DESC, id DESC` 返回，不做分页/导出
+- 一次批量恢复一行；`session_ids` 只含真正恢复的 id，`requested_count` 是去重后的
+  请求数，`requested_count - restored_count` 是本次未恢复的数量。没有真正恢复任何
+  会话（空请求、全是不存在/别人的/重复的 id）时不会产生审计行
+- 审计与删除 `hidden_sessions` 在同一事务内完成；写入失败会回滚恢复
+- 审计独立保留 365 天（`ONCALL_SESSION_RESTORE_AUDIT_RETENTION_DAYS`），不随事件/
+  正文保留期清理；库不可用返回 `503 {"code":"DATABASE_UNAVAILABLE"}`，不返回空列表
 
 ### 成本汇总
 

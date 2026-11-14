@@ -1387,6 +1387,32 @@ UTC；与 `daily` 是同一窗口的两个切面，不额外校验两者之和�
 
 ---
 
+## W6 后补：已移除会话的恢复审计（ADR-0059）
+
+批量恢复已经返回逐条结果，但请求结束后没有留下「谁在何时恢复了哪些会话」的
+凭据：`hidden_sessions` 行被删除，run/事件/审批都不记录这次恢复动作。企业服务台
+把恢复视为治理动作，管理员需要能按用户查最近的恢复批次，而不是翻应用日志。
+
+| 事项 | 落地 |
+|---|---|
+| 接口 | 新增 `GET /admin/session-restores?user_id=&limit=`；管理员只读，按 `restored_at DESC, id DESC` 返回；`limit` 1–200 默认 50 |
+| 表 | `session_restore_audits`：一次恢复一行，`session_ids` 只存真正恢复的 id，`requested_count` 为去重后的请求数，CHECK 保证 `restored_count = jsonb_array_length(session_ids)`；迁移 `0019` |
+| 原子性 | 删除 `hidden_sessions` 与插入审计在同一事务；插入失败回滚恢复；没有真正恢复任何会话时不写行 |
+| 保留 | 独立配置 `ONCALL_SESSION_RESTORE_AUDIT_RETENTION_DAYS=365`，接入 `RetentionSweeper`、`prune` CLI 与后台日志；不复用事件/正文保留期 |
+| 范围 | 不做分页/导出、不做前端管理页、不做按 session 反查与防篡改；管理接口不可用返回 503 |
+
+验证：默认 **492 passed + 40 skipped**；真实 Postgres **529 passed + 3 skipped**；
+Postgres + Redis **532 passed**；`ruff check` / `ruff format --check`（192 files）/
+`mypy app`（112 files）通过；前端未改，沿用 **81 tests / 16 files**、`oxlint` 0/0
+（68 files）、`oxfmt --check` 76 files、`pnpm build` 通过。迁移 `0019`
+`upgrade → check → downgrade 0018 → upgrade` 往返通过。
+
+已知边界：审计按批次存 JSONB 数组，不能直接按单个 session 反查；只记录成功的
+恢复，不记录失败尝试；不是防篡改账本；无外键，用户/会话删除后审计仍保留；
+管理员跨用户恢复仍未做。详见 [ADR-0059](decisions/0059-session-restore-audit.md)。
+
+---
+
 ## 每周固定动作
 
 | 时点 | 动作 |

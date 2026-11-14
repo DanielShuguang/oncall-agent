@@ -311,6 +311,7 @@ async def test_sweep_cutoffs_follow_settings() -> None:
     assert result.events_before == now - timedelta(days=30)
     assert result.calls_before == now - timedelta(days=90)
     assert result.content_before == now - timedelta(days=60)
+    assert result.session_restores_before == now - timedelta(days=365)
 
 
 async def test_invalid_limit_is_rejected() -> None:
@@ -528,6 +529,28 @@ async def test_approval_snapshot_cleanup_is_idempotent_and_dry_run_safe() -> Non
     assert first.approval_snapshots == 1
     # state 已空，下一轮不再入选：不需要额外标记列
     assert second.approval_snapshots == 0
+
+
+async def test_prunes_session_restore_audits_by_own_retention() -> None:
+    """恢复审计按自己的保留期清理（ADR-0059），与事件/正文/计量互不影响。"""
+    store = InMemoryRunStore()
+    await _finished_run(store, session_id="sess_audit")
+    assert await store.hide_session(user_id="u_701", session_id="sess_audit") is True
+    assert await store.unhide_session(user_id="u_701", session_id="sess_audit") is True
+    assert len(await store.list_session_restore_audits()) == 1
+
+    sweeper = _sweeper(store)
+    now = datetime.now(UTC)
+    later = now + timedelta(days=366)
+    dry = await sweeper.sweep(now=later, dry_run=True)
+    assert dry.session_restores == 1
+    assert len(await store.list_session_restore_audits()) == 1
+
+    result = await sweeper.sweep(now=later)
+    assert result.session_restores == 1
+    assert await store.list_session_restore_audits() == []
+    again = await sweeper.sweep(now=later)
+    assert again.session_restores == 0
 
 
 async def test_prunes_expired_approval_grants_only() -> None:

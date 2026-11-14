@@ -16,6 +16,8 @@ runs ──< run_events
   ├──< session_titles（用户改的显示标题；主键 user_id+session_id，无外键）
   └──< hidden_sessions（用户从列表移除的会话；主键 user_id+session_id，不删 run）
 
+session_restore_audits（每次恢复操作一行；无外键，独立保留）
+
 user_budgets（按用户日预算覆盖；user_id 来自 JWT，无外键）
 kb_documents ──< kb_chunks (embedding)
 assets（模拟 CMDB）
@@ -142,6 +144,33 @@ CREATE TABLE hidden_sessions (
 > 这张表 + `runs`/`session_titles` 的投影：keyset 用 `(hidden_at, session_id)`，搜索只匹配标题与
 > 首条非空问题；没有新增列/索引/迁移，量级仍由单用户被移除会话数决定。
 > 如果对应 run 后来被保留清理删掉，这里会留下孤儿行，当前不清理（表小，等真实量再定）。
+
+### 2.1.3 session_restore_audits（会话恢复审计）
+
+```sql
+CREATE TABLE session_restore_audits (
+  id               UUID PRIMARY KEY,
+  user_id          TEXT NOT NULL,
+  session_ids      JSONB NOT NULL DEFAULT '[]'::jsonb,
+  requested_count  INTEGER NOT NULL,
+  restored_count   INTEGER NOT NULL,
+  restored_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT ck_session_restore_audits_restored_count_matches_session_ids
+    CHECK (restored_count = jsonb_array_length(session_ids))
+);
+CREATE INDEX idx_session_restore_audits_user_time
+  ON session_restore_audits (user_id, restored_at DESC);
+CREATE INDEX idx_session_restore_audits_time
+  ON session_restore_audits (restored_at);
+```
+
+> 按**一次恢复操作**一行，而不是按 session 一行（[ADR-0055](decisions/0055-hidden-restore-results.md)、
+> [ADR-0059](decisions/0059-session-restore-audit.md)，迁移 `0019`）：`session_ids`
+> 只存真正恢复的 id，`requested_count` 是去重后的请求数，二者之差是本次未恢复的
+> 数量。审计与删除 `hidden_sessions` 在同一事务内完成；没有真正恢复任何会话时
+> 不写行。无外键：run/事件可能先被保留策略清掉，审计按自己的保留期独立留存。
+> 两条索引分别服务「按用户查最近恢复」与「按时间清理」；不在 `session_ids` 上建
+> GIN 索引，当前只按批次查询。
 
 ### 2.2 run_events（事件，只追加）
 
@@ -473,6 +502,7 @@ CREATE TABLE user_budgets (
 | approvals.state（执行快照） | 180 天 | 复用 `ONCALL_RUN_CONTENT_RETENTION_DAYS`，按 `resolved_at` 清空为 `{}`；挂起的审批永不清理；决议证据（`args` / `reason` / `status` / `resolved_by` / `resolved_at`）保留（[ADR-0027](decisions/0027-approval-snapshot-retention.md)） |
 | approvals（决议行） | 不清理 | 审批决议是治理证据（批准了什么、谁批的、为什么），量小；冷归档见「待定」 |
 | approval_grants | 过期即删 | `expires_at < now` 的行由清理任务删除；过期授权本来就不再生效，删行不改变授权语义（[ADR-0027](decisions/0027-approval-snapshot-retention.md)） |
+| session_restore_audits | 365 天 | `ONCALL_SESSION_RESTORE_AUDIT_RETENTION_DAYS`；恢复审计独立于事件/正文保留期，按 `restored_at` 清理（[ADR-0059](decisions/0059-session-restore-audit.md)） |
 | kb_documents / kb_chunks | 不清理 | 知识库由管理员维护，删除是业务操作，不是保留策略 |
 | 评测报告（文件） | 永久 | 不入库，体量小，是能力证明（§2.8） |
 
@@ -507,7 +537,7 @@ uv run alembic upgrade head --sql    # 无库环境渲染 DDL，评审用
 
 - 迁移文件在 `server/migrations/versions/`；`alembic.ini` 只放占位 DSN，真实 DSN 由 `migrations/env.py` 从环境变量读
 - 必须写 `downgrade`，并在空库上验证一次 `downgrade base && upgrade head`
-- 当前迁移链：`0001` runs/events → `0002` 幂等键按用户作用域 → `0003` kb（pgvector/tsvector）+ assets/tickets → `0004` approvals → `0005` 会话授权按用户隔离 → `0006` model_calls + failure_category → `0007` tool_settings → `0008` 文档可见性 → `0009` 会话索引 → `0010` 事件清理标记/部分索引 → `0011` 回答引用快照 → `0012` 正文清理标记/部分索引 → `0013` 按用户日预算覆盖（`user_budgets`）→ `0014` 回答引用快照（`runs.citations`，ADR-0031）→ `0015` 工具配置变更历史（`tool_setting_changes`，ADR-0037）→ `0016` 会话显示标题（`session_titles`，ADR-0040）→ `0017` 从列表移除的会话（`hidden_sessions`，ADR-0041）→ `0018` 已办审批决议时间索引（`idx_approvals_resolved`，ADR-0053）
+- 当前迁移链：`0001` runs/events → `0002` 幂等键按用户作用域 → `0003` kb（pgvector/tsvector）+ assets/tickets → `0004` approvals → `0005` 会话授权按用户隔离 → `0006` model_calls + failure_category → `0007` tool_settings → `0008` 文档可见性 → `0009` 会话索引 → `0010` 事件清理标记/部分索引 → `0011` 回答引用快照 → `0012` 正文清理标记/部分索引 → `0013` 按用户日预算覆盖（`user_budgets`）→ `0014` 回答引用快照（`runs.citations`，ADR-0031）→ `0015` 工具配置变更历史（`tool_setting_changes`，ADR-0037）→ `0016` 会话显示标题（`session_titles`，ADR-0040）→ `0017` 从列表移除的会话（`hidden_sessions`，ADR-0041）→ `0018` 已办审批决议时间索引（`idx_approvals_resolved`，ADR-0053）→ `0019` 会话恢复审计（`session_restore_audits`，ADR-0059）
 
 > `0003` 先 `CREATE EXTENSION IF NOT EXISTS vector`，否则 vector 类型与 HNSW 索引会失败；
 > 测试库由 fixture 建扩展后再 `create_all`（扩展是库级对象，`drop_all` 不会删）。

@@ -55,3 +55,18 @@ class HiddenSessionRestoreResponse(BaseModel):
     restored: int
     requested: int
     items: list[HiddenSessionRestoreItem]
+
+
+class SessionRestoreAuditOut(BaseModel):
+    """一次恢复操作的审计（ADR-0059）。"""
+
+    id: str
+    user_id: str
+    session_ids: list[str]
+    requested_count: int
+    restored_count: int
+    restored_at: datetime
+
+
+class SessionRestoreAuditListResponse(BaseModel):
+    items: list[SessionRestoreAuditOut]

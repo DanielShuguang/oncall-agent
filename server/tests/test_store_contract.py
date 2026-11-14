@@ -674,6 +674,11 @@ async def _exercise_hidden_sessions(store: RunStore) -> None:
 
     # 恢复（ADR-0043）：删除移除记录，会话重新出现在列表；没有移除过返回 False
     assert await store.unhide_session(user_id=user, session_id="sess_drop") is True
+    audits = await store.list_session_restore_audits(user_id=user, limit=10)
+    assert len(audits) == 1
+    assert audits[0].session_ids == ("sess_drop",)
+    assert audits[0].requested_count == 1
+    assert audits[0].restored_count == 1
     assert {item.session_id for item in await store.list_sessions(user_id=user, limit=10)} == {
         "sess_drop",
         "sess_keep",
@@ -689,14 +694,32 @@ async def _exercise_hidden_sessions(store: RunStore) -> None:
         user_id=user,
         session_ids=["sess_drop2", "sess_missing", "sess_secret", "sess_drop2"],
     ) == {"sess_drop2"}
+    audits = await store.list_session_restore_audits(user_id=user, limit=10)
+    assert len(audits) == 2
+    batch_audit = audits[0]
+    assert batch_audit.session_ids == ("sess_drop2",)
+    # 去重后的请求数是 3：sess_drop2 / sess_missing / sess_secret
+    assert batch_audit.requested_count == 3
+    assert batch_audit.restored_count == 1
+    # 审计按用户隔离，管理员视角（user_id=None）能看到全部
+    assert await store.list_session_restore_audits(user_id=other) == []
+    assert len(await store.list_session_restore_audits(limit=10)) == 2
     assert [
         item.session_id for item in await store.list_hidden_sessions(user_id=user, limit=10)
     ] == ["sess_drop3"]
     assert await store.list_sessions(user_id=user, limit=10, query="vpn") != []
+    # 恢复时间不同时最新的在前；sleep 避免 Windows 毫秒分辨率造成同时间戳
+    await asyncio.sleep(0.01)
     assert await store.unhide_sessions(user_id=user, session_ids=["sess_drop3"]) == {"sess_drop3"}
+    audits = await store.list_session_restore_audits(user_id=user, limit=10)
+    assert audits[0].session_ids == ("sess_drop3",)
+    assert len(audits) == 3
     assert await store.list_hidden_sessions(user_id=user, limit=10) == []
+    # 没有真正恢复任何会话时不写审计
     assert await store.unhide_sessions(user_id=user, session_ids=["sess_drop3"]) == set()
+    assert len(await store.list_session_restore_audits(user_id=user, limit=10)) == 3
     assert await store.unhide_sessions(user_id=user, session_ids=[]) == set()
+    assert len(await store.list_session_restore_audits(user_id=user, limit=10)) == 3
 
 
 async def _exercise_events_for_runs(store: RunStore) -> None:

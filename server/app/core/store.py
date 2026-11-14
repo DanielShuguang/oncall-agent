@@ -25,6 +25,7 @@ from app.core.logging import get_logger
 from app.models.run import Run
 from app.models.run import RunEvent as RunEventRow
 from app.models.session_hidden import HiddenSession as HiddenSessionRow
+from app.models.session_restore_audit import SessionRestoreAudit as SessionRestoreAuditRow
 from app.models.session_title import SessionTitle as SessionTitleRow
 from app.schemas.event import EventType, RunEvent, RunStatus
 from app.schemas.failure import FailureCategory, categorize
@@ -92,6 +93,22 @@ class PrunedContents:
     """
 
     run_ids: list[str]
+
+
+@dataclass(frozen=True)
+class SessionRestoreAuditRecord:
+    """一次已移除会话恢复的审计快照（ADR-0059）。
+
+    `session_ids` 只含真正恢复的 id，按请求顺序；`requested_count` 是去重后的
+    请求数。没有恢复任何会话的操作不落审计行。
+    """
+
+    audit_id: str
+    user_id: str
+    session_ids: tuple[str, ...]
+    requested_count: int
+    restored_count: int
+    restored_at: datetime
 
 
 @dataclass(frozen=True)
@@ -522,6 +539,28 @@ class RunStore(Protocol):
         不存在、属于别人、或本来就没移除的 id 不会出现在结果里：批量操作是
         部分成功语义，不因一个 id 失效让整批失败。`session_ids` 由 API 去重并
         限制长度；返回集合用于逐条结果，不保证顺序。
+
+        有会话真正恢复时，同一事务内写一条 `session_restore_audits`（ADR-0059）：
+        审计与删除必须原子，不能恢复成功而审计丢失。
+        """
+        ...
+
+    async def list_session_restore_audits(
+        self, *, user_id: str | None = None, limit: int = 50
+    ) -> list[SessionRestoreAuditRecord]:
+        """按恢复时间倒序列出审计（ADR-0059）。
+
+        `user_id=None` 表示管理员看全部；表只追加，默认保留 365 天由
+        `RetentionSweeper` 清理。没有分页：管理页先看最近 N 条即可。
+        """
+        ...
+
+    async def prune_session_restore_audits(
+        self, *, restored_before: datetime, limit: int = 200, dry_run: bool = False
+    ) -> int:
+        """删除 `restored_at` 早于阈值的恢复审计（ADR-0059），返回条数。
+
+        dry-run 只数候选、不删除；审计行删除后不可恢复，但会话恢复本身已经完成。
         """
         ...
 
@@ -606,6 +645,8 @@ class InMemoryRunStore:
         #: 用户从列表移除的会话（ADR-0041）；run/事件仍保留
         #: 从列表移除的会话 → 移除时间（ADR-0041/0043）；行仍在 runs 里
         self._hidden_sessions: dict[tuple[str, str], datetime] = {}
+        #: 恢复审计，按发生顺序追加（ADR-0059）；列表时反向读出
+        self._session_restore_audits: list[SessionRestoreAuditRecord] = []
         self._lock = asyncio.Lock()
         self._started_at: datetime | None = None
 
@@ -965,16 +1006,63 @@ class InMemoryRunStore:
             return items[:limit]
 
     async def unhide_session(self, *, user_id: str, session_id: str) -> bool:
-        async with self._lock:
-            return self._hidden_sessions.pop((user_id, session_id), None) is not None
+        return bool(await self.unhide_sessions(user_id=user_id, session_ids=[session_id]))
 
     async def unhide_sessions(self, *, user_id: str, session_ids: Sequence[str]) -> set[str]:
+        unique_ids = list(dict.fromkeys(session_ids))
+        if not unique_ids:
+            return set()
         async with self._lock:
-            return {
+            restored = {
                 session_id
-                for session_id in session_ids
+                for session_id in unique_ids
                 if self._hidden_sessions.pop((user_id, session_id), None) is not None
             }
+            if restored:
+                # 按请求顺序记录真正恢复的 id，和 API 逐条结果口径一致
+                ordered = [session_id for session_id in unique_ids if session_id in restored]
+                self._session_restore_audits.append(
+                    SessionRestoreAuditRecord(
+                        audit_id=str(uuid.uuid4()),
+                        user_id=user_id,
+                        session_ids=tuple(ordered),
+                        requested_count=len(unique_ids),
+                        restored_count=len(ordered),
+                        restored_at=datetime.now(UTC),
+                    )
+                )
+            return restored
+
+    async def list_session_restore_audits(
+        self, *, user_id: str | None = None, limit: int = 50
+    ) -> list[SessionRestoreAuditRecord]:
+        async with self._lock:
+            records = [
+                record
+                for record in reversed(self._session_restore_audits)
+                if user_id is None or record.user_id == user_id
+            ]
+            return records[:limit]
+
+    async def prune_session_restore_audits(
+        self, *, restored_before: datetime, limit: int = 200, dry_run: bool = False
+    ) -> int:
+        async with self._lock:
+            candidates = sorted(
+                (
+                    record
+                    for record in self._session_restore_audits
+                    if record.restored_at < restored_before
+                ),
+                key=lambda record: record.restored_at,
+            )[:limit]
+            if dry_run or not candidates:
+                return len(candidates)
+            expired = {record.audit_id for record in candidates}
+            self._session_restore_audits = [
+                record for record in self._session_restore_audits if record.audit_id not in expired
+            ]
+            return len(candidates)
 
     async def list_runs_without_citations(self, *, limit: int = 100) -> list[RunRecord]:
         async with self._lock:
@@ -1648,33 +1736,78 @@ class PostgresRunStore:
         ]
 
     async def unhide_session(self, *, user_id: str, session_id: str) -> bool:
-        async with self._sessionmaker() as session:
-            deleted = await session.scalar(
-                delete(HiddenSessionRow)
-                .where(
-                    HiddenSessionRow.user_id == user_id,
-                    HiddenSessionRow.session_id == session_id,
-                )
-                .returning(HiddenSessionRow.session_id)
-            )
-            await session.commit()
-        return deleted is not None
+        return bool(await self.unhide_sessions(user_id=user_id, session_ids=[session_id]))
 
     async def unhide_sessions(self, *, user_id: str, session_ids: Sequence[str]) -> set[str]:
-        if not session_ids:
+        unique_ids = list(dict.fromkeys(session_ids))
+        if not unique_ids:
             return set()
-        async with self._sessionmaker() as session:
+        async with self._sessionmaker() as session, session.begin():
             result = await session.execute(
                 delete(HiddenSessionRow)
                 .where(
                     HiddenSessionRow.user_id == user_id,
-                    HiddenSessionRow.session_id.in_(session_ids),
+                    HiddenSessionRow.session_id.in_(unique_ids),
                 )
                 .returning(HiddenSessionRow.session_id)
             )
             restored = set(result.scalars().all())
-            await session.commit()
+            if not restored:
+                return set()
+            ordered = [session_id for session_id in unique_ids if session_id in restored]
+            # 删除与审计同一事务：不能恢复成功而审计丢失；插入失败会回滚删除
+            session.add(
+                SessionRestoreAuditRow(
+                    id=uuid.uuid4(),
+                    user_id=user_id,
+                    session_ids=ordered,
+                    requested_count=len(unique_ids),
+                    restored_count=len(ordered),
+                    restored_at=datetime.now(UTC),
+                )
+            )
         return restored
+
+    async def list_session_restore_audits(
+        self, *, user_id: str | None = None, limit: int = 50
+    ) -> list[SessionRestoreAuditRecord]:
+        stmt = select(SessionRestoreAuditRow)
+        if user_id is not None:
+            stmt = stmt.where(SessionRestoreAuditRow.user_id == user_id)
+        stmt = stmt.order_by(
+            SessionRestoreAuditRow.restored_at.desc(), SessionRestoreAuditRow.id.desc()
+        ).limit(limit)
+        async with self._sessionmaker() as session:
+            rows = (await session.scalars(stmt)).all()
+        return [
+            SessionRestoreAuditRecord(
+                audit_id=str(row.id),
+                user_id=row.user_id,
+                session_ids=tuple(row.session_ids),
+                requested_count=row.requested_count,
+                restored_count=row.restored_count,
+                restored_at=row.restored_at,
+            )
+            for row in rows
+        ]
+
+    async def prune_session_restore_audits(
+        self, *, restored_before: datetime, limit: int = 200, dry_run: bool = False
+    ) -> int:
+        stmt = (
+            select(SessionRestoreAuditRow.id)
+            .where(SessionRestoreAuditRow.restored_at < restored_before)
+            .order_by(SessionRestoreAuditRow.restored_at)
+            .limit(limit)
+        )
+        async with self._sessionmaker() as session, session.begin():
+            ids = (await session.scalars(stmt)).all()
+            if dry_run or not ids:
+                return len(ids)
+            await session.execute(
+                delete(SessionRestoreAuditRow).where(SessionRestoreAuditRow.id.in_(ids))
+            )
+        return len(ids)
 
     async def list_runs_without_citations(self, *, limit: int = 100) -> list[RunRecord]:
         stmt = (

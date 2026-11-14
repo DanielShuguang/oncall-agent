@@ -10,9 +10,10 @@ v1 不接 SSO（ADR-0010）：给用户签发短期 token 由运维离线完成�
 
 `reap` 回收进程中断后停在 `running` 的 run（ADR-0017）：只追加
 `run.failed(RUN_INTERRUPTED)` 收敛状态，不会自动重放写工具。
-`prune` 执行保留策略（ADR-0021 / ADR-0023 / ADR-0027）：整场删除过期 run 的事件、
-清空过期 run 的正文（`input/output`）与已决议审批的快照（`approvals.state`）、
-删除过期授权（`approval_grants`）、按时间删除过期的模型计量行；先 `--dry-run` 看候选。
+`prune` 执行保留策略（ADR-0021 / ADR-0023 / ADR-0027 / ADR-0059）：整场删除过期 run
+的事件、清空过期 run 的正文（`input/output`）与已决议审批的快照（`approvals.state`）、
+删除过期授权（`approval_grants`）与过期的会话恢复审计（`session_restore_audits`）、
+按时间删除过期的模型计量行；先 `--dry-run` 看候选。
 `backfill-citations` 从仍保留的事件里为旧 run 重建引用快照（ADR-0042），
 可重复执行；正文或事件已过保留期的 run 会跳过。
 """
@@ -58,7 +59,9 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="覆盖 ONCALL_STALE_RUN_MIN（分钟）；必须 >= 1",
     )
-    prune = sub.add_parser("prune", help="清理超过保留期的事件、正文、审批快照、过期授权与计量")
+    prune = sub.add_parser(
+        "prune", help="清理超过保留期的事件、正文、审批快照、过期授权、恢复审计与计量"
+    )
     prune.add_argument("--dry-run", action="store_true", help="只列候选，不删除")
     prune.add_argument(
         "--limit",
@@ -135,12 +138,14 @@ async def _prune(args: argparse.Namespace) -> int:
                 "events_before": result.events_before.isoformat(),
                 "calls_before": result.calls_before.isoformat(),
                 "content_before": result.content_before.isoformat(),
+                "session_restores_before": result.session_restores_before.isoformat(),
                 "runs": len(result.run_ids),
                 "events": result.events,
                 "calls": result.calls,
                 "content_runs": len(result.content_run_ids),
                 "approval_snapshots": result.approval_snapshots,
                 "approval_grants": result.approval_grants,
+                "session_restores": result.session_restores,
                 "batch": result.batch,
                 "capped": result.capped,
                 "dry_run": result.dry_run,

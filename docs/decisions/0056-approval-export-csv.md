@@ -66,7 +66,7 @@ ADR-0053 / ADR-0054），但所有记录只能在页面里看。审计、交接�
   skipped**；Postgres + Redis：**527 passed**。
 - 契约用例覆盖：CSV 表头与列顺序、逗号/引号/换行转义、公式注入前置单引号、
   `args` 不出现在响应、审批人/普通员工身份范围、工具筛选、`X-Export-*` 头、
-  UTF-8 BOM、5001 行截断、待办筛选 422。
+  UTF-8 BOM、超上限截断（测试把上限调成 2 条）、待办筛选 422。
 - `ruff check` / `ruff format --check`（188 files）/ `mypy app`（110 files）通过；
   前端 `tsc`、**80 tests / 16 files**、`oxlint` 0/0（68 files）、`oxfmt --check`
   76 files、`pnpm build` 通过。无迁移。

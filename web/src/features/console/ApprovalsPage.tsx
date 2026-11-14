@@ -65,8 +65,11 @@ function downloadBlob(blob: Blob, filename: string): void {
   const anchor = document.createElement('a');
   anchor.href = url;
   anchor.download = filename;
+  // Firefox/Safari 对游离节点或立即 revoke 的兼容性差：先挂到文档，再延迟回收。
+  document.body.append(anchor);
   anchor.click();
-  URL.revokeObjectURL(url);
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 interface ResolveState {
@@ -105,6 +108,8 @@ export default function ApprovalsPage() {
   const statsRequest = useRef(0);
   // 列表分页也有竞态：切状态/刷新后在途的「加载更多」不能把旧页追加回来。
   const listRequest = useRef(0);
+  // 导出同理：切状态/筛选后，旧请求不能再下载或覆盖新状态的提示。
+  const exportRequest = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -191,10 +196,13 @@ export default function ApprovalsPage() {
   };
 
   const exportCsv = async () => {
+    if (exporting) return;
+    const requestId = ++exportRequest.current;
     setExporting(true);
     setExportMessage(null);
     try {
       const result = await exportApprovalsCsv(status, filters);
+      if (exportRequest.current !== requestId) return;
       downloadBlob(result.blob, `approvals-${status}.csv`);
       setExportMessage({
         failed: false,
@@ -203,12 +211,13 @@ export default function ApprovalsPage() {
           : `已导出 ${result.count} 条审批。`,
       });
     } catch (exc) {
+      if (exportRequest.current !== requestId) return;
       setExportMessage({
         failed: true,
         text: exc instanceof Error ? exc.message : '导出失败',
       });
     } finally {
-      setExporting(false);
+      if (exportRequest.current === requestId) setExporting(false);
     }
   };
 
@@ -223,6 +232,8 @@ export default function ApprovalsPage() {
     setLoadingMore(false);
     setError(null);
     setNotice(null);
+    exportRequest.current += 1;
+    setExporting(false);
     setExportMessage(null);
     if (next === 'pending') {
       setFilters({});
@@ -241,6 +252,8 @@ export default function ApprovalsPage() {
     setLoadingMore(false);
     setError(null);
     setNotice(null);
+    exportRequest.current += 1;
+    setExporting(false);
     setExportMessage(null);
     setFilters(next);
   };

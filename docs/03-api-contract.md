@@ -43,7 +43,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | GET | `/runs/{run_id}/stream` | 重连增量流（可选，v1 用轮询替代） | — |
 | POST | `/approvals/{id}/resolve` | 审批通过/拒绝 | W3 D14 |
 | GET | `/approvals?status=pending&limit=50` | 待办/已办审批列表（keyset 游标分页；已办可加 `tool/resolved_by/resolved_from/resolved_to` 筛选） | W3 D14 / W5 D23 / W6 后补 |
-| GET | `/approvals/export?status=approved&tool=` | 按当前状态/筛选导出审批 CSV（最多 5000 条；响应头告知截断） | W6 后补 |
+| GET | `/approvals/export?status=approved&tool=create_ticket` | 按当前状态/筛选导出审批 CSV（最多 5000 条；响应头告知截断） | W6 后补 |
 | GET | `/approvals/stats?days=7&group_by=` | 审批积压、窗口内等待与按工具/审批人分组（仅审批人） | W6 后补 |
 | POST | `/admin/kb/documents` | 上传知识文档（multipart，≤10MB） | W2 D7 |
 | GET | `/admin/kb/documents` | 知识库文档列表 + chunk 总数 | W2 D7 |

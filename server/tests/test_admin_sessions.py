@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from unittest.mock import AsyncMock
 
@@ -36,6 +37,7 @@ async def test_list_session_restore_audits(
     client: AsyncClient, mem_store: InMemoryRunStore
 ) -> None:
     await _restore_once(mem_store, user_id="u_102", session_id="sess_a")
+    await asyncio.sleep(0.002)
     await _restore_once(mem_store, user_id="u_103", session_id="sess_b")
 
     res = await client.get("/api/admin/session-restores", headers=ADMIN)
@@ -58,6 +60,61 @@ async def test_list_session_restore_audits(
     limited = await client.get("/api/admin/session-restores", headers=ADMIN, params={"limit": 1})
     assert limited.status_code == 200
     assert len(limited.json()["items"]) == 1
+
+
+async def test_session_restore_audits_paginate(
+    client: AsyncClient, mem_store: InMemoryRunStore
+) -> None:
+    for index in range(3):
+        await _restore_once(mem_store, user_id="u_102", session_id=f"sess_page_{index}")
+        await asyncio.sleep(0.002)
+    await _restore_once(mem_store, user_id="u_200", session_id="sess_other_user")
+
+    first = await client.get("/api/admin/session-restores", headers=ADMIN, params={"limit": 2})
+    assert first.status_code == 200
+    first_body = first.json()
+    assert len(first_body["items"]) == 2
+    assert first_body["next_cursor"]
+
+    second = await client.get(
+        "/api/admin/session-restores",
+        headers=ADMIN,
+        params={"limit": 2, "cursor": first_body["next_cursor"]},
+    )
+    assert second.status_code == 200
+    second_body = second.json()
+    assert len(second_body["items"]) == 2
+    assert second_body["next_cursor"]
+
+    third = await client.get(
+        "/api/admin/session-restores",
+        headers=ADMIN,
+        params={"limit": 2, "cursor": second_body["next_cursor"]},
+    )
+    assert third.status_code == 200
+    third_body = third.json()
+    assert len(third_body["items"]) == 0
+    assert third_body["next_cursor"] is None
+
+    all_ids = [
+        item["id"] for item in first_body["items"] + second_body["items"] + third_body["items"]
+    ]
+    assert len(all_ids) == len(set(all_ids)) == 4
+
+    bad_cursor = await client.get(
+        "/api/admin/session-restores", headers=ADMIN, params={"cursor": "not-a-cursor"}
+    )
+    assert bad_cursor.status_code == 400
+    assert bad_cursor.json()["code"] == "INVALID_CURSOR"
+
+    # 游标绑定 user_id：全量游标不能复用到按用户过滤的请求
+    mismatch = await client.get(
+        "/api/admin/session-restores",
+        headers=ADMIN,
+        params={"user_id": "u_102", "cursor": first_body["next_cursor"]},
+    )
+    assert mismatch.status_code == 400
+    assert mismatch.json()["code"] == "INVALID_CURSOR"
 
 
 async def test_session_restore_audits_reject_bad_params(client: AsyncClient) -> None:

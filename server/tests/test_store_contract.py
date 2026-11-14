@@ -690,6 +690,8 @@ async def _exercise_hidden_sessions(store: RunStore) -> None:
     assert await store.unhide_session(user_id=user, session_id="sess_secret") is False
 
     # 批量恢复（ADR-0049/0055）：一次删多行；不存在/别人的/重复的 id 忽略
+    # 留出时间差，避免同时间戳下审计按 id 排序而与操作顺序不一致
+    await asyncio.sleep(0.002)
     assert await store.unhide_sessions(
         user_id=user,
         session_ids=["sess_drop2", "sess_missing", "sess_secret", "sess_drop2"],
@@ -718,6 +720,17 @@ async def _exercise_hidden_sessions(store: RunStore) -> None:
     # 没有真正恢复任何会话时不写审计
     assert await store.unhide_sessions(user_id=user, session_ids=["sess_drop3"]) == set()
     assert len(await store.list_session_restore_audits(user_id=user, limit=10)) == 3
+
+    # 游标分页（ADR-0060）：按 (restored_at, id) 倒序，下一页严格更早
+    page1 = await store.list_session_restore_audits(user_id=user, limit=2)
+    assert len(page1) == 2
+    page2 = await store.list_session_restore_audits(
+        user_id=user,
+        before=(page1[-1].restored_at, page1[-1].audit_id),
+        limit=2,
+    )
+    assert len(page2) == 1
+    assert {record.audit_id for record in page1}.isdisjoint(record.audit_id for record in page2)
     assert await store.unhide_sessions(user_id=user, session_ids=[]) == set()
     assert len(await store.list_session_restore_audits(user_id=user, limit=10)) == 3
 

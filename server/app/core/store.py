@@ -546,12 +546,17 @@ class RunStore(Protocol):
         ...
 
     async def list_session_restore_audits(
-        self, *, user_id: str | None = None, limit: int = 50
+        self,
+        *,
+        user_id: str | None = None,
+        before: tuple[datetime, str] | None = None,
+        limit: int = 50,
     ) -> list[SessionRestoreAuditRecord]:
-        """按恢复时间倒序列出审计（ADR-0059）。
+        """按 `(restored_at, id)` 倒序列出审计（ADR-0059/0060）。
 
-        `user_id=None` 表示管理员看全部；表只追加，默认保留 365 天由
-        `RetentionSweeper` 清理。没有分页：管理页先看最近 N 条即可。
+        `user_id=None` 表示管理员看全部；`before=(restored_at, audit_id)` 是
+        keyset 游标，只返回严格更早的记录。表只追加，默认保留 365 天由
+        `RetentionSweeper` 清理。
         """
         ...
 
@@ -1034,14 +1039,23 @@ class InMemoryRunStore:
             return restored
 
     async def list_session_restore_audits(
-        self, *, user_id: str | None = None, limit: int = 50
+        self,
+        *,
+        user_id: str | None = None,
+        before: tuple[datetime, str] | None = None,
+        limit: int = 50,
     ) -> list[SessionRestoreAuditRecord]:
         async with self._lock:
             records = [
                 record
-                for record in reversed(self._session_restore_audits)
+                for record in self._session_restore_audits
                 if user_id is None or record.user_id == user_id
             ]
+            records.sort(key=lambda record: (record.restored_at, record.audit_id), reverse=True)
+            if before is not None:
+                records = [
+                    record for record in records if (record.restored_at, record.audit_id) < before
+                ]
             return records[:limit]
 
     async def prune_session_restore_audits(
@@ -1769,11 +1783,26 @@ class PostgresRunStore:
         return restored
 
     async def list_session_restore_audits(
-        self, *, user_id: str | None = None, limit: int = 50
+        self,
+        *,
+        user_id: str | None = None,
+        before: tuple[datetime, str] | None = None,
+        limit: int = 50,
     ) -> list[SessionRestoreAuditRecord]:
         stmt = select(SessionRestoreAuditRow)
         if user_id is not None:
             stmt = stmt.where(SessionRestoreAuditRow.user_id == user_id)
+        if before is not None:
+            before_at, before_id = before
+            stmt = stmt.where(
+                or_(
+                    SessionRestoreAuditRow.restored_at < before_at,
+                    and_(
+                        SessionRestoreAuditRow.restored_at == before_at,
+                        SessionRestoreAuditRow.id < uuid.UUID(before_id),
+                    ),
+                )
+            )
         stmt = stmt.order_by(
             SessionRestoreAuditRow.restored_at.desc(), SessionRestoreAuditRow.id.desc()
         ).limit(limit)

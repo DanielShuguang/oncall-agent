@@ -1402,7 +1402,7 @@ UTC；与 `daily` 是同一窗口的两个切面，不额外校验两者之和�
 | 表 | `session_restore_audits`：一次恢复一行，`session_ids` 只存真正恢复的 id，`requested_count` 为去重后的请求数，CHECK 保证 `restored_count = jsonb_array_length(session_ids)`；迁移 `0019` |
 | 原子性 | 删除 `hidden_sessions` 与插入审计在同一事务；插入失败回滚恢复；没有真正恢复任何会话时不写行 |
 | 保留 | 独立配置 `ONCALL_SESSION_RESTORE_AUDIT_RETENTION_DAYS=365`，接入 `RetentionSweeper`、`prune` CLI 与后台日志；不复用事件/正文保留期 |
-| 范围 | 不做分页/导出、不做前端管理页、不做按 session 反查与防篡改；管理接口不可用返回 503 |
+| 范围 | 不做导出、不做前端管理页、不做按 session 反查与防篡改；分页已由 ADR-0060 补上；管理接口不可用返回 503 |
 
 验证：默认 **492 passed + 40 skipped**；真实 Postgres **529 passed + 3 skipped**；
 Postgres + Redis **532 passed**；`ruff check` / `ruff format --check`（192 files）/
@@ -1413,6 +1413,32 @@ Postgres + Redis **532 passed**；`ruff check` / `ruff format --check`（192 fil
 已知边界：审计按批次存 JSONB 数组，不能直接按单个 session 反查；只记录成功的
 恢复，不记录失败尝试；不是防篡改账本；无外键，用户/会话删除后审计仍保留；
 管理员跨用户恢复仍未做。详见 [ADR-0059](decisions/0059-session-restore-audit.md)。
+
+---
+
+## W6 后补：会话恢复审计列表游标分页（ADR-0060）
+
+恢复审计只给最近 50 条时，365 天保留期内的更早批次在管理接口不可达；把 `limit`
+调到 200 仍有界，也不能继续向后翻。审计按 `(restored_at, id)` 倒序，适合沿用
+审批列表的 keyset 游标：不用 offset，翻页期间新插入不会让整页重复。
+
+| 事项 | 落地 |
+|---|---|
+| 接口 | `GET /admin/session-restores` 增加可选 `cursor`（≤512）；响应增加 `next_cursor` |
+| 排序 | `(restored_at, id)` 倒序；游标表示「严格早于这个元组」；`id` 只做同时间戳 tiebreaker |
+| 游标 | base64url JSON `{t, i, u}`：时间、审计 UUID、本次 `user_id` 过滤；切换过滤条件复用旧游标 400 `INVALID_CURSOR` |
+| 返回 | 取满 `limit` 才给 `next_cursor`；最后一页 `null`；非法游标 400，不降级为空列表 |
+| 存储 | 不加迁移/索引，复用 `idx_session_restore_audits_user_time` 与 `idx_session_restore_audits_time`；内存/PG 同一排序 |
+| 范围 | 不做导出/总数/跳页/前端管理页；仍为管理员只读，`limit` 1–200 默认 50 |
+
+验证：默认 **493 passed + 40 skipped**；真实 Postgres **530 passed + 3 skipped**；
+Postgres + Redis **533 passed**；`ruff check` / `ruff format --check`（192 files）/
+`mypy app`（112 files）通过；前端未改，沿用 **81 tests / 16 files**、`oxlint` 0/0
+（68 files）、`oxfmt --check` 76 files、`pnpm build`。无迁移。
+
+已知边界：游标不是签名令牌，客户端可伪造时间/UUID 跳记录，但只能读管理员本就
+可见的数据；没有总数；翻页期间的新恢复不会出现在旧游标后续页；切换
+`user_id` 必须从第一页重新拉取。详见 [ADR-0060](decisions/0060-session-restore-audit-pagination.md)。
 
 ---
 

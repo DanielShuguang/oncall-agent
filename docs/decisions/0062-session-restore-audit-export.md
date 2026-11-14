@@ -51,9 +51,9 @@
   （194 files）/ `mypy app`（113 files）通过。
 - 前端未改，沿用 **81 tests / 16 files**、`oxlint` 0/0（68 files）、
   `oxfmt --check` 76 files、`pnpm build`。
-- 新增 `test_export_session_restores_csv`（表头/过滤/JSON 数组/响应头/BOM）
-  与 `test_export_session_restores_truncates`（超上限截断）；原有审批导出
-  测试继续覆盖共享 CSV helper 的转义与公式注入。
+- 新增 `test_export_session_restores_csv`（管理员权限、空结果、表头/过滤/JSON 数组/
+  响应头/BOM/CRLF/公式注入）与 `test_export_session_restores_truncates`（超上限截断）；
+  原有审批导出测试继续覆盖共享 CSV helper 的转义与公式注入。
 - 无迁移；`session_restore_audits` 的写入/保留路径未改。
 
 ## 待定

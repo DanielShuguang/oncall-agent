@@ -47,7 +47,8 @@
    的恢复」。
 5. 新增只读管理接口 `GET /admin/session-restores`，要求 `ONCALL_ADMIN_ROLES`；
    `user_id` 可选过滤，`limit` 1–200 默认 50，按 `restored_at DESC, id DESC`
-   返回。不做分页、导出与前端管理页：审计表按 365 天保留，管理页先看最近记录。
+   返回。不做分页、导出与前端管理页：审计表按 365 天保留，管理页先看最近记录
+   （分页与 CSV 导出后续由 ADR-0060/0062 补上）。
 6. 保留期独立配置 `ONCALL_SESSION_RESTORE_AUDIT_RETENTION_DAYS`（默认 365 天），
    接入现有 `RetentionSweeper`、`prune` CLI 与后台日志；不复用事件/正文保留期。
    审计是治理凭据，不应随会话正文一起被清掉。

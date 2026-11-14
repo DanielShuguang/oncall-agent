@@ -37,6 +37,10 @@ async def test_session_restore_audits_require_admin(client: AsyncClient) -> None
     assert res.status_code == 403
     assert res.json()["code"] == "FORBIDDEN"
 
+    export = await client.get("/api/admin/session-restores/export")
+    assert export.status_code == 403
+    assert export.json()["code"] == "FORBIDDEN"
+
 
 async def test_list_session_restore_audits(
     client: AsyncClient, mem_store: InMemoryRunStore
@@ -276,6 +280,7 @@ async def test_export_session_restores_csv(
     assert res.headers["x-export-count"] == "3"
     assert res.headers["x-export-truncated"] == "false"
     assert res.text.startswith("\ufeff")
+    assert "\r\n" in res.text
 
     rows = list(csv.reader(io.StringIO(res.text.lstrip("\ufeff"))))
     assert rows[0] == [
@@ -306,6 +311,24 @@ async def test_export_session_restores_csv(
     filtered_rows = list(csv.reader(io.StringIO(filtered_session.text.lstrip("\ufeff"))))
     assert len(filtered_rows) == 2
     assert json.loads(filtered_rows[1][5]) == ["sess_b"]
+
+    empty = await client.get(
+        "/api/admin/session-restores/export", headers=ADMIN, params={"user_id": "u_missing"}
+    )
+    assert empty.status_code == 200
+    assert empty.headers["x-export-count"] == "0"
+    assert empty.headers["x-export-truncated"] == "false"
+    empty_rows = list(csv.reader(io.StringIO(empty.text.lstrip("\ufeff"))))
+    assert empty_rows == [rows[0]]
+
+    await _restore_once(mem_store, user_id="=cmd", session_id="sess_formula")
+    formula = await client.get(
+        "/api/admin/session-restores/export", headers=ADMIN, params={"user_id": "=cmd"}
+    )
+    assert formula.status_code == 200
+    assert formula.headers["x-export-count"] == "1"
+    formula_rows = list(csv.reader(io.StringIO(formula.text.lstrip("\ufeff"))))
+    assert formula_rows[1][1] == "'=cmd"
 
 
 async def test_export_session_restores_truncates(

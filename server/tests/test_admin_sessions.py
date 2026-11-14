@@ -1,4 +1,4 @@
-"""会话恢复审计的管理端读取与 CSV 导出（ADR-0059/0060/0061/0062）。"""
+"""会话恢复审计的管理端读取与 CSV 导出（ADR-0059/0060/0061/0062/0067）。"""
 
 from __future__ import annotations
 
@@ -399,6 +399,133 @@ async def test_session_restore_audits_reject_bad_params(client: AsyncClient) -> 
             params={"session_id": "x" * 65},
         )
     ).status_code == 422
+
+
+async def test_session_restore_audits_filter_by_date_range(
+    client: AsyncClient, mem_store: InMemoryRunStore
+) -> None:
+    await _restore_once(mem_store, user_id="u_102", session_id="sess_a")
+    await asyncio.sleep(0.002)
+    await _restore_once(mem_store, user_id="u_103", session_id="sess_b")
+    old_at = datetime.now(UTC) - timedelta(days=2)
+    mem_store._session_restore_audits.append(
+        SessionRestoreAuditRecord(
+            audit_id=str(uuid.uuid4()),
+            user_id="u_104",
+            session_ids=("sess_old",),
+            requested_count=1,
+            restored_count=1,
+            restored_at=old_at,
+        )
+    )
+    today = datetime.now(UTC).date().isoformat()
+    old_day = old_at.date().isoformat()
+
+    first = await client.get(
+        "/api/admin/session-restores",
+        headers=ADMIN,
+        params={"restored_from": today, "restored_to": today, "limit": 1},
+    )
+    assert first.status_code == 200
+    first_body = first.json()
+    assert first_body["total"] == 2
+    assert len(first_body["items"]) == 1
+    assert first_body["next_cursor"]
+
+    second = await client.get(
+        "/api/admin/session-restores",
+        headers=ADMIN,
+        params={
+            "restored_from": today,
+            "restored_to": today,
+            "limit": 1,
+            "cursor": first_body["next_cursor"],
+        },
+    )
+    assert second.status_code == 200
+    second_body = second.json()
+    assert second_body["total"] is None
+    assert len(second_body["items"]) == 1
+    assert second_body["next_cursor"]
+
+    third = await client.get(
+        "/api/admin/session-restores",
+        headers=ADMIN,
+        params={
+            "restored_from": today,
+            "restored_to": today,
+            "limit": 1,
+            "cursor": second_body["next_cursor"],
+        },
+    )
+    assert third.status_code == 200
+    assert third.json()["items"] == []
+    assert third.json()["next_cursor"] is None
+
+    # 游标绑定日期范围：换范围复用旧游标必须 400
+    mismatch = await client.get(
+        "/api/admin/session-restores",
+        headers=ADMIN,
+        params={
+            "restored_from": old_day,
+            "restored_to": old_day,
+            "cursor": first_body["next_cursor"],
+        },
+    )
+    assert mismatch.status_code == 400
+    assert mismatch.json()["code"] == "INVALID_CURSOR"
+
+    old_range = await client.get(
+        "/api/admin/session-restores",
+        headers=ADMIN,
+        params={"restored_from": old_day, "restored_to": old_day},
+    )
+    assert old_range.status_code == 200
+    assert [item["user_id"] for item in old_range.json()["items"]] == ["u_104"]
+    assert old_range.json()["total"] == 1
+
+    export = await client.get(
+        "/api/admin/session-restores/export",
+        headers=ADMIN,
+        params={"restored_from": today, "restored_to": today},
+    )
+    assert export.status_code == 200
+    assert export.headers["X-Export-Count"] == "2"
+
+    stats = await client.get(
+        "/api/admin/session-restores/stats",
+        headers=ADMIN,
+        params={"restored_from": today, "restored_to": today},
+    )
+    assert stats.status_code == 200
+    stats_body = stats.json()
+    assert stats_body["days"] == 1
+    assert stats_body["restores"] == 2
+    assert len(stats_body["daily"]) == 1
+
+    for params in (
+        {"restored_from": today},
+        {"restored_to": today},
+        {"restored_from": today, "restored_to": old_day},
+    ):
+        res = await client.get("/api/admin/session-restores", headers=ADMIN, params=params)
+        assert res.status_code == 422
+        assert res.json()["code"] == "INVALID_RANGE"
+    res = await client.get(
+        "/api/admin/session-restores/stats",
+        headers=ADMIN,
+        params={"days": 30, "restored_from": today, "restored_to": today},
+    )
+    assert res.status_code == 422
+    assert res.json()["code"] == "INVALID_RANGE"
+    too_long_from = (datetime.now(UTC).date() - timedelta(days=400)).isoformat()
+    res = await client.get(
+        "/api/admin/session-restores/stats",
+        headers=ADMIN,
+        params={"restored_from": too_long_from, "restored_to": today},
+    )
+    assert res.status_code == 422
+    assert res.json()["code"] == "INVALID_RANGE"
 
 
 async def test_session_restore_audit_stats(

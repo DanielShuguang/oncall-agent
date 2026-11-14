@@ -762,6 +762,26 @@ async def _exercise_hidden_sessions(store: RunStore) -> None:
     assert stats.sessions == 3
     assert sum(day.restores for day in stats.daily) == 3
     assert sum(day.sessions for day in stats.daily) == 3
+    windowed = await store.list_session_restore_audits(
+        restored_from=datetime(2020, 1, 1, tzinfo=UTC),
+        restored_to=datetime(2100, 1, 1, tzinfo=UTC),
+        limit=10,
+    )
+    assert len(windowed) == 3
+    assert (
+        await store.count_session_restore_audits(
+            restored_from=datetime(2020, 1, 1, tzinfo=UTC),
+            restored_to=datetime(2100, 1, 1, tzinfo=UTC),
+        )
+        == 3
+    )
+    assert (
+        await store.list_session_restore_audits(
+            restored_from=datetime(2100, 1, 1, tzinfo=UTC),
+            restored_to=datetime(2100, 1, 2, tzinfo=UTC),
+        )
+        == []
+    )
     filtered = await store.session_restore_audit_stats(
         since=datetime(2020, 1, 1, tzinfo=UTC),
         until=datetime(2100, 1, 1, tzinfo=UTC),

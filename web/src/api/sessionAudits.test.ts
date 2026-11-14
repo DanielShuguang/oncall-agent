@@ -19,11 +19,18 @@ describe('listSessionRestoreAudits', () => {
 
     await listSessionRestoreAudits({ userId: 'u_102', sessionId: 'sess a' }, 'cur-1', 20);
     await listSessionRestoreAudits();
+    await listSessionRestoreAudits({
+      restoredFrom: '2026-11-01',
+      restoredTo: '2026-11-02',
+    });
 
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
       '/api/admin/session-restores?limit=20&cursor=cur-1&user_id=u_102&session_id=sess+a',
     );
     expect(fetchMock.mock.calls[1]?.[0]).toBe('/api/admin/session-restores?limit=20');
+    expect(fetchMock.mock.calls[2]?.[0]).toBe(
+      '/api/admin/session-restores?limit=20&restored_from=2026-11-01&restored_to=2026-11-02',
+    );
   });
 });
 
@@ -56,6 +63,14 @@ describe('getSessionRestoreAuditStats', () => {
     expect(fetchMock.mock.calls[1]?.[0]).toBe(
       '/api/admin/session-restores/stats?days=30&user_id=u_102&session_id=sess_a',
     );
+
+    await getSessionRestoreAuditStats(null, {
+      restoredFrom: '2026-11-01',
+      restoredTo: '2026-11-02',
+    });
+    expect(fetchMock.mock.calls[2]?.[0]).toBe(
+      '/api/admin/session-restores/stats?restored_from=2026-11-01&restored_to=2026-11-02',
+    );
   });
 });
 
@@ -74,10 +89,14 @@ describe('exportSessionRestoreAuditsCsv', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    const result = await exportSessionRestoreAuditsCsv({ sessionId: 'sess_a' });
+    const result = await exportSessionRestoreAuditsCsv({
+      sessionId: 'sess_a',
+      restoredFrom: '2026-11-01',
+      restoredTo: '2026-11-02',
+    });
 
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
-      '/api/admin/session-restores/export?session_id=sess_a',
+      '/api/admin/session-restores/export?session_id=sess_a&restored_from=2026-11-01&restored_to=2026-11-02',
     );
     expect(result.count).toBe(4);
     expect(result.truncated).toBe(true);

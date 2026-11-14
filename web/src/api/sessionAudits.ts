@@ -1,4 +1,4 @@
-/** 会话恢复审计接口：契约见 docs/03 §5（ADR-0059/0060/0061/0062）。 */
+/** 会话恢复审计接口：契约见 docs/03 §5（ADR-0059/0060/0061/0062/0065/0067）。 */
 
 import { getFile, getJson } from './client';
 
@@ -22,6 +22,10 @@ export interface SessionRestoreAuditListResponse {
 export interface SessionRestoreAuditFilters {
   userId?: string;
   sessionId?: string;
+  /** UTC 自然日闭区间起始（ADR-0067）；必须与 restoredTo 同时提供。 */
+  restoredFrom?: string;
+  /** UTC 自然日闭区间结束（ADR-0067）。 */
+  restoredTo?: string;
 }
 
 export interface SessionRestoreAuditExport {
@@ -51,6 +55,8 @@ export interface SessionRestoreAuditStats {
 function applyFilters(params: URLSearchParams, filters: SessionRestoreAuditFilters): void {
   if (filters.userId) params.set('user_id', filters.userId);
   if (filters.sessionId) params.set('session_id', filters.sessionId);
+  if (filters.restoredFrom) params.set('restored_from', filters.restoredFrom);
+  if (filters.restoredTo) params.set('restored_to', filters.restoredTo);
 }
 
 export function listSessionRestoreAudits(
@@ -81,10 +87,13 @@ export async function exportSessionRestoreAuditsCsv(
 }
 
 export function getSessionRestoreAuditStats(
-  days: number,
+  days: number | null,
   filters: SessionRestoreAuditFilters = {},
 ): Promise<SessionRestoreAuditStats> {
-  const params = new URLSearchParams({ days: String(days) });
+  const params = new URLSearchParams();
+  // 自定义日期范围本身决定窗口；服务端拒绝 days 与范围同时出现（ADR-0067）。
+  const hasRange = Boolean(filters.restoredFrom && filters.restoredTo);
+  if (!hasRange) params.set('days', String(days ?? 30));
   applyFilters(params, filters);
   return getJson<SessionRestoreAuditStats>(`/admin/session-restores/stats?${params.toString()}`);
 }

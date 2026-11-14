@@ -37,9 +37,9 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | GET | `/sessions/hidden` | 本人从列表移除的会话（游标分页 + 标题搜索，ADR-0043/0047） | W6 后补 |
 | DELETE | `/sessions/{session_id}/hidden` | 恢复已移除的会话（只删 `hidden_sessions` 行，204） | W6 后补 |
 | POST | `/sessions/hidden/restore` | 批量恢复已移除会话（最多 50，部分成功，返回逐条结果） | W6 后补 |
-| GET | `/admin/session-restores` | 会话恢复审计（按用户/会话过滤，最近在前，游标分页；第一页附总数） | W6 后补 |
-| GET | `/admin/session-restores/stats` | 会话恢复审计统计（窗口内恢复次数/用户数/会话数/UTC 日趋势，可按用户/会话过滤） | W6 后补 |
-| GET | `/admin/session-restores/export` | 会话恢复审计 CSV 导出（按用户/会话过滤，最多 5000 条） | W6 后补 |
+| GET | `/admin/session-restores` | 会话恢复审计（按用户/会话/日期范围过滤，最近在前，游标分页；第一页附总数） | W6 后补 |
+| GET | `/admin/session-restores/stats` | 会话恢复审计统计（窗口内恢复次数/用户数/会话数/UTC 日趋势，可按用户/会话/日期范围过滤） | W6 后补 |
+| GET | `/admin/session-restores/export` | 会话恢复审计 CSV 导出（按用户/会话/日期范围过滤，最多 5000 条） | W6 后补 |
 | GET | `/sessions/{session_id}/runs` | 一页会话详情（正文/引用/运行过程，一次返回） | W6 后补 |
 | GET | `/runs/{run_id}` | 单次运行详情（含指标与模型调用明细） | W1 D4 / W4 D19 |
 | GET | `/runs/{run_id}/events?after_seq=` | 补拉事件（断线续传，兼容 `Last-Event-ID`） | W1 D4 |
@@ -759,10 +759,10 @@ POST /api/approvals/{approval_id}/resolve
 > 引用全文只要求登录，且受文档级可见性约束（[ADR-0018](decisions/0018-citation-fulltext-preview.md)、
 > [ADR-0019](decisions/0019-document-level-access.md)）。
 
-### 会话恢复审计（ADR-0059/0060/0061/0062/0064/0065）
+### 会话恢复审计（ADR-0059/0060/0061/0062/0064/0065/0067）
 
 ```http
-GET /api/admin/session-restores?user_id=u_102&session_id=sess_a&limit=20
+GET /api/admin/session-restores?user_id=u_102&session_id=sess_a&restored_from=2026-11-01&restored_to=2026-11-14&limit=20
 Authorization: Bearer <admin token>
 ```
 
@@ -786,15 +786,20 @@ Authorization: Bearer <admin token>
 - 管理接口，要求 `ONCALL_ADMIN_ROLES`；`user_id` 可选，`limit` 1–200 默认 50；
   `session_id`（1–64）可选，命中 `session_ids` 数组中的任一元素即可（ADR-0061）；
   按 `restored_at DESC, id DESC` 返回，支持 `cursor` keyset 分页（ADR-0060）
-- 游标是 base64url JSON `{t, i, u}`；带 `session_id` 过滤时增加 `s`。`t` 为上一页
-  最后一条的 `restored_at`，`i` 为其 UUID，`u` 为本次 `user_id`，`s` 为本次
-  `session_id`（无过滤时省略，保持 ADR-0060 的形状）。切换 `user_id` 或
-  `session_id` 后复用旧游标返回 400。取满 `limit` 才给 `next_cursor`；未取满时
-  为 `null`；恰好取满时仍给游标，下一页为空。非法游标 400 `INVALID_CURSOR`。
-  ADR-0060 的旧游标没有 `s`，只继续支持「没有 `session_id` 过滤」的请求
-- 第一页（无 `cursor`）附带 `total`：与列表同一 `user_id`/`session_id` 过滤下的
-  总数（ADR-0064）；后续页为 `null`。计数与列表是两次查询，不是同一快照；
-  计数失败也返回 503，不用 0 冒充。旧后端没有 `total` 时前端退回「已加载 N 条」
+- `restored_from`/`restored_to`（`YYYY-MM-DD`）可选，按 `restored_at` 的 UTC 自然日
+  闭区间过滤（ADR-0067）。两端必须同时提供，`from <= to`，跨度最多 365 天，否则
+  422 `INVALID_RANGE`；`since=from 00:00:00Z`、`until=to 23:59:59.999999Z`
+- 游标是 base64url JSON `{t, i, u}`；带 `session_id` 过滤时增加 `s`，带日期范围
+  时增加 `d`（`from:to`）。`t` 为上一页最后一条的 `restored_at`，`i` 为其 UUID，
+  `u` 为本次 `user_id`，`s` 为本次 `session_id`（无过滤时省略，保持 ADR-0060 的
+  形状），`d` 为本次日期范围（无范围时省略）。切换 `user_id`、`session_id` 或日期
+  范围后复用旧游标返回 400。取满 `limit` 才给 `next_cursor`；未取满时为 `null`；
+  恰好取满时仍给游标，下一页为空。非法游标 400 `INVALID_CURSOR`。
+  ADR-0060 的旧游标没有 `s`/`d`，只继续支持「没有对应过滤」的请求
+- 第一页（无 `cursor`）附带 `total`：与列表同一 `user_id`/`session_id`/日期范围
+  过滤下的总数（ADR-0064/0067）；后续页为 `null`。计数与列表是两次查询，不是
+  同一快照；计数失败也返回 503，不用 0 冒充。旧后端没有 `total` 时前端退回
+  「已加载 N 条」
 - 一次恢复操作一行（单条 `DELETE /sessions/{id}/hidden` 或批量恢复各写一行）；
   `session_ids` 只含真正恢复的 id，`requested_count` 是去重后的请求数，
   `requested_count - restored_count` 是本次未恢复的数量。没有真正恢复任何会话
@@ -804,7 +809,7 @@ Authorization: Bearer <admin token>
   正文保留期清理；库不可用返回 `503 {"code":"DATABASE_UNAVAILABLE"}`，不返回空列表
 - `next_cursor` 只表示还有下一页；总数看第一页 `total`，不提供页码/跳页
 
-统计（ADR-0065/0066）：
+统计（ADR-0065/0066/0067）：
 
 ```http
 GET /api/admin/session-restores/stats?days=30&user_id=u_102
@@ -827,10 +832,14 @@ Authorization: Bearer <admin token>
 ```
 
 - 管理接口，要求 `ONCALL_ADMIN_ROLES`；`days` 1–365，默认 30，越界 422
+- 也可用 `restored_from`/`restored_to`（UTC 自然日闭区间，ADR-0067）指定窗口；
+  与 `days` 二选一，同时传 422 `INVALID_RANGE`。日期范围校验与列表相同（两端
+  同时提供、`from <= to`、最多 365 天），返回的 `days` 为闭区间天数
 - 可选 `user_id`/`session_id`（1–64），与列表同一过滤；不带时为全局统计，
   带过滤时汇总与 `daily` 都只统计匹配的审计行，`users` 是过滤后的去重操作者数
-- 窗口为 `[until - days, until]`，`until` 取服务端当前 UTC 时间；`since`/`until`
-  原样返回，客户端不需要猜边界
+- 滚动窗口为 `[until - days, until]`，`until` 取服务端当前 UTC 时间；日期范围
+  为 `[from 00:00:00Z, to 23:59:59.999999Z]`。`since`/`until` 原样返回，客户端
+  不需要猜边界
 - `restores` 是窗口内恢复**操作次数**（审计行数）；`sessions` 是真正恢复的
   会话数之和（`restored_count`）；`users` 是去重后的操作者数。一次批量恢复多个
   会话算一次操作、多个会话。按 `session_id` 过滤时匹配的是包含该会话的整行审计，
@@ -845,15 +854,15 @@ Authorization: Bearer <admin token>
 - 旧后端没有该接口时前端显示统计错误卡，不影响列表/导出；不做统计缓存、
   页码或统计 CSV
 
-导出（ADR-0062）：
+导出（ADR-0062/0067）：
 
 ```http
-GET /api/admin/session-restores/export?user_id=u_102&session_id=sess_a
+GET /api/admin/session-restores/export?user_id=u_102&session_id=sess_a&restored_from=2026-11-01&restored_to=2026-11-14
 Authorization: Bearer <admin token>
 ```
 
-- 与列表相同的 `user_id`/`session_id` 过滤，不接收 `cursor`/`limit`；按
-  `(restored_at, id)` 倒序导出，最多 5000 条
+- 与列表相同的 `user_id`/`session_id`/`restored_from`/`restored_to` 过滤，不接收
+  `cursor`/`limit`；按 `(restored_at, id)` 倒序导出，最多 5000 条
 - CSV 列为 `audit_id, user_id, restored_at, requested_count, restored_count,
   session_ids`；`session_ids` 是 JSON 数组；不导出会话正文/消息等敏感内容
 - `Content-Type: text/csv`；UTF-8 BOM + CRLF；时间为 ISO 8601 UTC；以

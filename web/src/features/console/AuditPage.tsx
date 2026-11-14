@@ -1,4 +1,4 @@
-/** 会话恢复审计（W6 后补）：管理端只读列表、过滤、翻页、首屏总数、统计与 CSV 导出（ADR-0063/0064/0065）。 */
+/** 会话恢复审计（W6 后补）：管理端只读列表、过滤、翻页、首屏总数、统计与 CSV 导出（ADR-0063/0064/0065/0067）。 */
 
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -36,6 +36,9 @@ export default function AuditPage() {
   const [filters, setFilters] = useState<SessionRestoreAuditFilters>({});
   const [filterUserId, setFilterUserId] = useState('');
   const [filterSessionId, setFilterSessionId] = useState('');
+  const [filterFrom, setFilterFrom] = useState('');
+  const [filterTo, setFilterTo] = useState('');
+  const [filterError, setFilterError] = useState<string | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -44,7 +47,8 @@ export default function AuditPage() {
   const [exportMessage, setExportMessage] = useState<{ text: string; failed: boolean } | null>(
     null,
   );
-  const hasActiveFilters = Boolean(filters.userId || filters.sessionId);
+  const hasDateRange = Boolean(filters.restoredFrom && filters.restoredTo);
+  const hasActiveFilters = Boolean(filters.userId || filters.sessionId || hasDateRange);
   // 切过滤/重试后在途请求不能覆盖新列表；导出/统计同理。
   const listRequest = useRef(0);
   const exportRequest = useRef(0);
@@ -167,12 +171,24 @@ export default function AuditPage() {
   };
 
   const applyFilters = () => {
-    resetForFilters();
     const userId = filterUserId.trim();
     const sessionId = filterSessionId.trim();
+    const restoredFrom = filterFrom.trim();
+    const restoredTo = filterTo.trim();
+    if (Boolean(restoredFrom) !== Boolean(restoredTo)) {
+      setFilterError('开始日期与结束日期必须同时选择');
+      return;
+    }
+    if (restoredFrom && restoredTo && restoredFrom > restoredTo) {
+      setFilterError('开始日期不能晚于结束日期');
+      return;
+    }
+    setFilterError(null);
+    resetForFilters();
     setFilters({
       ...(userId ? { userId } : {}),
       ...(sessionId ? { sessionId } : {}),
+      ...(restoredFrom && restoredTo ? { restoredFrom, restoredTo } : {}),
     });
   };
 
@@ -180,6 +196,9 @@ export default function AuditPage() {
     resetForFilters();
     setFilterUserId('');
     setFilterSessionId('');
+    setFilterFrom('');
+    setFilterTo('');
+    setFilterError(null);
     setFilters({});
   };
 
@@ -214,18 +233,24 @@ export default function AuditPage() {
               {hasActiveFilters ? '恢复活动 · 当前过滤' : '恢复活动 · 全部用户'}
             </div>
             <div className="ml-auto flex items-center gap-1">
-              {STATS_DAYS.map((days) => (
-                <Button
-                  key={days}
-                  variant={statsDays === days ? 'default' : 'ghost'}
-                  size="sm"
-                  className="h-7 px-2 text-xs"
-                  aria-pressed={statsDays === days}
-                  onClick={() => setStatsDays(days)}
-                >
-                  近 {days} 天
-                </Button>
-              ))}
+              {hasDateRange ? (
+                <span className="text-[11px] text-muted-foreground">
+                  {filters.restoredFrom} ~ {filters.restoredTo}
+                </span>
+              ) : (
+                STATS_DAYS.map((days) => (
+                  <Button
+                    key={days}
+                    variant={statsDays === days ? 'default' : 'ghost'}
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    aria-pressed={statsDays === days}
+                    onClick={() => setStatsDays(days)}
+                  >
+                    近 {days} 天
+                  </Button>
+                ))
+              )}
             </div>
           </div>
           {statsLoading ? (
@@ -281,6 +306,26 @@ export default function AuditPage() {
                 onChange={(event) => setFilterSessionId(event.target.value)}
               />
             </div>
+            <div className="space-y-1">
+              <div className="text-[11px] text-muted-foreground">开始日期</div>
+              <Input
+                type="date"
+                aria-label="按恢复开始日期筛选"
+                className="h-8 w-36 text-xs"
+                value={filterFrom}
+                onChange={(event) => setFilterFrom(event.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <div className="text-[11px] text-muted-foreground">结束日期</div>
+              <Input
+                type="date"
+                aria-label="按恢复结束日期筛选"
+                className="h-8 w-36 text-xs"
+                value={filterTo}
+                onChange={(event) => setFilterTo(event.target.value)}
+              />
+            </div>
             <Button size="sm" className="h-8 text-xs" onClick={applyFilters}>
               筛选
             </Button>
@@ -288,8 +333,10 @@ export default function AuditPage() {
               清除
             </Button>
           </div>
+          {filterError && <p className="mt-2 text-[11px] text-danger">{filterError}</p>}
           <p className="mt-2 text-[11px] text-muted-foreground">
             用户与会话均为精确匹配；session_id 走 JSONB 包含查询，可定位「这个会话被谁恢复过」。
+            日期按 UTC 自然日闭区间，最多 365 天，需同时选择起止；统计与导出沿用同一组过滤。
           </p>
         </CardContent>
       </Card>

@@ -1589,7 +1589,7 @@ ADR-0065 的统计是全局的，但列表、首屏总数与导出都支持 `use
 | 口径 | 过滤同时作用于汇总与 `daily`；`users` 是过滤后的去重操作者数；不带过滤时为全局统计 |
 | 存储 | 无迁移、无新索引；`user_id` 走 `(user_id, restored_at)`，`session_id` 走 JSONB GIN；仍是两条查询 |
 | 前端 | 统计卡跟随下方已应用的列表过滤，无过滤显示「全部用户」，有过滤显示「当前过滤」；旧响应按独立 token 丢弃 |
-| 范围 | 不做日期范围统计、按天下钻、统计缓存/CSV/图表；统计失败不影响列表/导出 |
+| 范围 | 不做按天下钻、统计缓存/CSV/图表；日期范围由 ADR-0067 补上；统计失败不影响列表/导出 |
 
 验证：默认 **499 passed + 40 skipped**；真实 Postgres **536 passed + 3 skipped**；
 Postgres + Redis **539 passed**；`ruff check` / `ruff format --check`（194 files）/
@@ -1598,8 +1598,36 @@ Postgres + Redis **539 passed**；`ruff check` / `ruff format --check`（194 fil
 
 已知边界：统计与列表/导出不是同一快照；过滤变化会重新请求统计；按
 `session_id` 过滤时 `sessions` 仍是匹配行 `restored_count` 之和，可能大于 1；
-仍不能按日期范围或某一天下钻；旧后端无该接口时页面只显示统计错误。详见
+仍不做按天/按小时下钻；日期范围查询已由 ADR-0067 补上；旧后端无该接口时
+页面只显示统计错误。详见
 [ADR-0066](decisions/0066-session-restore-audit-stats-filters.md)。
+
+---
+
+## W6 后补：会话恢复审计按日期范围（ADR-0067）
+
+审计已经支持按用户/会话过滤和「最近 N 天」统计，但交接、事故复盘与月度对账
+通常只有一段具体日期。列表、首屏总数、导出与统计现在共用 UTC 自然日闭区间
+`restored_from`/`restored_to`，不新增表或索引。
+
+| 事项 | 落地 |
+|---|---|
+| 接口 | 列表、`/export`、`/stats` 接受 `restored_from`/`restored_to`（`YYYY-MM-DD`）；两端同时提供，缺一端/倒置/超 365 天 422 `INVALID_RANGE` |
+| 窗口 | 闭区间 `[from 00:00:00Z, to 23:59:59.999999Z]`；与列表 `restored_at` 和统计 UTC `daily` 一致 |
+| 统计 | `days` 改为可选（默认 30）；有日期范围时不能同时传 `days`，返回的 `days` 为闭区间天数 |
+| 游标 | 列表游标按需增加 `d: "from:to"`；不带范围时保持 `{t,i,u}`/`{t,i,u,s}`；换范围复用游标 400 |
+| 存储 | 无迁移、无新索引，复用 `idx_session_restore_audits_time`；list/count/导出/统计同一组条件 |
+| 前端 | 审计页增加起止日期输入并校验两端/顺序；统计卡与列表、导出跟随同一组已应用过滤，有范围时隐藏 7/30/90 快捷按钮 |
+
+验证：默认 **500 passed + 40 skipped**；真实 Postgres **537 passed + 3 skipped**；
+Postgres + Redis **540 passed**；`ruff check` / `ruff format --check`（194 files）/
+`mypy app`（113 files）通过；前端 **85 tests / 17 files**、`tsc --noEmit`、
+`oxlint` 0/0（72 files）、`oxfmt --check` 80 files、`pnpm build` 通过。无迁移。
+
+已知边界：日期按 UTC 自然日解释，不随浏览器时区变化；365 天窗口可能覆盖大部分
+审计行，当前不做额外索引/缓存；列表、计数与统计是独立查询，不是同一快照；
+不支持单端开放区间、按小时/按天下钻、页码/跳页。详见
+[ADR-0067](decisions/0067-session-restore-audit-date-range.md)。
 
 ---
 

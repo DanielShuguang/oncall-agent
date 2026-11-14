@@ -575,22 +575,31 @@ class RunStore(Protocol):
         *,
         user_id: str | None = None,
         session_id: str | None = None,
+        restored_from: datetime | None = None,
+        restored_to: datetime | None = None,
         before: tuple[datetime, str] | None = None,
         limit: int = 50,
     ) -> list[SessionRestoreAuditRecord]:
-        """按 `(restored_at, id)` 倒序列出审计（ADR-0059/0060/0061）。
+        """按 `(restored_at, id)` 倒序列出审计（ADR-0059/0060/0061/0067）。
 
         `user_id`/`session_id` 都是可选过滤：前者按操作者，后者按「这个会话
         是否在本次批量恢复里被真正恢复」；`session_id` 命中 `session_ids` 数组
-        的任一元素即可。`before=(restored_at, audit_id)` 是 keyset 游标，只返回
-        严格更早的记录。表只追加，默认保留 365 天由 `RetentionSweeper` 清理。
+        的任一元素即可。`restored_from`/`restored_to` 是闭区间时间过滤，由 API
+        把 UTC 日期范围换算后传入。`before=(restored_at, audit_id)` 是 keyset
+        游标，只返回严格更早的记录。表只追加，默认保留 365 天由
+        `RetentionSweeper` 清理。
         """
         ...
 
     async def count_session_restore_audits(
-        self, *, user_id: str | None = None, session_id: str | None = None
+        self,
+        *,
+        user_id: str | None = None,
+        session_id: str | None = None,
+        restored_from: datetime | None = None,
+        restored_to: datetime | None = None,
     ) -> int:
-        """按与列表相同的过滤条件统计恢复审计总数（ADR-0064）。
+        """按与列表相同的过滤条件统计恢复审计总数（ADR-0064/0067）。
 
         只服务管理端首屏 total；与 `list_session_restore_audits` 是两次查询，
         不是同一快照。`user_id` 走 `(user_id, restored_at)` 索引，`session_id`
@@ -1098,6 +1107,8 @@ class InMemoryRunStore:
         *,
         user_id: str | None = None,
         session_id: str | None = None,
+        restored_from: datetime | None = None,
+        restored_to: datetime | None = None,
         before: tuple[datetime, str] | None = None,
         limit: int = 50,
     ) -> list[SessionRestoreAuditRecord]:
@@ -1107,6 +1118,8 @@ class InMemoryRunStore:
                 for record in self._session_restore_audits
                 if (user_id is None or record.user_id == user_id)
                 and (session_id is None or session_id in record.session_ids)
+                and (restored_from is None or record.restored_at >= restored_from)
+                and (restored_to is None or record.restored_at <= restored_to)
             ]
             records.sort(key=lambda record: (record.restored_at, record.audit_id), reverse=True)
             if before is not None:
@@ -1116,7 +1129,12 @@ class InMemoryRunStore:
             return records[:limit]
 
     async def count_session_restore_audits(
-        self, *, user_id: str | None = None, session_id: str | None = None
+        self,
+        *,
+        user_id: str | None = None,
+        session_id: str | None = None,
+        restored_from: datetime | None = None,
+        restored_to: datetime | None = None,
     ) -> int:
         async with self._lock:
             return sum(
@@ -1124,6 +1142,8 @@ class InMemoryRunStore:
                 for record in self._session_restore_audits
                 if (user_id is None or record.user_id == user_id)
                 and (session_id is None or session_id in record.session_ids)
+                and (restored_from is None or record.restored_at >= restored_from)
+                and (restored_to is None or record.restored_at <= restored_to)
             )
 
     async def session_restore_audit_stats(
@@ -1893,6 +1913,8 @@ class PostgresRunStore:
         *,
         user_id: str | None = None,
         session_id: str | None = None,
+        restored_from: datetime | None = None,
+        restored_to: datetime | None = None,
         before: tuple[datetime, str] | None = None,
         limit: int = 50,
     ) -> list[SessionRestoreAuditRecord]:
@@ -1902,6 +1924,10 @@ class PostgresRunStore:
         if session_id is not None:
             # JSONB `@>`：数组包含该 session_id；迁移 0020 建了 jsonb_path_ops GIN
             stmt = stmt.where(SessionRestoreAuditRow.session_ids.contains([session_id]))
+        if restored_from is not None:
+            stmt = stmt.where(SessionRestoreAuditRow.restored_at >= restored_from)
+        if restored_to is not None:
+            stmt = stmt.where(SessionRestoreAuditRow.restored_at <= restored_to)
         if before is not None:
             before_at, before_id = before
             stmt = stmt.where(
@@ -1931,13 +1957,22 @@ class PostgresRunStore:
         ]
 
     async def count_session_restore_audits(
-        self, *, user_id: str | None = None, session_id: str | None = None
+        self,
+        *,
+        user_id: str | None = None,
+        session_id: str | None = None,
+        restored_from: datetime | None = None,
+        restored_to: datetime | None = None,
     ) -> int:
         stmt = select(func.count()).select_from(SessionRestoreAuditRow)
         if user_id is not None:
             stmt = stmt.where(SessionRestoreAuditRow.user_id == user_id)
         if session_id is not None:
             stmt = stmt.where(SessionRestoreAuditRow.session_ids.contains([session_id]))
+        if restored_from is not None:
+            stmt = stmt.where(SessionRestoreAuditRow.restored_at >= restored_from)
+        if restored_to is not None:
+            stmt = stmt.where(SessionRestoreAuditRow.restored_at <= restored_to)
         async with self._sessionmaker() as session:
             return int((await session.scalar(stmt)) or 0)
 

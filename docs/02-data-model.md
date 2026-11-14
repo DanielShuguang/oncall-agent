@@ -164,8 +164,8 @@ CREATE INDEX idx_session_restore_audits_time
   ON session_restore_audits (restored_at);
 ```
 
-> 按**一次恢复操作**一行，而不是按 session 一行（[ADR-0055](decisions/0055-hidden-restore-results.md)、
-> [ADR-0059](decisions/0059-session-restore-audit.md)，迁移 `0019`）：`session_ids`
+> 按**一次恢复操作**一行，而不是按 session 一行
+> （[ADR-0059](decisions/0059-session-restore-audit.md)，迁移 `0019`）：`session_ids`
 > 只存真正恢复的 id，`requested_count` 是去重后的请求数，二者之差是本次未恢复的
 > 数量。审计与删除 `hidden_sessions` 在同一事务内完成；没有真正恢复任何会话时
 > 不写行。无外键：run/事件可能先被保留策略清掉，审计按自己的保留期独立留存。

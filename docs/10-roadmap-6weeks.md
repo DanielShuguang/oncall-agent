@@ -1148,9 +1148,11 @@ Postgres + Redis **515 passed**。
 前端 `tsc`、**73 tests / 15 files**、`oxlint` 0/0（66 files）、`oxfmt --check` 74 files、
 `pnpm build` 252ms。不改表/事件/清理；未重跑 RAG 与多轮评测。
 
-已知边界：响应只有计数，不告诉用户哪些 id 被忽略；没有恢复审计、管理员跨用户恢复与
-「恢复并打开」；勾选只覆盖当前已加载页（最多 50 条/页）。
-其中「逐条结果」已由 [ADR-0055](decisions/0055-hidden-restore-results.md) 处理，其余仍未做。
+已知边界：响应只有计数，不告诉用户哪些 id 被忽略；恢复审计已由
+[ADR-0059](decisions/0059-session-restore-audit.md) 补上（管理接口，无前端），仍无管理员
+跨用户恢复与「恢复并打开」；勾选只覆盖当前已加载页（最多 50 条/页）。
+其中「逐条结果」已由 [ADR-0055](decisions/0055-hidden-restore-results.md) 处理，
+「恢复审计」已由 [ADR-0059](decisions/0059-session-restore-audit.md) 处理，其余仍未做。
 
 ---
 
@@ -1294,15 +1296,16 @@ ADR-0049 的批量恢复只返回 `restored`/`requested` 两个计数。用户�
 | 语义 | `restored: false` 合并「不存在 / 属于别人 / 本来没移除」；不返回 `forbidden`，不泄露存在性 |
 | 存储 | `RunStore.unhide_sessions` 从 `int` 改为 `set[str]`；内存收集 `pop` 成功的 id，PG 用 `DELETE ... RETURNING` |
 | 前端 | 已移除折叠区显示中性提示「已恢复 N 个；M 个未恢复（可能已被恢复或不在本人已移除列表）」；全部未恢复时提示「没有会话被恢复」；仍重拉列表 |
-| 范围 | 无迁移、无新索引、无审计；不做管理员跨用户恢复/「恢复并打开」 |
+| 范围 | 无迁移、无新索引；本 ADR 不做审计（后续由 [ADR-0059](decisions/0059-session-restore-audit.md) 补上），不做管理员跨用户恢复/「恢复并打开」 |
 
 验证：默认 **485 passed + 40 skipped**；真实 Postgres **522 passed + 3 skipped**；
 Postgres + Redis **525 passed**；`ruff check` / `ruff format --check`（188 files）/
 `mypy app`（110 files）通过；前端 **79 tests / 16 files**、`oxlint` 0/0（68 files）、
 `oxfmt --check` 76 files、`pnpm build` 通过。无迁移。
 
-已知边界：`restored: false` 不区分原因；没有恢复审计、管理员跨用户恢复与
-「恢复并打开」；勾选仍只覆盖当前已加载页（最多 50 条/页）。详见
+已知边界：`restored: false` 不区分原因；恢复审计已由
+[ADR-0059](decisions/0059-session-restore-audit.md) 补上（管理接口，无前端），仍无
+管理员跨用户恢复与「恢复并打开」；勾选仍只覆盖当前已加载页（最多 50 条/页）。详见
 [ADR-0055](decisions/0055-hidden-restore-results.md)。
 
 ---

@@ -781,9 +781,10 @@ Authorization: Bearer <admin token>
 
 - 管理接口，要求 `ONCALL_ADMIN_ROLES`；`user_id` 可选，`limit` 1–200 默认 50；
   按 `restored_at DESC, id DESC` 返回，不做分页/导出
-- 一次批量恢复一行；`session_ids` 只含真正恢复的 id，`requested_count` 是去重后的
-  请求数，`requested_count - restored_count` 是本次未恢复的数量。没有真正恢复任何
-  会话（空请求、全是不存在/别人的/重复的 id）时不会产生审计行
+- 一次恢复操作一行（单条 `DELETE /sessions/{id}/hidden` 或批量恢复各写一行）；
+  `session_ids` 只含真正恢复的 id，`requested_count` 是去重后的请求数，
+  `requested_count - restored_count` 是本次未恢复的数量。没有真正恢复任何会话
+  （全是不存在/别人的/重复的 id）时不会产生审计行；空请求在请求模型层已 422
 - 审计与删除 `hidden_sessions` 在同一事务内完成；写入失败会回滚恢复
 - 审计独立保留 365 天（`ONCALL_SESSION_RESTORE_AUDIT_RETENTION_DAYS`），不随事件/
   正文保留期清理；库不可用返回 `503 {"code":"DATABASE_UNAVAILABLE"}`，不返回空列表

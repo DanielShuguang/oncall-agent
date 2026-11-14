@@ -341,7 +341,9 @@ W6 基线（3 轮均值，mock 规则路径，口径见 [baseline-v1](docs/eval/
   [ADR-0041](docs/decisions/0041-session-remove.md)、
   [ADR-0043](docs/decisions/0043-hidden-session-restore.md)；已移除列表可翻页、按标题搜索
   （同样不搜正文，[ADR-0047](docs/decisions/0047-hidden-session-pagination.md)）并勾选批量恢复
-  （一次最多 50 个，逐条返回是否恢复，部分成功有提示；无恢复审计，[ADR-0049](docs/decisions/0049-hidden-session-batch-restore.md)、[ADR-0055](docs/decisions/0055-hidden-restore-results.md)），
+  （一次最多 50 个，逐条返回是否恢复，部分成功有提示；恢复审计见
+  [ADR-0059](docs/decisions/0059-session-restore-audit.md)，但无前端页面，
+  [ADR-0049](docs/decisions/0049-hidden-session-batch-restore.md)、[ADR-0055](docs/decisions/0055-hidden-restore-results.md)），
   但无管理员视角）；但没有批量移除/改名、
   置顶与虚拟滚动；翻页期间有新 run 时可能重复或跳过一页，刷新即重置
   （[ADR-0033](docs/decisions/0033-session-history-pagination.md)）；历史回答的工具/审批以

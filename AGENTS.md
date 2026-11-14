@@ -56,7 +56,7 @@ Windows 用 `pwsh -File scripts/dev.ps1 <target>`，其余用 `make <target>`，
 | `images` | 导出离线镜像 tar |
 | `loadtest` / `demo` | SSE 压测 / 三条演示剧本 |
 | `reap` | 回收进程中断的 `running` run（只收敛状态，不重放写操作，ADR-0017） |
-| `prune` | 清理超过保留期的事件、run 正文、审批快照与过期授权、模型计量（`--dry-run` 先看候选，ADR-0021/0023/0027） |
+| `prune` | 清理超过保留期的事件、run 正文、审批快照与过期授权、模型计量与会话恢复审计（`--dry-run` 先看候选，ADR-0021/0023/0027/0059） |
 | `backfill-citations` | 为旧 run 从 `message.completed` 回填引用快照（`--dry-run` 先看候选，ADR-0042） |
 
 单独跑：

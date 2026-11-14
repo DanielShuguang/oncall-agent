@@ -562,6 +562,17 @@ class RunStore(Protocol):
         """
         ...
 
+    async def count_session_restore_audits(
+        self, *, user_id: str | None = None, session_id: str | None = None
+    ) -> int:
+        """按与列表相同的过滤条件统计恢复审计总数（ADR-0064）。
+
+        只服务管理端首屏 total；与 `list_session_restore_audits` 是两次查询，
+        不是同一快照。`user_id` 走 `(user_id, restored_at)` 索引，`session_id`
+        走迁移 0020 的 JSONB GIN；都不带时是全表 COUNT。
+        """
+        ...
+
     async def prune_session_restore_audits(
         self, *, restored_before: datetime, limit: int = 200, dry_run: bool = False
     ) -> int:
@@ -1061,6 +1072,17 @@ class InMemoryRunStore:
                     record for record in records if (record.restored_at, record.audit_id) < before
                 ]
             return records[:limit]
+
+    async def count_session_restore_audits(
+        self, *, user_id: str | None = None, session_id: str | None = None
+    ) -> int:
+        async with self._lock:
+            return sum(
+                1
+                for record in self._session_restore_audits
+                if (user_id is None or record.user_id == user_id)
+                and (session_id is None or session_id in record.session_ids)
+            )
 
     async def prune_session_restore_audits(
         self, *, restored_before: datetime, limit: int = 200, dry_run: bool = False
@@ -1827,6 +1849,17 @@ class PostgresRunStore:
             )
             for row in rows
         ]
+
+    async def count_session_restore_audits(
+        self, *, user_id: str | None = None, session_id: str | None = None
+    ) -> int:
+        stmt = select(func.count()).select_from(SessionRestoreAuditRow)
+        if user_id is not None:
+            stmt = stmt.where(SessionRestoreAuditRow.user_id == user_id)
+        if session_id is not None:
+            stmt = stmt.where(SessionRestoreAuditRow.session_ids.contains([session_id]))
+        async with self._sessionmaker() as session:
+            return int((await session.scalar(stmt)) or 0)
 
     async def prune_session_restore_audits(
         self, *, restored_before: datetime, limit: int = 200, dry_run: bool = False

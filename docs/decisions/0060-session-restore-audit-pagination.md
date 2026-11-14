@@ -82,7 +82,7 @@ ADR-0059 的 `GET /admin/session-restores` 只支持 `user_id` 与 `limit`，默
 
 ## 6. 待定
 
-- 审计列表 CSV 导出（已由 ADR-0062 补上）与总数（仍未做）；
+- 审计列表 CSV 导出（已由 ADR-0062 补上）与总数（已由 ADR-0064 补上）；
 - 按单个 session 反查（需要 JSONB GIN 索引或明细表，ADR-0059 待定；
   已由 [ADR-0061](0061-session-restore-audit-session-filter.md) 实现）；
 - 游标签名/过期（防伪造跳记录，当前内网管理接口可接受）；

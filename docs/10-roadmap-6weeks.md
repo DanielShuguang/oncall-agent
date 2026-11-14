@@ -1522,6 +1522,32 @@ Postgres + Redis **536 passed**；`ruff check` / `ruff format --check`（194 fil
 
 ---
 
+## W6 后补：会话恢复审计列表总数（ADR-0064）
+
+审计管理页只能显示「已加载 N 条」；按用户/会话过滤后，管理员不知道命中多少条、
+还要翻几页。沿用审批列表（ADR-0057）的「第一页附总数」口径，只给首屏计数，
+不在每次「加载更多」时重复 COUNT。
+
+| 事项 | 落地 |
+|---|---|
+| 接口 | `GET /admin/session-restores` 第一页（无 `cursor`）增加 `total`；后续页为 `null` |
+| 口径 | 与列表相同的 `user_id`/`session_id` 过滤与管理员范围；`total` 与列表是两次查询，不是同一快照 |
+| 存储 | `RunStore.count_session_restore_audits`：内存遍历过滤；PG `SELECT count(*)`，用户走 B-tree、会话走 JSONB GIN |
+| 失败 | 计数失败返回 503 `DATABASE_UNAVAILABLE`，不用 0 冒充；旧后端没有 `total` 时前端退回已加载条数 |
+| 前端 | 首屏显示「共 N 条」，未加载完追加「已加载 M 条」；切换/清除过滤、重试重新取第一页，`loadMore` 保留总数 |
+| 范围 | 无迁移、无新索引；不做页码/跳页、不做审计统计聚合、不改导出 |
+
+验证：默认 **497 passed + 40 skipped**；真实 Postgres **534 passed + 3 skipped**；
+Postgres + Redis **537 passed**；`ruff check` / `ruff format --check`（194 files）/
+`mypy app`（113 files）通过；前端 **84 tests / 17 files**、`tsc --noEmit`、
+`oxlint` 0/0（72 files）、`oxfmt --check` 80 files、`pnpm build` 通过。
+
+已知边界：首屏多一次 COUNT，过滤少时可能扫描较多行；`total` 与当前页可能因并发
+恢复/保留清理略有出入，以刷新后的列表为准；仍然没有页码/跳页，大审计量仍要靠
+过滤或导出。详见 [ADR-0064](decisions/0064-session-restore-audit-total.md)。
+
+---
+
 ## 每周固定动作
 
 | 时点 | 动作 |

@@ -72,3 +72,5 @@ class SessionRestoreAuditListResponse(BaseModel):
     items: list[SessionRestoreAuditOut]
     next_cursor: str | None = None
     """取满 `limit` 时给下一页游标（ADR-0060）；否则为 None。"""
+    total: int | None = None
+    """第一页（无 cursor）返回同过滤条件下的总数（ADR-0064）；后续页为 None。"""

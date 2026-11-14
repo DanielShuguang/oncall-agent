@@ -37,7 +37,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | GET | `/sessions/hidden` | 本人从列表移除的会话（游标分页 + 标题搜索，ADR-0043/0047） | W6 后补 |
 | DELETE | `/sessions/{session_id}/hidden` | 恢复已移除的会话（只删 `hidden_sessions` 行，204） | W6 后补 |
 | POST | `/sessions/hidden/restore` | 批量恢复已移除会话（最多 50，部分成功，返回逐条结果） | W6 后补 |
-| GET | `/admin/session-restores` | 会话恢复审计（按用户/会话过滤，最近在前，游标分页） | W6 后补 |
+| GET | `/admin/session-restores` | 会话恢复审计（按用户/会话过滤，最近在前，游标分页；第一页附总数） | W6 后补 |
 | GET | `/admin/session-restores/export` | 会话恢复审计 CSV 导出（按用户/会话过滤，最多 5000 条） | W6 后补 |
 | GET | `/sessions/{session_id}/runs` | 一页会话详情（正文/引用/运行过程，一次返回） | W6 后补 |
 | GET | `/runs/{run_id}` | 单次运行详情（含指标与模型调用明细） | W1 D4 / W4 D19 |
@@ -758,7 +758,7 @@ POST /api/approvals/{approval_id}/resolve
 > 引用全文只要求登录，且受文档级可见性约束（[ADR-0018](decisions/0018-citation-fulltext-preview.md)、
 > [ADR-0019](decisions/0019-document-level-access.md)）。
 
-### 会话恢复审计（ADR-0059/0060/0061/0062）
+### 会话恢复审计（ADR-0059/0060/0061/0062/0064）
 
 ```http
 GET /api/admin/session-restores?user_id=u_102&session_id=sess_a&limit=20&cursor=<base64url>
@@ -777,7 +777,8 @@ Authorization: Bearer <admin token>
       "restored_at": "2026-11-14T03:20:00Z"
     }
   ],
-  "next_cursor": "eyJ0IjoiMjAyNi0xMS0xNFQwMzoyMDowMCswMDowMCIsImkiOiI4ZjE0ZTQ1Zi1jZWVhLTRlOGYtOWQ3YS0yYjNjNGQ1ZTZmNzAiLCJ1IjoidV8xMDIiLCJzIjoic2Vzc19hIn0"
+  "next_cursor": "eyJ0IjoiMjAyNi0xMS0xNFQwMzoyMDowMCswMDowMCIsImkiOiI4ZjE0ZTQ1Zi1jZWVhLTRlOGYtOWQ3YS0yYjNjNGQ1ZTZmNzAiLCJ1IjoidV8xMDIiLCJzIjoic2Vzc19hIn0",
+  "total": 1
 }
 ```
 
@@ -790,6 +791,9 @@ Authorization: Bearer <admin token>
   `session_id` 后复用旧游标返回 400。取满 `limit` 才给 `next_cursor`；未取满时
   为 `null`；恰好取满时仍给游标，下一页为空。非法游标 400 `INVALID_CURSOR`。
   ADR-0060 的旧游标没有 `s`，只继续支持「没有 `session_id` 过滤」的请求
+- 第一页（无 `cursor`）附带 `total`：与列表同一 `user_id`/`session_id` 过滤下的
+  总数（ADR-0064）；后续页为 `null`。计数与列表是两次查询，不是同一快照；
+  计数失败也返回 503，不用 0 冒充。旧后端没有 `total` 时前端退回「已加载 N 条」
 - 一次恢复操作一行（单条 `DELETE /sessions/{id}/hidden` 或批量恢复各写一行）；
   `session_ids` 只含真正恢复的 id，`requested_count` 是去重后的请求数，
   `requested_count - restored_count` 是本次未恢复的数量。没有真正恢复任何会话
@@ -797,7 +801,7 @@ Authorization: Bearer <admin token>
 - 审计与删除 `hidden_sessions` 在同一事务内完成；写入失败会回滚恢复
 - 审计独立保留 365 天（`ONCALL_SESSION_RESTORE_AUDIT_RETENTION_DAYS`），不随事件/
   正文保留期清理；库不可用返回 `503 {"code":"DATABASE_UNAVAILABLE"}`，不返回空列表
-- 不做总数；`next_cursor` 只表示还有下一页，不是总数/跳页
+- `next_cursor` 只表示还有下一页；总数看第一页 `total`，不提供页码/跳页
 
 导出（ADR-0062）：
 

@@ -679,6 +679,8 @@ async def _exercise_hidden_sessions(store: RunStore) -> None:
     assert audits[0].session_ids == ("sess_drop",)
     assert audits[0].requested_count == 1
     assert audits[0].restored_count == 1
+    assert await store.count_session_restore_audits(user_id=user) == 1
+    assert await store.count_session_restore_audits(user_id=other) == 0
     assert {item.session_id for item in await store.list_sessions(user_id=user, limit=10)} == {
         "sess_drop",
         "sess_keep",
@@ -706,6 +708,10 @@ async def _exercise_hidden_sessions(store: RunStore) -> None:
     # 审计按用户隔离，管理员视角（user_id=None）能看到全部
     assert await store.list_session_restore_audits(user_id=other) == []
     assert len(await store.list_session_restore_audits(limit=10)) == 2
+    assert await store.count_session_restore_audits(user_id=user) == 2
+    assert await store.count_session_restore_audits() == 2
+    assert await store.count_session_restore_audits(user_id=user, session_id="sess_drop2") == 1
+    assert await store.count_session_restore_audits(session_id="sess_missing") == 0
     assert [
         item.session_id for item in await store.list_hidden_sessions(user_id=user, limit=10)
     ] == ["sess_drop3"]
@@ -716,6 +722,8 @@ async def _exercise_hidden_sessions(store: RunStore) -> None:
     audits = await store.list_session_restore_audits(user_id=user, limit=10)
     assert audits[0].session_ids == ("sess_drop3",)
     assert len(audits) == 3
+    assert await store.count_session_restore_audits(user_id=user) == 3
+    assert await store.count_session_restore_audits(user_id=user, session_id="sess_drop3") == 1
     assert await store.list_hidden_sessions(user_id=user, limit=10) == []
     # 没有真正恢复任何会话时不写审计
     assert await store.unhide_sessions(user_id=user, session_ids=["sess_drop3"]) == set()

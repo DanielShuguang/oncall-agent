@@ -51,7 +51,9 @@ async def test_list_session_restore_audits(
 
     res = await client.get("/api/admin/session-restores", headers=ADMIN)
     assert res.status_code == 200
-    items = res.json()["items"]
+    body = res.json()
+    items = body["items"]
+    assert body["total"] == 2
     assert [item["user_id"] for item in items] == ["u_103", "u_102"]
     assert items[0]["session_ids"] == ["sess_b"]
     assert items[0]["requested_count"] == 1
@@ -65,10 +67,12 @@ async def test_list_session_restore_audits(
     )
     assert filtered.status_code == 200
     assert [item["user_id"] for item in filtered.json()["items"]] == ["u_102"]
+    assert filtered.json()["total"] == 1
 
     limited = await client.get("/api/admin/session-restores", headers=ADMIN, params={"limit": 1})
     assert limited.status_code == 200
     assert len(limited.json()["items"]) == 1
+    assert limited.json()["total"] == 2
 
 
 async def test_session_restore_audits_paginate(
@@ -84,6 +88,7 @@ async def test_session_restore_audits_paginate(
     first_body = first.json()
     assert len(first_body["items"]) == 2
     assert first_body["next_cursor"]
+    assert first_body["total"] == 4
 
     second = await client.get(
         "/api/admin/session-restores",
@@ -94,6 +99,7 @@ async def test_session_restore_audits_paginate(
     second_body = second.json()
     assert len(second_body["items"]) == 2
     assert second_body["next_cursor"]
+    assert second_body["total"] is None
 
     third = await client.get(
         "/api/admin/session-restores",
@@ -104,6 +110,7 @@ async def test_session_restore_audits_paginate(
     third_body = third.json()
     assert len(third_body["items"]) == 0
     assert third_body["next_cursor"] is None
+    assert third_body["total"] is None
 
     all_ids = [
         item["id"] for item in first_body["items"] + second_body["items"] + third_body["items"]
@@ -198,6 +205,7 @@ async def test_session_restore_audits_filter_by_session(
     assert [item["user_id"] for item in first_body["items"]] == ["u_200"]
     assert first_body["items"][0]["session_ids"] == ["sess_a"]
     assert first_body["next_cursor"]
+    assert first_body["total"] == 2
 
     second = await client.get(
         "/api/admin/session-restores",
@@ -208,6 +216,7 @@ async def test_session_restore_audits_filter_by_session(
     second_body = second.json()
     assert [item["user_id"] for item in second_body["items"]] == ["u_102"]
     assert second_body["items"][0]["session_ids"] == ["sess_a"]
+    assert second_body["total"] is None
 
     third = await client.get(
         "/api/admin/session-restores",
@@ -225,6 +234,7 @@ async def test_session_restore_audits_filter_by_session(
     )
     assert missing.status_code == 200
     assert missing.json()["items"] == []
+    assert missing.json()["total"] == 0
 
     combined = await client.get(
         "/api/admin/session-restores",
@@ -233,6 +243,7 @@ async def test_session_restore_audits_filter_by_session(
     )
     assert combined.status_code == 200
     assert [item["user_id"] for item in combined.json()["items"]] == ["u_102"]
+    assert combined.json()["total"] == 1
 
     # 游标绑定 session 过滤：同用户、换 session_id 也必须 400
     mismatch = await client.get(
@@ -381,3 +392,17 @@ async def test_session_restore_audits_return_503_on_store_failure(
     export = await client.get("/api/admin/session-restores/export", headers=ADMIN)
     assert export.status_code == 503
     assert export.json()["code"] == "DATABASE_UNAVAILABLE"
+
+
+async def test_session_restore_audit_count_returns_503(
+    client: AsyncClient, mem_store: InMemoryRunStore, monkeypatch
+) -> None:
+    await _restore_once(mem_store, user_id="u_102", session_id="sess_a")
+    monkeypatch.setattr(
+        mem_store,
+        "count_session_restore_audits",
+        AsyncMock(side_effect=SQLAlchemyError("count down")),
+    )
+    res = await client.get("/api/admin/session-restores", headers=ADMIN)
+    assert res.status_code == 503
+    assert res.json()["code"] == "DATABASE_UNAVAILABLE"

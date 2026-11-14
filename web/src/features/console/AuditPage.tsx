@@ -25,6 +25,7 @@ const PAGE_SIZE = 20;
 
 export default function AuditPage() {
   const [items, setItems] = useState<SessionRestoreAudit[]>([]);
+  const [total, setTotal] = useState<number | null>(null);
   const [filters, setFilters] = useState<SessionRestoreAuditFilters>({});
   const [filterUserId, setFilterUserId] = useState('');
   const [filterSessionId, setFilterSessionId] = useState('');
@@ -47,6 +48,7 @@ export default function AuditPage() {
     const load = async () => {
       setLoading(true);
       setItems([]);
+      setTotal(null);
       setCursor(null);
       setError(null);
       setLoadingMore(false);
@@ -55,6 +57,7 @@ export default function AuditPage() {
         if (!cancelled && listRequest.current === requestId) {
           setItems(data.items);
           setCursor(data.next_cursor);
+          setTotal(data.total ?? null);
           setError(null);
         }
       } catch (exc) {
@@ -121,6 +124,7 @@ export default function AuditPage() {
     // 立即失效旧列表/旧导出，避免 setFilters 生效前的一帧里旧行显示在新过滤条件下。
     listRequest.current += 1;
     setItems([]);
+    setTotal(null);
     setCursor(null);
     setLoading(true);
     setLoadingMore(false);
@@ -229,7 +233,11 @@ export default function AuditPage() {
         <CardContent className="p-0">
           {!loading && items.length > 0 && (
             <div className="border-b px-3 py-2 text-[11px] text-muted-foreground">
-              已加载 {items.length} 条{hasActiveFilters ? '（当前筛选）' : ''}
+              {total !== null && total > 0
+                ? `共 ${total} 条${hasActiveFilters ? '（当前筛选）' : ''}${
+                    items.length < total ? `，已加载 ${items.length} 条` : ''
+                  }`
+                : `已加载 ${items.length} 条${hasActiveFilters ? '（当前筛选）' : ''}`}
             </div>
           )}
           {loading ? (

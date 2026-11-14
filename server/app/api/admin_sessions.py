@@ -3,6 +3,7 @@
 - 只读：恢复动作仍走 `POST /sessions/hidden/restore`，审计由 store 在删除事务内写
 - 默认返回全部用户最近 50 条；`user_id`/`session_id` 可选过滤
 - `(restored_at, id)` 倒序 keyset 分页；游标绑定当前过滤条件，换条件返回 400
+- 第一页附带同过滤条件总数；后续页为 null（ADR-0064）
 - CSV 导出：有上限的同步导出，超上限截断并显式告知
 - 数据库不可用返回 503，不返回空列表冒充「没有恢复记录」
 """
@@ -154,6 +155,7 @@ async def list_session_restores(
     cursor: Annotated[str | None, Query(max_length=512)] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> SessionRestoreAuditListResponse:
+    """按 `(restored_at, id)` 倒序分页；第一页附带同过滤条件总数（ADR-0064）。"""
     before = _decode_cursor(cursor, user_id, session_id) if cursor is not None else None
     try:
         records = await store.list_session_restore_audits(
@@ -162,9 +164,17 @@ async def list_session_restores(
     except SQLAlchemyError as exc:
         log.error("session_restore_audit_read_failed", error=str(exc))
         raise ApiError(503, "DATABASE_UNAVAILABLE", "会话恢复审计暂不可用") from exc
+    total: int | None = None
+    if cursor is None:
+        # 只给第一页；后续页不再 COUNT，避免每次「加载更多」多一次全表扫描
+        try:
+            total = await store.count_session_restore_audits(user_id=user_id, session_id=session_id)
+        except SQLAlchemyError as exc:
+            log.error("session_restore_audit_count_failed", error=str(exc))
+            raise ApiError(503, "DATABASE_UNAVAILABLE", "会话恢复审计暂不可用") from exc
     next_cursor = (
         _encode_cursor(records[-1], user_id, session_id) if len(records) == limit else None
     )
     return SessionRestoreAuditListResponse(
-        items=[_out(record) for record in records], next_cursor=next_cursor
+        items=[_out(record) for record in records], next_cursor=next_cursor, total=total
     )

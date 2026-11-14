@@ -15,6 +15,8 @@ export interface SessionRestoreAuditListResponse {
   items: SessionRestoreAudit[];
   /** 取满 `limit` 时给下一页游标；否则为 null（ADR-0060）。 */
   next_cursor: string | null;
+  /** 第一页返回同过滤条件总数；后续页/旧后端为 null 或缺失（ADR-0064）。 */
+  total?: number | null;
 }
 
 export interface SessionRestoreAuditFilters {

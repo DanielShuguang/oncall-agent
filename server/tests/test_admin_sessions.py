@@ -8,7 +8,7 @@ import csv
 import io
 import json
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock
 
 from httpx import AsyncClient
@@ -394,6 +394,18 @@ async def test_session_restore_audit_stats(
     await asyncio.sleep(0.002)
     await _restore_once(mem_store, user_id="u_103", session_id="sess_b")
 
+    # 10 天前的历史审计：应落在 30 天窗口内、7 天窗口外（ADR-0065 的窗口边界）
+    mem_store._session_restore_audits.append(
+        SessionRestoreAuditRecord(
+            audit_id=str(uuid.uuid4()),
+            user_id="u_104",
+            session_ids=("sess_old",),
+            requested_count=1,
+            restored_count=4,
+            restored_at=datetime.now(UTC) - timedelta(days=10),
+        )
+    )
+
     res = await client.get("/api/admin/session-restores/stats", headers=ADMIN, params={"days": 7})
     assert res.status_code == 200
     body = res.json()
@@ -405,6 +417,21 @@ async def test_session_restore_audit_stats(
     assert sum(day["restores"] for day in body["daily"]) == 2
     assert sum(day["sessions"] for day in body["daily"]) == 2
     assert all(len(day["day"]) == 10 for day in body["daily"])
+
+    month = await client.get(
+        "/api/admin/session-restores/stats", headers=ADMIN, params={"days": 30}
+    )
+    assert month.status_code == 200
+    month_body = month.json()
+    assert month_body["days"] == 30
+    assert month_body["restores"] == 3
+    assert month_body["users"] == 3
+    assert month_body["sessions"] == 6
+    assert sum(day["restores"] for day in month_body["daily"]) == 3
+    assert sum(day["sessions"] for day in month_body["daily"]) == 6
+    days = [day["day"] for day in month_body["daily"]]
+    assert days == sorted(days)
+    assert len(days) == 2
 
 
 async def test_session_restore_audit_stats_return_503_on_store_failure(

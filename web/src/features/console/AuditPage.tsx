@@ -246,9 +246,11 @@ export default function AuditPage() {
               </div>
             </div>
           ) : null}
-          <p className="text-[11px] text-muted-foreground">
-            UTC 自然日；{stats?.daily.length ?? 0} 天有恢复记录。统计不随下方用户/会话过滤变化。
-          </p>
+          {stats && !statsLoading && !statsError ? (
+            <p className="text-[11px] text-muted-foreground">
+              UTC 日期；{stats.daily.length} 个日期有恢复记录。统计不随下方用户/会话过滤变化。
+            </p>
+          ) : null}
         </CardContent>
       </Card>
 

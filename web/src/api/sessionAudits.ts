@@ -31,6 +31,23 @@ export interface SessionRestoreAuditExport {
   truncated: boolean;
 }
 
+export interface SessionRestoreAuditDayStats {
+  /** UTC 自然日，ISO `YYYY-MM-DD`；只含有恢复活动的日期（ADR-0065）。 */
+  day: string;
+  restores: number;
+  sessions: number;
+}
+
+export interface SessionRestoreAuditStats {
+  days: number;
+  since: string;
+  until: string;
+  restores: number;
+  users: number;
+  sessions: number;
+  daily: SessionRestoreAuditDayStats[];
+}
+
 function applyFilters(params: URLSearchParams, filters: SessionRestoreAuditFilters): void {
   if (filters.userId) params.set('user_id', filters.userId);
   if (filters.sessionId) params.set('session_id', filters.sessionId);
@@ -61,4 +78,8 @@ export async function exportSessionRestoreAuditsCsv(
     count: Number(headers.get('X-Export-Count') ?? 0) || 0,
     truncated: headers.get('X-Export-Truncated') === 'true',
   };
+}
+
+export function getSessionRestoreAuditStats(days: number): Promise<SessionRestoreAuditStats> {
+  return getJson<SessionRestoreAuditStats>(`/admin/session-restores/stats?days=${days}`);
 }

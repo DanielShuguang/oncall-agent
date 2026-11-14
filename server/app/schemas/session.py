@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
@@ -74,3 +74,23 @@ class SessionRestoreAuditListResponse(BaseModel):
     """取满 `limit` 时给下一页游标（ADR-0060）；否则为 None。"""
     total: int | None = None
     """第一页（无 cursor）返回同过滤条件下的总数（ADR-0064）；后续页为 None。"""
+
+
+class SessionRestoreAuditDayOut(BaseModel):
+    """UTC 自然日内的恢复活动（ADR-0065）。"""
+
+    day: date
+    restores: int
+    sessions: int
+
+
+class SessionRestoreAuditStatsOut(BaseModel):
+    """窗口内的恢复审计汇总（ADR-0065）；`daily` 稀疏、不补零。"""
+
+    days: int
+    since: datetime
+    until: datetime
+    restores: int
+    users: int
+    sessions: int
+    daily: list[SessionRestoreAuditDayOut] = Field(default_factory=list)

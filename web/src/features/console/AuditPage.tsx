@@ -1,4 +1,4 @@
-/** 会话恢复审计（W6 后补）：管理端只读列表、过滤、翻页、首屏总数与 CSV 导出（ADR-0063/0064）。 */
+/** 会话恢复审计（W6 后补）：管理端只读列表、过滤、翻页、首屏总数、统计与 CSV 导出（ADR-0063/0064/0065）。 */
 
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -14,18 +14,25 @@ import {
 } from '@/components/ui/table';
 import {
   exportSessionRestoreAuditsCsv,
+  getSessionRestoreAuditStats,
   listSessionRestoreAudits,
   type SessionRestoreAudit,
   type SessionRestoreAuditFilters,
+  type SessionRestoreAuditStats,
 } from '@/api/sessionAudits';
 import { formatTime } from '@/lib/format';
 import { downloadBlob } from '@/lib/download';
 
 const PAGE_SIZE = 20;
+const STATS_DAYS = [7, 30, 90] as const;
 
 export default function AuditPage() {
   const [items, setItems] = useState<SessionRestoreAudit[]>([]);
   const [total, setTotal] = useState<number | null>(null);
+  const [statsDays, setStatsDays] = useState<number>(30);
+  const [stats, setStats] = useState<SessionRestoreAuditStats | null>(null);
+  const [statsLoading, setStatsLoading] = useState(true);
+  const [statsError, setStatsError] = useState<string | null>(null);
   const [filters, setFilters] = useState<SessionRestoreAuditFilters>({});
   const [filterUserId, setFilterUserId] = useState('');
   const [filterSessionId, setFilterSessionId] = useState('');
@@ -38,9 +45,10 @@ export default function AuditPage() {
     null,
   );
   const hasActiveFilters = Boolean(filters.userId || filters.sessionId);
-  // 切过滤/重试后在途请求不能覆盖新列表；导出同理，旧响应不能下载/覆盖新提示。
+  // 切过滤/重试后在途请求不能覆盖新列表；导出/统计同理。
   const listRequest = useRef(0);
   const exportRequest = useRef(0);
+  const statsRequest = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -74,6 +82,30 @@ export default function AuditPage() {
       listRequest.current += 1;
     };
   }, [filters]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const requestId = ++statsRequest.current;
+    const load = async () => {
+      setStatsLoading(true);
+      setStatsError(null);
+      try {
+        const data = await getSessionRestoreAuditStats(statsDays);
+        if (!cancelled && statsRequest.current === requestId) setStats(data);
+      } catch (exc) {
+        if (!cancelled && statsRequest.current === requestId) {
+          setStatsError(exc instanceof Error ? exc.message : '统计加载失败');
+        }
+      } finally {
+        if (!cancelled && statsRequest.current === requestId) setStatsLoading(false);
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+      statsRequest.current += 1;
+    };
+  }, [statsDays]);
 
   const loadMore = async () => {
     if (!cursor || loadingMore) return;
@@ -174,6 +206,51 @@ export default function AuditPage() {
           {exportMessage.text}
         </p>
       )}
+
+      <Card className="py-0">
+        <CardContent className="space-y-3 p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="text-xs font-medium">恢复活动 · 全部用户</div>
+            <div className="ml-auto flex items-center gap-1">
+              {STATS_DAYS.map((days) => (
+                <Button
+                  key={days}
+                  variant={statsDays === days ? 'default' : 'ghost'}
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  aria-pressed={statsDays === days}
+                  onClick={() => setStatsDays(days)}
+                >
+                  近 {days} 天
+                </Button>
+              ))}
+            </div>
+          </div>
+          {statsLoading ? (
+            <p className="text-xs text-muted-foreground">统计加载中…</p>
+          ) : statsError ? (
+            <p className="text-xs text-danger">统计暂不可用：{statsError}</p>
+          ) : stats ? (
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div>
+                <div className="text-[11px] text-muted-foreground">恢复操作</div>
+                <div className="text-lg font-semibold text-foreground">{stats.restores}</div>
+              </div>
+              <div>
+                <div className="text-[11px] text-muted-foreground">涉及用户</div>
+                <div className="text-lg font-semibold text-foreground">{stats.users}</div>
+              </div>
+              <div>
+                <div className="text-[11px] text-muted-foreground">恢复会话</div>
+                <div className="text-lg font-semibold text-foreground">{stats.sessions}</div>
+              </div>
+            </div>
+          ) : null}
+          <p className="text-[11px] text-muted-foreground">
+            UTC 自然日；{stats?.daily.length ?? 0} 天有恢复记录。统计不随下方用户/会话过滤变化。
+          </p>
+        </CardContent>
+      </Card>
 
       <Card className="py-0">
         <CardContent className="p-3">

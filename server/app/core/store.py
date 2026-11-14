@@ -14,7 +14,7 @@ import asyncio
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Protocol
 
 from sqlalchemy import and_, delete, func, or_, select, tuple_, update
@@ -109,6 +109,31 @@ class SessionRestoreAuditRecord:
     requested_count: int
     restored_count: int
     restored_at: datetime
+
+
+@dataclass(frozen=True)
+class SessionRestoreAuditDayStats:
+    """一天内的恢复活动（ADR-0065）；`day` 是 UTC 自然日。"""
+
+    day: date
+    restores: int
+    sessions: int
+
+
+@dataclass(frozen=True)
+class SessionRestoreAuditStats:
+    """窗口内的恢复审计汇总（ADR-0065）。
+
+    `restores` 是操作次数（审计行数），`sessions` 是真正恢复的会话数之和；
+    `users` 是去重后的操作者数。`daily` 只含有操作的 UTC 自然日，不补零。
+    """
+
+    since: datetime
+    until: datetime
+    restores: int
+    users: int
+    sessions: int
+    daily: tuple[SessionRestoreAuditDayStats, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -570,6 +595,17 @@ class RunStore(Protocol):
         只服务管理端首屏 total；与 `list_session_restore_audits` 是两次查询，
         不是同一快照。`user_id` 走 `(user_id, restored_at)` 索引，`session_id`
         走迁移 0020 的 JSONB GIN；都不带时是全表 COUNT。
+        """
+        ...
+
+    async def session_restore_audit_stats(
+        self, *, since: datetime, until: datetime
+    ) -> SessionRestoreAuditStats:
+        """窗口 `[since, until]` 内的恢复审计汇总（ADR-0065）。
+
+        只统计 `restored_at` 落在窗口内的审计行；`sessions` 用
+        `restored_count` 求和，而不是 JSONB 数组长度。`daily` 按 UTC 自然日
+        稀疏聚合，空日不补零。窗口由调用方计算，store 不做时区转换。
         """
         ...
 
@@ -1083,6 +1119,37 @@ class InMemoryRunStore:
                 if (user_id is None or record.user_id == user_id)
                 and (session_id is None or session_id in record.session_ids)
             )
+
+    async def session_restore_audit_stats(
+        self, *, since: datetime, until: datetime
+    ) -> SessionRestoreAuditStats:
+        async with self._lock:
+            records = [
+                record
+                for record in self._session_restore_audits
+                if since <= record.restored_at <= until
+            ]
+        per_day: dict[date, list[int]] = {}
+        users: set[str] = set()
+        sessions = 0
+        for record in records:
+            users.add(record.user_id)
+            sessions += record.restored_count
+            day = record.restored_at.astimezone(UTC).date()
+            bucket = per_day.setdefault(day, [0, 0])
+            bucket[0] += 1
+            bucket[1] += record.restored_count
+        return SessionRestoreAuditStats(
+            since=since,
+            until=until,
+            restores=len(records),
+            users=len(users),
+            sessions=sessions,
+            daily=tuple(
+                SessionRestoreAuditDayStats(day=day, restores=values[0], sessions=values[1])
+                for day, values in sorted(per_day.items())
+            ),
+        )
 
     async def prune_session_restore_audits(
         self, *, restored_before: datetime, limit: int = 200, dry_run: bool = False
@@ -1860,6 +1927,52 @@ class PostgresRunStore:
             stmt = stmt.where(SessionRestoreAuditRow.session_ids.contains([session_id]))
         async with self._sessionmaker() as session:
             return int((await session.scalar(stmt)) or 0)
+
+    async def session_restore_audit_stats(
+        self, *, since: datetime, until: datetime
+    ) -> SessionRestoreAuditStats:
+        window = (
+            SessionRestoreAuditRow.restored_at >= since,
+            SessionRestoreAuditRow.restored_at <= until,
+        )
+        summary = (
+            select(
+                func.count(),
+                func.count(func.distinct(SessionRestoreAuditRow.user_id)),
+                func.coalesce(func.sum(SessionRestoreAuditRow.restored_count), 0),
+            )
+            .select_from(SessionRestoreAuditRow)
+            .where(*window)
+        )
+        day_column = func.date(func.timezone("UTC", SessionRestoreAuditRow.restored_at))
+        daily = (
+            select(
+                day_column,
+                func.count(),
+                func.coalesce(func.sum(SessionRestoreAuditRow.restored_count), 0),
+            )
+            .where(*window)
+            .group_by(day_column)
+            .order_by(day_column)
+        )
+        async with self._sessionmaker() as session:
+            restores, users, sessions = (await session.execute(summary)).one()
+            rows = (await session.execute(daily)).all()
+        return SessionRestoreAuditStats(
+            since=since,
+            until=until,
+            restores=int(restores),
+            users=int(users),
+            sessions=int(sessions),
+            daily=tuple(
+                SessionRestoreAuditDayStats(
+                    day=row[0] if isinstance(row[0], date) else date.fromisoformat(str(row[0])),
+                    restores=int(row[1]),
+                    sessions=int(row[2]),
+                )
+                for row in rows
+            ),
+        )
 
     async def prune_session_restore_audits(
         self, *, restored_before: datetime, limit: int = 200, dry_run: bool = False

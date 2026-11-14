@@ -1,10 +1,11 @@
-"""会话恢复审计的只读管理接口（ADR-0059/0060/0061/0062）。
+"""会话恢复审计的只读管理接口（ADR-0059/0060/0061/0062/0065）。
 
 - 只读：恢复动作仍走 `POST /sessions/hidden/restore`，审计由 store 在删除事务内写
 - 默认返回全部用户最近 50 条；`user_id`/`session_id` 可选过滤
 - `(restored_at, id)` 倒序 keyset 分页；游标绑定当前过滤条件，换条件返回 400
 - 第一页附带同过滤条件总数；后续页为 null（ADR-0064）
 - CSV 导出：有上限的同步导出，超上限截断并显式告知
+- 统计：窗口内恢复次数、用户数、会话数与 UTC 日趋势（ADR-0065）
 - 数据库不可用返回 503，不返回空列表冒充「没有恢复记录」
 """
 
@@ -14,7 +15,7 @@ import base64
 import binascii
 import json
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response
@@ -25,7 +26,12 @@ from app.api.errors import ApiError
 from app.core.csv import csv_document
 from app.core.logging import get_logger
 from app.core.store import RunStore, SessionRestoreAuditRecord, get_store
-from app.schemas.session import SessionRestoreAuditListResponse, SessionRestoreAuditOut
+from app.schemas.session import (
+    SessionRestoreAuditDayOut,
+    SessionRestoreAuditListResponse,
+    SessionRestoreAuditOut,
+    SessionRestoreAuditStatsOut,
+)
 from app.tools.registry import Identity
 
 router = APIRouter(prefix="/admin/session-restores", tags=["admin-session-restores"])
@@ -112,6 +118,34 @@ def _decode_cursor(
     except (ValueError, TypeError, binascii.Error, json.JSONDecodeError):
         raise _cursor_error() from None
     return restored_at, audit_id
+
+
+@router.get("/stats", response_model=SessionRestoreAuditStatsOut)
+async def session_restore_stats(
+    store: Annotated[RunStore, Depends(get_store)],
+    _admin: Annotated[Identity, Depends(require_admin)],
+    days: Annotated[int, Query(ge=1, le=365)] = 30,
+) -> SessionRestoreAuditStatsOut:
+    """窗口内恢复活动汇总（ADR-0065）；日趋势按 UTC 稀疏聚合，不做图表数据补零。"""
+    until = datetime.now(UTC)
+    since = until - timedelta(days=days)
+    try:
+        stats = await store.session_restore_audit_stats(since=since, until=until)
+    except SQLAlchemyError as exc:
+        log.error("session_restore_audit_stats_failed", error=str(exc))
+        raise ApiError(503, "DATABASE_UNAVAILABLE", "会话恢复审计暂不可用") from exc
+    return SessionRestoreAuditStatsOut(
+        days=days,
+        since=stats.since,
+        until=stats.until,
+        restores=stats.restores,
+        users=stats.users,
+        sessions=stats.sessions,
+        daily=[
+            SessionRestoreAuditDayOut(day=day.day, restores=day.restores, sessions=day.sessions)
+            for day in stats.daily
+        ],
+    )
 
 
 @router.get("/export")

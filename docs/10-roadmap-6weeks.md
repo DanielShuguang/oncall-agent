@@ -1548,6 +1548,35 @@ Postgres + Redis **537 passed**；`ruff check` / `ruff format --check`（194 fil
 
 ---
 
+## W6 后补：会话恢复审计统计（ADR-0065）
+
+审计页能过滤、翻页、看首屏总数与导出，但回答不了「最近 30 天一共恢复了多少次、
+涉及多少用户和会话」。列表总数只在某个过滤条件下有意义；要得到全局规模，管理员
+只能清空过滤后逐页加载或导出后自己算。恢复审计保留 365 天，交接、容量评估和异常
+排查需要一个窗口内的聚合视图。
+
+| 事项 | 落地 |
+|---|---|
+| 接口 | `GET /admin/session-restores/stats?days=30`；`days` 1–365，默认 30，越界 422 |
+| 窗口 | `[until - days, until]`，`until` 为服务端当前 UTC；`since`/`until` 原样返回 |
+| 汇总 | `restores` 是审计行数（操作次数）；`sessions` 是 `restored_count` 之和；`users` 是去重操作者数 |
+| 日趋势 | `daily` 按 `restored_at` 的 UTC 自然日聚合，只含有活动的日期，升序、不补零；`restores`/`sessions` 与总汇总一致 |
+| 存储 | 无迁移、无新索引；复用 `idx_session_restore_audits_time`；一条汇总 + 一条按日分组，两条查询非同一快照 |
+| 前端 | 审计页顶部「近 7/30/90 天」切换与三个汇总数字；统计为全部用户，不随列表过滤；不做图表/按天明细表 |
+| 范围 | 不做按用户/会话过滤、统计缓存、统计 CSV、下载审计、可配置时区 |
+
+验证：默认 **499 passed + 40 skipped**；真实 Postgres **536 passed + 3 skipped**；
+Postgres + Redis **539 passed**；`ruff check` / `ruff format --check`（194 files）/
+`mypy app`（113 files）通过；前端 **85 tests / 17 files**、`tsc --noEmit`、
+`oxlint` 0/0（72 files）、`oxfmt --check` 80 files、`pnpm build` 通过。无迁移。
+
+已知边界：`restores` 是操作次数，不等于会话数；统计是全局的，不能按当前列表过滤
+下钻；365 天窗口可能较慢，当前不做缓存/近似值；统计与列表/导出不是同一快照；
+旧后端无该接口时页面只显示统计错误，不影响列表。详见
+[ADR-0065](decisions/0065-session-restore-audit-stats.md)。
+
+---
+
 ## 每周固定动作
 
 | 时点 | 动作 |

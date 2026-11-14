@@ -168,9 +168,9 @@ oncall/
 
 | 模块 | 状态 | 验证方式 |
 |---|---|---|
-| 文档（12 篇 + 64 篇 ADR + 评测基线） | ✅ 完成 | — |
+| 文档（12 篇 + 65 篇 ADR + 评测基线） | ✅ 完成 | — |
 | 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡 / 运行回放 / 成本页） | ✅ 可用 | `tsc --noEmit`、`oxlint 0`、`oxfmt --check` 通过；`vitest` 84/84；`pnpm build` 成功 |
-| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **497 passed + 40 skipped**；设 `ONCALL_TEST_DATABASE_URL`（指向一个可清空的库）后 **534 passed + 3 skipped**，再加 `ONCALL_TEST_REDIS_URL` 为 **537 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约与审批快照、引用快照与内容回收、个人预算与账本快照、工单自助查询、工单详情、会话列表/标题搜索/分页/重命名/移除/恢复、资产查询接表、运行过程回放与载荷上限、批量会话详情、工具配置变更历史、历史引用回填、已移除会话分页与搜索、已移除会话批量恢复、批量恢复逐条结果、会话恢复审计、会话恢复审计分页、恢复审计按 session 反查、恢复审计 CSV 导出、恢复审计列表总数、审批积压与等待统计、审批统计分组、审批列表分页、已办审批按决议时间排序、已办审批筛选、审批列表导出 CSV、审批列表首屏总数、审批统计按小时分布、计量一致性） |
+| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **499 passed + 40 skipped**；设 `ONCALL_TEST_DATABASE_URL`（指向一个可清空的库）后 **536 passed + 3 skipped**，再加 `ONCALL_TEST_REDIS_URL` 为 **539 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约与审批快照、引用快照与内容回收、个人预算与账本快照、工单自助查询、工单详情、会话列表/标题搜索/分页/重命名/移除/恢复、资产查询接表、运行过程回放与载荷上限、批量会话详情、工具配置变更历史、历史引用回填、已移除会话分页与搜索、已移除会话批量恢复、批量恢复逐条结果、会话恢复审计、会话恢复审计分页、恢复审计按 session 反查、恢复审计 CSV 导出、恢复审计列表总数、恢复审计统计、审批积压与等待统计、审批统计分组、审批列表分页、已办审批按决议时间排序、已办审批筛选、审批列表导出 CSV、审批列表首屏总数、审批统计按小时分布、计量一致性） |
 | 本地 JWT（W1 D2） | ✅ 已完成 | `tests/test_auth.py` 20 条：签发/验签、过期、alg=none、401 JSON、OpenAPI Bearer、run 归属隔离 |
 | 事件落库 + 断线续传（D4） | ✅ 已完成 | `alembic upgrade head` + `alembic check` 无漂移；`tests/test_store_contract.py`（内存 + Postgres 契约）、`tests/test_chat_stream.py`（落库、幂等回放、503 语义） |
 | 最小 Agent 运行时（W1 D5） | ✅ 已完成 | `tests/test_agent_runtime.py` 9 条：工具真实执行、检索引用、写操作挂起审批、工具失败降级、步数/时长上限 |
@@ -206,6 +206,7 @@ oncall/
 | 恢复审计 CSV 导出（W6 后补） | ✅ 已完成 | `GET /admin/session-restores/export` 按 `user_id`/`session_id` 过滤，同步导出最多 5000 条；`X-Export-Count`/`X-Export-Truncated` 告知截断；CSV 六列，`session_ids` 为 JSON 数组，不含正文；BOM/CRLF/ISO UTC/公式注入防护；抽出 `app/core/csv.py` 与审批导出共用；无迁移；`tests/test_admin_sessions.py`；[ADR-0062](docs/decisions/0062-session-restore-audit-export.md) |
 | 恢复审计管理页（W6 后补） | ✅ 已完成 | 管理后台新增 `/console/audits`：复用审计列表/导出接口，按用户/会话精确过滤、20 条/页「加载更多」、导出当前过滤结果；只读、首屏总数见 ADR-0064、无后端/迁移；非管理员请求返回 403；`web/src/api/sessionAudits.test.ts`；[ADR-0063](docs/decisions/0063-session-restore-audit-console.md) |
 | 恢复审计列表总数（W6 后补） | ✅ 已完成 | `GET /admin/session-restores` 第一页附 `total`（同 `user_id`/`session_id` 过滤，后续页 `null`）；`RunStore.count_session_restore_audits` 内存/PG 同口径；计数失败 503，不用 0 冒充；无迁移；管理页首屏「共 N 条」+ 已加载条数；无页码/跳页；`tests/test_admin_sessions.py`、`test_store_contract.py`；[ADR-0064](docs/decisions/0064-session-restore-audit-total.md) |
+| 会话恢复审计统计（W6 后补） | ✅ 已完成 | `GET /admin/session-restores/stats?days=` 返回窗口内恢复操作数、去重用户数、恢复会话总数与 UTC 稀疏日趋势；`days` 1–365 默认 30；全局口径、不接列表过滤；无迁移、复用时间索引；管理页新增近 7/30/90 天统计卡；`tests/test_admin_sessions.py`、`test_store_contract.py`；[ADR-0065](docs/decisions/0065-session-restore-audit-stats.md) |
 | 会话列表与历史会话继续（W6 后补） | ✅ 已完成 | 不建表，按 `runs.session_id` 投影（复用 `idx_runs_user_session_time`，无迁移）；`GET /sessions` 只读本人、标题取最早非空 `input`；左侧会话栏点开最近 20 条 run，拼只读 transcript（正文过期/引用回收/未结束/失败各有占位），继续对话沿用同一 `session_id`；`tests/test_sessions_api.py`、`test_store_contract.py`（`_exercise_sessions`）、`web/src/features/chat/history.test.ts`；[ADR-0030](docs/decisions/0030-session-list.md) |
 | 会话列表与历史轮次分页（W6 后补） | ✅ 已完成 | `/sessions` 用 `(updated_at, session_id)` keyset 游标（base64url JSON，非法 400 `INVALID_CURSOR`）；会话内用 `/runs` 已有游标翻更早轮次（`prependHistory`）；翻页期间新 run 可能造成重复/跳过，刷新即重置；无新表/索引/迁移；[ADR-0033](docs/decisions/0033-session-history-pagination.md) |
 | 会话列表按标题搜索（W6 后补） | ✅ 已完成 | `GET /sessions?q=`（1–100 字符，本人，大小写不敏感子串）只匹配投影标题（最早非空 `input`），不搜正文/工具结果/审批理由；与 keyset 分页共用游标；Postgres 用 `row_number()` 子查询 + `strpos(lower(...))`（`%`/`_` 按字面量，不是通配符）；无新表/索引/迁移；`tests/test_sessions_api.py`、`test_store_contract.py`；[ADR-0039](docs/decisions/0039-session-search.md) |
@@ -349,8 +350,9 @@ W6 基线（3 轮均值，mock 规则路径，口径见 [baseline-v1](docs/eval/
   （一次最多 50 个，逐条返回是否恢复，部分成功有提示；恢复审计见
   [ADR-0059](docs/decisions/0059-session-restore-audit.md)，管理端只读页见
   [ADR-0063](docs/decisions/0063-session-restore-audit-console.md)，但不显示正文、
-  首屏总数见 [ADR-0064](docs/decisions/0064-session-restore-audit-total.md)，
-  无编辑/删除/下载审计/跳页，
+  首屏总数见 [ADR-0064](docs/decisions/0064-session-restore-audit-total.md)，统计见
+  [ADR-0065](docs/decisions/0065-session-restore-audit-stats.md)，
+  仍无编辑/删除/下载审计/跳页，
   [ADR-0049](docs/decisions/0049-hidden-session-batch-restore.md)、[ADR-0055](docs/decisions/0055-hidden-restore-results.md)），
   但无管理员视角）；但没有批量移除/改名、
   置顶与虚拟滚动；翻页期间有新 run 时可能重复或跳过一页，刷新即重置

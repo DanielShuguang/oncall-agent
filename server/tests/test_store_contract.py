@@ -752,6 +752,22 @@ async def _exercise_hidden_sessions(store: RunStore) -> None:
         == []
     )
 
+    # 窗口汇总（ADR-0065）：只统计窗口内的审计行；sessions 用 restored_count 求和
+    stats = await store.session_restore_audit_stats(
+        since=datetime(2020, 1, 1, tzinfo=UTC),
+        until=datetime(2100, 1, 1, tzinfo=UTC),
+    )
+    assert stats.restores == 3
+    assert stats.users == 1
+    assert stats.sessions == 3
+    assert sum(day.restores for day in stats.daily) == 3
+    assert sum(day.sessions for day in stats.daily) == 3
+    empty = await store.session_restore_audit_stats(
+        since=datetime(2000, 1, 1, tzinfo=UTC),
+        until=datetime(2000, 1, 2, tzinfo=UTC),
+    )
+    assert (empty.restores, empty.users, empty.sessions, empty.daily) == (0, 0, 0, ())
+
 
 async def _exercise_events_for_runs(store: RunStore) -> None:
     """批量取事件（ADR-0036）：按 run 分组、组内 seq 升序、每个 run 独立截断。"""

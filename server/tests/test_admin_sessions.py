@@ -41,6 +41,10 @@ async def test_session_restore_audits_require_admin(client: AsyncClient) -> None
     assert export.status_code == 403
     assert export.json()["code"] == "FORBIDDEN"
 
+    stats = await client.get("/api/admin/session-restores/stats")
+    assert stats.status_code == 403
+    assert stats.json()["code"] == "FORBIDDEN"
+
 
 async def test_list_session_restore_audits(
     client: AsyncClient, mem_store: InMemoryRunStore
@@ -375,6 +379,45 @@ async def test_session_restore_audits_reject_bad_params(client: AsyncClient) -> 
             params={"session_id": "x" * 65},
         )
     ).status_code == 422
+    assert (
+        await client.get("/api/admin/session-restores/stats", headers=ADMIN, params={"days": 0})
+    ).status_code == 422
+    assert (
+        await client.get("/api/admin/session-restores/stats", headers=ADMIN, params={"days": 366})
+    ).status_code == 422
+
+
+async def test_session_restore_audit_stats(
+    client: AsyncClient, mem_store: InMemoryRunStore
+) -> None:
+    await _restore_once(mem_store, user_id="u_102", session_id="sess_a")
+    await asyncio.sleep(0.002)
+    await _restore_once(mem_store, user_id="u_103", session_id="sess_b")
+
+    res = await client.get("/api/admin/session-restores/stats", headers=ADMIN, params={"days": 7})
+    assert res.status_code == 200
+    body = res.json()
+    assert body["days"] == 7
+    assert body["restores"] == 2
+    assert body["users"] == 2
+    assert body["sessions"] == 2
+    assert body["since"] and body["until"]
+    assert sum(day["restores"] for day in body["daily"]) == 2
+    assert sum(day["sessions"] for day in body["daily"]) == 2
+    assert all(len(day["day"]) == 10 for day in body["daily"])
+
+
+async def test_session_restore_audit_stats_return_503_on_store_failure(
+    client: AsyncClient, mem_store: InMemoryRunStore, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        mem_store,
+        "session_restore_audit_stats",
+        AsyncMock(side_effect=SQLAlchemyError("stats down")),
+    )
+    res = await client.get("/api/admin/session-restores/stats", headers=ADMIN)
+    assert res.status_code == 503
+    assert res.json()["code"] == "DATABASE_UNAVAILABLE"
 
 
 async def test_session_restore_audits_return_503_on_store_failure(

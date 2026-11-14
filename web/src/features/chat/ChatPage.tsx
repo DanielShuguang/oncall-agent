@@ -21,6 +21,7 @@ import { CitationPreviewDialog } from './CitationPreviewDialog';
 import { SessionList } from './SessionList';
 import { Timeline } from './Timeline';
 import { transcriptMessages } from './history';
+import { formatRestoreNotice } from './restoreNotice';
 import { useChat } from './store';
 import type { Citation } from './types';
 
@@ -339,6 +340,7 @@ export default function ChatPage() {
       return;
     }
     setHiddenOpen(true);
+    setHiddenNotice(null);
     await loadHiddenFirstPage(hiddenQuery);
   };
 
@@ -420,12 +422,7 @@ export default function ChatPage() {
     setHiddenNotice(null);
     try {
       const result = await restoreSessions([...hiddenSelected]);
-      const failed = result.items.filter((item) => !item.restored).length;
-      setHiddenNotice(
-        failed === 0
-          ? `已恢复 ${result.restored} 个会话。`
-          : `已恢复 ${result.restored} 个会话；${failed} 个未恢复（可能已被恢复或不在本人已移除列表）。`,
-      );
+      setHiddenNotice(formatRestoreNotice(result.restored, result.items));
       // 批量恢复同样让在途请求失效，并从服务端重新拉一页，避免部分成功时本地列表撒谎。
       hiddenRequest.current += 1;
       setHiddenLoading(false);

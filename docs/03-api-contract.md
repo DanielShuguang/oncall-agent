@@ -48,6 +48,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | GET | `/approvals?status=pending&limit=50` | 待办/已办审批列表（keyset 游标分页；第一页附总数；已办可加 `tool/resolved_by/resolved_from/resolved_to` 筛选） | W3 D14 / W5 D23 / W6 后补 |
 | GET | `/approvals/export?status=approved&tool=create_ticket` | 按当前状态/筛选导出审批 CSV（最多 5000 条；响应头告知截断） | W6 后补 |
 | GET | `/approvals/stats?days=7&group_by=` | 审批积压、等待、按日/按小时分布与按工具/审批人分组（仅审批人） | W6 后补 |
+| GET | `/approvals/stats/export?days=7&group_by=tool` | 导出统计长表 CSV（汇总/日/小时/分组；仅审批人） | W6 后补 |
 | POST | `/admin/kb/documents` | 上传知识文档（multipart，≤10MB） | W2 D7 |
 | GET | `/admin/kb/documents` | 知识库文档列表 + chunk 总数 | W2 D7 |
 | GET | `/admin/kb/documents/{id}?preview=20` | 文档详情与切片预览（含 heading_path） | W2 D7 |
@@ -729,6 +730,43 @@ Authorization: Bearer <approver token>
 - 不返回逐条 `resolved_by`；`approver` 分组的 key 是审批人 `user_id`，只给审批人看聚合数字
   （[ADR-0051](decisions/0051-approval-stats-groups.md)）
 - 库不可用返回 503，不返回 0 冒充「没有积压」
+
+### 导出统计 CSV（ADR-0068）
+
+```http
+GET /api/approvals/stats/export?days=7&group_by=tool
+Authorization: Bearer <approver token>
+```
+
+```text
+section,key,day,hour,count,avg_wait_ms,max_wait_ms,value
+meta,days,,,,,,7
+meta,group_by,,,,,,tool
+summary,pending_count,,,,,,3
+summary,oldest_pending_age_s,,,,,,5400
+summary,decided_count,,,,,,12
+summary,avg_wait_ms,,,,,,1812000
+summary,max_wait_ms,,,,,,8640000
+summary,groups_truncated,,,,,,false
+daily,2026-11-09,2026-11-09,,5,1200000,,
+hour,09,,9,4,1500000,,
+group,create_ticket,,,7,1600000,3600000,
+```
+
+- 参数与统计接口一致：`days` 1–90 默认 7；`group_by` 可选 `tool` / `approver`；
+  不接收 `cursor`/`limit`；仅审批人可读，普通员工 403。
+- CSV 是长表，`section` 区分 `meta` / `summary` / `daily` / `hour` / `group`；
+  `count`/`avg_wait_ms`/`max_wait_ms` 为聚合字段，`value` 只用于 `meta` 与 `summary`。
+- 日与小时都是稀疏的，只含有决议的日期/小时；各小时/各日单数之和等于
+  `summary.decided_count`（有分组截断时以 `groups_truncated` 为准）。
+- `group` 行的 `key` 是工具名或审批人 `user_id`（缺失为 `unknown`）；分组最多 20 组，
+  截断时 `summary.groups_truncated=true`、响应头 `X-Export-Groups-Truncated: true`。
+- 响应头：`X-Export-Days`、`X-Export-Group-By`（`none`/`tool`/`approver`）、
+  `X-Export-Groups-Truncated`；`Cache-Control: no-store`；文件名
+  `approval-stats-{days}d-{none|tool|approver}-{UTC 时间}.csv`。
+- UTF-8 BOM + CRLF；时间 ISO 8601 UTC；以 `= + - @ \t \r` 开头的单元格前置单引号
+  （工具名/`user_id` 也按不可信文本处理）。
+- 数据库不可用返回 503；没有额外条数上限，统计规模由窗口与 24 小时/20 组上界决定。
 
 ```http
 POST /api/approvals/{approval_id}/resolve

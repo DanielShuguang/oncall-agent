@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import csv
+import io
 import uuid
 from datetime import UTC, date, datetime, timedelta
 from unittest.mock import AsyncMock
@@ -133,9 +135,10 @@ async def test_inmemory_stats_empty_returns_nulls() -> None:
 
 
 async def test_approval_stats_requires_approver(client: AsyncClient) -> None:
-    res = await client.get("/api/approvals/stats", headers=EMPLOYEE)
-    assert res.status_code == 403
-    assert res.json()["code"] == "FORBIDDEN"
+    for path in ("/api/approvals/stats", "/api/approvals/stats/export"):
+        res = await client.get(path, headers=EMPLOYEE)
+        assert res.status_code == 403
+        assert res.json()["code"] == "FORBIDDEN"
 
 
 async def test_approval_stats_returns_aggregates(
@@ -187,6 +190,60 @@ async def test_approval_stats_returns_aggregates(
     assert body["groups_truncated"] is False
 
 
+async def test_export_approval_stats_csv(
+    client: AsyncClient, mem_approvals: InMemoryApprovalStore
+) -> None:
+    """统计导出是长表，含汇总/日/小时/分组；公式前缀必须转义（ADR-0068）。"""
+    now = datetime.now(UTC)
+    await mem_approvals.create(_record("p1", created_at=now - timedelta(seconds=120)))
+    await mem_approvals.create(
+        _record(
+            "a1",
+            status="approved",
+            created_at=now - timedelta(hours=2),
+            resolved_at=now - timedelta(hours=1),
+            tool_name="=cmd",
+        )
+    )
+
+    res = await client.get("/api/approvals/stats/export?days=7&group_by=tool", headers=APPROVER)
+
+    assert res.status_code == 200
+    assert res.headers["content-type"].startswith("text/csv")
+    assert res.headers["content-disposition"].startswith(
+        'attachment; filename="approval-stats-7d-tool-'
+    )
+    assert res.headers["cache-control"] == "no-store"
+    assert res.headers["x-export-days"] == "7"
+    assert res.headers["x-export-group-by"] == "tool"
+    assert res.headers["x-export-groups-truncated"] == "false"
+    assert res.text.startswith("\ufeff")
+    parsed = list(csv.reader(io.StringIO(res.text[1:])))
+    assert parsed[0] == [
+        "section",
+        "key",
+        "day",
+        "hour",
+        "count",
+        "avg_wait_ms",
+        "max_wait_ms",
+        "value",
+    ]
+    rows = {(row[0], row[1]): row for row in parsed[1:]}
+    assert rows[("meta", "days")][7] == "7"
+    assert rows[("meta", "group_by")][7] == "tool"
+    assert rows[("summary", "pending_count")][7] == "1"
+    assert int(rows[("summary", "oldest_pending_age_s")][7] or 0) >= 120
+    assert rows[("summary", "decided_count")][7] == "1"
+    assert rows[("summary", "avg_wait_ms")][7] == "3600000"
+    assert rows[("summary", "groups_truncated")][7] == "false"
+    day_key = (now - timedelta(hours=1)).date().isoformat()
+    assert rows[("daily", day_key)][4] == "1"
+    assert rows[("hour", f"{(now - timedelta(hours=1)).hour:02d}")][4] == "1"
+    # 工具名以 = 开头时，CSV 必须当成文本而不是公式；组键被加了单引号。
+    assert rows[("group", "'=cmd")][6] == "3600000"
+
+
 async def test_approval_stats_validates_days(client: AsyncClient) -> None:
     for days in (0, 91):
         res = await client.get(f"/api/approvals/stats?days={days}", headers=APPROVER)
@@ -211,3 +268,6 @@ async def test_approval_stats_database_failure_is_503(
 
     assert res.status_code == 503
     assert res.json()["code"] == "DATABASE_UNAVAILABLE"
+    export = await client.get("/api/approvals/stats/export", headers=APPROVER)
+    assert export.status_code == 503
+    assert export.json()["code"] == "DATABASE_UNAVAILABLE"

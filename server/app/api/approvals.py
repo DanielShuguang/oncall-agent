@@ -31,6 +31,7 @@ from app.approvals.types import (
     ApprovalNotReady,
     ApprovalRecord,
     ApprovalScopeUnsupported,
+    ApprovalStats,
     PendingApprovalCursor,
     ResolvedApprovalCursor,
 )
@@ -68,6 +69,18 @@ CSV_HEADERS = (
     "expires_at",
     "resolved_at",
     "reason",
+)
+
+#: 统计导出是长表：汇总、日、小时、分组共用一套列，`section` 区分（ADR-0068）。
+STATS_CSV_HEADERS = (
+    "section",
+    "key",
+    "day",
+    "hour",
+    "count",
+    "avg_wait_ms",
+    "max_wait_ms",
+    "value",
 )
 
 
@@ -239,6 +252,82 @@ def _approvals_csv(records: list[ApprovalRecord]) -> str:
     )
 
 
+def _stats_csv(stats: ApprovalStats, *, days: int, group_by: ApprovalGroupBy | None) -> str:
+    """把汇总/日/小时/分组导出为一张长表（ADR-0068）。
+
+    统计结果有界（90 天、24 个小时、最多 20 组），不需要截断；分组被截断时
+    用 summary 行和响应头显式告知，避免把「前 20 组」误读成全量。
+    """
+    rows: list[tuple[object, ...]] = [
+        ("meta", "days", None, None, None, None, None, days),
+        ("meta", "group_by", None, None, None, None, None, group_by or "none"),
+        ("summary", "pending_count", None, None, None, None, None, stats.pending_count),
+        (
+            "summary",
+            "oldest_pending_age_s",
+            None,
+            None,
+            None,
+            None,
+            None,
+            stats.oldest_pending_age_s,
+        ),
+        ("summary", "decided_count", None, None, None, None, None, stats.decided_count),
+        ("summary", "avg_wait_ms", None, None, None, None, None, stats.avg_wait_ms),
+        ("summary", "max_wait_ms", None, None, None, None, None, stats.max_wait_ms),
+        (
+            "summary",
+            "groups_truncated",
+            None,
+            None,
+            None,
+            None,
+            None,
+            "true" if stats.groups_truncated else "false",
+        ),
+    ]
+    rows.extend(
+        (
+            "daily",
+            day.day.isoformat(),
+            day.day.isoformat(),
+            None,
+            day.decided_count,
+            day.avg_wait_ms,
+            None,
+            None,
+        )
+        for day in stats.daily
+    )
+    rows.extend(
+        (
+            "hour",
+            f"{hour.hour:02d}",
+            None,
+            hour.hour,
+            hour.decided_count,
+            hour.avg_wait_ms,
+            None,
+            None,
+        )
+        for hour in stats.hourly
+    )
+    rows.extend(
+        (
+            "group",
+            group.key,
+            None,
+            None,
+            group.decided_count,
+            group.avg_wait_ms,
+            group.max_wait_ms,
+            None,
+        )
+        for group in stats.groups
+    )
+    return csv_document(STATS_CSV_HEADERS, rows)
+
+
 @router.get("/approvals/export")
 async def export_approvals(
     service: Annotated[ApprovalService, Depends(get_approval_service)],
@@ -372,6 +461,36 @@ async def approval_stats(
             for group in stats.groups
         ],
         groups_truncated=stats.groups_truncated,
+    )
+
+
+@router.get("/approvals/stats/export")
+async def export_approval_stats(
+    service: Annotated[ApprovalService, Depends(get_approval_service)],
+    identity: Annotated[Identity, Depends(get_identity)],
+    days: Annotated[int, Query(ge=1, le=90)] = 7,
+    group_by: Annotated[ApprovalGroupBy | None, Query()] = None,
+) -> Response:
+    """导出审批统计长表 CSV（ADR-0068），仅审批人可见，与统计接口同口径。"""
+    try:
+        stats = await service.stats(identity, days=days, group_by=group_by)
+    except ApprovalForbidden as exc:
+        raise ApiError(403, "FORBIDDEN", str(exc)) from None
+    except SQLAlchemyError as exc:
+        log.error("approval_stats_export_failed", error=str(exc))
+        raise ApiError(503, "DATABASE_UNAVAILABLE", "database unavailable") from exc
+    group_label = group_by or "none"
+    filename = f"approval-stats-{days}d-{group_label}-{datetime.now(UTC):%Y%m%d-%H%M%S}.csv"
+    return Response(
+        content=_stats_csv(stats, days=days, group_by=group_by),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+            "X-Export-Days": str(days),
+            "X-Export-Group-By": group_label,
+            "X-Export-Groups-Truncated": "true" if stats.groups_truncated else "false",
+        },
     )
 
 

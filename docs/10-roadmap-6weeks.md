@@ -1632,6 +1632,34 @@ Postgres + Redis **540 passed**；`ruff check` / `ruff format --check`（194 fil
 
 ---
 
+## W6 后补：审批统计聚合导出 CSV（ADR-0068）
+
+审批统计页已有积压、等待、按日/按小时与分组，但只能看不能带走；交接与周报仍要
+手工抄数字。统计是聚合形状，不能拿逐条审批 CSV 复原。新增一个同步导出接口，
+复用现有 CSV helper，无迁移。
+
+| 事项 | 落地 |
+|---|---|
+| 接口 | `GET /approvals/stats/export?days=&group_by=`，与统计接口同参数、仅审批人；不接收 `cursor`/`limit` |
+| CSV | 长表 `section,key,day,hour,count,avg_wait_ms,max_wait_ms,value`；`meta`/`summary`/`daily`/`hour`/`group` |
+| 元数据 | `meta.days`、`meta.group_by`；响应头 `X-Export-Days`、`X-Export-Group-By`、`X-Export-Groups-Truncated` |
+| 口径 | 日/小时稀疏、UTC；汇总与统计接口一致；分组最多 20 组，截断在内容和响应头都显式告知 |
+| 格式 | 复用 `csv_document`：BOM + CRLF、ISO UTC、公式前缀转义；文件名 `approval-stats-{days}d-{group}.csv` |
+| 前端 | 顶部「导出统计」按当前 7/30/90 天窗口与分组下载；切窗口/分组失效在途导出并提示窗口/截断状态 |
+| 范围 | 同步、无条数上限（统计有界）、不做下载审计/异步/XLSX 多表 |
+
+验证：默认 **501 passed + 40 skipped**；真实 Postgres **538 passed + 3 skipped**；
+Postgres + Redis **541 passed**；`ruff check` / `ruff format --check`（194 files）/
+`mypy app`（113 files）通过；前端 **86 tests / 17 files**、`tsc --noEmit`、
+`oxlint` 0/0（72 files）、`oxfmt --check` 80 files、`pnpm build` 通过。无迁移。
+
+已知边界：导出是当前窗口的只读快照，与统计页可能不是严格同一时刻；长表需要在
+Excel 里按 `section` 筛选；分组超过 20 组时只导出前 20 组；不记录谁导出了什么，
+也不支持异步任务/对象存储。详见
+[ADR-0068](decisions/0068-approval-stats-export.md)。
+
+---
+
 ## 每周固定动作
 
 | 时点 | 动作 |

@@ -30,6 +30,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import {
+  exportApprovalStatsCsv,
   exportApprovalsCsv,
   getApprovalStats,
   listApprovals,
@@ -93,6 +94,11 @@ export default function ApprovalsPage() {
   const [exportMessage, setExportMessage] = useState<{ text: string; failed: boolean } | null>(
     null,
   );
+  const [statsExporting, setStatsExporting] = useState(false);
+  const [statsExportMessage, setStatsExportMessage] = useState<{
+    text: string;
+    failed: boolean;
+  } | null>(null);
   const [resolver, setResolver] = useState<ResolveState | null>(null);
   const [stats, setStats] = useState<ApprovalStats | null>(null);
   const [statsDays, setStatsDays] = useState(7);
@@ -105,6 +111,8 @@ export default function ApprovalsPage() {
   const listRequest = useRef(0);
   // 导出同理：切状态/筛选后，旧请求不能再下载或覆盖新状态的提示。
   const exportRequest = useRef(0);
+  // 统计导出跟随统计窗口/分组；切窗口后旧导出也不能再下载。
+  const statsExportRequest = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -215,6 +223,53 @@ export default function ApprovalsPage() {
       });
     } finally {
       if (exportRequest.current === requestId) setExporting(false);
+    }
+  };
+
+  const changeStatsDays = (days: number) => {
+    if (days === statsDays) return;
+    statsExportRequest.current += 1;
+    setStatsExporting(false);
+    setStatsExportMessage(null);
+    setStatsDays(days);
+  };
+
+  const changeStatsGroup = (next: StatsGroup) => {
+    if (next === statsGroup) return;
+    statsExportRequest.current += 1;
+    setStatsExporting(false);
+    setStatsExportMessage(null);
+    setStatsGroup(next);
+  };
+
+  const exportStatsCsv = async () => {
+    if (statsExporting) return;
+    const requestId = ++statsExportRequest.current;
+    setStatsExporting(true);
+    setStatsExportMessage(null);
+    try {
+      const result = await exportApprovalStatsCsv(
+        statsDays,
+        statsGroup === 'none' ? null : statsGroup,
+      );
+      if (statsExportRequest.current !== requestId) return;
+      const groupLabel =
+        result.groupBy === null ? '不分组' : result.groupBy === 'tool' ? '按工具' : '按审批人';
+      downloadBlob(result.blob, `approval-stats-${result.days}d-${result.groupBy ?? 'none'}.csv`);
+      setStatsExportMessage({
+        failed: false,
+        text: result.groupsTruncated
+          ? `已导出近 ${result.days} 天统计（${groupLabel}）；分组超过 20 组，仅含前 20 组。`
+          : `已导出近 ${result.days} 天统计（${groupLabel}）。`,
+      });
+    } catch (exc) {
+      if (statsExportRequest.current !== requestId) return;
+      setStatsExportMessage({
+        failed: true,
+        text: exc instanceof Error ? exc.message : '导出统计失败',
+      });
+    } finally {
+      if (statsExportRequest.current === requestId) setStatsExporting(false);
     }
   };
 
@@ -343,13 +398,13 @@ export default function ApprovalsPage() {
               size="sm"
               variant={statsDays === days ? 'secondary' : 'ghost'}
               aria-pressed={statsDays === days}
-              onClick={() => setStatsDays(days)}
+              onClick={() => changeStatsDays(days)}
             >
               {days} 天
             </Button>
           ))}
         </fieldset>
-        <Select value={statsGroup} onValueChange={(next) => setStatsGroup(next as StatsGroup)}>
+        <Select value={statsGroup} onValueChange={(next) => changeStatsGroup(next as StatsGroup)}>
           <SelectTrigger className="h-8 w-32 text-xs" aria-label="分组维度">
             <SelectValue />
           </SelectTrigger>
@@ -359,6 +414,15 @@ export default function ApprovalsPage() {
             <SelectItem value="approver">按审批人</SelectItem>
           </SelectContent>
         </Select>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 text-xs"
+          disabled={statsExporting}
+          onClick={() => void exportStatsCsv()}
+        >
+          {statsExporting ? '导出中…' : '导出统计'}
+        </Button>
         <Select value={status} onValueChange={changeStatus}>
           <SelectTrigger className="h-8 w-28 text-xs">
             <SelectValue />
@@ -385,6 +449,12 @@ export default function ApprovalsPage() {
       {exportMessage && (
         <p className={exportMessage.failed ? 'text-xs text-danger' : 'text-xs text-ok'}>
           {exportMessage.text}
+        </p>
+      )}
+
+      {statsExportMessage && (
+        <p className={statsExportMessage.failed ? 'text-xs text-danger' : 'text-xs text-ok'}>
+          {statsExportMessage.text}
         </p>
       )}
 

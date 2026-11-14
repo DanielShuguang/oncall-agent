@@ -124,6 +124,30 @@ export async function exportApprovalsCsv(
   };
 }
 
+export interface ApprovalStatsExport {
+  blob: Blob;
+  days: number;
+  groupBy: 'tool' | 'approver' | null;
+  /** 分组最多返回 20 组；超出时导出只含前 20 组（ADR-0068）。 */
+  groupsTruncated: boolean;
+}
+
+export async function exportApprovalStatsCsv(
+  days = 7,
+  groupBy: 'tool' | 'approver' | null = null,
+): Promise<ApprovalStatsExport> {
+  const params = new URLSearchParams({ days: String(days) });
+  if (groupBy !== null) params.set('group_by', groupBy);
+  const { blob, headers } = await getFile(`/approvals/stats/export?${params.toString()}`);
+  const groupHeader = headers.get('X-Export-Group-By');
+  return {
+    blob,
+    days: Number(headers.get('X-Export-Days') ?? days) || days,
+    groupBy: groupHeader === 'tool' || groupHeader === 'approver' ? groupHeader : null,
+    groupsTruncated: headers.get('X-Export-Groups-Truncated') === 'true',
+  };
+}
+
 export async function getApprovalStats(
   days = 7,
   groupBy: 'tool' | 'approver' | null = null,

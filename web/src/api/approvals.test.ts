@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { exportApprovalsCsv, getApprovalStats, listApprovals, resolveApproval } from './approvals';
+import {
+  exportApprovalStatsCsv,
+  exportApprovalsCsv,
+  getApprovalStats,
+  listApprovals,
+  resolveApproval,
+} from './approvals';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -103,6 +109,34 @@ describe('exportApprovalsCsv', () => {
     expect(result.count).toBe(3);
     expect(result.truncated).toBe(true);
     expect(await result.blob.text()).toBe('approval_id\r\n');
+  });
+});
+
+describe('exportApprovalStatsCsv', () => {
+  it('拼窗口与分组参数，并读取统计导出响应头（ADR-0068）', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    fetchMock.mockResolvedValue(
+      new Response('section\r\n', {
+        status: 200,
+        headers: {
+          'Content-Type': 'text/csv; charset=utf-8',
+          'X-Export-Days': '30',
+          'X-Export-Group-By': 'approver',
+          'X-Export-Groups-Truncated': 'true',
+        },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await exportApprovalStatsCsv(30, 'approver');
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      '/api/approvals/stats/export?days=30&group_by=approver',
+    );
+    expect(result.days).toBe(30);
+    expect(result.groupBy).toBe('approver');
+    expect(result.groupsTruncated).toBe(true);
+    expect(await result.blob.text()).toBe('section\r\n');
   });
 });
 

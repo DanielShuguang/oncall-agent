@@ -10,9 +10,7 @@ from __future__ import annotations
 
 import base64
 import binascii
-import csv
 import hashlib
-import io
 import json
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Annotated
@@ -36,6 +34,7 @@ from app.approvals.types import (
     PendingApprovalCursor,
     ResolvedApprovalCursor,
 )
+from app.core.csv import csv_document
 from app.core.logging import get_logger
 from app.core.store import RunStore, get_store
 from app.schemas.approval import (
@@ -215,45 +214,29 @@ def _decode_approval_cursor(
     return _decode_resolved_cursor(data, status, filter_fingerprint)
 
 
-def _csv_cell(value: object) -> str:
-    """CSV 单元格：日期用 ISO 8601，并挡住 Excel 公式注入（ADR-0056）。"""
-    if value is None:
-        text = ""
-    elif isinstance(value, datetime):
-        text = value.isoformat()
-    else:
-        text = str(value)
-    # Excel/WPS 会把以这些字符开头的单元格当公式；前置单引号让它按文本显示。
-    if text.startswith(("=", "+", "-", "@", "\t", "\r")):
-        return "'" + text
-    return text
-
-
 def _approvals_csv(records: list[ApprovalRecord]) -> str:
     """导出审批元数据；不导出 args，避免把工具参数里的敏感值带进表格。"""
-    buffer = io.StringIO()
-    buffer.write("\ufeff")  # Excel 识别 UTF-8
-    writer = csv.writer(buffer, lineterminator="\r\n")
-    writer.writerow(CSV_HEADERS)
-    for record in records:
-        writer.writerow(
-            [
-                _csv_cell(record.id),
-                _csv_cell(record.run_id),
-                _csv_cell(record.call_id),
-                _csv_cell(record.tool_name),
-                _csv_cell(record.risk_level),
-                _csv_cell(record.status),
-                _csv_cell(record.requested_by),
-                _csv_cell(record.resolved_by),
-                _csv_cell(record.scope),
-                _csv_cell(record.created_at),
-                _csv_cell(record.expires_at),
-                _csv_cell(record.resolved_at),
-                _csv_cell(record.reason),
-            ]
-        )
-    return buffer.getvalue()
+    return csv_document(
+        CSV_HEADERS,
+        (
+            (
+                record.id,
+                record.run_id,
+                record.call_id,
+                record.tool_name,
+                record.risk_level,
+                record.status,
+                record.requested_by,
+                record.resolved_by,
+                record.scope,
+                record.created_at,
+                record.expires_at,
+                record.resolved_at,
+                record.reason,
+            )
+            for record in records
+        ),
+    )
 
 
 @router.get("/approvals/export")

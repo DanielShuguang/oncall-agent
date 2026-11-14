@@ -1,9 +1,9 @@
-"""会话恢复审计的只读管理接口（ADR-0059/0060/0061）。
+"""会话恢复审计的只读管理接口（ADR-0059/0060/0061/0062）。
 
 - 只读：恢复动作仍走 `POST /sessions/hidden/restore`，审计由 store 在删除事务内写
 - 默认返回全部用户最近 50 条；`user_id`/`session_id` 可选过滤
 - `(restored_at, id)` 倒序 keyset 分页；游标绑定当前过滤条件，换条件返回 400
-- 不提供导出：审计表按 365 天保留
+- CSV 导出：有上限的同步导出，超上限截断并显式告知
 - 数据库不可用返回 503，不返回空列表冒充「没有恢复记录」
 """
 
@@ -13,14 +13,15 @@ import base64
 import binascii
 import json
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.deps import require_admin
 from app.api.errors import ApiError
+from app.core.csv import csv_document
 from app.core.logging import get_logger
 from app.core.store import RunStore, SessionRestoreAuditRecord, get_store
 from app.schemas.session import SessionRestoreAuditListResponse, SessionRestoreAuditOut
@@ -28,6 +29,17 @@ from app.tools.registry import Identity
 
 router = APIRouter(prefix="/admin/session-restores", tags=["admin-session-restores"])
 log = get_logger(__name__)
+
+#: 同步导出必须有上限；超过上限只导出当前排序的前 N 条并显式告知截断（ADR-0062）。
+MAX_EXPORT_ROWS = 5000
+CSV_HEADERS = (
+    "audit_id",
+    "user_id",
+    "restored_at",
+    "requested_count",
+    "restored_count",
+    "session_ids",
+)
 
 
 def _out(record: SessionRestoreAuditRecord) -> SessionRestoreAuditOut:
@@ -38,6 +50,24 @@ def _out(record: SessionRestoreAuditRecord) -> SessionRestoreAuditOut:
         requested_count=record.requested_count,
         restored_count=record.restored_count,
         restored_at=record.restored_at,
+    )
+
+
+def _audits_csv(records: list[SessionRestoreAuditRecord]) -> str:
+    """导出审计元数据；`session_ids` 用 JSON 数组保留原顺序。"""
+    return csv_document(
+        CSV_HEADERS,
+        (
+            (
+                record.audit_id,
+                record.user_id,
+                record.restored_at,
+                record.requested_count,
+                record.restored_count,
+                json.dumps(list(record.session_ids), ensure_ascii=False, separators=(",", ":")),
+            )
+            for record in records
+        ),
     )
 
 
@@ -81,6 +111,38 @@ def _decode_cursor(
     except (ValueError, TypeError, binascii.Error, json.JSONDecodeError):
         raise _cursor_error() from None
     return restored_at, audit_id
+
+
+@router.get("/export")
+async def export_session_restores(
+    store: Annotated[RunStore, Depends(get_store)],
+    _admin: Annotated[Identity, Depends(require_admin)],
+    user_id: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
+    session_id: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
+) -> Response:
+    """按当前过滤导出审计 CSV（ADR-0062）；超上限截断，不做异步导出任务。"""
+    try:
+        records = await store.list_session_restore_audits(
+            user_id=user_id,
+            session_id=session_id,
+            limit=MAX_EXPORT_ROWS + 1,
+        )
+    except SQLAlchemyError as exc:
+        log.error("session_restore_audit_export_failed", error=str(exc))
+        raise ApiError(503, "DATABASE_UNAVAILABLE", "会话恢复审计暂不可用") from exc
+    truncated = len(records) > MAX_EXPORT_ROWS
+    rows = records[:MAX_EXPORT_ROWS]
+    filename = f"session-restores-{datetime.now(UTC):%Y%m%d-%H%M%S}.csv"
+    return Response(
+        content=_audits_csv(rows),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+            "X-Export-Count": str(len(rows)),
+            "X-Export-Truncated": "true" if truncated else "false",
+        },
+    )
 
 
 @router.get("")

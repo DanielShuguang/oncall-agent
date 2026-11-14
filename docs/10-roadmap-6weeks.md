@@ -1457,7 +1457,7 @@ Postgres + Redis **533 passed**；`ruff check` / `ruff format --check`（192 fil
 | 索引 | 迁移 `0020`：`idx_session_restore_audits_sessions USING gin (session_ids jsonb_path_ops)`，只服务包含查询 |
 | 游标 | 无过滤保持 `{t, i, u}`；带 `session_id` 过滤时增加 `s`；换过滤复用旧游标 400 `INVALID_CURSOR` |
 | 兼容 | ADR-0060 旧游标没有 `s`，只在不带 `session_id` 的请求里继续可用 |
-| 范围 | 不做前端管理页/CSV/总数/跳页；仍为管理员只读，`limit` 1–200 默认 50 |
+| 范围 | 不做前端管理页/总数/跳页；仍为管理员只读，`limit` 1–200 默认 50；CSV 导出由 ADR-0062 补上 |
 
 验证：默认 **494 passed + 40 skipped**；真实 Postgres **531 passed + 3 skipped**；
 Postgres + Redis **534 passed**；`ruff check` / `ruff format --check`（193 files）/
@@ -1468,6 +1468,31 @@ Postgres + Redis **534 passed**；`ruff check` / `ruff format --check`（193 fil
 批次存数组，没有逐 session 明细表；游标不是签名令牌，管理员可伪造 `t/i` 跳记录
 （只能读本就有权读的管理数据）；会话被保留清理删除后审计仍保留，但无法再反查
 会话内容。详见 [ADR-0061](decisions/0061-session-restore-audit-session-filter.md)。
+
+---
+
+## W6 后补：会话恢复审计 CSV 导出（ADR-0062）
+
+审计列表已支持过滤与 keyset 分页，但交接、对账和离线留档需要「一次拿到当前
+过滤结果」，逐页拼接既慢又可能得到半份文件。审计保留 365 天，导出必须有上限。
+
+| 事项 | 落地 |
+|---|---|
+| 接口 | `GET /admin/session-restores/export`，管理员只读；`user_id`/`session_id` 过滤，不接收 `cursor`/`limit` |
+| 上限 | 同步导出最多 5000 条；`X-Export-Count`/`X-Export-Truncated` 告知实际条数与截断 |
+| 字段 | `audit_id, user_id, restored_at, requested_count, restored_count, session_ids`；`session_ids` 为 JSON 数组；不含会话正文/消息 |
+| 格式 | UTF-8 BOM + CRLF，时间 ISO 8601 UTC；`= + - @` 等开头前置单引号防公式注入；`Cache-Control: no-store` |
+| 复用 | 抽出 `app/core/csv.py`，审批导出与审计导出共用单元格转义；无迁移、无新索引 |
+| 范围 | 不做异步导出、总数、下载审计与前端管理页；导出期间新增恢复不进入本次文件 |
+
+验证：默认 **496 passed + 40 skipped**；真实 Postgres **533 passed + 3 skipped**；
+Postgres + Redis **536 passed**；`ruff check` / `ruff format --check`（194 files）/
+`mypy app`（113 files）通过；前端未改，沿用 **81 tests / 16 files**、`oxlint` 0/0
+（68 files）、`oxfmt --check` 76 files、`pnpm build`。
+
+已知边界：导出是同步请求，超 5000 条只给前 5000 条；管理员可导出所有用户审计
+（与列表权限一致）；下载动作不落审计；CSV 不是防篡改证据。详见
+[ADR-0062](decisions/0062-session-restore-audit-export.md)。
 
 ---
 

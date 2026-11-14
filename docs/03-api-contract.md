@@ -38,6 +38,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | DELETE | `/sessions/{session_id}/hidden` | 恢复已移除的会话（只删 `hidden_sessions` 行，204） | W6 后补 |
 | POST | `/sessions/hidden/restore` | 批量恢复已移除会话（最多 50，部分成功，返回逐条结果） | W6 后补 |
 | GET | `/admin/session-restores` | 会话恢复审计（按用户/会话过滤，最近在前，游标分页） | W6 后补 |
+| GET | `/admin/session-restores/export` | 会话恢复审计 CSV 导出（按用户/会话过滤，最多 5000 条） | W6 后补 |
 | GET | `/sessions/{session_id}/runs` | 一页会话详情（正文/引用/运行过程，一次返回） | W6 后补 |
 | GET | `/runs/{run_id}` | 单次运行详情（含指标与模型调用明细） | W1 D4 / W4 D19 |
 | GET | `/runs/{run_id}/events?after_seq=` | 补拉事件（断线续传，兼容 `Last-Event-ID`） | W1 D4 |
@@ -757,7 +758,7 @@ POST /api/approvals/{approval_id}/resolve
 > 引用全文只要求登录，且受文档级可见性约束（[ADR-0018](decisions/0018-citation-fulltext-preview.md)、
 > [ADR-0019](decisions/0019-document-level-access.md)）。
 
-### 会话恢复审计（ADR-0059/0060/0061）
+### 会话恢复审计（ADR-0059/0060/0061/0062）
 
 ```http
 GET /api/admin/session-restores?user_id=u_102&session_id=sess_a&limit=20&cursor=<base64url>
@@ -796,7 +797,25 @@ Authorization: Bearer <admin token>
 - 审计与删除 `hidden_sessions` 在同一事务内完成；写入失败会回滚恢复
 - 审计独立保留 365 天（`ONCALL_SESSION_RESTORE_AUDIT_RETENTION_DAYS`），不随事件/
   正文保留期清理；库不可用返回 `503 {"code":"DATABASE_UNAVAILABLE"}`，不返回空列表
-- 不做导出与总数；`next_cursor` 只表示还有下一页，不是总数/跳页
+- 不做总数；`next_cursor` 只表示还有下一页，不是总数/跳页
+
+导出（ADR-0062）：
+
+```http
+GET /api/admin/session-restores/export?user_id=u_102&session_id=sess_a
+Authorization: Bearer <admin token>
+```
+
+- 与列表相同的 `user_id`/`session_id` 过滤，不接收 `cursor`/`limit`；按
+  `(restored_at, id)` 倒序导出，最多 5000 条
+- CSV 列为 `audit_id, user_id, restored_at, requested_count, restored_count,
+  session_ids`；`session_ids` 是 JSON 数组；不导出会话正文/消息等敏感内容
+- `Content-Type: text/csv`；UTF-8 BOM + CRLF；时间为 ISO 8601 UTC；以
+  `= + - @ \t \r` 开头的单元格前置单引号防公式注入
+- 响应头 `X-Export-Count` 为实际导出条数，`X-Export-Truncated` 为
+  `true`/`false`；`Cache-Control: no-store`；超上限截断但不报错
+- 管理接口，要求 `ONCALL_ADMIN_ROLES`；数据库不可用返回 503；不做异步导出/
+  下载审计
 
 ### 成本汇总
 

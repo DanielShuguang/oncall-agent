@@ -1,9 +1,11 @@
-"""会话恢复审计的管理端读取（ADR-0059/0060/0061）。"""
+"""会话恢复审计的管理端读取与 CSV 导出（ADR-0059/0060/0061/0062）。"""
 
 from __future__ import annotations
 
 import asyncio
 import base64
+import csv
+import io
 import json
 import uuid
 from datetime import UTC, datetime
@@ -259,6 +261,68 @@ async def test_session_restore_audits_filter_by_session(
     assert legacy_with_session.json()["code"] == "INVALID_CURSOR"
 
 
+async def test_export_session_restores_csv(
+    client: AsyncClient, mem_store: InMemoryRunStore
+) -> None:
+    await _restore_once(mem_store, user_id="u_102", session_id="sess_a")
+    await _restore_once(mem_store, user_id="u_200", session_id="sess_b")
+    await _restore_once(mem_store, user_id="u_102", session_id="sess_c")
+
+    res = await client.get("/api/admin/session-restores/export", headers=ADMIN)
+    assert res.status_code == 200
+    assert res.headers["content-type"].startswith("text/csv")
+    assert res.headers["content-disposition"].startswith('attachment; filename="session-restores-')
+    assert res.headers["cache-control"] == "no-store"
+    assert res.headers["x-export-count"] == "3"
+    assert res.headers["x-export-truncated"] == "false"
+    assert res.text.startswith("\ufeff")
+
+    rows = list(csv.reader(io.StringIO(res.text.lstrip("\ufeff"))))
+    assert rows[0] == [
+        "audit_id",
+        "user_id",
+        "restored_at",
+        "requested_count",
+        "restored_count",
+        "session_ids",
+    ]
+    assert len(rows) == 4
+    by_user = {row[1]: row for row in rows[1:]}
+    assert json.loads(by_user["u_102"][5]) in (["sess_a"], ["sess_c"])
+    assert by_user["u_200"][3] == "1"
+    assert by_user["u_200"][4] == "1"
+
+    filtered_user = await client.get(
+        "/api/admin/session-restores/export", headers=ADMIN, params={"user_id": "u_102"}
+    )
+    assert filtered_user.status_code == 200
+    assert filtered_user.headers["x-export-count"] == "2"
+
+    filtered_session = await client.get(
+        "/api/admin/session-restores/export", headers=ADMIN, params={"session_id": "sess_b"}
+    )
+    assert filtered_session.status_code == 200
+    assert filtered_session.headers["x-export-count"] == "1"
+    filtered_rows = list(csv.reader(io.StringIO(filtered_session.text.lstrip("\ufeff"))))
+    assert len(filtered_rows) == 2
+    assert json.loads(filtered_rows[1][5]) == ["sess_b"]
+
+
+async def test_export_session_restores_truncates(
+    client: AsyncClient, mem_store: InMemoryRunStore, monkeypatch
+) -> None:
+    for index in range(3):
+        await _restore_once(mem_store, user_id="u_102", session_id=f"sess_export_{index}")
+    monkeypatch.setattr("app.api.admin_sessions.MAX_EXPORT_ROWS", 2)
+
+    res = await client.get("/api/admin/session-restores/export", headers=ADMIN)
+    assert res.status_code == 200
+    assert res.headers["x-export-count"] == "2"
+    assert res.headers["x-export-truncated"] == "true"
+    rows = list(csv.reader(io.StringIO(res.text.lstrip("\ufeff"))))
+    assert len(rows) == 3
+
+
 async def test_session_restore_audits_reject_bad_params(client: AsyncClient) -> None:
     assert (
         await client.get("/api/admin/session-restores", headers=ADMIN, params={"limit": 0})
@@ -290,3 +354,7 @@ async def test_session_restore_audits_return_503_on_store_failure(
     res = await client.get("/api/admin/session-restores", headers=ADMIN)
     assert res.status_code == 503
     assert res.json()["code"] == "DATABASE_UNAVAILABLE"
+
+    export = await client.get("/api/admin/session-restores/export", headers=ADMIN)
+    assert export.status_code == 503
+    assert export.json()["code"] == "DATABASE_UNAVAILABLE"

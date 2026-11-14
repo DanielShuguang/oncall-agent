@@ -60,6 +60,11 @@ const STATUS_TONES: Record<string, string> = {
   expired: 'border-line bg-muted text-muted-foreground',
 };
 
+function formatHourRange(hour: number): string {
+  const label = String(hour).padStart(2, '0');
+  return `${label}:00–${label}:59`;
+}
+
 function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
@@ -517,6 +522,41 @@ export default function ApprovalsPage() {
                       {day.avg_wait_ms === null
                         ? '平均等待 —'
                         : `平均等待 ${formatDurationMs(day.avg_wait_ms)}`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {stats && (
+        <Card className="py-0">
+          <CardContent className="p-3">
+            <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+              <div className="text-xs font-medium">按小时分布</div>
+              <div className="text-[11px] text-muted-foreground">
+                近 {stats.days} 天 · UTC · 只列有决议的小时
+              </div>
+            </div>
+            {stats.hourly.length === 0 ? (
+              <p className="text-xs text-muted-foreground">窗口内还没有已决议的审批。</p>
+            ) : (
+              <div className="space-y-1">
+                {stats.hourly.map((hour) => (
+                  <div
+                    key={hour.hour}
+                    className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs"
+                  >
+                    <span className="w-28 shrink-0 text-muted-foreground">
+                      {formatHourRange(hour.hour)}
+                    </span>
+                    <span>{hour.decided_count} 单</span>
+                    <span className="text-muted-foreground">
+                      {hour.avg_wait_ms === null
+                        ? '平均等待 —'
+                        : `平均等待 ${formatDurationMs(hour.avg_wait_ms)}`}
                     </span>
                   </div>
                 ))}

@@ -34,6 +34,13 @@ export interface ApprovalDayStats {
   avg_wait_ms: number | null;
 }
 
+export interface ApprovalHourStats {
+  /** UTC 小时 0–23；只含有决议的小时（ADR-0058） */
+  hour: number;
+  decided_count: number;
+  avg_wait_ms: number | null;
+}
+
 export interface ApprovalGroupStats {
   /** 分组键：工具名，或审批人 user_id（缺失时为 unknown，ADR-0051） */
   key: string;
@@ -50,6 +57,7 @@ export interface ApprovalStats {
   avg_wait_ms: number | null;
   max_wait_ms: number | null;
   daily: ApprovalDayStats[];
+  hourly: ApprovalHourStats[];
   groups: ApprovalGroupStats[];
   groups_truncated: boolean;
 }

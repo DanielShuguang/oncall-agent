@@ -41,6 +41,7 @@ from app.core.store import RunStore, get_store
 from app.schemas.approval import (
     ApprovalDayStatsOut,
     ApprovalGroupStatsOut,
+    ApprovalHourStatsOut,
     ApprovalListResponse,
     ApprovalOut,
     ApprovalResolveRequest,
@@ -349,7 +350,7 @@ async def approval_stats(
     days: Annotated[int, Query(ge=1, le=90)] = 7,
     group_by: Annotated[ApprovalGroupBy | None, Query()] = None,
 ) -> ApprovalStatsResponse:
-    """审批积压/等待统计（ADR-0048/0050/0051），仅审批人可见。"""
+    """审批积压/等待/按日与按小时分布统计（ADR-0048/0050/0051/0058），仅审批人可见。"""
     try:
         stats = await service.stats(identity, days=days, group_by=group_by)
     except ApprovalForbidden as exc:
@@ -369,6 +370,14 @@ async def approval_stats(
                 day=day.day, decided_count=day.decided_count, avg_wait_ms=day.avg_wait_ms
             )
             for day in stats.daily
+        ],
+        hourly=[
+            ApprovalHourStatsOut(
+                hour=hour.hour,
+                decided_count=hour.decided_count,
+                avg_wait_ms=hour.avg_wait_ms,
+            )
+            for hour in stats.hourly
         ],
         groups=[
             ApprovalGroupStatsOut(

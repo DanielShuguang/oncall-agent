@@ -44,7 +44,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | POST | `/approvals/{id}/resolve` | 审批通过/拒绝 | W3 D14 |
 | GET | `/approvals?status=pending&limit=50` | 待办/已办审批列表（keyset 游标分页；第一页附总数；已办可加 `tool/resolved_by/resolved_from/resolved_to` 筛选） | W3 D14 / W5 D23 / W6 后补 |
 | GET | `/approvals/export?status=approved&tool=create_ticket` | 按当前状态/筛选导出审批 CSV（最多 5000 条；响应头告知截断） | W6 后补 |
-| GET | `/approvals/stats?days=7&group_by=` | 审批积压、窗口内等待与按工具/审批人分组（仅审批人） | W6 后补 |
+| GET | `/approvals/stats?days=7&group_by=` | 审批积压、等待、按日/按小时分布与按工具/审批人分组（仅审批人） | W6 后补 |
 | POST | `/admin/kb/documents` | 上传知识文档（multipart，≤10MB） | W2 D7 |
 | GET | `/admin/kb/documents` | 知识库文档列表 + chunk 总数 | W2 D7 |
 | GET | `/admin/kb/documents/{id}?preview=20` | 文档详情与切片预览（含 heading_path） | W2 D7 |
@@ -692,6 +692,10 @@ Authorization: Bearer <approver token>
     {"day": "2026-11-09", "decided_count": 5, "avg_wait_ms": 1200000},
     {"day": "2026-11-10", "decided_count": 7, "avg_wait_ms": 2346000}
   ],
+  "hourly": [
+    {"hour": 9, "decided_count": 4, "avg_wait_ms": 1500000},
+    {"hour": 14, "decided_count": 8, "avg_wait_ms": 1950000}
+  ],
   "groups": [
     {"key": "create_ticket", "decided_count": 7, "avg_wait_ms": 1600000, "max_wait_ms": 3600000},
     {"key": "query_cmdb", "decided_count": 5, "avg_wait_ms": 2100000, "max_wait_ms": 8640000}
@@ -710,6 +714,10 @@ Authorization: Bearer <approver token>
 - `daily` 按 **UTC 日期**分桶，只列窗口内真正有决议的日期（稀疏不补零）；每项
   `decided_count` / `avg_wait_ms` 与上面的已决议口径一致；前端提供 7/30/90 天切换，
   `days` 与 `daily` 使用同一个窗口（[ADR-0050](decisions/0050-approval-trend.md)）
+- `hourly` 是同一窗口内按 **UTC 小时（0–23）** 聚合的分布，只列真正有决议的小时、
+  按 `hour` 升序、不做零填充；每项 `decided_count` / `avg_wait_ms` 与 `daily` 同一口径，
+  各小时单数之和等于 `decided_count`；它是「一天里什么时候忙」的分布，不是逐小时
+  时间序列（[ADR-0058](decisions/0058-approval-hourly-distribution.md)）
 - `group_by` 可选 `tool` / `approver`，默认不分组；只聚合窗口内 `approved` + `rejected`，
   `pending` 没有审批人归属、`expired` 不算人工决议，均不进入分组；各分组之和等于
   `decided_count`（`groups_truncated=false` 时）

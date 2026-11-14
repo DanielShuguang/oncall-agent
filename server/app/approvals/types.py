@@ -69,6 +69,20 @@ MAX_STATS_GROUPS = 20
 
 
 @dataclass(frozen=True)
+class ApprovalHourStats:
+    """窗口内按 UTC 小时（0–23）聚合的已决议数量与等待（ADR-0058）。
+
+    只返回有决议的小时，不做 24 小时零填充：7/30/90 天窗口下大多数小时没有
+    审批，补零会把响应撑成固定 24 行，却没有任何额外信息。小时按 `resolved_at`
+    的 UTC 小时归桶，和 `daily` 的 UTC 日期口径一致。
+    """
+
+    hour: int
+    decided_count: int
+    avg_wait_ms: int | None
+
+
+@dataclass(frozen=True)
 class ApprovalGroupStats:
     """窗口内某一维度的已决议数量与等待（ADR-0051）。
 
@@ -90,7 +104,8 @@ class ApprovalStats:
     `oldest_pending_age_s` 是当前待办的「已等秒数」，用于发现卡住的单；
     `avg_wait_ms` / `max_wait_ms` 只统计窗口内已决议（approved/rejected）的审批，
     不把过期（expired）算成人工等待，避免把 TTL 时长混进流程指标。
-    `daily` 是同一窗口内按 UTC 日期分桶的稀疏趋势（ADR-0050）。
+    `daily` 是同一窗口内按 UTC 日期分桶的稀疏趋势（ADR-0050），
+    `hourly` 是同一窗口内按 UTC 小时（0–23）聚合的分布（ADR-0058）。
     """
 
     pending_count: int
@@ -99,6 +114,7 @@ class ApprovalStats:
     avg_wait_ms: int | None
     max_wait_ms: int | None
     daily: tuple[ApprovalDayStats, ...] = ()
+    hourly: tuple[ApprovalHourStats, ...] = ()
     groups: tuple[ApprovalGroupStats, ...] = ()
     groups_truncated: bool = False
 

@@ -47,6 +47,14 @@ class ApprovalDayStatsOut(BaseModel):
     avg_wait_ms: int | None = None
 
 
+class ApprovalHourStatsOut(BaseModel):
+    """窗口内按 UTC 小时（0–23）聚合的已决议数量与等待（ADR-0058）。"""
+
+    hour: int = Field(ge=0, le=23)
+    decided_count: int
+    avg_wait_ms: int | None = None
+
+
 class ApprovalGroupStatsOut(BaseModel):
     """窗口内某一维度的已决议数量与等待（ADR-0051）。"""
 
@@ -57,7 +65,7 @@ class ApprovalGroupStatsOut(BaseModel):
 
 
 class ApprovalStatsResponse(BaseModel):
-    """审批人视角的积压、窗口内等待、按日趋势与分组（ADR-0048/0050/0051）。"""
+    """审批人视角的积压、等待、按日/按小时分布与分组（ADR-0048/0050/0051/0058）。"""
 
     days: int
     pending_count: int
@@ -66,6 +74,7 @@ class ApprovalStatsResponse(BaseModel):
     avg_wait_ms: int | None = None
     max_wait_ms: int | None = None
     daily: list[ApprovalDayStatsOut] = Field(default_factory=list)
+    hourly: list[ApprovalHourStatsOut] = Field(default_factory=list)
     groups: list[ApprovalGroupStatsOut] = Field(default_factory=list)
     groups_truncated: bool = False
 

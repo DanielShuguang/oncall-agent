@@ -22,6 +22,7 @@ from app.approvals.types import (
     ApprovalDayStats,
     ApprovalGroupBy,
     ApprovalGroupStats,
+    ApprovalHourStats,
     ApprovalInvalidCursor,
     ApprovalListCursor,
     ApprovalListFilters,
@@ -276,6 +277,7 @@ class InMemoryApprovalStore:
             oldest_age = max(0, int((now - oldest).total_seconds()))
         waits: list[int] = []
         per_day: dict[date, list[int]] = {}
+        per_hour: dict[int, list[int]] = {}
         for record in self._records.values():
             if record.status not in ("approved", "rejected"):
                 continue
@@ -284,6 +286,7 @@ class InMemoryApprovalStore:
             waited_ms = max(0, int((record.resolved_at - record.created_at).total_seconds() * 1000))
             waits.append(waited_ms)
             per_day.setdefault(record.resolved_at.date(), []).append(waited_ms)
+            per_hour.setdefault(record.resolved_at.hour, []).append(waited_ms)
         daily = tuple(
             ApprovalDayStats(
                 day=day,
@@ -291,6 +294,14 @@ class InMemoryApprovalStore:
                 avg_wait_ms=round(sum(waited) / len(waited)),
             )
             for day, waited in sorted(per_day.items())
+        )
+        hourly = tuple(
+            ApprovalHourStats(
+                hour=hour,
+                decided_count=len(waited),
+                avg_wait_ms=round(sum(waited) / len(waited)),
+            )
+            for hour, waited in sorted(per_hour.items())
         )
         groups: tuple[ApprovalGroupStats, ...] = ()
         groups_truncated = False
@@ -324,6 +335,7 @@ class InMemoryApprovalStore:
             avg_wait_ms=round(sum(waits) / len(waits)) if waits else None,
             max_wait_ms=max(waits) if waits else None,
             daily=daily,
+            hourly=hourly,
             groups=groups,
             groups_truncated=groups_truncated,
         )
@@ -615,6 +627,24 @@ class PostgresApprovalStore:
                     .order_by(day_column)
                 )
             ).all()
+            # 小时也按 UTC 归桶；`date_part` 返回 numeric，Python 侧再取整。
+            hour_column = func.date_part("hour", func.timezone("UTC", Approval.resolved_at))
+            hourly_rows = (
+                await session.execute(
+                    select(
+                        hour_column,
+                        func.count(Approval.id),
+                        func.avg(wait_seconds * 1000),
+                    )
+                    .where(
+                        Approval.status.in_(("approved", "rejected")),
+                        Approval.resolved_at.is_not(None),
+                        Approval.resolved_at >= since,
+                    )
+                    .group_by(hour_column)
+                    .order_by(hour_column)
+                )
+            ).all()
             group_rows: Sequence[Any] = ()
             groups_truncated = False
             if group_by is not None:
@@ -653,6 +683,14 @@ class PostgresApprovalStore:
             )
             for row in daily_rows
         )
+        hourly = tuple(
+            ApprovalHourStats(
+                hour=int(row[0]),
+                decided_count=int(row[1]),
+                avg_wait_ms=(round(float(row[2])) if row[2] is not None else None),
+            )
+            for row in hourly_rows
+        )
         groups = tuple(
             ApprovalGroupStats(
                 key=str(row[0]),
@@ -671,6 +709,7 @@ class PostgresApprovalStore:
             avg_wait_ms=(round(float(decided_row[1])) if decided_row[1] is not None else None),
             max_wait_ms=(round(float(decided_row[2])) if decided_row[2] is not None else None),
             daily=daily,
+            hourly=hourly,
             groups=groups,
             groups_truncated=groups_truncated,
         )

@@ -1360,6 +1360,33 @@ Postgres + Redis **527 passed**；`ruff check` / `ruff format --check`（188 fil
 
 ---
 
+## W6 后补：审批统计按小时分布（ADR-0058）
+
+按日趋势能回答「哪天决议了多少」，但回答不了「一天里什么时候忙」。排班、交接和
+告警阈值需要小时级分布；若决议集中在 18:00 之后，说明白天审批人覆盖不足。
+审批量以天/周为单位，最近 24 小时序列在 7/30/90 天窗口里大多为空，因此这里做
+**窗口内按 UTC 小时的分布**，而不是逐小时时间序列。
+
+| 事项 | 落地 |
+|---|---|
+| 接口 | `GET /approvals/stats` 响应新增 `hourly`；每项 `{hour: 0–23, decided_count, avg_wait_ms}` |
+| 口径 | 与 `daily`/汇总一致：只统计窗口内 `approved` + `rejected`，`pending`/`expired` 不入；等待负数按 0；小时取 `resolved_at` 的 UTC 小时 |
+| 存储 | 内存按 `resolved_at.hour` 归桶；PG 用 `date_part('hour', timezone('UTC', resolved_at))` 分组；无迁移、无新索引 |
+| 稀疏 | 只返回有决议的小时，按 hour 升序；不零填充；24 行封顶 |
+| 前端 | 按日趋势卡后新增「按小时分布」卡，显示 `09:00–09:59` 时段、单数、平均等待；空窗口提示 |
+| 范围 | 不做最近 24 小时序列、可配置时区、小时级告警/导出 |
+
+验证：默认 **487 passed + 40 skipped**；真实 Postgres **524 passed + 3 skipped**；
+Postgres + Redis **527 passed**；`ruff check` / `ruff format --check`（188 files）/
+`mypy app`（110 files）通过；前端 **80 tests / 16 files**、`oxlint` 0/0（68 files）、
+`oxfmt --check` 76 files、`pnpm build` 通过。无迁移。
+
+已知边界：`hourly` 是分布不是时间序列，不能定位到某一天的具体小时；时区固定
+UTC；与 `daily` 是同一窗口的两个切面，不额外校验两者之和；旧后端无该字段时
+前端按空数组处理。详见 [ADR-0058](decisions/0058-approval-hourly-distribution.md)。
+
+---
+
 ## 每周固定动作
 
 | 时点 | 动作 |

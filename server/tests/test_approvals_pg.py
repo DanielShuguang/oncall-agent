@@ -386,6 +386,10 @@ async def test_pg_stats_counts_pending_and_decided(
     assert stats.daily[0].day == now.date()
     assert stats.daily[0].decided_count == 1
     assert stats.daily[0].avg_wait_ms == stats.avg_wait_ms
+    assert len(stats.hourly) == 1
+    assert stats.hourly[0].hour == now.hour
+    assert stats.hourly[0].decided_count == 1
+    assert stats.hourly[0].avg_wait_ms == stats.avg_wait_ms
 
     by_tool = await service.stats(approver, days=7, now=now, group_by="tool")
     assert len(by_tool.groups) == 1

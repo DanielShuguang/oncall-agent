@@ -173,6 +173,82 @@ async def test_session_restore_audits_paginate(
     assert mismatch.json()["code"] == "INVALID_CURSOR"
 
 
+async def test_session_restore_audits_filter_by_session(
+    client: AsyncClient, mem_store: InMemoryRunStore
+) -> None:
+    await _restore_once(mem_store, user_id="u_102", session_id="sess_a")
+    await asyncio.sleep(0.002)
+    await _restore_once(mem_store, user_id="u_102", session_id="sess_b")
+    await asyncio.sleep(0.002)
+    await _restore_once(mem_store, user_id="u_200", session_id="sess_a")
+
+    first = await client.get(
+        "/api/admin/session-restores",
+        headers=ADMIN,
+        params={"session_id": "sess_a", "limit": 1},
+    )
+    assert first.status_code == 200
+    first_body = first.json()
+    assert [item["user_id"] for item in first_body["items"]] == ["u_200"]
+    assert first_body["items"][0]["session_ids"] == ["sess_a"]
+    assert first_body["next_cursor"]
+
+    second = await client.get(
+        "/api/admin/session-restores",
+        headers=ADMIN,
+        params={"session_id": "sess_a", "limit": 1, "cursor": first_body["next_cursor"]},
+    )
+    assert second.status_code == 200
+    second_body = second.json()
+    assert [item["user_id"] for item in second_body["items"]] == ["u_102"]
+    assert second_body["items"][0]["session_ids"] == ["sess_a"]
+
+    third = await client.get(
+        "/api/admin/session-restores",
+        headers=ADMIN,
+        params={"session_id": "sess_a", "limit": 1, "cursor": second_body["next_cursor"]},
+    )
+    assert third.status_code == 200
+    assert third.json()["items"] == []
+    assert third.json()["next_cursor"] is None
+
+    missing = await client.get(
+        "/api/admin/session-restores",
+        headers=ADMIN,
+        params={"session_id": "sess_missing"},
+    )
+    assert missing.status_code == 200
+    assert missing.json()["items"] == []
+
+    # 游标绑定 session 过滤：同用户、换 session_id 也必须 400
+    mismatch = await client.get(
+        "/api/admin/session-restores",
+        headers=ADMIN,
+        params={"session_id": "sess_b", "cursor": first_body["next_cursor"]},
+    )
+    assert mismatch.status_code == 400
+    assert mismatch.json()["code"] == "INVALID_CURSOR"
+
+    # ADR-0060 旧游标没有 `s`；没有 session 过滤时仍然可用
+    legacy_body = await client.get(
+        "/api/admin/session-restores", headers=ADMIN, params={"limit": 1}
+    )
+    raw = base64.urlsafe_b64decode(legacy_body.json()["next_cursor"] + "==")
+    legacy_payload = json.loads(raw)
+    legacy_payload.pop("s")
+    legacy_cursor = (
+        base64.urlsafe_b64encode(json.dumps(legacy_payload, separators=(",", ":")).encode())
+        .decode()
+        .rstrip("=")
+    )
+    legacy = await client.get(
+        "/api/admin/session-restores",
+        headers=ADMIN,
+        params={"limit": 1, "cursor": legacy_cursor},
+    )
+    assert legacy.status_code == 200
+
+
 async def test_session_restore_audits_reject_bad_params(client: AsyncClient) -> None:
     assert (
         await client.get("/api/admin/session-restores", headers=ADMIN, params={"limit": 0})
@@ -182,6 +258,13 @@ async def test_session_restore_audits_reject_bad_params(client: AsyncClient) -> 
             "/api/admin/session-restores",
             headers=ADMIN,
             params={"user_id": "x" * 65},
+        )
+    ).status_code == 422
+    assert (
+        await client.get(
+            "/api/admin/session-restores",
+            headers=ADMIN,
+            params={"session_id": "x" * 65},
         )
     ).status_code == 422
 

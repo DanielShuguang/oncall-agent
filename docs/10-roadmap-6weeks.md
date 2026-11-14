@@ -1427,7 +1427,7 @@ Postgres + Redis **532 passed**；`ruff check` / `ruff format --check`（192 fil
 | 接口 | `GET /admin/session-restores` 增加可选 `cursor`（≤512）；响应增加 `next_cursor` |
 | 排序 | `(restored_at, id)` 倒序；游标表示「严格早于这个元组」；`id` 只做同时间戳 tiebreaker |
 | 游标 | base64url JSON `{t, i, u}`：时间、审计 UUID、本次 `user_id` 过滤；切换过滤条件复用旧游标 400 `INVALID_CURSOR` |
-| 返回 | 取满 `limit` 才给 `next_cursor`；未取满时 `null`（已到最后一页）；非法游标 400，不降级为空列表 |
+| 返回 | 取满 `limit` 才给 `next_cursor`；未取满时 `null`；恰好取满仍给游标、下一页为空；非法游标 400，不降级为空列表 |
 | 存储 | 不加迁移/索引，复用 `idx_session_restore_audits_user_time` 与 `idx_session_restore_audits_time`；内存/PG 同一排序 |
 | 范围 | 不做导出/总数/跳页/前端管理页；仍为管理员只读，`limit` 1–200 默认 50 |
 
@@ -1438,7 +1438,36 @@ Postgres + Redis **533 passed**；`ruff check` / `ruff format --check`（192 fil
 
 已知边界：游标不是签名令牌，客户端可伪造时间/UUID 跳记录，但只能读管理员本就
 可见的数据；没有总数；翻页期间的新恢复不会出现在旧游标后续页；切换
-`user_id` 必须从第一页重新拉取。详见 [ADR-0060](decisions/0060-session-restore-audit-pagination.md)。
+`user_id` 必须从第一页重新拉取。ADR-0061 增加了 `session_id` 过滤，游标随之
+扩展为 `{t,i,u,s}`；旧游标只继续支持无 session 过滤的请求。详见
+[ADR-0060](decisions/0060-session-restore-audit-pagination.md)。
+
+---
+
+## W6 后补：会话恢复审计按 session 反查（ADR-0061）
+
+审计行按一次恢复操作存 `session_ids` 数组，管理接口原来只能按 `user_id` 看
+「某人恢复过什么」。事件复盘需要反向问题：「这个会话被谁、在什么时候恢复过？」
+拉全量再客户端过滤在 365 天保留期下不可行，数组包含查询又用不上普通 B-tree。
+
+| 事项 | 落地 |
+|---|---|
+| 接口 | `GET /admin/session-restores` 增加可选 `session_id`（1–64）；与 `user_id`/`limit`/`cursor` 可组合 |
+| 查询 | PG `session_ids @> '["<session_id>"]'`；内存 `session_id in record.session_ids` |
+| 索引 | 迁移 `0020`：`idx_session_restore_audits_sessions USING gin (session_ids jsonb_path_ops)`，只服务包含查询 |
+| 游标 | base64url JSON `{t, i, u, s}`；`s` 为本次 `session_id` 过滤；换过滤复用旧游标 400 `INVALID_CURSOR` |
+| 兼容 | ADR-0060 旧游标没有 `s`，只在不带 `session_id` 的请求里继续可用 |
+| 范围 | 不做前端管理页/CSV/总数/跳页；仍为管理员只读，`limit` 1–200 默认 50 |
+
+验证：默认 **494 passed + 40 skipped**；真实 Postgres **531 passed + 3 skipped**；
+Postgres + Redis **534 passed**；`ruff check` / `ruff format --check`（193 files）/
+`mypy app`（112 files）通过；前端未改，沿用 **81 tests / 16 files**、`oxlint` 0/0
+（68 files）、`oxfmt --check` 76 files、`pnpm build`。迁移 `0020` 往返通过。
+
+已知边界：GIN 索引只支持 JSONB 包含语义，不能按数组元素排序/范围查；审计行仍按
+批次存数组，没有逐 session 明细表；游标不是签名令牌，管理员可伪造 `t/i` 跳记录
+（只能读本就有权读的管理数据）；会话被保留清理删除后审计仍保留，但无法再反查
+会话内容。详见 [ADR-0061](decisions/0061-session-restore-audit-session-filter.md)。
 
 ---
 

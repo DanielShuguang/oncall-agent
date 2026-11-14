@@ -162,10 +162,15 @@ CREATE INDEX idx_session_restore_audits_user_time
   ON session_restore_audits (user_id, restored_at DESC);
 CREATE INDEX idx_session_restore_audits_time
   ON session_restore_audits (restored_at);
+-- 按单个 session 反查审计；jsonb_path_ops 只服务 @> 包含查询（ADR-0061）
+CREATE INDEX idx_session_restore_audits_sessions
+  ON session_restore_audits USING gin (session_ids jsonb_path_ops);
 ```
 
 > 按**一次恢复操作**一行，而不是按 session 一行
-> （[ADR-0059](decisions/0059-session-restore-audit.md)，迁移 `0019`）：`session_ids`
+> （[ADR-0059](decisions/0059-session-restore-audit.md)，迁移 `0019`；按 session
+> 反查索引见 [ADR-0061](decisions/0061-session-restore-audit-session-filter.md)，
+> 迁移 `0020`）：`session_ids`
 > 只存真正恢复的 id，`requested_count` 是去重后的请求数，二者之差是本次未恢复的
 > 数量。审计与删除 `hidden_sessions` 在同一事务内完成；没有真正恢复任何会话时
 > 不写行。无外键：run/事件可能先被保留策略清掉，审计按自己的保留期独立留存。
@@ -537,7 +542,7 @@ uv run alembic upgrade head --sql    # 无库环境渲染 DDL，评审用
 
 - 迁移文件在 `server/migrations/versions/`；`alembic.ini` 只放占位 DSN，真实 DSN 由 `migrations/env.py` 从环境变量读
 - 必须写 `downgrade`，并在空库上验证一次 `downgrade base && upgrade head`
-- 当前迁移链：`0001` runs/events → `0002` 幂等键按用户作用域 → `0003` kb（pgvector/tsvector）+ assets/tickets → `0004` approvals → `0005` 会话授权按用户隔离 → `0006` model_calls + failure_category → `0007` tool_settings → `0008` 文档可见性 → `0009` 会话索引 → `0010` 事件清理标记/部分索引 → `0011` 回答引用快照 → `0012` 正文清理标记/部分索引 → `0013` 按用户日预算覆盖（`user_budgets`）→ `0014` 回答引用快照（`runs.citations`，ADR-0031）→ `0015` 工具配置变更历史（`tool_setting_changes`，ADR-0037）→ `0016` 会话显示标题（`session_titles`，ADR-0040）→ `0017` 从列表移除的会话（`hidden_sessions`，ADR-0041）→ `0018` 已办审批决议时间索引（`idx_approvals_resolved`，ADR-0053）→ `0019` 会话恢复审计（`session_restore_audits`，ADR-0059）
+- 当前迁移链：`0001` runs/events → `0002` 幂等键按用户作用域 → `0003` kb（pgvector/tsvector）+ assets/tickets → `0004` approvals → `0005` 会话授权按用户隔离 → `0006` model_calls + failure_category → `0007` tool_settings → `0008` 文档可见性 → `0009` 会话索引 → `0010` 事件清理标记/部分索引 → `0011` 回答引用快照 → `0012` 正文清理标记/部分索引 → `0013` 按用户日预算覆盖（`user_budgets`）→ `0014` 回答引用快照（`runs.citations`，ADR-0031）→ `0015` 工具配置变更历史（`tool_setting_changes`，ADR-0037）→ `0016` 会话显示标题（`session_titles`，ADR-0040）→ `0017` 从列表移除的会话（`hidden_sessions`，ADR-0041）→ `0018` 已办审批决议时间索引（`idx_approvals_resolved`，ADR-0053）→ `0019` 会话恢复审计（`session_restore_audits`，ADR-0059）→ `0020` 恢复审计按 session 反查的 GIN 索引（`idx_session_restore_audits_sessions`，ADR-0061）
 
 > `0003` 先 `CREATE EXTENSION IF NOT EXISTS vector`，否则 vector 类型与 HNSW 索引会失败；
 > 测试库由 fixture 建扩展后再 `create_all`（扩展是库级对象，`drop_all` 不会删）。

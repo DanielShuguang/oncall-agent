@@ -46,4 +46,11 @@ class SessionRestoreAudit(Base):
         # 管理页按用户查最近恢复；清理按时间删，两个方向各一条索引
         Index("idx_session_restore_audits_user_time", "user_id", text("restored_at DESC")),
         Index("idx_session_restore_audits_time", "restored_at"),
+        # 按单个 session 反查审计（ADR-0061）：`session_ids @> '["sess_x"]'`
+        Index(
+            "idx_session_restore_audits_sessions",
+            "session_ids",
+            postgresql_using="gin",
+            postgresql_ops={"session_ids": "jsonb_path_ops"},
+        ),
     )

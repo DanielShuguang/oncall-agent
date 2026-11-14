@@ -734,6 +734,16 @@ async def _exercise_hidden_sessions(store: RunStore) -> None:
     assert await store.unhide_sessions(user_id=user, session_ids=[]) == set()
     assert len(await store.list_session_restore_audits(user_id=user, limit=10)) == 3
 
+    # 按单个 session 反查（ADR-0061）：命中 session_ids 数组中的任意元素
+    by_session = await store.list_session_restore_audits(
+        user_id=user, session_id="sess_drop2", limit=10
+    )
+    assert [record.audit_id for record in by_session] == [batch_audit.audit_id]
+    assert (
+        await store.list_session_restore_audits(user_id=user, session_id="sess_missing", limit=10)
+        == []
+    )
+
 
 async def _exercise_events_for_runs(store: RunStore) -> None:
     """批量取事件（ADR-0036）：按 run 分组、组内 seq 升序、每个 run 独立截断。"""

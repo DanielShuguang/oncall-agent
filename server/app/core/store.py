@@ -549,14 +549,16 @@ class RunStore(Protocol):
         self,
         *,
         user_id: str | None = None,
+        session_id: str | None = None,
         before: tuple[datetime, str] | None = None,
         limit: int = 50,
     ) -> list[SessionRestoreAuditRecord]:
-        """按 `(restored_at, id)` 倒序列出审计（ADR-0059/0060）。
+        """按 `(restored_at, id)` 倒序列出审计（ADR-0059/0060/0061）。
 
-        `user_id=None` 表示管理员看全部；`before=(restored_at, audit_id)` 是
-        keyset 游标，只返回严格更早的记录。表只追加，默认保留 365 天由
-        `RetentionSweeper` 清理。
+        `user_id`/`session_id` 都是可选过滤：前者按操作者，后者按「这个会话
+        是否在本次批量恢复里被真正恢复」；`session_id` 命中 `session_ids` 数组
+        的任一元素即可。`before=(restored_at, audit_id)` 是 keyset 游标，只返回
+        严格更早的记录。表只追加，默认保留 365 天由 `RetentionSweeper` 清理。
         """
         ...
 
@@ -1042,6 +1044,7 @@ class InMemoryRunStore:
         self,
         *,
         user_id: str | None = None,
+        session_id: str | None = None,
         before: tuple[datetime, str] | None = None,
         limit: int = 50,
     ) -> list[SessionRestoreAuditRecord]:
@@ -1049,7 +1052,8 @@ class InMemoryRunStore:
             records = [
                 record
                 for record in self._session_restore_audits
-                if user_id is None or record.user_id == user_id
+                if (user_id is None or record.user_id == user_id)
+                and (session_id is None or session_id in record.session_ids)
             ]
             records.sort(key=lambda record: (record.restored_at, record.audit_id), reverse=True)
             if before is not None:
@@ -1786,12 +1790,16 @@ class PostgresRunStore:
         self,
         *,
         user_id: str | None = None,
+        session_id: str | None = None,
         before: tuple[datetime, str] | None = None,
         limit: int = 50,
     ) -> list[SessionRestoreAuditRecord]:
         stmt = select(SessionRestoreAuditRow)
         if user_id is not None:
             stmt = stmt.where(SessionRestoreAuditRow.user_id == user_id)
+        if session_id is not None:
+            # JSONB `@>`：数组包含该 session_id；迁移 0020 建了 jsonb_path_ops GIN
+            stmt = stmt.where(SessionRestoreAuditRow.session_ids.contains([session_id]))
         if before is not None:
             before_at, before_id = before
             stmt = stmt.where(

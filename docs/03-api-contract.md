@@ -37,7 +37,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | GET | `/sessions/hidden` | 本人从列表移除的会话（游标分页 + 标题搜索，ADR-0043/0047） | W6 后补 |
 | DELETE | `/sessions/{session_id}/hidden` | 恢复已移除的会话（只删 `hidden_sessions` 行，204） | W6 后补 |
 | POST | `/sessions/hidden/restore` | 批量恢复已移除会话（最多 50，部分成功，返回逐条结果） | W6 后补 |
-| GET | `/admin/session-restores` | 会话恢复审计（按用户过滤，最近在前，游标分页） | W6 后补 |
+| GET | `/admin/session-restores` | 会话恢复审计（按用户/会话过滤，最近在前，游标分页） | W6 后补 |
 | GET | `/sessions/{session_id}/runs` | 一页会话详情（正文/引用/运行过程，一次返回） | W6 后补 |
 | GET | `/runs/{run_id}` | 单次运行详情（含指标与模型调用明细） | W1 D4 / W4 D19 |
 | GET | `/runs/{run_id}/events?after_seq=` | 补拉事件（断线续传，兼容 `Last-Event-ID`） | W1 D4 |
@@ -757,10 +757,10 @@ POST /api/approvals/{approval_id}/resolve
 > 引用全文只要求登录，且受文档级可见性约束（[ADR-0018](decisions/0018-citation-fulltext-preview.md)、
 > [ADR-0019](decisions/0019-document-level-access.md)）。
 
-### 会话恢复审计（ADR-0059/0060）
+### 会话恢复审计（ADR-0059/0060/0061）
 
 ```http
-GET /api/admin/session-restores?user_id=u_102&limit=20&cursor=<base64url>
+GET /api/admin/session-restores?user_id=u_102&session_id=sess_a&limit=20&cursor=<base64url>
 Authorization: Bearer <admin token>
 ```
 
@@ -776,15 +776,19 @@ Authorization: Bearer <admin token>
       "restored_at": "2026-11-14T03:20:00Z"
     }
   ],
-  "next_cursor": "eyJ0IjoiMjAyNi0xMS0xNFQwMzoyMDowMCswMDowMCIsImkiOiI4ZjE0ZTQ1Zi1jZWVhLTRlOGYtOWQ3YS0yYjNjNGQ1ZTZmNzAiLCJ1IjoidV8xMDIifQ"
+  "next_cursor": "eyJ0IjoiMjAyNi0xMS0xNFQwMzoyMDowMCswMDowMCIsImkiOiI4ZjE0ZTQ1Zi1jZWVhLTRlOGYtOWQ3YS0yYjNjNGQ1ZTZmNzAiLCJ1IjoidV8xMDIiLCJzIjoic2Vzc19hIn0"
 }
 ```
 
 - 管理接口，要求 `ONCALL_ADMIN_ROLES`；`user_id` 可选，`limit` 1–200 默认 50；
+  `session_id`（1–64）可选，命中 `session_ids` 数组中的任一元素即可（ADR-0061）；
   按 `restored_at DESC, id DESC` 返回，支持 `cursor` keyset 分页（ADR-0060）
-- 游标是 base64url JSON `{t, i, u}`：`t` 为上一页最后一条的 `restored_at`，`i` 为其
-  UUID，`u` 为本次 `user_id` 过滤；切换 `user_id` 后复用旧游标返回 400。取满
-  `limit` 才给 `next_cursor`；未取满时为 `null`（已到最后一页）；非法游标 400 `INVALID_CURSOR`
+- 游标是 base64url JSON `{t, i, u, s}`：`t` 为上一页最后一条的 `restored_at`，`i` 为其
+  UUID，`u`/`s` 为本次 `user_id`/`session_id` 过滤（无过滤时为 `null`）；切换
+  `user_id` 或 `session_id` 后复用旧游标返回 400。取满 `limit` 才给
+  `next_cursor`；未取满时为 `null`；恰好取满时仍给游标，下一页为空。
+  非法游标 400 `INVALID_CURSOR`。
+  ADR-0060 的旧游标没有 `s`，只继续支持「没有 `session_id` 过滤」的请求
 - 一次恢复操作一行（单条 `DELETE /sessions/{id}/hidden` 或批量恢复各写一行）；
   `session_ids` 只含真正恢复的 id，`requested_count` 是去重后的请求数，
   `requested_count - restored_count` 是本次未恢复的数量。没有真正恢复任何会话

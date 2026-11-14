@@ -744,21 +744,22 @@ meta,days,,,,,,7
 meta,group_by,,,,,,tool
 summary,pending_count,,,,,,3
 summary,oldest_pending_age_s,,,,,,5400
-summary,decided_count,,,,,,12
+summary,decided_count,,,,,,5
 summary,avg_wait_ms,,,,,,1812000
 summary,max_wait_ms,,,,,,8640000
 summary,groups_truncated,,,,,,false
 daily,2026-11-09,2026-11-09,,5,1200000,,
-hour,09,,9,4,1500000,,
-group,create_ticket,,,7,1600000,3600000,
+hour,09,,9,5,1500000,,
+group,create_ticket,,,5,1600000,3600000,
 ```
 
 - 参数与统计接口一致：`days` 1–90 默认 7；`group_by` 可选 `tool` / `approver`；
   不接收 `cursor`/`limit`；仅审批人可读，普通员工 403。
 - CSV 是长表，`section` 区分 `meta` / `summary` / `daily` / `hour` / `group`；
   `count`/`avg_wait_ms`/`max_wait_ms` 为聚合字段，`value` 只用于 `meta` 与 `summary`。
-- 日与小时都是稀疏的，只含有决议的日期/小时；各小时/各日单数之和等于
-  `summary.decided_count`（有分组截断时以 `groups_truncated` 为准）。
+- 日与小时都是稀疏的，只含有决议的日期/小时；各日单数之和、各小时单数之和都等于
+  `summary.decided_count`；`group` 行在未截断时之和也等于它，截断时以
+  `groups_truncated` 为准。
 - `group` 行的 `key` 是工具名或审批人 `user_id`（缺失为 `unknown`）；分组最多 20 组，
   截断时 `summary.groups_truncated=true`、响应头 `X-Export-Groups-Truncated: true`。
 - 响应头：`X-Export-Days`、`X-Export-Group-By`（`none`/`tool`/`approver`）、

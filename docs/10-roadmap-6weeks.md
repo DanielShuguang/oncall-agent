@@ -1245,7 +1245,7 @@ ADR-0052 解决了翻页，但已办仍沿用待办的 `(expires_at, created_at,
 | 游标 | 形状随状态：待办 `{e,c,i}`，已办 `{s,r,i}`；按 `status` 选解码器，混用 400 `INVALID_CURSOR`；旧的已办游标失效一次，刷新回第一页 |
 | 索引 | 迁移 `0018`：部分索引 `idx_approvals_resolved (status, resolved_at, id) WHERE resolved_at IS NOT NULL`；待办仍用 `idx_approvals_pending` |
 | 前端 | 已办表头「决议时间」并显示 `resolved_at`；待办仍显示 `expires_at` |
-| 范围 | 不做按工具/审批人/日期筛选，不做总数/跳页/导出；沿用 ADR-0052 的取满给游标与请求 token |
+| 范围 | 筛选/总数/导出分别由 ADR-0054/0057/0056 补上；仍不做跳页；沿用 ADR-0052 的取满给游标与请求 token |
 
 验证：默认 **483 passed + 39 skipped**；真实 Postgres **519 passed + 3 skipped**；
 Postgres + Redis **522 passed**；`ruff check` / `ruff format --check`（188 files）/
@@ -1377,7 +1377,7 @@ Postgres + Redis **527 passed**；`ruff check` / `ruff format --check`（188 fil
 | 存储 | 内存按 `resolved_at.hour` 归桶；PG 用 `date_part('hour', timezone('UTC', resolved_at))` 分组；无迁移、无新索引 |
 | 稀疏 | 只返回有决议的小时，按 hour 升序；不零填充；24 行封顶 |
 | 前端 | 按日趋势卡后新增「按小时分布」卡，显示 `09:00–09:59` 时段、单数、平均等待；空窗口提示 |
-| 范围 | 不做最近 24 小时序列、可配置时区、小时级告警/导出 |
+| 范围 | 不做最近 24 小时序列、可配置时区、小时级告警；统计聚合导出现由 ADR-0068 补上 |
 
 验证：默认 **487 passed + 40 skipped**；真实 Postgres **524 passed + 3 skipped**；
 Postgres + Redis **527 passed**；`ruff check` / `ruff format --check`（188 files）/
@@ -1429,7 +1429,7 @@ Postgres + Redis **532 passed**；`ruff check` / `ruff format --check`（192 fil
 | 游标 | base64url JSON `{t, i, u}`：时间、审计 UUID、本次 `user_id` 过滤；切换过滤条件复用旧游标 400 `INVALID_CURSOR` |
 | 返回 | 取满 `limit` 才给 `next_cursor`；未取满时 `null`；恰好取满仍给游标、下一页为空；非法游标 400，不降级为空列表 |
 | 存储 | 不加迁移/索引，复用 `idx_session_restore_audits_user_time` 与 `idx_session_restore_audits_time`；内存/PG 同一排序 |
-| 范围 | 不做导出/总数/跳页；仍为管理员只读，`limit` 1–200 默认 50；前端管理页由 ADR-0063 补上 |
+| 范围 | 导出由 ADR-0062 补上、总数由 ADR-0064 补上；仍不做跳页；仍为管理员只读，`limit` 1–200 默认 50；前端管理页由 ADR-0063 补上 |
 
 验证：默认 **493 passed + 40 skipped**；真实 Postgres **530 passed + 3 skipped**；
 Postgres + Redis **533 passed**；`ruff check` / `ruff format --check`（192 files）/
@@ -1535,7 +1535,7 @@ Postgres + Redis **536 passed**；`ruff check` / `ruff format --check`（194 fil
 | 存储 | `RunStore.count_session_restore_audits`：内存遍历过滤；PG `SELECT count(*)`，用户走 B-tree、会话走 JSONB GIN |
 | 失败 | 计数失败返回 503 `DATABASE_UNAVAILABLE`，不用 0 冒充；旧后端没有 `total` 时前端退回已加载条数 |
 | 前端 | 首屏显示「共 N 条」，未加载完追加「已加载 M 条」；切换/清除过滤、重试重新取第一页，`loadMore` 保留总数 |
-| 范围 | 无迁移、无新索引；不做页码/跳页、不做审计统计聚合、不改导出 |
+| 范围 | 无迁移、无新索引；不做页码/跳页；审计统计聚合由 ADR-0065 补上；审计 CSV 导出由 ADR-0062 补上 |
 
 验证：默认 **497 passed + 40 skipped**；真实 Postgres **534 passed + 3 skipped**；
 Postgres + Redis **537 passed**；`ruff check` / `ruff format --check`（194 files）/
@@ -1648,8 +1648,8 @@ Postgres + Redis **540 passed**；`ruff check` / `ruff format --check`（194 fil
 | 前端 | 顶部「导出统计」按当前 7/30/90 天窗口与分组下载；切窗口/分组失效在途导出并提示窗口/截断状态 |
 | 范围 | 同步、无条数上限（统计有界）、不做下载审计/异步/XLSX 多表 |
 
-验证：默认 **501 passed + 40 skipped**；真实 Postgres **538 passed + 3 skipped**；
-Postgres + Redis **541 passed**；`ruff check` / `ruff format --check`（194 files）/
+验证：默认 **502 passed + 40 skipped**；真实 Postgres **539 passed + 3 skipped**；
+Postgres + Redis **542 passed**；`ruff check` / `ruff format --check`（194 files）/
 `mypy app`（113 files）通过；前端 **86 tests / 17 files**、`tsc --noEmit`、
 `oxlint` 0/0（72 files）、`oxfmt --check` 80 files、`pnpm build` 通过。无迁移。
 

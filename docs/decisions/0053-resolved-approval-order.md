@@ -45,7 +45,8 @@ CREATE INDEX idx_approvals_pending ON approvals (status, expires_at);
    扫描即可满足两列同时 DESC 的排序与 keyset 条件。
 5. 前端已办列表的表头从「过期时间」改为「决议时间」，显示 `resolved_at`；
    待办仍显示 `expires_at`。只改展示，不改决议/过期逻辑。
-6. 不做按工具/审批人/时间筛选，不做总数、跳页、导出；这些仍是后续 ADR 的范围。
+6. 不做按工具/审批人/时间筛选，不做总数、跳页、导出；筛选/总数/导出后续由
+   ADR-0054/0057/0056 补上，跳页仍未做。
    列表仍复用 ADR-0052 的「取满才给 `next_cursor`」与请求 token 防竞态。
 
 ## 4. 后果

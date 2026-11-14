@@ -47,7 +47,8 @@ ADR-0059 的 `GET /admin/session-restores` 只支持 `user_id` 与 `limit`，默
    `idx_session_restore_audits_time` 支持按 `user_id`/时间缩小范围；`id` 只做
    同一时间戳的 tiebreaker，审计表是低频治理数据，当前量级无需覆盖索引。
 6. 不做 CSV 导出、总数、跳页与前端管理页；接口仍是管理员只读，`limit` 仍为
-   1–200 默认 50（CSV 导出后续由 ADR-0062 补上；前端管理页由 ADR-0063 补上）。
+   1–200 默认 50（CSV 导出后续由 ADR-0062 补上；总数由 ADR-0064 补上；前端管理页
+   由 ADR-0063 补上）。
 
 ## 4. 后果
 

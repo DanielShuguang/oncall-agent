@@ -65,7 +65,7 @@ ADR-0058 的待定项明确记着「统计聚合导出（与逐条 CSV 不同形
 - 统计终于可离线复核；CI/对账可以直接读 CSV 的 `section`，不用解析 JSON。
 - 长表比多工作表更难「一眼看懂」，需要在表头/文档里解释 `section`；这是接受的可读性
   代价，换取无新依赖、一个文件表达全部口径。
-- 统计窗口是两次查询（与统计接口相同），导出与页面不是严格同一快照；但导出是只读
+- 统计窗口由多条独立查询组成（与统计接口相同），导出与页面不是严格同一快照；但导出是只读
   快照，允许这个边界。
 - 分组被截断时导出仍只有前 20 组；`groups_truncated` 与响应头负责告知，不静默截断。
 - 不记录「谁在何时导出了什么」，也不做异步任务/对象存储；这些留在待定。
@@ -73,9 +73,10 @@ ADR-0058 的待定项明确记着「统计聚合导出（与逐条 CSV 不同形
 ## 验证
 
 - `tests/test_approval_stats.py`：统计导出表头/`meta`/`summary`/`daily`/`hour`/`group`
-  行、BOM、CRLF、公式前缀转义（工具名 `=cmd` 被转成 `'=cmd`）、响应头、403、503。
-- 默认 `pytest`：**501 passed + 40 skipped**；Postgres：**538 passed + 3 skipped**；
-  Postgres + Redis：**541 passed**。
+  行、BOM、CRLF、公式前缀转义（工具名 `=cmd` 被转成 `'=cmd`）、响应头、403、503；
+  分组超过 20 组时只输出前 20 组，内容和响应头都标记截断。
+- 默认 `pytest`：**502 passed + 40 skipped**；Postgres：**539 passed + 3 skipped**；
+  Postgres + Redis：**542 passed**。
 - `ruff check` / `ruff format --check`（194 files）/ `mypy app`（113 files）通过。
 - 前端：**86 tests / 17 files**、`tsc --noEmit`、`oxlint` 0/0（72 files）、
   `oxfmt --check` 80 files、`pnpm build` 通过。

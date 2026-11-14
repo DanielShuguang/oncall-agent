@@ -218,6 +218,7 @@ async def test_export_approval_stats_csv(
     assert res.headers["x-export-group-by"] == "tool"
     assert res.headers["x-export-groups-truncated"] == "false"
     assert res.text.startswith("\ufeff")
+    assert "\r\n" in res.text
     parsed = list(csv.reader(io.StringIO(res.text[1:])))
     assert parsed[0] == [
         "section",
@@ -244,13 +245,42 @@ async def test_export_approval_stats_csv(
     assert rows[("group", "'=cmd")][6] == "3600000"
 
 
+async def test_export_approval_stats_csv_reports_truncated_groups(
+    client: AsyncClient, mem_approvals: InMemoryApprovalStore
+) -> None:
+    """分组超过 20 组时只导出前 20 组，并在内容和响应头标记（ADR-0068）。"""
+    now = datetime.now(UTC)
+    for index in range(21):
+        await mem_approvals.create(
+            _record(
+                f"g{index:02d}",
+                status="approved",
+                created_at=now - timedelta(minutes=index + 1),
+                resolved_at=now,
+                tool_name=f"tool_{index:02d}",
+            )
+        )
+
+    res = await client.get("/api/approvals/stats/export?days=7&group_by=tool", headers=APPROVER)
+
+    assert res.status_code == 200
+    assert res.headers["x-export-groups-truncated"] == "true"
+    parsed = list(csv.reader(io.StringIO(res.text[1:])))
+    summary = {row[1]: row for row in parsed[1:] if row[0] == "summary"}
+    assert summary["decided_count"][7] == "21"
+    assert summary["groups_truncated"][7] == "true"
+    group_rows = [row for row in parsed[1:] if row[0] == "group"]
+    assert len(group_rows) == 20
+
+
 async def test_approval_stats_validates_days(client: AsyncClient) -> None:
-    for days in (0, 91):
-        res = await client.get(f"/api/approvals/stats?days={days}", headers=APPROVER)
-        assert res.status_code == 422
-    for group_by in ("team", "TOOL"):
-        res = await client.get(f"/api/approvals/stats?group_by={group_by}", headers=APPROVER)
-        assert res.status_code == 422
+    for path in ("/api/approvals/stats", "/api/approvals/stats/export"):
+        for days in (0, 91):
+            res = await client.get(f"{path}?days={days}", headers=APPROVER)
+            assert res.status_code == 422
+        for group_by in ("team", "TOOL"):
+            res = await client.get(f"{path}?group_by={group_by}", headers=APPROVER)
+            assert res.status_code == 422
 
 
 async def test_approval_stats_database_failure_is_503(

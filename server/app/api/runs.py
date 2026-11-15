@@ -32,7 +32,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.deps import get_identity, get_viewer
 from app.api.errors import ApiError
-from app.core.store import RunRecord, RunStore, get_store
+from app.core.store import PinLimitExceeded, RunRecord, RunStore, get_store
 from app.gateway.meter import ModelCallStore, get_model_call_store
 from app.rag.access import Viewer
 from app.rag.retrieve import KnowledgeBase
@@ -505,6 +505,12 @@ async def pin_session(
     """
     try:
         pinned = await store.pin_session(user_id=identity.user_id, session_id=session_id)
+    except PinLimitExceeded as exc:
+        raise ApiError(
+            409,
+            "PIN_LIMIT_REACHED",
+            f"置顶数量已达上限（{exc.limit} 个），请先取消其他置顶",
+        ) from None
     except SQLAlchemyError as exc:
         raise ApiError(503, "DATABASE_UNAVAILABLE", "database unavailable") from exc
     if not pinned:

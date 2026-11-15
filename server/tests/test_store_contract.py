@@ -10,6 +10,7 @@ import os
 import uuid
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
 
 import pytest
 import pytest_asyncio
@@ -19,6 +20,7 @@ from sqlalchemy.pool import NullPool
 
 from app.core.store import (
     InMemoryRunStore,
+    PinLimitExceeded,
     PostgresRunStore,
     PrunedContents,
     PrunedEvents,
@@ -610,6 +612,12 @@ async def _exercise_pinned_sessions(store: RunStore) -> None:
     assert restored_sessions["sess_mid"].pinned is False
     assert await store.unpin_session(user_id=user, session_id="sess_mid") is True
     assert await store.unpin_session(user_id=user, session_id="sess_mid") is True
+
+    # 置顶数量上限（ADR-0073）：已置顶幂等，新增超出上限抛 PinLimitExceeded
+    with patch("app.core.store.MAX_PINNED_SESSIONS", 1):
+        assert await store.pin_session(user_id=user, session_id="sess_old") is True
+        with pytest.raises(PinLimitExceeded):
+            await store.pin_session(user_id=user, session_id="sess_new")
 
 
 async def _exercise_session_titles(store: RunStore) -> None:

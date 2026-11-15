@@ -33,7 +33,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | GET | `/runs` | 运行列表（分页、按状态/会话筛选） | W4 D19 / W6 后补 |
 | GET | `/sessions` | 当前用户的会话列表（keyset 游标，置顶优先、组内按活动倒序；可选 `q` 按标题搜索） | W6 后补 |
 | PATCH | `/sessions/{session_id}` | 改会话显示标题；`title: null` 恢复默认 | W6 后补 |
-| POST | `/sessions/{session_id}/pin` | 置顶会话（幂等，204） | W6 后补 |
+| POST | `/sessions/{session_id}/pin` | 置顶会话（幂等，204；单用户上限 50，超出 409） | W6 后补 |
 | DELETE | `/sessions/{session_id}/pin` | 取消置顶（幂等，204） | W6 后补 |
 | DELETE | `/sessions/{session_id}` | 从会话列表移除（软移除；不删 run/事件/审批，204；同事务清置顶） | W6 后补 |
 | GET | `/sessions/hidden` | 本人从列表移除的会话（游标分页 + 标题搜索，ADR-0043/0047） | W6 后补 |
@@ -418,7 +418,7 @@ GET /api/sessions?limit=20&q=打印机
   运行过程）；单条详情路径仍保留。更早的轮次把响应里的 `next_cursor` 带回同一接口。
   继续对话直接用这个 `session_id` 调 `/chat/stream`，服务端按 ADR-0020 续上下文
 
-### 3.3.1 置顶会话（ADR-0069）
+### 3.3.1 置顶会话（ADR-0069/0073）
 
 ```http
 POST /api/sessions/sess_01H.../pin
@@ -435,7 +435,9 @@ Authorization: Bearer <token>
   `404 {"detail":"session not found"}`（不泄露存在性）
 - 只影响当前用户的 `GET /sessions` 顺序：置顶组在前，组内仍按最近活动倒序；
   不改变 `updated_at`、`run_count` 与会话内容，也不影响其他用户
-- 置顶数量不设上限；置顶组内不按 `pinned_at` 排序（最近置顶的旧会话不一定排第一）
+- 每个用户最多置顶 50 个会话（ADR-0073）；已置顶的会话重复置顶仍 204，新增第 51 个
+  时返回 `409 {"code":"PIN_LIMIT_REACHED"}`。这是软上限，并发置顶可能短暂多出 1 个
+- 置顶组内不按 `pinned_at` 排序（最近置顶的旧会话不一定排第一）
 - 移除会话（`DELETE /sessions/{session_id}`）会在同一事务里清掉置顶行；恢复时也会
   同事务兜底清掉该会话的置顶行。因此恢复后一定不置顶，需要用户重新点击
 - 库不可用时返回 `503 {"code":"DATABASE_UNAVAILABLE"}`；旧后端没有置顶接口时，

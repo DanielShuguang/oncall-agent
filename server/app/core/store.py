@@ -43,6 +43,19 @@ class RunNotFoundError(LookupError):
     """run_id 不存在。API 层翻译成 404，不要吞掉。"""
 
 
+#: 单个用户最多置顶的会话数（ADR-0073）。置顶是列表偏好，数量无上限时会把侧栏
+#: 第一页压成一条长列表；这个上限是软约束，并发置顶可能短暂超过 1。
+MAX_PINNED_SESSIONS = 50
+
+
+class PinLimitExceeded(RuntimeError):
+    """当前用户的置顶数量已达上限（ADR-0073）。API 层翻译成 409。"""
+
+    def __init__(self, limit: int) -> None:
+        super().__init__(f"pinned session limit reached: {limit}")
+        self.limit = limit
+
+
 @dataclass
 class RunRecord:
     run_id: str
@@ -548,10 +561,11 @@ class RunStore(Protocol):
         ...
 
     async def pin_session(self, *, user_id: str, session_id: str) -> bool:
-        """把会话置顶（ADR-0069）。重复置顶幂等。
+        """把会话置顶（ADR-0069/0073）。重复置顶幂等。
 
         返回 False 表示这个用户没有该会话或它已被隐藏——调用方翻成 404，
-        不泄露存在性。置顶不影响其他用户。
+        不泄露存在性。置顶不影响其他用户。达到 ``MAX_PINNED_SESSIONS`` 时
+        抛 ``PinLimitExceeded``，由调用方翻成 409。
         """
         ...
 
@@ -1086,6 +1100,11 @@ class InMemoryRunStore:
                 return False
             if (user_id, session_id) in self._hidden_sessions:
                 return False
+            if (user_id, session_id) in self._pinned_sessions:
+                return True
+            pinned = sum(1 for current_user, _ in self._pinned_sessions if current_user == user_id)
+            if pinned >= MAX_PINNED_SESSIONS:
+                raise PinLimitExceeded(MAX_PINNED_SESSIONS)
             self._pinned_sessions.add((user_id, session_id))
             return True
 
@@ -1916,6 +1935,21 @@ class PostgresRunStore:
                 session, user_id=user_id, session_id=session_id
             ):
                 return False
+            existing = await session.scalar(
+                select(PinnedSessionRow.session_id).where(
+                    PinnedSessionRow.user_id == user_id,
+                    PinnedSessionRow.session_id == session_id,
+                )
+            )
+            if existing is not None:
+                return True
+            pinned = await session.scalar(
+                select(func.count())
+                .select_from(PinnedSessionRow)
+                .where(PinnedSessionRow.user_id == user_id)
+            )
+            if (pinned or 0) >= MAX_PINNED_SESSIONS:
+                raise PinLimitExceeded(MAX_PINNED_SESSIONS)
             await session.execute(
                 pg_insert(PinnedSessionRow)
                 .values(user_id=user_id, session_id=session_id)

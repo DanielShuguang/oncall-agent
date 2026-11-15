@@ -195,7 +195,7 @@ CREATE TABLE pinned_sessions (
 > `GET /sessions` 按 `(pinned, updated_at, session_id)` 倒序，置顶组内仍按最近活动；
 > `pinned_at` 不参与排序，只用于排错。
 > 置顶/取消置顶幂等；已移除会话在 `DELETE /sessions/{session_id}` 的同一事务内删除
-> 置顶行，恢复后不恢复置顶。置顶不改变 `updated_at`。
+> 置顶行，恢复时也会同事务兜底清理，恢复后不恢复置顶。置顶不改变 `updated_at`。
 
 ### 2.2 run_events（事件，只追加）
 

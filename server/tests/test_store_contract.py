@@ -596,6 +596,21 @@ async def _exercise_pinned_sessions(store: RunStore) -> None:
     )
     assert [item.session_id for item in plain_second] == ["sess_old"]
 
+    # 重复置顶/取消幂等；置顶后隐藏会清掉置顶，恢复后不恢复
+    assert await store.pin_session(user_id=user, session_id="sess_mid") is True
+    assert await store.pin_session(user_id=user, session_id="sess_mid") is True
+    assert await store.hide_session(user_id=user, session_id="sess_mid") is True
+    hidden = await store.list_hidden_sessions(user_id=user, limit=10)
+    assert [item.session_id for item in hidden] == ["sess_mid"]
+    assert await store.pin_session(user_id=user, session_id="sess_mid") is False
+    assert await store.unhide_sessions(user_id=user, session_ids=["sess_mid"]) == {"sess_mid"}
+    restored_sessions = {
+        item.session_id: item for item in await store.list_sessions(user_id=user, limit=10)
+    }
+    assert restored_sessions["sess_mid"].pinned is False
+    assert await store.unpin_session(user_id=user, session_id="sess_mid") is True
+    assert await store.unpin_session(user_id=user, session_id="sess_mid") is True
+
 
 async def _exercise_session_titles(store: RunStore) -> None:
     """自定义会话标题（ADR-0040）：显示优先、搜索双匹配、清除恢复默认。"""
@@ -893,9 +908,9 @@ async def test_memory_store_contract() -> None:
     await _exercise_prune_contents(store)
     await _exercise_cited_documents(store)
     await _exercise_sessions(store)
-    await _exercise_pinned_sessions(store)
     await _exercise_session_titles(store)
     await _exercise_hidden_sessions(store)
+    await _exercise_pinned_sessions(store)
     await _exercise_events_for_runs(store)
 
 
@@ -928,7 +943,7 @@ async def test_postgres_store_contract(pg_store: PostgresRunStore) -> None:
     await _exercise_prune_contents(pg_store)
     await _exercise_cited_documents(pg_store)
     await _exercise_sessions(pg_store)
-    await _exercise_pinned_sessions(pg_store)
     await _exercise_session_titles(pg_store)
     await _exercise_hidden_sessions(pg_store)
+    await _exercise_pinned_sessions(pg_store)
     await _exercise_events_for_runs(pg_store)

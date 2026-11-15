@@ -1146,6 +1146,11 @@ class InMemoryRunStore:
                 for session_id in unique_ids
                 if self._hidden_sessions.pop((user_id, session_id), None) is not None
             }
+            # 并发隐藏/置顶可能留下已隐藏会话的置顶行；恢复时清掉，
+            # 保证「恢复后不恢复置顶」的对外口径（ADR-0069）。
+            self._pinned_sessions.difference_update(
+                (user_id, session_id) for session_id in restored
+            )
             if restored:
                 # 按请求顺序记录真正恢复的 id，和 API 逐条结果口径一致
                 ordered = [session_id for session_id in unique_ids if session_id in restored]
@@ -2044,6 +2049,14 @@ class PostgresRunStore:
             restored = set(result.scalars().all())
             if not restored:
                 return set()
+            # 并发隐藏/置顶可能留下已隐藏会话的置顶行；恢复时同事务清掉，
+            # 保证「恢复后不恢复置顶」的对外口径（ADR-0069）。
+            await session.execute(
+                delete(PinnedSessionRow).where(
+                    PinnedSessionRow.user_id == user_id,
+                    PinnedSessionRow.session_id.in_(restored),
+                )
+            )
             ordered = [session_id for session_id in unique_ids if session_id in restored]
             # 删除与审计同一事务：不能恢复成功而审计丢失；插入失败会回滚删除
             session.add(

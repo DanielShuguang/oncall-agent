@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { cn } from 'cn';
 import { Bot, Info, Menu, Plus, Send, Sparkles, Square } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -59,6 +59,14 @@ export default function ChatPage() {
   const [pinLimit, setPinLimit] = useState<number | null>(null);
   // 窄屏（<640px）会话栏默认隐藏，用抽屉访问（ADR-0076）。
   const [sessionDrawerOpen, setSessionDrawerOpen] = useState(false);
+  const sessionDrawerTrigger = useRef<HTMLButtonElement>(null);
+  const closeSessionDrawer = useCallback(() => {
+    setSessionDrawerOpen(false);
+    // 关闭后把焦点还给触发按钮；仍不做焦点陷阱（ADR-0076 决策 6）。
+    if (window.matchMedia('(max-width: 639px)').matches) {
+      sessionDrawerTrigger.current?.focus();
+    }
+  }, []);
   const [sessionsLoading, setSessionsLoading] = useState(true);
   const [sessionsLoadingMore, setSessionsLoadingMore] = useState(false);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
@@ -116,11 +124,11 @@ export default function ChatPage() {
   useEffect(() => {
     if (!sessionDrawerOpen) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setSessionDrawerOpen(false);
+      if (event.key === 'Escape') closeSessionDrawer();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [sessionDrawerOpen]);
+  }, [closeSessionDrawer, sessionDrawerOpen]);
 
   useEffect(() => {
     let cancelled = false;
@@ -564,12 +572,12 @@ export default function ChatPage() {
           type="button"
           aria-label="关闭会话列表"
           className="fixed inset-0 z-30 bg-black/30 backdrop-blur-[1px] sm:hidden"
-          onClick={() => setSessionDrawerOpen(false)}
+          onClick={closeSessionDrawer}
         />
       )}
       <SessionList
         mobileOpen={sessionDrawerOpen}
-        onCloseMobile={() => setSessionDrawerOpen(false)}
+        onCloseMobile={closeSessionDrawer}
         sessions={sessions}
         activeSessionId={sessionId}
         loading={sessionsLoading}
@@ -582,11 +590,11 @@ export default function ChatPage() {
         onSearchDraftChange={setSessionDraftQuery}
         onSearch={onSearchSessions}
         onSelect={(id) => {
-          setSessionDrawerOpen(false);
+          closeSessionDrawer();
           void onSelectSession(id);
         }}
         onNew={() => {
-          setSessionDrawerOpen(false);
+          closeSessionDrawer();
           onNewSession();
         }}
         onRetry={() => refreshSessions()}
@@ -638,6 +646,7 @@ export default function ChatPage() {
           <div className="mx-auto flex w-full max-w-3xl items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-2">
               <Button
+                ref={sessionDrawerTrigger}
                 type="button"
                 variant="ghost"
                 size="icon"

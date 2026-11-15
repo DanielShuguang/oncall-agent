@@ -1,6 +1,6 @@
 /** 会话侧栏（ADR-0030）：只展示服务端投影，不在浏览器本地缓存会话。 */
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { MessageSquare, Pencil, Pin, Plus, Search, Trash2, X } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -154,6 +154,14 @@ export function SessionList({
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   // 批量移除的二次确认（ADR-0072）
   const [confirmingBatch, setConfirmingBatch] = useState(false);
+  const mobileCloseButton = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!mobileOpen) return;
+    // 只把焦点移入抽屉，不做焦点陷阱（ADR-0076 决策 6）。
+    if (window.matchMedia('(max-width: 639px)').matches) {
+      mobileCloseButton.current?.focus();
+    }
+  }, [mobileOpen]);
   const allBatchSelected =
     sessions.length > 0 && sessions.every((item) => batchSelected.has(item.session_id));
   const pinLimitReached = pinnedCount !== null && pinLimit !== null && pinnedCount >= pinLimit;
@@ -187,6 +195,7 @@ export function SessionList({
             {batchMode ? '完成' : '管理'}
           </Button>
           <Button
+            ref={mobileCloseButton}
             type="button"
             size="icon"
             variant="ghost"

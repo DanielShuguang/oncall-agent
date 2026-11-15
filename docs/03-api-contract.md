@@ -38,6 +38,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | DELETE | `/sessions/{session_id}` | 从会话列表移除（软移除；不删 run/事件/审批，204；同事务清置顶） | W6 后补 |
 | GET | `/sessions/hidden` | 本人从列表移除的会话（游标分页 + 标题搜索，ADR-0043/0047） | W6 后补 |
 | DELETE | `/sessions/{session_id}/hidden` | 恢复已移除的会话（只删 `hidden_sessions` 行，204） | W6 后补 |
+| POST | `/sessions/hide` | 批量从会话列表移除（最多 50，部分成功，返回逐条结果） | W6 后补 |
 | POST | `/sessions/hidden/restore` | 批量恢复已移除会话（最多 50，部分成功，返回逐条结果） | W6 后补 |
 | GET | `/admin/session-restores` | 会话恢复审计（按用户/会话/日期范围过滤，最近在前，游标分页；第一页附总数） | W6 后补 |
 | GET | `/admin/session-restores/stats` | 会话恢复审计统计（窗口内恢复次数/用户数/会话数/UTC 日趋势，可按用户/会话/日期范围过滤） | W6 后补 |
@@ -520,6 +521,37 @@ Authorization: Bearer <token>
   直接 `GET /runs/{id}`、事件回放、引用预览仍可访问——这是列表级整理，不是权限控制
 - 别人的会话与不存在的会话都返回 `404 {"detail":"session not found"}`（不泄露存在性）
 - 移除后可以在「已移除的会话」里恢复（§3.7）；成功后前端若移除的是当前会话，会切到一个新会话
+- 库不可用时返回 `503 {"code":"DATABASE_UNAVAILABLE"}`
+
+### 3.6.1 批量移除会话（ADR-0072）
+
+```http
+POST /api/sessions/hide
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{"session_ids": ["sess_01H...", "sess_02H...", "sess_01H..."]}
+```
+
+```json
+{
+  "hidden": 2,
+  "requested": 2,
+  "items": [
+    {"session_id": "sess_01H...", "hidden": true},
+    {"session_id": "sess_02H...", "hidden": true}
+  ]
+}
+```
+
+- 一次 1–50 个，服务端去重保序；空列表、超过 50 个或空白 id 返回 422
+- 只处理**本人**的会话；不存在、属于别人的 id 静默忽略（部分成功）。
+  `items[].hidden: false` 刻意合并这两类，不区分「不存在」与「属于别人」，
+  避免泄露别人的会话是否存在
+- 已处于已移除状态的 id 仍返回 `hidden: true`（幂等），不改变第一次的
+  `hidden_at`；`hidden` 是请求中真正处于已移除状态的数量
+- 与单条移除一样只写 `hidden_sessions`，不删除 run、事件、审批、引用快照与
+  自定义标题；同一事务删除该用户的置顶行（ADR-0069）
 - 库不可用时返回 `503 {"code":"DATABASE_UNAVAILABLE"}`
 
 ### 3.7 已移除会话的查看与恢复（ADR-0043 / ADR-0047 / ADR-0049）

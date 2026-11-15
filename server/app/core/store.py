@@ -537,6 +537,16 @@ class RunStore(Protocol):
         """
         ...
 
+    async def hide_sessions(self, *, user_id: str, session_ids: Sequence[str]) -> set[str]:
+        """批量把会话从该用户的列表移除（ADR-0072）。
+
+        部分成功：不存在、属于别人、或本来就没移除的 id 都不返回。返回的是
+        该用户名下、当前确实处于「已移除」状态的 session_id；重复移除幂等，
+        不改变第一次的 hidden_at。隐藏时同事务删除该用户的置顶行（ADR-0069）。
+        `session_ids` 由 API 去重并限制长度。
+        """
+        ...
+
     async def pin_session(self, *, user_id: str, session_id: str) -> bool:
         """把会话置顶（ADR-0069）。重复置顶幂等。
 
@@ -1044,17 +1054,28 @@ class InMemoryRunStore:
             return True
 
     async def hide_session(self, *, user_id: str, session_id: str) -> bool:
+        return bool(await self.hide_sessions(user_id=user_id, session_ids=[session_id]))
+
+    async def hide_sessions(self, *, user_id: str, session_ids: Sequence[str]) -> set[str]:
+        unique_ids = list(dict.fromkeys(session_ids))
+        if not unique_ids:
+            return set()
         async with self._lock:
-            if not any(
-                record.user_id == user_id and record.session_id == session_id
-                for record in self._runs.values()
-            ):
-                return False
+            owned = {
+                session_id
+                for session_id in unique_ids
+                if any(
+                    record.user_id == user_id and record.session_id == session_id
+                    for record in self._runs.values()
+                )
+            }
             # 重复移除保留第一次的 hidden_at，与 PG 的 on_conflict_do_nothing 一致
-            self._hidden_sessions.setdefault((user_id, session_id), datetime.now(UTC))
-            # 隐藏会话不保留置顶（ADR-0069）
-            self._pinned_sessions.discard((user_id, session_id))
-            return True
+            hidden_at = datetime.now(UTC)
+            for session_id in owned:
+                self._hidden_sessions.setdefault((user_id, session_id), hidden_at)
+                # 隐藏会话不保留置顶（ADR-0069）
+                self._pinned_sessions.discard((user_id, session_id))
+            return owned
 
     async def pin_session(self, *, user_id: str, session_id: str) -> bool:
         async with self._lock:
@@ -1858,15 +1879,24 @@ class PostgresRunStore:
         return True
 
     async def hide_session(self, *, user_id: str, session_id: str) -> bool:
-        async with self._sessionmaker() as session:
-            has_run = await session.scalar(
-                select(Run.id).where(Run.user_id == user_id, Run.session_id == session_id).limit(1)
+        return bool(await self.hide_sessions(user_id=user_id, session_ids=[session_id]))
+
+    async def hide_sessions(self, *, user_id: str, session_ids: Sequence[str]) -> set[str]:
+        unique_ids = list(dict.fromkeys(session_ids))
+        if not unique_ids:
+            return set()
+        async with self._sessionmaker() as session, session.begin():
+            owned_rows = await session.scalars(
+                select(Run.session_id)
+                .where(Run.user_id == user_id, Run.session_id.in_(unique_ids))
+                .distinct()
             )
-            if has_run is None:
-                return False
+            owned = set(owned_rows.all())
+            if not owned:
+                return set()
             await session.execute(
                 pg_insert(HiddenSessionRow)
-                .values(user_id=user_id, session_id=session_id)
+                .values([{"user_id": user_id, "session_id": item} for item in owned])
                 .on_conflict_do_nothing(
                     index_elements=[HiddenSessionRow.user_id, HiddenSessionRow.session_id]
                 )
@@ -1875,11 +1905,10 @@ class PostgresRunStore:
             await session.execute(
                 delete(PinnedSessionRow).where(
                     PinnedSessionRow.user_id == user_id,
-                    PinnedSessionRow.session_id == session_id,
+                    PinnedSessionRow.session_id.in_(owned),
                 )
             )
-            await session.commit()
-        return True
+        return owned
 
     async def pin_session(self, *, user_id: str, session_id: str) -> bool:
         async with self._sessionmaker() as session:

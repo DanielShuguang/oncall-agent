@@ -677,6 +677,60 @@ async def test_restore_hidden_sessions_batch(
         assert bad.status_code == 422
 
 
+async def test_hide_sessions_batch(client: AsyncClient, mem_store: InMemoryRunStore) -> None:
+    await _run(mem_store, "sess_hide_a", "打印机离线")
+    await _run(mem_store, "sess_hide_b", "VPN 掉线")
+    await _run(mem_store, "sess_other", "别人的问题", user_id="u_205")
+    assert (await client.post("/api/sessions/sess_hide_a/pin")).status_code == 204
+
+    res = await client.post(
+        "/api/sessions/hide",
+        json={
+            "session_ids": [
+                "sess_hide_a",
+                "sess_hide_a",
+                "sess_hide_b",
+                "sess_missing",
+                "sess_other",
+            ]
+        },
+    )
+    assert res.status_code == 200
+    assert res.json() == {
+        "hidden": 2,
+        "requested": 4,
+        "items": [
+            {"session_id": "sess_hide_a", "hidden": True},
+            {"session_id": "sess_hide_b", "hidden": True},
+            {"session_id": "sess_missing", "hidden": False},
+            {"session_id": "sess_other", "hidden": False},
+        ],
+    }
+    assert (await client.get("/api/sessions")).json()["items"] == []
+    hidden_items = (await client.get("/api/sessions/hidden")).json()["items"]
+    assert {item["session_id"] for item in hidden_items} == {"sess_hide_a", "sess_hide_b"}
+    # 隐藏清置顶：置顶端点返回 404，且恢复后不回到顶部
+    assert (await client.post("/api/sessions/sess_hide_a/pin")).status_code == 404
+
+    # 重复移除幂等；已移除的 id 仍算 hidden=true
+    again = await client.post("/api/sessions/hide", json={"session_ids": ["sess_hide_a"]})
+    assert again.status_code == 200
+    assert again.json() == {
+        "hidden": 1,
+        "requested": 1,
+        "items": [{"session_id": "sess_hide_a", "hidden": True}],
+    }
+
+    # 空列表、超过 50 个、空字符串 id 都是 422
+    for payload in (
+        {"session_ids": []},
+        {"session_ids": [f"sess_{index}" for index in range(51)]},
+        {"session_ids": [""]},
+    ):
+        bad = await client.post("/api/sessions/hide", json=payload)
+        assert bad.status_code == 422
+
+
 async def test_hide_session_is_scoped_and_reports_database_failure(
     client: AsyncClient, mem_store: InMemoryRunStore
 ) -> None:
@@ -704,5 +758,10 @@ async def test_hide_session_is_scoped_and_reports_database_failure(
 
     mem_store.unhide_sessions = AsyncMock(side_effect=SQLAlchemyError("boom"))  # type: ignore[method-assign]
     res = await client.post("/api/sessions/hidden/restore", json={"session_ids": ["sess_any"]})
+    assert res.status_code == 503
+    assert res.json()["code"] == "DATABASE_UNAVAILABLE"
+
+    mem_store.hide_sessions = AsyncMock(side_effect=SQLAlchemyError("boom"))  # type: ignore[method-assign]
+    res = await client.post("/api/sessions/hide", json={"session_ids": ["sess_any"]})
     assert res.status_code == 503
     assert res.json()["code"] == "DATABASE_UNAVAILABLE"

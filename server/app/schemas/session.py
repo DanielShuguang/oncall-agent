@@ -34,12 +34,31 @@ class HiddenSessionListResponse(BaseModel):
     next_cursor: str | None = None
 
 
-class HiddenSessionRestoreRequest(BaseModel):
-    """批量恢复已移除的会话（ADR-0049）；一次最多 50 个。"""
+class HiddenSessionBatchRequest(BaseModel):
+    """批量移除或恢复会话（ADR-0049/0072）；一次最多 50 个。"""
 
     model_config = ConfigDict(extra="forbid")
 
     session_ids: list[SessionId] = Field(min_length=1, max_length=50)
+
+
+class HiddenSessionHideItem(BaseModel):
+    """批量移除的逐条结果（ADR-0072）；顺序与去重后的请求一致。"""
+
+    session_id: str
+    hidden: bool
+
+
+class HiddenSessionHideResponse(BaseModel):
+    """批量移除结果：保留计数，同时逐条说明哪些 id 真正处于已移除状态。"""
+
+    hidden: int
+    requested: int
+    items: list[HiddenSessionHideItem]
+
+
+class HiddenSessionRestoreRequest(HiddenSessionBatchRequest):
+    """批量恢复已移除的会话（ADR-0049）；一次最多 50 个。"""
 
 
 class HiddenSessionRestoreItem(BaseModel):

@@ -39,6 +39,15 @@ interface SessionListProps {
   /** 正在从列表移除的会话（ADR-0041） */
   hidingId: string | null;
   onHide: (sessionId: string) => void;
+  /** 批量移除（ADR-0072）：管理模式下多选当前已加载页 */
+  batchMode: boolean;
+  batchSelected: Set<string>;
+  batchHiding: boolean;
+  batchNotice: string | null;
+  onToggleBatchMode: () => void;
+  onBatchToggleSelect: (sessionId: string) => void;
+  onBatchToggleAll: () => void;
+  onHideSelected: () => void;
   /** 已移除的会话折叠区（ADR-0043） */
   hiddenOpen: boolean;
   hiddenSessions: HiddenSession[];
@@ -103,6 +112,14 @@ export function SessionList({
   onTogglePin,
   hidingId,
   onHide,
+  batchMode,
+  batchSelected,
+  batchHiding,
+  batchNotice,
+  onToggleBatchMode,
+  onBatchToggleSelect,
+  onBatchToggleAll,
+  onHideSelected,
   hiddenOpen,
   hiddenSessions,
   hiddenLoading,
@@ -126,6 +143,10 @@ export function SessionList({
 }: SessionListProps) {
   // 行内二次确认，避免为一次移除引入额外的全局弹层（ADR-0041）
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  // 批量移除的二次确认（ADR-0072）
+  const [confirmingBatch, setConfirmingBatch] = useState(false);
+  const allBatchSelected =
+    sessions.length > 0 && sessions.every((item) => batchSelected.has(item.session_id));
   const allHiddenSelected =
     hiddenSessions.length > 0 &&
     hiddenSessions.every((item) => hiddenSelected.has(item.session_id));
@@ -133,9 +154,22 @@ export function SessionList({
     <aside className="hidden w-56 shrink-0 flex-col gap-2 border-r p-3 sm:flex">
       <div className="flex items-center justify-between gap-2">
         <span className="text-xs font-medium text-muted-foreground">会话</span>
-        <Button size="sm" variant="outline" onClick={onNew}>
-          新会话
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button size="sm" variant="outline" disabled={batchMode} onClick={onNew}>
+            新会话
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            aria-pressed={batchMode}
+            onClick={() => {
+              setConfirmingBatch(false);
+              onToggleBatchMode();
+            }}
+          >
+            {batchMode ? '完成' : '管理'}
+          </Button>
+        </div>
       </div>
 
       <form
@@ -158,6 +192,11 @@ export function SessionList({
       </form>
 
       {loading && <p className="px-1 py-2 text-xs text-muted-foreground">加载中…</p>}
+      {batchNotice && !error && (
+        <p className="px-1 py-1 text-xs text-muted-foreground" aria-live="polite">
+          {batchNotice}
+        </p>
+      )}
       {error && (
         <div className="space-y-1 px-1 py-2">
           <p className="text-xs text-danger">{error}</p>
@@ -175,6 +214,28 @@ export function SessionList({
       <ul className="min-h-0 flex-1 space-y-1 overflow-y-auto">
         {sessions.map((session) => {
           const active = session.session_id === activeSessionId;
+          if (batchMode) {
+            return (
+              <li key={session.session_id}>
+                <label className="flex items-start gap-1.5 rounded-md border bg-canvas p-1.5 text-xs">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={batchSelected.has(session.session_id)}
+                    onChange={() => onBatchToggleSelect(session.session_id)}
+                    disabled={batchHiding}
+                    aria-label={`选择会话 ${session.title ?? '无标题'}`}
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="line-clamp-2 break-words">{session.title ?? '无标题'}</span>
+                    <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                      {session.run_count} 轮 · {formatUpdated(session.updated_at)}
+                    </span>
+                  </span>
+                </label>
+              </li>
+            );
+          }
           if (session.session_id === renamingId) {
             return (
               <li key={session.session_id}>
@@ -309,6 +370,61 @@ export function SessionList({
         <Button size="sm" variant="outline" disabled={loadingMore || busy} onClick={onLoadMore}>
           {loadingMore ? '加载中…' : '加载更多会话'}
         </Button>
+      )}
+
+      {batchMode && (
+        <div className="space-y-1 border-t pt-2">
+          {confirmingBatch ? (
+            <div className="space-y-1 rounded-md border border-danger/40 bg-canvas p-1.5">
+              <p className="text-xs text-muted-foreground">
+                从列表移除选中的 {batchSelected.size} 个会话？run 与审批仍按保留期保存。
+              </p>
+              <div className="flex justify-end gap-1">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  type="button"
+                  onClick={() => setConfirmingBatch(false)}
+                >
+                  取消
+                </Button>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  type="button"
+                  disabled={batchHiding || batchSelected.size === 0}
+                  onClick={() => {
+                    setConfirmingBatch(false);
+                    onHideSelected();
+                  }}
+                >
+                  {batchHiding ? '移除中…' : '确认移除'}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between gap-1">
+              <label className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={allBatchSelected}
+                  onChange={onBatchToggleAll}
+                  disabled={sessions.length === 0 || batchHiding}
+                  aria-label="全选当前页会话"
+                />
+                全选当前页
+              </label>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={batchSelected.size === 0 || batchHiding}
+                onClick={() => setConfirmingBatch(true)}
+              >
+                {batchHiding ? '移除中…' : `移除选中（${batchSelected.size}）`}
+              </Button>
+            </div>
+          )}
+        </div>
       )}
 
       <div className="border-t pt-2">

@@ -1730,6 +1730,22 @@ tsc、`oxlint` 0/0（73 files）、`oxfmt --check` 81 files、`pnpm build` 通�
 
 ---
 
+## W6 后补：会话批量移除（ADR-0072）
+
+| 事项 | 落地 |
+|---|---|
+| 接口 | `POST /sessions/hide`，1–50 个、去重保序；返回 `{hidden,requested,items}` 逐条结果 |
+| 语义 | 只处理本人会话；不存在/别人的 `hidden:false`，不区分；已移除仍 `hidden:true`（幂等） |
+| 存储 | `RunStore.hide_sessions` 返回本人已移除集合；内存/Postgres 单事务；同事务清置顶 |
+| 不做 | 无迁移/索引/审计；不按搜索条件批量移除；不跨页累积选择 |
+| 前端 | 会话列表「管理」模式勾选当前已加载页，全选仅当前页；行内确认后一次请求；成功后刷新列表与已移除折叠区 |
+| 验证 | 505+40 / 542+3 / 545；ruff 196 / mypy 114；前端 94/19、oxlint 75 files、oxfmt 83、build 通过 |
+| 边界 | 选择只覆盖已加载页；隐藏仍无审计；恢复仍走 ADR-0049/0055 |
+
+详见 [ADR-0072](decisions/0072-session-batch-hide.md)。
+
+---
+
 ## 每周固定动作
 
 | 时点 | 动作 |

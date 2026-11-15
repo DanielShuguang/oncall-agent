@@ -61,6 +61,25 @@ export async function hideSession(sessionId: string): Promise<void> {
   await del(`/sessions/${encodeURIComponent(sessionId)}`);
 }
 
+export interface HideSessionsItem {
+  session_id: string;
+  hidden: boolean;
+}
+
+export interface HideSessionsResult {
+  hidden: number;
+  requested: number;
+  /** 与去重后的请求顺序一致；false 表示不存在或属于别人（ADR-0072） */
+  items: HideSessionsItem[];
+}
+
+/** 批量从列表移除（ADR-0072）：最多 50 个，去重后处理；逐条返回是否处于已移除状态。 */
+export async function hideSessions(sessionIds: string[]): Promise<HideSessionsResult> {
+  return postJson<HideSessionsResult>('/sessions/hide', {
+    session_ids: sessionIds,
+  });
+}
+
 /** 置顶会话（ADR-0069，幂等）；只影响当前用户的列表顺序。 */
 export async function pinSession(sessionId: string): Promise<void> {
   await post(`/sessions/${encodeURIComponent(sessionId)}/pin`);

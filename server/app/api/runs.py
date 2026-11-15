@@ -42,6 +42,9 @@ from app.runs.timeline import build_timeline
 from app.schemas.cost import ModelCallOut
 from app.schemas.event import RunStatus
 from app.schemas.session import (
+    HiddenSessionBatchRequest,
+    HiddenSessionHideItem,
+    HiddenSessionHideResponse,
     HiddenSessionListResponse,
     HiddenSessionOut,
     HiddenSessionRestoreItem,
@@ -436,6 +439,36 @@ async def rename_session(
     if not renamed:
         raise _session_not_found()
     return Response(status_code=204)
+
+
+@router.post("/sessions/hide", response_model=HiddenSessionHideResponse)
+async def hide_sessions(
+    body: HiddenSessionBatchRequest,
+    store: Annotated[RunStore, Depends(get_store)],
+    identity: Annotated[Identity, Depends(get_identity)],
+) -> HiddenSessionHideResponse:
+    """批量把会话从列表移除（ADR-0072）。
+
+    一次最多 50 个；只处理当前用户名下的会话。部分成功：不存在、别人的 id
+    不会出现在 `items.hidden=true`，也不区分「不存在」与「属于别人」，避免
+    泄露存在性。重复移除幂等；隐藏时同事务删除置顶（ADR-0069）。
+    """
+    session_ids = list(dict.fromkeys(body.session_ids))
+    try:
+        hidden_ids = await store.hide_sessions(
+            user_id=identity.user_id,
+            session_ids=session_ids,
+        )
+    except SQLAlchemyError as exc:
+        raise ApiError(503, "DATABASE_UNAVAILABLE", "database unavailable") from exc
+    return HiddenSessionHideResponse(
+        hidden=len(hidden_ids),
+        requested=len(session_ids),
+        items=[
+            HiddenSessionHideItem(session_id=session_id, hidden=session_id in hidden_ids)
+            for session_id in session_ids
+        ],
+    )
 
 
 @router.delete("/sessions/{session_id}", status_code=204)

@@ -798,6 +798,48 @@ async def _exercise_hidden_sessions(store: RunStore) -> None:
     assert await store.unhide_sessions(user_id=user, session_ids=["sess_drop3"]) == set()
     assert len(await store.list_session_restore_audits(user_id=user, limit=10)) == 3
 
+    # 批量移除（ADR-0072）：部分成功、幂等、别人的 id 不出现在结果里
+    await store.create(
+        run_id=str(uuid.uuid4()), user_id=user, session_id="sess_batch_a", message="批量 A"
+    )
+    await store.create(
+        run_id=str(uuid.uuid4()), user_id=user, session_id="sess_batch_b", message="批量 B"
+    )
+    await store.create(
+        run_id=str(uuid.uuid4()), user_id=user, session_id="sess_batch_c", message="批量 C"
+    )
+    assert await store.pin_session(user_id=user, session_id="sess_batch_a") is True
+    assert await store.hide_sessions(
+        user_id=user,
+        session_ids=[
+            "sess_batch_a",
+            "sess_missing",
+            "sess_secret",
+            "sess_batch_a",
+            "sess_batch_b",
+        ],
+    ) == {"sess_batch_a", "sess_batch_b"}
+    batch_hidden = {
+        item.session_id: item for item in await store.list_hidden_sessions(user_id=user, limit=10)
+    }
+    assert {"sess_batch_a", "sess_batch_b"} <= set(batch_hidden)
+    assert await store.pin_session(user_id=user, session_id="sess_batch_a") is False
+    # 重复移除幂等：仍返回同样结果，hidden_at 不变
+    first_hidden_at = batch_hidden["sess_batch_a"].hidden_at
+    assert await store.hide_sessions(
+        user_id=user, session_ids=["sess_batch_a", "sess_batch_b"]
+    ) == {"sess_batch_a", "sess_batch_b"}
+    repeated = {
+        item.session_id: item for item in await store.list_hidden_sessions(user_id=user, limit=10)
+    }
+    assert repeated["sess_batch_a"].hidden_at == first_hidden_at
+    visible = {item.session_id for item in await store.list_sessions(user_id=user, limit=10)}
+    assert "sess_batch_c" in visible
+    assert "sess_batch_a" not in visible
+    assert "sess_batch_b" not in visible
+    assert await store.list_hidden_sessions(user_id=other, limit=10) == []
+    assert await store.hide_sessions(user_id=user, session_ids=[]) == set()
+
     # 游标分页（ADR-0060）：按 (restored_at, id) 倒序，下一页严格更早
     page1 = await store.list_session_restore_audits(user_id=user, limit=2)
     assert len(page1) == 2

@@ -9,6 +9,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import {
   getSessionRuns,
   hideSession,
+  hideSessions as hideSessionsBatch,
   listHiddenSessions,
   listSessions,
   pinSession,
@@ -67,6 +68,11 @@ export default function ChatPage() {
   const renameRequest = useRef(0);
   // 正在从会话列表移除的会话（ADR-0041）；移除只影响列表，不删 run
   const [hidingId, setHidingId] = useState<string | null>(null);
+  // 批量移除（ADR-0072）：管理模式下按当前已加载页选择
+  const [batchHideMode, setBatchHideMode] = useState(false);
+  const [batchHideSelected, setBatchHideSelected] = useState<Set<string>>(new Set());
+  const [batchHiding, setBatchHiding] = useState(false);
+  const [batchHideNotice, setBatchHideNotice] = useState<string | null>(null);
   // 正在置顶/取消置顶的会话（ADR-0069）；置顶后刷新列表回到第一页
   const [pinningId, setPinningId] = useState<string | null>(null);
   // 已移除的会话折叠区（ADR-0043）；打开时才拉取，恢复只删 hidden_sessions 行
@@ -313,6 +319,64 @@ export default function ChatPage() {
     }
   };
 
+  const onToggleBatchHide = () => {
+    if (batchHideMode) {
+      setBatchHideMode(false);
+      setBatchHideNotice(null);
+    } else {
+      setBatchHideMode(true);
+    }
+    setBatchHideSelected(new Set());
+  };
+
+  const onBatchHideToggleSelect = (targetSessionId: string) => {
+    setBatchHideSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(targetSessionId)) next.delete(targetSessionId);
+      else next.add(targetSessionId);
+      return next;
+    });
+  };
+
+  const onBatchHideToggleAll = () => {
+    setBatchHideSelected((prev) => {
+      const allSelected =
+        sessions.length > 0 && sessions.every((item) => prev.has(item.session_id));
+      return allSelected ? new Set() : new Set(sessions.map((item) => item.session_id));
+    });
+  };
+
+  const onHideSelectedSessions = async () => {
+    if (batchHiding || batchHideSelected.size === 0) return;
+    const ids = [...batchHideSelected];
+    setBatchHiding(true);
+    setSessionsError(null);
+    setBatchHideNotice(null);
+    try {
+      const result = await hideSessionsBatch(ids);
+      if (ids.includes(sessionId)) onNewSession();
+      setBatchHideMode(false);
+      setBatchHideSelected(new Set());
+      setBatchHideNotice(`已移除 ${result.hidden} 个会话。`);
+      refreshSessions();
+      // 已移除列表已变化：下次展开重新拉取，并让在途请求失效。
+      hiddenRequest.current += 1;
+      setHiddenOpen(false);
+      setHiddenLoading(false);
+      setHiddenLoadingMore(false);
+      setHiddenSessions([]);
+      setHiddenCursor(null);
+      setHiddenSelected(new Set());
+      setHiddenQuery('');
+      setHiddenDraftQuery('');
+      setHiddenNotice(null);
+    } catch (err) {
+      setSessionsError(err instanceof Error ? err.message : '批量移除失败');
+    } finally {
+      setBatchHiding(false);
+    }
+  };
+
   const onTogglePin = async (session: SessionSummary) => {
     if (pinningId || session.pinned === undefined) return;
     setPinningId(session.session_id);
@@ -486,6 +550,14 @@ export default function ChatPage() {
         onTogglePin={(item) => void onTogglePin(item)}
         hidingId={hidingId}
         onHide={(id) => void onHideSession(id)}
+        batchMode={batchHideMode}
+        batchSelected={batchHideSelected}
+        batchHiding={batchHiding}
+        batchNotice={batchHideNotice}
+        onToggleBatchMode={onToggleBatchHide}
+        onBatchToggleSelect={onBatchHideToggleSelect}
+        onBatchToggleAll={onBatchHideToggleAll}
+        onHideSelected={() => void onHideSelectedSessions()}
         hiddenOpen={hiddenOpen}
         hiddenSessions={hiddenSessions}
         hiddenLoading={hiddenLoading}

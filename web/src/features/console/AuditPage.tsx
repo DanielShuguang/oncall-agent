@@ -271,13 +271,19 @@ export default function AuditPage() {
       return;
     }
     setFilterError(null);
+    const activePresetRange = activePreset ? auditDatePresetRange(activePreset) : null;
+    const keepsActivePreset =
+      !preset &&
+      activePresetRange !== null &&
+      restoredFrom === activePresetRange.from &&
+      restoredTo === activePresetRange.to;
     if (preset) {
       writeLastAuditDatePreset(preset);
-    } else {
-      // 只记住预设；手填日期不持久化，避免下次落到过期窗口。
+    } else if (!keepsActivePreset) {
+      // 只记住预设；手填日期或清空日期时不持久化，避免下次落到过期窗口。
       clearLastAuditDatePreset();
     }
-    setActivePreset(preset);
+    setActivePreset(preset ?? (keepsActivePreset ? activePreset : null));
     resetForFilters();
     setFilters({
       ...(userId ? { userId } : {}),

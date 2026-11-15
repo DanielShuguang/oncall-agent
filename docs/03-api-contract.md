@@ -933,9 +933,12 @@ Authorization: Bearer <admin token>
 - 与统计接口相同参数：`days`（1–365，可选）、`restored_from`/`restored_to`、
   `user_id`/`session_id`；`days` 与日期范围二选一，窗口解析与 `/stats` 共用
 - 不接收 `cursor`/`limit`；同步导出，日趋势最多 365 天，不做截断
-- CSV 为长表 `section,key,day,value`：`meta` 行（`days`/`since`/`until`）、
-  `summary` 行（`restores`/`users`/`sessions`）、`daily` 行（每个日期分别有
+- CSV 为长表 `section,key,day,value`：`meta` 行（`days`/`since`/`until`；按
+  `user_id`/`session_id` 过滤时追加对应 `meta` 行）、`summary` 行
+  （`restores`/`users`/`sessions`）、`daily` 行（每个日期分别有
   `restores` 与 `sessions` 两行，`day` 为 UTC `YYYY-MM-DD`）
+- 导出文件必须能自证口径：无过滤时只有 `days`/`since`/`until`，带过滤时额外
+  写入 `user_id`/`session_id`，下载后即可判断统计范围
 - 响应头 `X-Export-Days`/`X-Export-Restores`/`X-Export-Users`/
   `X-Export-Sessions`；文件名 `session-restore-stats-{days}d-{UTC}.csv`；
   `Cache-Control: no-store`；BOM/CRLF/公式注入防护与其它导出一致

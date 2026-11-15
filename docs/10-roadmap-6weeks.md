@@ -1696,9 +1696,9 @@ Postgres + Redis **543 passed**；`ruff check` / `ruff format --check`（196 fil
 |---|---|
 | 接口 | `GET /admin/session-restores/stats/export`；`days` 与日期范围二选一，可带 `user_id`/`session_id` |
 | 窗口 | 抽出 `_stats_window` 与 `/stats` 共用，避免两处边界漂移 |
-| CSV | 长表 `section,key,day,value`；`meta`（days/since/until）、`summary`（restores/users/sessions）、`daily`（每日期 restores/sessions 各一行） |
+| CSV | 长表 `section,key,day,value`；`meta`（days/since/until，带过滤时加对应的 `user_id`/`session_id`）、`summary`（restores/users/sessions）、`daily`（每日期 restores/sessions 各一行） |
 | 响应头 | `X-Export-Days/Restores/Users/Sessions`；文件名 `session-restore-stats-{days}d-{UTC}.csv`；`Cache-Control: no-store` |
-| 前端 | 统计卡「导出统计」按钮跟随当前窗口/过滤；切换窗口/过滤立即失效在途导出 |
+| 前端 | 统计卡「导出统计」按钮跟随当前窗口/过滤；切换窗口/过滤立即失效在途导出；成功提示/文件名按「近 N 天」或起止日期区分 |
 | 范围 | 不做下载审计、异步导出、XLSX、统计与导出同一快照 |
 
 验证：默认 **504 passed + 40 skipped**；真实 Postgres **541 passed + 3 skipped**；

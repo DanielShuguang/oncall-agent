@@ -5,7 +5,7 @@
 - `(restored_at, id)` 倒序 keyset 分页；游标绑定当前过滤条件，换条件返回 400
 - 第一页附带同过滤条件总数；后续页为 null（ADR-0064）
 - CSV 导出：有上限的同步导出，超上限截断并显式告知
-- 统计：窗口内恢复次数、用户数、会话数与 UTC 日趋势（ADR-0065）
+- 统计：窗口内恢复次数、用户数、会话数与 UTC 日趋势（ADR-0065/0066/0067）；统计 CSV 导出见 ADR-0070
 - 列表/导出/统计可传 UTC 自然日闭区间 `restored_from`/`restored_to`（ADR-0067）
 - 数据库不可用返回 503，不返回空列表冒充「没有恢复记录」
 """
@@ -125,16 +125,32 @@ def _stats_window(
     return since, until, (until.date() - since.date()).days + 1
 
 
-def _stats_csv(stats: SessionRestoreAuditStats, *, days: int) -> str:
+def _stats_csv(
+    stats: SessionRestoreAuditStats,
+    *,
+    days: int,
+    user_id: str | None,
+    session_id: str | None,
+) -> str:
     """统计导出的长表：summary 是总汇总，daily 每个指标一行。"""
     rows: list[tuple[object, ...]] = [
         ("meta", "days", "", days),
         ("meta", "since", "", stats.since),
         ("meta", "until", "", stats.until),
-        ("summary", "restores", "", stats.restores),
-        ("summary", "users", "", stats.users),
-        ("summary", "sessions", "", stats.sessions),
     ]
+    # 导出的数字必须能自证口径：按用户/会话过滤后把过滤条件写进 meta，
+    # 否则下载后的快照无法判断统计范围。
+    if user_id is not None:
+        rows.append(("meta", "user_id", "", user_id))
+    if session_id is not None:
+        rows.append(("meta", "session_id", "", session_id))
+    rows.extend(
+        [
+            ("summary", "restores", "", stats.restores),
+            ("summary", "users", "", stats.users),
+            ("summary", "sessions", "", stats.sessions),
+        ]
+    )
     for day in stats.daily:
         rows.append(("daily", "restores", day.day, day.restores))
         rows.append(("daily", "sessions", day.day, day.sessions))
@@ -251,7 +267,7 @@ async def export_session_restore_stats(
         raise ApiError(503, "DATABASE_UNAVAILABLE", "会话恢复审计暂不可用") from exc
     filename = f"session-restore-stats-{days_out}d-{datetime.now(UTC):%Y%m%d-%H%M%S}.csv"
     return Response(
-        content=_stats_csv(stats, days=days_out),
+        content=_stats_csv(stats, days=days_out, user_id=user_id, session_id=session_id),
         media_type="text/csv",
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',

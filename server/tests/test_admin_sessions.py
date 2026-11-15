@@ -693,6 +693,7 @@ async def test_export_session_restore_audit_stats_csv(
     assert rows[0] == ["section", "key", "day", "value"]
     meta = {row[1]: row[3] for row in rows if row[0] == "meta"}
     assert meta["days"] == "7" and meta["since"] and meta["until"]
+    assert "user_id" not in meta and "session_id" not in meta
     summary = {row[1]: row[3] for row in rows if row[0] == "summary"}
     assert summary == {"restores": "2", "users": "2", "sessions": "2"}
     daily = [row for row in rows if row[0] == "daily"]
@@ -710,6 +711,29 @@ async def test_export_session_restore_audit_stats_csv(
     filtered_rows = list(csv.reader(io.StringIO(filtered.text.lstrip("\ufeff"))))
     filtered_summary = {row[1]: row[3] for row in filtered_rows if row[0] == "summary"}
     assert filtered_summary == {"restores": "1", "users": "1", "sessions": "1"}
+    filtered_meta = {row[1]: row[3] for row in filtered_rows if row[0] == "meta"}
+    assert filtered_meta["user_id"] == "u_102"
+    assert "session_id" not in filtered_meta
+
+    by_session = await client.get(
+        "/api/admin/session-restores/stats/export",
+        headers=ADMIN,
+        params={"days": 7, "session_id": "sess_a"},
+    )
+    assert by_session.status_code == 200
+    by_session_rows = list(csv.reader(io.StringIO(by_session.text.lstrip("\ufeff"))))
+    by_session_meta = {row[1]: row[3] for row in by_session_rows if row[0] == "meta"}
+    assert by_session_meta["session_id"] == "sess_a"
+    assert "user_id" not in by_session_meta
+
+    today = datetime.now(UTC).date().isoformat()
+    date_range = await client.get(
+        "/api/admin/session-restores/stats/export",
+        headers=ADMIN,
+        params={"restored_from": today, "restored_to": today},
+    )
+    assert date_range.status_code == 200
+    assert date_range.headers["x-export-days"] == "1"
 
 
 async def test_session_restore_audit_stats_return_503_on_store_failure(

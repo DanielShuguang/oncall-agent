@@ -34,7 +34,8 @@
 2. **窗口解析与统计接口共用**：抽出 `_stats_window(days, from, to)`，保证
    `days` 与日期范围二选一、窗口边界和 `days_out` 与 `/stats` 完全一致。
 3. **CSV 用长表 `section,key,day,value`**：
-   - `meta`：`days`、`since`、`until`；
+   - `meta`：`days`、`since`、`until`；按 `user_id`/`session_id` 过滤时追加
+     对应行，让导出文件能自证统计口径；
    - `summary`：`restores`、`users`、`sessions`；
    - `daily`：每个有恢复记录的 UTC 自然日两行，`key=restores` / `key=sessions`。
    这样新增指标不需要改列结构；`day` 只用于 daily 行，其他行留空。
@@ -46,7 +47,8 @@
    `Cache-Control: no-store`。
 6. **前端按钮跟随当前统计窗口**：「导出统计」使用当前 `statsDays` 与已应用过滤；
    有自定义日期范围时不发 `days`。切换窗口/过滤立即失效在途导出并清提示，避免
-   旧窗口的结果覆盖新状态。
+   旧窗口的结果覆盖新状态。成功提示与下载文件名按实际窗口区分：无范围用
+   「近 N 天」/`Nd`，有范围用起止日期，不能把历史区间说成「近 N 天」。
 7. **旧后端降级**：旧实例没有该端点时请求返回 404，前端在统计卡内显示错误，
    不影响列表/统计加载；不做版本探测。
 
@@ -63,7 +65,8 @@
 ## 验证
 
 - 后端新增 `test_export_session_restore_audit_stats_csv`：CSV 表头、BOM/CRLF、
-  `meta`/`summary`/`daily` 行、`X-Export-*` 响应头、按 `user_id` 过滤后的汇总。
+  `meta`/`summary`/`daily` 行、`X-Export-*` 响应头、按 `user_id`/`session_id`
+  过滤后的汇总与 `meta` 过滤行、自定义日期范围导出的 `X-Export-Days`。
 - 403/503 用例覆盖 `/stats/export`。
 - 默认 `pytest`：**504 passed + 40 skipped**；PostgreSQL **541 passed + 3 skipped**；
   PostgreSQL + Redis **544 passed**。

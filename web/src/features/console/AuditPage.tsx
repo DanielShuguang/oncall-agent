@@ -100,6 +100,7 @@ export default function AuditPage() {
     const load = async () => {
       setStatsLoading(true);
       setStatsError(null);
+      setStatsExportMessage(null);
       try {
         const data = await getSessionRestoreAuditStats(statsDays, filters);
         if (!cancelled && statsRequest.current === requestId) setStats(data);
@@ -174,10 +175,16 @@ export default function AuditPage() {
         filters,
       );
       if (statsExportRequest.current !== requestId) return;
-      downloadBlob(result.blob, `session-restore-stats-${result.days}d.csv`);
+      const rangeLabel = hasDateRange
+        ? `${filters.restoredFrom ?? ''} 至 ${filters.restoredTo ?? ''}`
+        : `近 ${result.days} 天`;
+      const fileWindow = hasDateRange
+        ? `${filters.restoredFrom ?? ''}_${filters.restoredTo ?? ''}`
+        : `${result.days}d`;
+      downloadBlob(result.blob, `session-restore-stats-${fileWindow}.csv`);
       setStatsExportMessage({
         failed: false,
-        text: `已导出近 ${result.days} 天统计：恢复 ${result.restores} 次 / ${result.users} 个用户 / ${result.sessions} 个会话。`,
+        text: `已导出 ${rangeLabel} 统计：恢复 ${result.restores} 次 / ${result.users} 个用户 / ${result.sessions} 个会话。`,
       });
     } catch (exc) {
       if (statsExportRequest.current !== requestId) return;

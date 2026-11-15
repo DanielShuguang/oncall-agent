@@ -1,7 +1,7 @@
 /** 会话侧栏（ADR-0030）：只展示服务端投影，不在浏览器本地缓存会话。 */
 
 import { useState } from 'react';
-import { MessageSquare, Pencil, Pin, Plus, Search, Trash2 } from 'lucide-react';
+import { MessageSquare, Pencil, Pin, Plus, Search, Trash2, X } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import type { HiddenSession, SessionSummary } from '@/api/sessions';
@@ -10,6 +10,9 @@ import { cn } from 'cn';
 interface SessionListProps {
   sessions: SessionSummary[];
   activeSessionId: string;
+  /** 窄屏抽屉是否打开（ADR-0076）；≥sm 时侧栏常驻，不受此值影响 */
+  mobileOpen: boolean;
+  onCloseMobile: () => void;
   loading: boolean;
   error: string | null;
   /** 历史会话正在加载：暂时锁住列表项，避免连点导致后到的响应覆盖前一次选择 */
@@ -90,6 +93,8 @@ function formatUpdated(iso: string): string {
 export function SessionList({
   sessions,
   activeSessionId,
+  mobileOpen,
+  onCloseMobile,
   loading,
   error,
   busy,
@@ -156,21 +161,42 @@ export function SessionList({
     hiddenSessions.length > 0 &&
     hiddenSessions.every((item) => hiddenSelected.has(item.session_id));
   return (
-    <aside className="hidden w-72 shrink-0 flex-col gap-3 border-r bg-panel p-3 sm:flex">
+    <aside
+      id="session-list"
+      aria-label="会话列表"
+      className={cn(
+        'w-72 shrink-0 flex-col gap-3 border-r bg-panel p-3',
+        mobileOpen
+          ? 'fixed inset-y-0 left-0 z-40 flex shadow-xl sm:static sm:z-auto sm:shadow-none'
+          : 'hidden sm:flex',
+      )}
+    >
       <div className="flex items-center justify-between gap-2 px-1">
         <span className="text-xs font-semibold tracking-wide text-muted-foreground">会话</span>
-        <Button
-          size="sm"
-          variant={batchMode ? 'secondary' : 'ghost'}
-          className="h-7 px-2 text-xs"
-          aria-pressed={batchMode}
-          onClick={() => {
-            setConfirmingBatch(false);
-            onToggleBatchMode();
-          }}
-        >
-          {batchMode ? '完成' : '管理'}
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            size="sm"
+            variant={batchMode ? 'secondary' : 'ghost'}
+            className="h-7 px-2 text-xs"
+            aria-pressed={batchMode}
+            onClick={() => {
+              setConfirmingBatch(false);
+              onToggleBatchMode();
+            }}
+          >
+            {batchMode ? '完成' : '管理'}
+          </Button>
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="size-7 sm:hidden"
+            aria-label="关闭会话列表"
+            onClick={onCloseMobile}
+          >
+            <X className="size-4" />
+          </Button>
+        </div>
       </div>
 
       <Button

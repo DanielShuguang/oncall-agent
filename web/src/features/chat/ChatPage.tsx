@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { cn } from 'cn';
-import { Bot, Info, Plus, Send, Sparkles, Square } from 'lucide-react';
+import { Bot, Info, Menu, Plus, Send, Sparkles, Square } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -57,6 +57,8 @@ export default function ChatPage() {
   const [sessionsCursor, setSessionsCursor] = useState<string | null>(null);
   const [pinnedCount, setPinnedCount] = useState<number | null>(null);
   const [pinLimit, setPinLimit] = useState<number | null>(null);
+  // 窄屏（<640px）会话栏默认隐藏，用抽屉访问（ADR-0076）。
+  const [sessionDrawerOpen, setSessionDrawerOpen] = useState(false);
   const [sessionsLoading, setSessionsLoading] = useState(true);
   const [sessionsLoadingMore, setSessionsLoadingMore] = useState(false);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
@@ -110,6 +112,15 @@ export default function ChatPage() {
   useEffect(() => {
     hiddenQueryRef.current = hiddenQuery;
   }, [hiddenQuery]);
+
+  useEffect(() => {
+    if (!sessionDrawerOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setSessionDrawerOpen(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [sessionDrawerOpen]);
 
   useEffect(() => {
     let cancelled = false;
@@ -548,7 +559,17 @@ export default function ChatPage() {
 
   return (
     <div className="flex min-h-0 flex-1 bg-canvas">
+      {sessionDrawerOpen && (
+        <button
+          type="button"
+          aria-label="关闭会话列表"
+          className="fixed inset-0 z-30 bg-black/30 backdrop-blur-[1px] sm:hidden"
+          onClick={() => setSessionDrawerOpen(false)}
+        />
+      )}
       <SessionList
+        mobileOpen={sessionDrawerOpen}
+        onCloseMobile={() => setSessionDrawerOpen(false)}
         sessions={sessions}
         activeSessionId={sessionId}
         loading={sessionsLoading}
@@ -560,8 +581,14 @@ export default function ChatPage() {
         searchDraft={sessionDraftQuery}
         onSearchDraftChange={setSessionDraftQuery}
         onSearch={onSearchSessions}
-        onSelect={(id) => void onSelectSession(id)}
-        onNew={onNewSession}
+        onSelect={(id) => {
+          setSessionDrawerOpen(false);
+          void onSelectSession(id);
+        }}
+        onNew={() => {
+          setSessionDrawerOpen(false);
+          onNewSession();
+        }}
         onRetry={() => refreshSessions()}
         onLoadMore={() => void loadMoreSessions()}
         renamingId={renamingId}
@@ -609,13 +636,29 @@ export default function ChatPage() {
       <section className="flex min-h-0 min-w-0 flex-1 flex-col bg-panel">
         <div className="border-b px-4 py-3 sm:px-6">
           <div className="mx-auto flex w-full max-w-3xl items-center justify-between gap-3">
-            <div className="min-w-0">
-              <h2 className="truncate text-sm font-semibold">{activeSession?.title ?? '新对话'}</h2>
-              <p className="mt-0.5 text-[11px] text-muted-foreground">
-                {activeSession
-                  ? `${activeSession.run_count} 轮对话 · 更新于 ${new Date(activeSession.updated_at).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}`
-                  : '输入问题，开始一轮排查'}
-              </p>
+            <div className="flex min-w-0 items-center gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="shrink-0 sm:hidden"
+                aria-label="打开会话列表"
+                aria-controls="session-list"
+                aria-expanded={sessionDrawerOpen}
+                onClick={() => setSessionDrawerOpen(true)}
+              >
+                <Menu className="size-4" />
+              </Button>
+              <div className="min-w-0">
+                <h2 className="truncate text-sm font-semibold">
+                  {activeSession?.title ?? '新对话'}
+                </h2>
+                <p className="mt-0.5 text-[11px] text-muted-foreground">
+                  {activeSession
+                    ? `${activeSession.run_count} 轮对话 · 更新于 ${new Date(activeSession.updated_at).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}`
+                    : '输入问题，开始一轮排查'}
+                </p>
+              </div>
             </div>
             <Badge
               variant="outline"

@@ -1,4 +1,4 @@
-/** 会话恢复审计（W6 后补）：管理端只读列表、过滤、翻页、首屏总数、统计与 CSV 导出（ADR-0063/0064/0065/0067/0075）。 */
+/** 会话恢复审计（W6 后补）：管理端只读列表、过滤、翻页、首屏总数、统计与 CSV 导出（ADR-0063/0064/0065/0067/0075/0078）。 */
 
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -31,34 +31,48 @@ import {
   writeLastAuditDatePreset,
   type AuditDatePreset,
 } from './auditDatePresets';
+import {
+  AUDIT_STATS_DAYS,
+  clearAuditFilterMemory,
+  readAuditFilterMemory,
+  writeAuditFilterMemory,
+  type AuditStatsDays,
+} from './auditFilterMemory';
 
 const PAGE_SIZE = 20;
-const STATS_DAYS = [7, 30, 90] as const;
 
 export default function AuditPage() {
   const [items, setItems] = useState<SessionRestoreAudit[]>([]);
   const [total, setTotal] = useState<number | null>(null);
-  const [statsDays, setStatsDays] = useState<number>(30);
   const [stats, setStats] = useState<SessionRestoreAuditStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
   const [statsError, setStatsError] = useState<string | null>(null);
   const [initialAuditState] = useState(() => {
     const preset = readLastAuditDatePreset();
-    return { preset, range: preset ? auditDatePresetRange(preset) : null };
+    const range = preset ? auditDatePresetRange(preset) : null;
+    const memory = readAuditFilterMemory();
+    const userId = memory?.userId ?? '';
+    const sessionId = memory?.sessionId ?? '';
+    return {
+      preset,
+      range,
+      statsDays: memory?.statsDays ?? 30,
+      userId,
+      sessionId,
+      filters: {
+        ...(userId ? { userId } : {}),
+        ...(sessionId ? { sessionId } : {}),
+        ...(range ? { restoredFrom: range.from, restoredTo: range.to } : {}),
+      } satisfies SessionRestoreAuditFilters,
+    };
   });
+  const [statsDays, setStatsDays] = useState<AuditStatsDays>(initialAuditState.statsDays);
   const [activePreset, setActivePreset] = useState<AuditDatePreset | null>(
     initialAuditState.preset,
   );
-  const [filters, setFilters] = useState<SessionRestoreAuditFilters>(
-    initialAuditState.range
-      ? {
-          restoredFrom: initialAuditState.range.from,
-          restoredTo: initialAuditState.range.to,
-        }
-      : {},
-  );
-  const [filterUserId, setFilterUserId] = useState('');
-  const [filterSessionId, setFilterSessionId] = useState('');
+  const [filters, setFilters] = useState<SessionRestoreAuditFilters>(initialAuditState.filters);
+  const [filterUserId, setFilterUserId] = useState(initialAuditState.userId);
+  const [filterSessionId, setFilterSessionId] = useState(initialAuditState.sessionId);
   const [filterFrom, setFilterFrom] = useState(initialAuditState.range?.from ?? '');
   const [filterTo, setFilterTo] = useState(initialAuditState.range?.to ?? '');
   const [filterError, setFilterError] = useState<string | null>(null);
@@ -241,7 +255,7 @@ export default function AuditPage() {
     setStatsExportMessage(null);
   };
 
-  const changeStatsDays = (days: number) => {
+  const changeStatsDays = (days: AuditStatsDays) => {
     if (days === statsDays) return;
     // 切换窗口时立即清掉旧窗口统计；effect 随后会按新窗口重新请求。
     statsRequest.current += 1;
@@ -252,6 +266,11 @@ export default function AuditPage() {
     setStatsExporting(false);
     setStatsExportMessage(null);
     setStatsDays(days);
+    writeAuditFilterMemory({
+      userId: filters.userId ?? '',
+      sessionId: filters.sessionId ?? '',
+      statsDays: days,
+    });
   };
 
   const applyFilters = (
@@ -285,10 +304,16 @@ export default function AuditPage() {
     }
     setActivePreset(preset ?? (keepsActivePreset ? activePreset : null));
     resetForFilters();
-    setFilters({
+    const nextFilters: SessionRestoreAuditFilters = {
       ...(userId ? { userId } : {}),
       ...(sessionId ? { sessionId } : {}),
       ...(restoredFrom && restoredTo ? { restoredFrom, restoredTo } : {}),
+    };
+    setFilters(nextFilters);
+    writeAuditFilterMemory({
+      userId: nextFilters.userId ?? '',
+      sessionId: nextFilters.sessionId ?? '',
+      statsDays,
     });
   };
 
@@ -301,6 +326,7 @@ export default function AuditPage() {
 
   const clearFilters = () => {
     clearLastAuditDatePreset();
+    clearAuditFilterMemory();
     setActivePreset(null);
     resetForFilters();
     setFilterUserId('');
@@ -347,7 +373,7 @@ export default function AuditPage() {
                   {filters.restoredFrom} ~ {filters.restoredTo}
                 </span>
               ) : (
-                STATS_DAYS.map((days) => (
+                AUDIT_STATS_DAYS.map((days) => (
                   <Button
                     key={days}
                     variant={statsDays === days ? 'default' : 'ghost'}

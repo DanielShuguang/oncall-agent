@@ -168,9 +168,9 @@ oncall/
 
 | 模块 | 状态 | 验证方式 |
 |---|---|---|
-| 文档（12 篇 + 73 篇 ADR + 评测基线） | ✅ 完成 | — |
+| 文档（12 篇 + 74 篇 ADR + 评测基线） | ✅ 完成 | — |
 | 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡 / 运行回放 / 成本页） | ✅ 可用 | `tsc --noEmit`、`oxlint 0`、`oxfmt --check` 通过；`vitest` 94/94；`pnpm build` 成功 |
-| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **506 passed + 40 skipped**；设 `ONCALL_TEST_DATABASE_URL`（指向一个可清空的库）后 **543 passed + 3 skipped**，再加 `ONCALL_TEST_REDIS_URL` 为 **546 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约与审批快照、引用快照与内容回收、个人预算与账本快照、工单自助查询、工单详情、会话列表/标题搜索/分页/重命名/移除/恢复/置顶、资产查询接表、运行过程回放与载荷上限、批量会话详情、工具配置变更历史、历史引用回填、已移除会话分页与搜索、已移除会话批量恢复、批量恢复逐条结果、会话恢复审计、会话恢复审计分页、恢复审计按 session 反查、恢复审计 CSV 导出、恢复审计列表总数、恢复审计统计、恢复审计统计按过滤、恢复审计按日期范围、审批积压与等待统计、审批统计分组、审批列表分页、已办审批按决议时间排序、已办审批筛选、审批列表导出 CSV、审批列表首屏总数、审批统计按小时分布、审批统计聚合导出、恢复审计统计导出、会话批量移除、会话置顶上限、计量一致性） |
+| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **506 passed + 40 skipped**；设 `ONCALL_TEST_DATABASE_URL`（指向一个可清空的库）后 **543 passed + 3 skipped**，再加 `ONCALL_TEST_REDIS_URL` 为 **546 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约与审批快照、引用快照与内容回收、个人预算与账本快照、工单自助查询、工单详情、会话列表/标题搜索/分页/重命名/移除/恢复/置顶、资产查询接表、运行过程回放与载荷上限、批量会话详情、工具配置变更历史、历史引用回填、已移除会话分页与搜索、已移除会话批量恢复、批量恢复逐条结果、会话恢复审计、会话恢复审计分页、恢复审计按 session 反查、恢复审计 CSV 导出、恢复审计列表总数、恢复审计统计、恢复审计统计按过滤、恢复审计按日期范围、审批积压与等待统计、审批统计分组、审批列表分页、已办审批按决议时间排序、已办审批筛选、审批列表导出 CSV、审批列表首屏总数、审批统计按小时分布、审批统计聚合导出、恢复审计统计导出、会话批量移除、会话置顶上限、置顶容量提示、计量一致性） |
 | 本地 JWT（W1 D2） | ✅ 已完成 | `tests/test_auth.py` 20 条：签发/验签、过期、alg=none、401 JSON、OpenAPI Bearer、run 归属隔离 |
 | 事件落库 + 断线续传（D4） | ✅ 已完成 | `alembic upgrade head` + `alembic check` 无漂移；`tests/test_store_contract.py`（内存 + Postgres 契约）、`tests/test_chat_stream.py`（落库、幂等回放、503 语义） |
 | 最小 Agent 运行时（W1 D5） | ✅ 已完成 | `tests/test_agent_runtime.py` 9 条：工具真实执行、检索引用、写操作挂起审批、工具失败降级、步数/时长上限 |
@@ -215,6 +215,7 @@ oncall/
 | 审计日期范围快捷预设（W6 后补） | ✅ 已完成 | 审计页筛选卡新增「快捷日期」：近 7/30/90 天（含今天）、本月（月初至今天）、上月（完整上一 UTC 月，处理闰年）；点击即按 UTC 自然日闭区间应用，保留用户/会话草稿过滤；纯前端纯函数（`now` 可注入）+ 单测，不改后端/契约、无迁移；`tests/auditDatePresets.test.ts`；[ADR-0071](docs/decisions/0071-audit-date-presets.md) |
 | 会话批量移除（W6 后补） | ✅ 已完成 | `POST /sessions/hide` 接收 1–50 个会话 id，去重保序、逐条返回 `hidden`；只处理本人会话，不存在/别人的 `hidden:false`（不区分），重复移除幂等；同事务写 `hidden_sessions` 并清置顶；无迁移/审计；前端会话列表「管理」模式勾选当前已加载页，全选仅当前已加载页，二次确认后一次请求；`tests/test_sessions_api.py`、`test_store_contract.py`、`web/src/api/sessions.test.ts`；[ADR-0072](docs/decisions/0072-session-batch-hide.md) |
 | 会话置顶数量上限（W6 后补） | ✅ 已完成 | 每个用户最多 50 个置顶；已置顶幂等，新增第 51 个返回 `409 PIN_LIMIT_REACHED`；内存/Postgres 同口径计数；PG 按用户串行化置顶检查，并发也不会突破 50，既有超限数据不回溯；无迁移；前端沿用置顶按钮与错误提示；[ADR-0073](docs/decisions/0073-session-pin-limit.md) |
+| 置顶容量提示（W6 后补） | ✅ 已完成 | `GET /sessions` 每页返回 `pinned_count`/`pin_limit`，计数覆盖当前用户全部置顶、不受搜索/游标影响；前端达到 50 时禁用未置顶行的置顶按钮并提示，已置顶行仍可取消；旧后端无字段时回退 409；无迁移；[ADR-0074](docs/decisions/0074-session-pin-capacity.md) |
 | 会话列表与历史会话继续（W6 后补） | ✅ 已完成 | 不建表，按 `runs.session_id` 投影（复用 `idx_runs_user_session_time`，无迁移）；`GET /sessions` 只读本人、标题取最早非空 `input`；左侧会话栏点开最近 20 条 run，拼只读 transcript（正文过期/引用回收/未结束/失败各有占位），继续对话沿用同一 `session_id`；`tests/test_sessions_api.py`、`test_store_contract.py`（`_exercise_sessions`）、`web/src/features/chat/history.test.ts`；[ADR-0030](docs/decisions/0030-session-list.md) |
 | 会话列表与历史轮次分页（W6 后补） | ✅ 已完成 | `/sessions` 用 `(updated_at, session_id)` keyset 游标（base64url JSON，非法 400 `INVALID_CURSOR`）；会话内用 `/runs` 已有游标翻更早轮次（`prependHistory`）；翻页期间新 run 可能造成重复/跳过，刷新即重置；无新表/索引/迁移；[ADR-0033](docs/decisions/0033-session-history-pagination.md) |
 | 会话列表按标题搜索（W6 后补） | ✅ 已完成 | `GET /sessions?q=`（1–100 字符，本人，大小写不敏感子串）只匹配投影标题（最早非空 `input`），不搜正文/工具结果/审批理由；与 keyset 分页共用游标；Postgres 用 `row_number()` 子查询 + `strpos(lower(...))`（`%`/`_` 按字面量，不是通配符）；无新表/索引/迁移；`tests/test_sessions_api.py`、`test_store_contract.py`；[ADR-0039](docs/decisions/0039-session-search.md) |
@@ -366,7 +367,7 @@ W6 基线（3 轮均值，mock 规则路径，口径见 [baseline-v1](docs/eval/
   但统计与导出是两次独立查询、CSV 为长表而非多工作表，仍无编辑/删除/下载审计/跳页，
   [ADR-0049](docs/decisions/0049-hidden-session-batch-restore.md)、[ADR-0055](docs/decisions/0055-hidden-restore-results.md)），
   但无管理员视角）；但没有批量移除/改名、
-  置顶数量上限/拖拽排序/虚拟滚动；翻页期间有新 run 时可能重复或跳过一页，刷新即重置
+  置顶拖拽排序/虚拟滚动；翻页期间有新 run 时可能重复或跳过一页，刷新即重置
   （[ADR-0033](docs/decisions/0033-session-history-pagination.md)）；历史回答的工具/审批以
   「运行过程」折叠区回放（[ADR-0035](docs/decisions/0035-run-timeline-replay.md)），可按类型/
   异常/工具名筛选并汇总工具耗时与最慢调用（[ADR-0045](docs/decisions/0045-timeline-filter-summary.md)），
@@ -390,8 +391,9 @@ W6 基线（3 轮均值，mock 规则路径，口径见 [baseline-v1](docs/eval/
   也不绕过服务端 365 天上限与 422 校验（[ADR-0071](docs/decisions/0071-audit-date-presets.md)）
 - 会话批量移除只覆盖当前已加载页（默认 20 条），不做跨页选择、按搜索条件批量或移除审计；
   恢复后仍不恢复置顶（[ADR-0072](docs/decisions/0072-session-batch-hide.md)）
-- 置顶数量上限固定为 50，不提供环境变量或计数接口；PG 按用户串行化置顶检查，
-  并发置顶不会突破 50；既有超限数据不会被自动清理
+- 置顶数量上限固定为 50，不提供环境变量或独立容量接口；`GET /sessions` 已返回
+  `pinned_count`/`pin_limit`，前端据此提前禁用置顶按钮（[ADR-0074](docs/decisions/0074-session-pin-capacity.md)）；
+  PG 按用户串行化置顶检查，并发置顶不会突破 50；既有超限数据不会被自动清理
   （[ADR-0073](docs/decisions/0073-session-pin-limit.md)）
 - iframe + postMessage 嵌入形态（W5 D25）暂缓，需要来源白名单与 CSP 部署决策
 

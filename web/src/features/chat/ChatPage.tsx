@@ -55,6 +55,8 @@ export default function ChatPage() {
   const [activeCitation, setActiveCitation] = useState<Citation | null>(null);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [sessionsCursor, setSessionsCursor] = useState<string | null>(null);
+  const [pinnedCount, setPinnedCount] = useState<number | null>(null);
+  const [pinLimit, setPinLimit] = useState<number | null>(null);
   const [sessionsLoading, setSessionsLoading] = useState(true);
   const [sessionsLoadingMore, setSessionsLoadingMore] = useState(false);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
@@ -117,6 +119,8 @@ export default function ChatPage() {
         if (!cancelled && requestId === sessionsRequest.current) {
           setSessions(page.items);
           setSessionsCursor(page.next_cursor);
+          setPinnedCount(page.pinned_count ?? null);
+          setPinLimit(page.pin_limit ?? null);
         }
         return page.items;
       })
@@ -145,6 +149,8 @@ export default function ChatPage() {
         if (requestId !== sessionsRequest.current) return page.items;
         setSessions(page.items);
         setSessionsCursor(page.next_cursor);
+        setPinnedCount(page.pinned_count ?? null);
+        setPinLimit(page.pin_limit ?? null);
         // 搜索/刷新可能把已选中的会话移出当前页；不能继续对不可见的行执行批量移除（ADR-0072）
         setBatchHideSelected((prev) => {
           if (prev.size === 0) return prev;
@@ -174,6 +180,8 @@ export default function ChatPage() {
       if (requestId !== sessionsRequest.current) return;
       setSessions((prev) => [...prev, ...page.items]);
       setSessionsCursor(page.next_cursor);
+      setPinnedCount(page.pinned_count ?? null);
+      setPinLimit(page.pin_limit ?? null);
     } catch (err) {
       if (requestId === sessionsRequest.current) {
         setSessionsError(err instanceof Error ? err.message : '更多会话加载失败');
@@ -564,6 +572,8 @@ export default function ChatPage() {
         onRenameSubmit={() => void onRenameSubmit()}
         onRenameCancel={onRenameCancel}
         pinningId={pinningId}
+        pinnedCount={pinnedCount}
+        pinLimit={pinLimit}
         onTogglePin={(item) => void onTogglePin(item)}
         hidingId={hidingId}
         onHide={(id) => void onHideSession(id)}

@@ -142,10 +142,14 @@ async def test_sessions_pin_and_legacy_cursor(
     body = (await client.get("/api/sessions")).json()
     assert [item["session_id"] for item in body["items"]] == ["sess_a", "sess_c", "sess_b"]
     assert [item["pinned"] for item in body["items"]] == [True, False, False]
+    assert body["pinned_count"] == 1
+    assert body["pin_limit"] == 50
 
     assert (await client.post("/api/sessions/sess_b/pin")).status_code == 204
-    ordered = (await client.get("/api/sessions")).json()["items"]
+    ordered_body = (await client.get("/api/sessions")).json()
+    ordered = ordered_body["items"]
     assert [item["session_id"] for item in ordered] == ["sess_b", "sess_a", "sess_c"]
+    assert ordered_body["pinned_count"] == 2
 
     first = await client.get("/api/sessions", params={"limit": 1})
     first_body = first.json()
@@ -160,8 +164,10 @@ async def test_sessions_pin_and_legacy_cursor(
     assert [item["session_id"] for item in third.json()["items"]] == ["sess_c"]
 
     assert (await client.delete("/api/sessions/sess_b/pin")).status_code == 204
-    unpinned = (await client.get("/api/sessions")).json()["items"]
+    unpinned_body = (await client.get("/api/sessions")).json()
+    unpinned = unpinned_body["items"]
     assert [item["session_id"] for item in unpinned] == ["sess_a", "sess_c", "sess_b"]
+    assert unpinned_body["pinned_count"] == 1
 
     # 重复置顶幂等；置顶后隐藏会清掉置顶，恢复后也不带置顶
     assert (await client.post("/api/sessions/sess_c/pin")).status_code == 204
@@ -229,7 +235,11 @@ async def test_sessions_search_by_title_is_case_insensitive(
 
     missing = await client.get("/api/sessions", params={"q": "不存在的话题"})
     assert missing.status_code == 200
-    assert missing.json() == {"items": [], "next_cursor": None}
+    missing_body = missing.json()
+    assert missing_body["items"] == []
+    assert missing_body["next_cursor"] is None
+    assert missing_body["pinned_count"] == 0
+    assert missing_body["pin_limit"] == 50
 
     blank = await client.get("/api/sessions", params={"q": "   "})
     assert blank.status_code == 200

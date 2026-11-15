@@ -374,7 +374,9 @@ Authorization: Bearer <token>
       "updated_at": "2026-11-09T02:26:41.008Z"
     }
   ],
-  "next_cursor": "eyJ0IjoiMjAyNi0xMS0wOVQwMjoyNjo0MS4wMDgrMDA6MDAiLCJzIjoic2Vzc18wMUgifQ=="
+  "next_cursor": "eyJ0IjoiMjAyNi0xMS0wOVQwMjoyNjo0MS4wMDgrMDA6MDAiLCJzIjoic2Vzc18wMUgifQ==",
+  "pinned_count": 2,
+  "pin_limit": 50
 }
 ```
 
@@ -438,6 +440,9 @@ Authorization: Bearer <token>
 - 每个用户最多置顶 50 个会话（ADR-0073）；已置顶的会话重复置顶仍 204，新增第 51 个
   时返回 `409 {"code":"PIN_LIMIT_REACHED"}`。PG 在事务内按用户取 advisory lock，
   并发置顶也不会突破 50
+- `GET /sessions` 每页返回当前用户的 `pinned_count` 与固定 `pin_limit`（ADR-0074）；
+  计数覆盖该用户全部置顶，不受 `q`/游标影响。前端在 `pinned_count >= pin_limit` 时
+  禁用未置顶行的置顶按钮；旧后端没有这两个字段时不提前禁用，仍以 409 为准
 - 置顶组内不按 `pinned_at` 排序（最近置顶的旧会话不一定排第一）
 - 移除会话（`DELETE /sessions/{session_id}`）会在同一事务里清掉置顶行；恢复时也会
   同事务兜底清掉该会话的置顶行。因此恢复后一定不置顶，需要用户重新点击

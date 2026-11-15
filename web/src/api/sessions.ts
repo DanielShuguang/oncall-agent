@@ -18,6 +18,10 @@ export interface SessionPage {
   items: SessionSummary[];
   /** keyset 游标；当前页没取满时为 null（ADR-0033） */
   next_cursor: string | null;
+  /** 当前用户置顶数；旧后端无该字段（ADR-0074） */
+  pinned_count?: number;
+  /** 每用户置顶上限；旧后端无该字段（ADR-0074） */
+  pin_limit?: number;
 }
 
 export async function listSessions(

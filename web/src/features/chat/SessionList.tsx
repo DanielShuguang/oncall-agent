@@ -35,6 +35,8 @@ interface SessionListProps {
   onRenameCancel: () => void;
   /** 正在置顶/取消置顶的会话（ADR-0069） */
   pinningId: string | null;
+  pinnedCount: number | null;
+  pinLimit: number | null;
   onTogglePin: (session: SessionSummary) => void;
   /** 正在从列表移除的会话（ADR-0041） */
   hidingId: string | null;
@@ -109,6 +111,8 @@ export function SessionList({
   onRenameSubmit,
   onRenameCancel,
   pinningId,
+  pinnedCount,
+  pinLimit,
   onTogglePin,
   hidingId,
   onHide,
@@ -147,6 +151,7 @@ export function SessionList({
   const [confirmingBatch, setConfirmingBatch] = useState(false);
   const allBatchSelected =
     sessions.length > 0 && sessions.every((item) => batchSelected.has(item.session_id));
+  const pinLimitReached = pinnedCount !== null && pinLimit !== null && pinnedCount >= pinLimit;
   const allHiddenSelected =
     hiddenSessions.length > 0 &&
     hiddenSessions.every((item) => hiddenSelected.has(item.session_id));
@@ -360,7 +365,12 @@ export function SessionList({
                       className={cn('size-6 text-muted-foreground', session.pinned && 'text-brand')}
                       aria-label={`${session.pinned ? '取消置顶' : '置顶'}会话 ${session.title ?? '无标题'}`}
                       aria-pressed={session.pinned}
-                      disabled={busy || pinningId !== null}
+                      title={
+                        !session.pinned && pinLimitReached
+                          ? `置顶数量已达上限（${pinLimit} 个）`
+                          : undefined
+                      }
+                      disabled={busy || pinningId !== null || (!session.pinned && pinLimitReached)}
                       onClick={() => onTogglePin(session)}
                     >
                       <Pin className={cn('size-3.5', session.pinned && 'fill-current')} />

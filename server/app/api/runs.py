@@ -32,7 +32,13 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.deps import get_identity, get_viewer
 from app.api.errors import ApiError
-from app.core.store import PinLimitExceeded, RunRecord, RunStore, get_store
+from app.core.store import (
+    MAX_PINNED_SESSIONS,
+    PinLimitExceeded,
+    RunRecord,
+    RunStore,
+    get_store,
+)
 from app.gateway.meter import ModelCallStore, get_model_call_store
 from app.rag.access import Viewer
 from app.rag.retrieve import KnowledgeBase
@@ -263,6 +269,7 @@ async def list_sessions(
     会话是 `runs.session_id` 的投影，没有独立表。`next_cursor` 只在当前页取满时
     返回；新 run 会把会话移到列表前面，翻页途中可能重复或跳过一页，刷新即重置。
     `q` 只匹配投影标题（首条非空问题）的大小写不敏感子串，不搜回答正文。
+    `pinned_count`/`pin_limit` 让前端在达到上限前禁用置顶按钮（ADR-0074）。
     """
     before_updated_at: datetime | None = None
     before_session_id: str | None = None
@@ -279,6 +286,7 @@ async def list_sessions(
             before_pinned=before_pinned,
             query=query or None,
         )
+        pinned_count = await store.count_pinned_sessions(user_id=identity.user_id)
     except SQLAlchemyError as exc:
         raise ApiError(503, "DATABASE_UNAVAILABLE", "database unavailable") from exc
     next_cursor = (
@@ -303,6 +311,8 @@ async def list_sessions(
             for item in sessions
         ],
         "next_cursor": next_cursor,
+        "pinned_count": pinned_count,
+        "pin_limit": MAX_PINNED_SESSIONS,
     }
 
 

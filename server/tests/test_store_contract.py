@@ -562,6 +562,8 @@ async def _exercise_pinned_sessions(store: RunStore) -> None:
     assert await store.pin_session(user_id=user, session_id="sess_mid") is True
     assert await store.pin_session(user_id=user, session_id="sess_other") is False
     assert await store.pin_session(user_id=user, session_id="sess_missing") is False
+    assert await store.count_pinned_sessions(user_id=user) == 2
+    assert await store.count_pinned_sessions(user_id=other) == 0
 
     sessions = await store.list_sessions(user_id=user, limit=10)
     assert [item.session_id for item in sessions] == ["sess_mid", "sess_old", "sess_new"]
@@ -589,6 +591,7 @@ async def _exercise_pinned_sessions(store: RunStore) -> None:
     # 旧的二段游标没有 p：升级前只可能落在非置顶段，按 False 处理
     assert await store.unpin_session(user_id=user, session_id="sess_old") is True
     assert await store.unpin_session(user_id=user, session_id="sess_mid") is True
+    assert await store.count_pinned_sessions(user_id=user) == 0
     plain_first = await store.list_sessions(user_id=user, limit=2)
     plain_second = await store.list_sessions(
         user_id=user,

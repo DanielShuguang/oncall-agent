@@ -576,6 +576,10 @@ class RunStore(Protocol):
         """
         ...
 
+    async def count_pinned_sessions(self, *, user_id: str) -> int:
+        """返回当前用户置顶会话数（ADR-0074），用于前端提前禁用置顶按钮。"""
+        ...
+
     async def list_hidden_sessions(
         self,
         *,
@@ -1119,6 +1123,10 @@ class InMemoryRunStore:
                 return False
             self._pinned_sessions.discard((user_id, session_id))
             return True
+
+    async def count_pinned_sessions(self, *, user_id: str) -> int:
+        async with self._lock:
+            return sum(1 for current_user, _ in self._pinned_sessions if current_user == user_id)
 
     async def list_hidden_sessions(
         self,
@@ -1978,6 +1986,15 @@ class PostgresRunStore:
             )
             await session.commit()
         return True
+
+    async def count_pinned_sessions(self, *, user_id: str) -> int:
+        async with self._sessionmaker() as session:
+            pinned = await session.scalar(
+                select(func.count())
+                .select_from(PinnedSessionRow)
+                .where(PinnedSessionRow.user_id == user_id)
+            )
+        return int(pinned or 0)
 
     async def _visible_session_exists(
         self,

@@ -439,7 +439,8 @@ Authorization: Bearer <token>
   不改变 `updated_at`、`run_count` 与会话内容，也不影响其他用户
 - 每个用户最多置顶 50 个会话（ADR-0073）；已置顶的会话重复置顶仍 204，新增第 51 个
   时返回 `409 {"code":"PIN_LIMIT_REACHED"}`。PG 在事务内按用户取 advisory lock，
-  并发置顶也不会突破 50
+  并发置顶也不会突破 50；隐藏与置顶共用同一把锁，避免并发把已隐藏会话重新插成
+  置顶、永久占用容量
 - `GET /sessions` 每页返回当前用户的 `pinned_count` 与固定 `pin_limit`（ADR-0074）；
   计数覆盖该用户全部置顶，不受 `q`/游标影响。前端在 `pinned_count >= pin_limit` 时
   禁用未置顶行的置顶按钮；旧后端没有这两个字段时不提前禁用，仍以 409 为准

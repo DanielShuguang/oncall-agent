@@ -605,6 +605,7 @@ async def _exercise_pinned_sessions(store: RunStore) -> None:
     assert await store.pin_session(user_id=user, session_id="sess_mid") is True
     assert await store.pin_session(user_id=user, session_id="sess_mid") is True
     assert await store.hide_session(user_id=user, session_id="sess_mid") is True
+    assert await store.count_pinned_sessions(user_id=user) == 0
     hidden = await store.list_hidden_sessions(user_id=user, limit=10)
     assert [item.session_id for item in hidden] == ["sess_mid"]
     assert await store.pin_session(user_id=user, session_id="sess_mid") is False

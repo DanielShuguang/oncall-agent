@@ -1913,6 +1913,9 @@ class PostgresRunStore:
         if not unique_ids:
             return set()
         async with self._sessionmaker() as session, session.begin():
+            # ADR-0074：与 pin_session 共用同一把用户级锁，避免隐藏/置顶并发时
+            # 把已隐藏会话重新插成置顶，永久占用容量且无法取消。
+            await session.execute(select(func.pg_advisory_xact_lock(func.hashtext(user_id))))
             owned_rows = await session.scalars(
                 select(Run.session_id)
                 .where(Run.user_id == user_id, Run.session_id.in_(unique_ids))

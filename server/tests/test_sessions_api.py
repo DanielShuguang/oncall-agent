@@ -312,8 +312,18 @@ async def test_sessions_reject_bad_limit(client: AsyncClient) -> None:
 async def test_sessions_database_failure_is_503(
     client: AsyncClient, mem_store: InMemoryRunStore
 ) -> None:
+    original_list = mem_store.list_sessions
     mem_store.list_sessions = AsyncMock(side_effect=SQLAlchemyError("boom"))  # type: ignore[method-assign]
 
+    res = await client.get("/api/sessions")
+    assert res.status_code == 503
+    assert res.json()["code"] == "DATABASE_UNAVAILABLE"
+
+    # 计数失败也不能返回半截列表（ADR-0074）
+    mem_store.list_sessions = original_list  # type: ignore[method-assign]
+    mem_store.count_pinned_sessions = AsyncMock(  # type: ignore[method-assign]
+        side_effect=SQLAlchemyError("boom")
+    )
     res = await client.get("/api/sessions")
     assert res.status_code == 503
     assert res.json()["code"] == "DATABASE_UNAVAILABLE"

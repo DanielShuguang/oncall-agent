@@ -30,8 +30,9 @@ ADR-0073 的待定项已经写了「达到上限时是否在置顶按钮上提�
    - `pinned_count` 是当前用户**全部**置顶数，不受 `q` 与游标影响；
    - `pin_limit` 是服务端常量 `MAX_PINNED_SESSIONS`，避免前端硬编码。
 2. `RunStore.count_pinned_sessions(*, user_id)` 由内存/PG 两个实现提供；PG 用
-   `count(*) where user_id = ?`，复用 `pinned_sessions` 主键前缀。
-3. 计数与列表在同一个 `try` 中；数据库故障仍返回 503，不返回半截列表。
+   `count(*) where user_id = ?`，复用 `pinned_sessions` 主键前缀。PG 的隐藏与置顶
+   共用同一用户级 advisory lock，隐藏后计数不会保留不可取消的残留置顶行。
+3. 计数与列表在同一个 `try` 中；任一数据库故障仍返回 503，不返回半截列表。
 4. 前端 `SessionSummary` 不变，`SessionPage` 增加两个可选字段：
    - 旧后端没有字段时 `pinnedCount`/`pinLimit` 保持 `null`，不提前禁用；
    - `pinnedCount >= pinLimit` 时，未置顶行的置顶按钮 `disabled` 并带
@@ -52,9 +53,9 @@ ADR-0073 的待定项已经写了「达到上限时是否在置顶按钮上提�
 ## 验证
 
 - `server/tests/test_store_contract.py`：置顶 2 个后 `count_pinned_sessions` 为 2，
-  取消后为 0；内存与 PG 契约同跑。
+  取消后为 0，隐藏已置顶会话后回到 0；内存与 PG 契约同跑。
 - `server/tests/test_sessions_api.py`：`GET /sessions` 的 `pinned_count` 1→2→1、
-  `pin_limit=50`；空结果同样带计数。
+  `pin_limit=50`；空结果同样带计数；列表失败与计数失败都 503。
 - 前端 `SessionPage` 可选字段 + `SessionList` 的 `pinLimitReached` 禁用逻辑；无组件
   单测，沿用 `tsc`/`vitest`/`oxlint`/`oxfmt`/`pnpm build`。
 - 默认 `pytest`：**506 passed + 40 skipped**；Postgres：**543 passed + 3 skipped**；

@@ -335,6 +335,8 @@ export default function AuditPage() {
     setFilterTo('');
     setFilterError(null);
     setFilters({});
+    // 统计窗口也属于记住的过滤偏好；清除后回到默认 30 天，避免当前 7 天与下次打开的 30 天不一致。
+    setStatsDays(30);
   };
 
   return (

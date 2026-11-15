@@ -50,6 +50,18 @@ describe('auditFilterMemory', () => {
     storage.setItem(AUDIT_FILTER_MEMORY_KEY, JSON.stringify({ userId: 7, statsDays: 7 }));
     expect(readAuditFilterMemory(storage)).toBeNull();
 
+    storage.setItem(
+      AUDIT_FILTER_MEMORY_KEY,
+      JSON.stringify({ userId: 'u'.repeat(65), statsDays: 7 }),
+    );
+    expect(readAuditFilterMemory(storage)).toBeNull();
+
+    storage.setItem(
+      AUDIT_FILTER_MEMORY_KEY,
+      JSON.stringify({ sessionId: 's'.repeat(65), statsDays: 7 }),
+    );
+    expect(readAuditFilterMemory(storage)).toBeNull();
+
     storage.setItem(AUDIT_FILTER_MEMORY_KEY, JSON.stringify({ userId: 'u_102', statsDays: 14 }));
     expect(readAuditFilterMemory(storage)).toEqual({
       userId: 'u_102',
@@ -70,6 +82,12 @@ describe('auditFilterMemory', () => {
   it('writes, normalizes and removes the remembered state', () => {
     const storage = new MemoryStorage();
     writeAuditFilterMemory({ ...memory, userId: ' u_102 ' }, storage);
+    expect(readAuditFilterMemory(storage)).toEqual(memory);
+
+    // 非法输入不应覆盖已经保存的合法偏好。
+    writeAuditFilterMemory({ ...memory, userId: 'u'.repeat(65) }, storage);
+    expect(readAuditFilterMemory(storage)).toEqual(memory);
+    writeAuditFilterMemory({ ...memory, statsDays: 14 as AuditFilterMemory['statsDays'] }, storage);
     expect(readAuditFilterMemory(storage)).toEqual(memory);
 
     writeAuditFilterMemory({ userId: '', sessionId: '', statsDays: 30 }, storage);

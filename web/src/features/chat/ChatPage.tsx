@@ -570,6 +570,7 @@ export default function ChatPage() {
       {sessionDrawerOpen && (
         <button
           type="button"
+          tabIndex={-1}
           aria-label="关闭会话列表"
           className="fixed inset-0 z-30 bg-black/30 backdrop-blur-[1px] sm:hidden"
           onClick={closeSessionDrawer}

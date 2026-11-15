@@ -6,6 +6,7 @@ import { MessageSquare, Pencil, Pin, Plus, Search, Trash2, X } from 'lucide-reac
 import { Button } from '@/components/ui/button';
 import type { HiddenSession, SessionSummary } from '@/api/sessions';
 import { cn } from 'cn';
+import { nextFocusTarget } from './focusTrap';
 
 interface SessionListProps {
   sessions: SessionSummary[];
@@ -154,14 +155,48 @@ export function SessionList({
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   // 批量移除的二次确认（ADR-0072）
   const [confirmingBatch, setConfirmingBatch] = useState(false);
+  const mobileAside = useRef<HTMLElement>(null);
   const mobileCloseButton = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (!mobileOpen) return;
-    // 只把焦点移入抽屉，不做焦点陷阱（ADR-0076 决策 6）。
-    if (window.matchMedia('(max-width: 639px)').matches) {
-      mobileCloseButton.current?.focus();
+    const media = window.matchMedia('(max-width: 639px)');
+    const onResize = (event: MediaQueryListEvent) => {
+      if (!event.matches) onCloseMobile();
+    };
+    media.addEventListener('change', onResize);
+    if (!media.matches) {
+      return () => media.removeEventListener('change', onResize);
     }
-  }, [mobileOpen]);
+    // 打开时焦点进入抽屉，关闭时由 ChatPage 还给菜单按钮（ADR-0076/0077）。
+    mobileCloseButton.current?.focus();
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Tab') return;
+      const container = mobileAside.current;
+      if (!container) return;
+      const focusable = Array.from(
+        container.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((element) => element.getClientRects().length > 0);
+      if (focusable.length === 0) {
+        event.preventDefault();
+        return;
+      }
+      const target = nextFocusTarget(focusable, document.activeElement, event.shiftKey);
+      if (target) {
+        event.preventDefault();
+        target.focus();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      media.removeEventListener('change', onResize);
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [mobileOpen, onCloseMobile]);
   const allBatchSelected =
     sessions.length > 0 && sessions.every((item) => batchSelected.has(item.session_id));
   const pinLimitReached = pinnedCount !== null && pinLimit !== null && pinnedCount >= pinLimit;
@@ -170,8 +205,11 @@ export function SessionList({
     hiddenSessions.every((item) => hiddenSelected.has(item.session_id));
   return (
     <aside
+      ref={mobileAside}
       id="session-list"
+      role={mobileOpen ? 'dialog' : undefined}
       aria-label="会话列表"
+      aria-modal={mobileOpen || undefined}
       className={cn(
         'w-72 shrink-0 flex-col gap-3 border-r bg-panel p-3',
         mobileOpen

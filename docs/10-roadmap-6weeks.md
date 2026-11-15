@@ -1805,13 +1805,35 @@ ADR-0071 的快捷预设每次打开都要重新点。现在把**预设 ID**存�
 |---|---|
 | 入口 | `<640px` 标题栏左侧菜单按钮（`aria-controls="session-list"`、`aria-expanded`）；≥640px 隐藏按钮、侧栏常驻 |
 | 抽屉 | 复用同一个 `SessionList`，`fixed` + 遮罩，不复制列表/请求状态 |
-| 关闭 | 点遮罩、Escape、选择会话、新会话；打开不改变当前 `sessionId` |
+| 关闭 | 点遮罩、Escape、右上角 X、选择会话、新会话；打开不改变当前 `sessionId` |
 | 响应式 | 桌面端打开后变宽恢复常驻侧栏；抽屉开合不持久化，刷新收起 |
-| 范围 | 不做手势滑动、焦点陷阱、背景滚动锁定、动画 |
+| 范围 | 不做手势滑动与动画；焦点陷阱、背景滚动锁定由 ADR-0077 补上 |
 | 验证 | 前端 96/19、tsc/oxlint/oxfmt/build 通过（2893 modules，1.16s）；后端未改，沿用 506+40 / 543+3 / 546 |
 
-已知边界：没有焦点陷阱，键盘 Tab 仍可移到遮罩后的页面；没有滑动关闭与过渡动画；不是独立
-路由，深链仍需应用内状态。详见 [ADR-0076](decisions/0076-session-drawer.md)。
+已知边界：焦点陷阱与背景滚动锁定已由 [ADR-0077](decisions/0077-session-drawer-focus-trap.md)
+补上；仍没有滑动关闭与过渡动画；不是独立路由，深链仍需应用内状态。详见
+[ADR-0076](decisions/0076-session-drawer.md)。
+
+---
+
+## W6 后补：窄屏会话抽屉的焦点陷阱（ADR-0077）
+
+ADR-0076 的抽屉只做了打开聚焦 X、关闭回菜单，没有焦点陷阱和背景滚动锁定；键盘用户按 Tab
+会离开抽屉走到遮罩后的页面，移动端背景仍可能滚动。本 ADR 补上最小焦点陷阱与滚动锁定。
+
+| 事项 | 落地 |
+|---|---|
+| 焦点 | 打开聚焦 X；Tab/Shift+Tab 在抽屉内循环；焦点在外部时拉回第一个/最后一个 |
+| 实现 | `nextFocusTarget(elements, active, shift)` 纯函数 + `focusTrap.test.ts` 4 tests |
+| 滚动 | `mobileOpen` 时 `document.body.style.overflow='hidden'`，关闭/卸载恢复 |
+| 语义 | 窄屏抽屉 `role="dialog"` + `aria-modal="true"`；遮罩 `tabIndex={-1}` |
+| 响应式 | `matchMedia('(max-width:639px)')` 变宽时自动关闭，避免残留锁定/遮罩 |
+| 范围 | 不引依赖；不做滑动关闭/动画；不锁主内容区 `inert` |
+| 验证 | 前端 100/20、tsc/oxlint/oxfmt/build 通过（2894 modules，297ms）；后端未改，沿用 506+40 / 543+3 / 546 |
+
+已知边界：焦点陷阱只覆盖键盘 Tab，不隔离屏幕阅读器虚拟光标；仍无滑动关闭/动画；DOM 查询、
+滚动锁定与 resize 关闭无组件级自动化测试，需要真机验收。详见
+[ADR-0077](decisions/0077-session-drawer-focus-trap.md)。
 
 ---
 

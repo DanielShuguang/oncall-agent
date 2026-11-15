@@ -123,6 +123,8 @@ export default function ChatPage() {
   const sendingRef = useRef(sending);
   // 用户已主动打开/新建会话时，首屏迟到的列表响应不能再自动恢复上次会话。
   const sessionSelectionStarted = useRef(false);
+  // 自动恢复占用 historyLoading 时仍允许用户改选其他会话：用户操作优先，旧恢复响应按 token 丢弃。
+  const lastSessionRestoring = useRef(false);
 
   useEffect(() => {
     hiddenQueryRef.current = hiddenQuery;
@@ -171,6 +173,7 @@ export default function ChatPage() {
               page.items.some((item) => item.session_id === last)
             ) {
               const historyId = ++historyRequest.current;
+              lastSessionRestoring.current = true;
               setHistoryLoading(true);
               void getSessionRuns(last, 20)
                 .then((history) => {
@@ -191,6 +194,7 @@ export default function ChatPage() {
                   }
                 })
                 .finally(() => {
+                  lastSessionRestoring.current = false;
                   if (historyId === historyRequest.current) setHistoryLoading(false);
                 });
             }
@@ -315,6 +319,9 @@ export default function ChatPage() {
   const onSend = async () => {
     const value = text.trim();
     if (!value) return;
+    // 发送本身会占用当前会话：首屏迟到的上一次会话恢复不能把本轮运行切走。
+    sessionSelectionStarted.current = true;
+    lastSessionRestoring.current = false;
     // 发送会沿用当前会话：取消还在路上的历史会话切换，避免它回来后把本轮 UI 覆盖掉
     historyRequest.current += 1;
     setHistoryLoading(false);
@@ -325,8 +332,11 @@ export default function ChatPage() {
   };
 
   const onSelectSession = async (nextSessionId: string) => {
-    if (sending || historyLoading || nextSessionId === sessionId) return;
+    // 自动恢复在跑时也允许用户改选；此时递增 historyRequest 会让旧恢复响应失效。
+    if (sending || (historyLoading && !lastSessionRestoring.current) || nextSessionId === sessionId)
+      return;
     sessionSelectionStarted.current = true;
+    lastSessionRestoring.current = false;
     const requestId = ++historyRequest.current;
     setHistoryLoading(true);
     setHistoryOlderLoading(false);
@@ -371,6 +381,8 @@ export default function ChatPage() {
   };
 
   const onNewSession = () => {
+    sessionSelectionStarted.current = true;
+    lastSessionRestoring.current = false;
     clearLastSession();
     historyRequest.current += 1;
     renameRequest.current += 1;

@@ -35,9 +35,12 @@
    不在第一页、已隐藏、已删除、属于别人都不会恢复，而是保持新会话。
 4. **恢复过程复用现有历史加载**：按 `getSessionRuns(last, 20)` 拉首屏历史，
    失败只提示「上次会话加载失败」，不清除记忆、不阻塞新会话。
-5. **竞态防护**：首屏列表响应可能晚于用户的点击。`onSelectSession` 在入口设置
-   `sessionSelectionStarted`，列表 `.then` 看到它就不再自动恢复；
+5. **竞态防护**：首屏列表响应可能晚于用户的点击或发送。`onSelectSession`、`onNewSession`
+   和 `onSend` 都在入口同步设置 `sessionSelectionStarted`，列表 `.then` 看到它就不再自动恢复；
    另一个 `sessionIdRef`/`sendingRef` 防止用户已经开始对话后又被恢复覆盖。
+   发送入口单独设 guard 是因为 `send()` 会创建/占用当前会话，自动恢复若晚一步会 `switchSession`
+   并 abort 掉刚发出的运行。自动恢复占用 `historyLoading` 时仍允许改选其他会话：
+   用户的点击优先，旧恢复响应按 `historyRequest` token 丢弃。
 6. **不引入后端/迁移**：会话本身仍由服务端列表和 `runs` 查询保证归属与可见性；
    本地只记录「上次打开的是哪个 id」。
 

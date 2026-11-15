@@ -144,6 +144,13 @@ export default function ChatPage() {
         if (requestId !== sessionsRequest.current) return page.items;
         setSessions(page.items);
         setSessionsCursor(page.next_cursor);
+        // 搜索/刷新可能把已选中的会话移出当前页；不能继续对不可见的行执行批量移除（ADR-0072）
+        setBatchHideSelected((prev) => {
+          if (prev.size === 0) return prev;
+          const visible = new Set(page.items.map((item) => item.session_id));
+          const next = new Set([...prev].filter((id) => visible.has(id)));
+          return next.size === prev.size ? prev : next;
+        });
         return page.items;
       })
       .catch((err: unknown) => {
@@ -357,7 +364,14 @@ export default function ChatPage() {
       if (ids.includes(sessionId)) onNewSession();
       setBatchHideMode(false);
       setBatchHideSelected(new Set());
-      setBatchHideNotice(`已移除 ${result.hidden} 个会话。`);
+      const failed = result.items.filter((item) => !item.hidden).length;
+      setBatchHideNotice(
+        result.hidden === 0
+          ? `没有会话被移除${failed > 0 ? `（${failed} 个不存在或不属于你）` : ''}。`
+          : failed > 0
+            ? `已移除 ${result.hidden} 个会话；${failed} 个未移除（可能不存在或不属于你）。`
+            : `已移除 ${result.hidden} 个会话。`,
+      );
       refreshSessions();
       // 已移除列表已变化：下次展开重新拉取，并让在途请求失效。
       hiddenRequest.current += 1;

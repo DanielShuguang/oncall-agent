@@ -540,9 +540,9 @@ class RunStore(Protocol):
     async def hide_sessions(self, *, user_id: str, session_ids: Sequence[str]) -> set[str]:
         """批量把会话从该用户的列表移除（ADR-0072）。
 
-        部分成功：不存在、属于别人、或本来就没移除的 id 都不返回。返回的是
-        该用户名下、当前确实处于「已移除」状态的 session_id；重复移除幂等，
-        不改变第一次的 hidden_at。隐藏时同事务删除该用户的置顶行（ADR-0069）。
+        部分成功：不存在或属于别人的 id 不返回；已移除的 id 仍返回（幂等，
+        不改变第一次的 hidden_at）。返回的是该用户名下、当前确实处于「已移除」
+        状态的 session_id。隐藏时同事务删除该用户的置顶行（ADR-0069）。
         `session_ids` 由 API 去重并限制长度。
         """
         ...

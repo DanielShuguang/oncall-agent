@@ -410,9 +410,9 @@ export function SessionList({
                   checked={allBatchSelected}
                   onChange={onBatchToggleAll}
                   disabled={sessions.length === 0 || batchHiding}
-                  aria-label="全选当前页会话"
+                  aria-label="全选已加载会话"
                 />
-                全选当前页
+                全选已加载
               </label>
               <Button
                 size="sm"

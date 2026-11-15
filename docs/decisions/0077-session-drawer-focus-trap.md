@@ -23,11 +23,13 @@ ADR-0076 把窄屏会话栏改成抽屉，只做了「打开把焦点移到关�
    Shift+Tab 从第一个回到最后一个；焦点在抽屉外时拉回第一个/最后一个。
 3. 焦点循环逻辑抽成纯函数 `nextFocusTarget(elements, active, shift)`，用 4 条单测覆盖
    向前/向后循环、焦点在外部、正常移动与空列表。
-4. `mobileOpen` 时给 `document.body` 设 `overflow: hidden`，关闭或卸载时恢复原值。
+4. `mobileOpen` 时给 `document.body` 设 `overflow: hidden`，关闭或卸载时恢复原值；
+   遮罩加 `touch-none`、抽屉加 `overscroll-contain`，减少 iOS 手势把滚动传给背景。
 5. 抽屉在窄屏用 `role="dialog"` + `aria-modal="true"`；≥640px 或关闭时不设该 role。
    遮罩按钮 `tabIndex={-1}`，只负责点击关闭，不进入 Tab 顺序。
 6. 窗口变宽到 ≥640px 时通过 `matchMedia('(max-width: 639px)')` 的 change 事件关闭抽屉，
-   避免桌面端残留遮罩状态、滚动锁定和对话框语义。
+   避免桌面端残留遮罩状态、滚动锁定和对话框语义；关闭前把焦点放到桌面可见的搜索框，
+   避免焦点停在随后被 `sm:hidden` 隐藏的 X 按钮上。
 7. 不引入依赖、不做滑动关闭/动画、不锁主内容区的 `inert`（焦点陷阱已经阻止 Tab 离开）；
    仍不处理屏幕阅读器虚拟光标的背景遍历。
 

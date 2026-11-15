@@ -1825,9 +1825,9 @@ ADR-0076 的抽屉只做了打开聚焦 X、关闭回菜单，没有焦点陷阱
 |---|---|
 | 焦点 | 打开聚焦 X；Tab/Shift+Tab 在抽屉内循环；焦点在外部时拉回第一个/最后一个 |
 | 实现 | `nextFocusTarget(elements, active, shift)` 纯函数 + `focusTrap.test.ts` 4 tests |
-| 滚动 | `mobileOpen` 时 `document.body.style.overflow='hidden'`，关闭/卸载恢复 |
+| 滚动 | `mobileOpen` 时 `document.body.style.overflow='hidden'`，遮罩 `touch-none`、抽屉 `overscroll-contain`，关闭/卸载恢复 |
 | 语义 | 窄屏抽屉 `role="dialog"` + `aria-modal="true"`；遮罩 `tabIndex={-1}` |
-| 响应式 | `matchMedia('(max-width:639px)')` 变宽时自动关闭，避免残留锁定/遮罩 |
+| 响应式 | `matchMedia('(max-width:639px)')` 变宽时自动关闭，焦点移到桌面搜索框，避免残留锁定/遮罩 |
 | 范围 | 不引依赖；不做滑动关闭/动画；不锁主内容区 `inert` |
 | 验证 | 前端 100/20、tsc/oxlint/oxfmt/build 通过（2894 modules，297ms）；后端未改，沿用 506+40 / 543+3 / 546 |
 

@@ -157,14 +157,19 @@ export function SessionList({
   const [confirmingBatch, setConfirmingBatch] = useState(false);
   const mobileAside = useRef<HTMLElement>(null);
   const mobileCloseButton = useRef<HTMLButtonElement>(null);
+  const mobileSearchInput = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (!mobileOpen) return;
     const media = window.matchMedia('(max-width: 639px)');
     const onResize = (event: MediaQueryListEvent) => {
-      if (!event.matches) onCloseMobile();
+      if (event.matches) return;
+      // 变宽后 X 会被 sm:hidden 隐藏，先把焦点放到可见的搜索框，再关闭抽屉。
+      mobileSearchInput.current?.focus();
+      onCloseMobile();
     };
     media.addEventListener('change', onResize);
     if (!media.matches) {
+      onCloseMobile();
       return () => media.removeEventListener('change', onResize);
     }
     // 打开时焦点进入抽屉，关闭时由 ChatPage 还给菜单按钮（ADR-0076/0077）。
@@ -211,7 +216,7 @@ export function SessionList({
       aria-label="会话列表"
       aria-modal={mobileOpen || undefined}
       className={cn(
-        'w-72 shrink-0 flex-col gap-3 border-r bg-panel p-3',
+        'w-72 shrink-0 flex-col gap-3 border-r bg-panel p-3 overscroll-contain',
         mobileOpen
           ? 'fixed inset-y-0 left-0 z-40 flex shadow-xl sm:static sm:z-auto sm:shadow-none'
           : 'hidden sm:flex',
@@ -265,6 +270,7 @@ export function SessionList({
       >
         <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
         <input
+          ref={mobileSearchInput}
           value={searchDraft}
           onChange={(event) => onSearchDraftChange(event.target.value)}
           placeholder="搜索会话标题"

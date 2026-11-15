@@ -62,7 +62,7 @@ export default function ChatPage() {
   const sessionDrawerTrigger = useRef<HTMLButtonElement>(null);
   const closeSessionDrawer = useCallback(() => {
     setSessionDrawerOpen(false);
-    // 关闭后把焦点还给触发按钮；仍不做焦点陷阱（ADR-0076 决策 6）。
+    // 关闭后把焦点还给触发按钮；抽屉内的焦点陷阱由 SessionList 负责（ADR-0077）。
     if (window.matchMedia('(max-width: 639px)').matches) {
       sessionDrawerTrigger.current?.focus();
     }
@@ -572,7 +572,7 @@ export default function ChatPage() {
           type="button"
           tabIndex={-1}
           aria-label="关闭会话列表"
-          className="fixed inset-0 z-30 bg-black/30 backdrop-blur-[1px] sm:hidden"
+          className="fixed inset-0 z-30 touch-none bg-black/30 backdrop-blur-[1px] sm:hidden"
           onClick={closeSessionDrawer}
         />
       )}

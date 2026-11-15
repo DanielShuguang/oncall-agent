@@ -39,6 +39,12 @@
 > 它需要 `postMessage` 来源白名单与 CSP `frame-ancestors` 的部署决策，先不引入
 > 一个说不清边界的外嵌入口。
 
+> 本地偏好：`oncall.last-session.v1`（刷新恢复上次会话，ADR-0079）、
+> `oncall.audit-filters.v1` 与 `oncall.audit-date-preset.v1`（审计过滤/日期预设，
+> ADR-0075/0078）均按浏览器保存，不跨设备。TokenDialog 保存新 token 时解析 JWT
+> `sub`，subject 变化（含从无 token 切换到有 subject）就清空这三个键，避免同一
+> 浏览器换账号后继承上一位的会话/审计过滤值；同 subject 续签不清（ADR-0080）。
+>
 ## 3. 状态机
 
 Agent 界面最容易写崩的地方是"用一堆 boolean 拼状态"。这里用显式状态 + 转移表。

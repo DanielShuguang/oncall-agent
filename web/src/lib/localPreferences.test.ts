@@ -1,0 +1,44 @@
+import { describe, expect, it } from 'vitest';
+import { AUDIT_DATE_PRESET_STORAGE_KEY } from '@/features/console/auditDatePresets';
+import { AUDIT_FILTER_MEMORY_KEY } from '@/features/console/auditFilterMemory';
+import { LAST_SESSION_KEY } from '@/features/chat/lastSession';
+import { clearLocalPreferences } from './localPreferences';
+
+describe('clearLocalPreferences', () => {
+  it('只清掉会话/审计相关的本地偏好', () => {
+    const storage = new MemoryStorage();
+    storage.setItem(LAST_SESSION_KEY, 'sess_1');
+    storage.setItem(AUDIT_FILTER_MEMORY_KEY, '{"userId":"u_1","statsDays":7}');
+    storage.setItem(AUDIT_DATE_PRESET_STORAGE_KEY, 'last7');
+    storage.setItem('unrelated', 'keep');
+
+    clearLocalPreferences(storage);
+
+    expect(storage.getItem(LAST_SESSION_KEY)).toBeNull();
+    expect(storage.getItem(AUDIT_FILTER_MEMORY_KEY)).toBeNull();
+    expect(storage.getItem(AUDIT_DATE_PRESET_STORAGE_KEY)).toBeNull();
+    expect(storage.getItem('unrelated')).toBe('keep');
+  });
+
+  it('没有可用存储时静默跳过', () => {
+    expect(() => {
+      clearLocalPreferences(null);
+    }).not.toThrow();
+  });
+});
+
+class MemoryStorage {
+  private readonly values = new Map<string, string>();
+
+  getItem(key: string): string | null {
+    return this.values.get(key) ?? null;
+  }
+
+  setItem(key: string, value: string): void {
+    this.values.set(key, value);
+  }
+
+  removeItem(key: string): void {
+    this.values.delete(key);
+  }
+}

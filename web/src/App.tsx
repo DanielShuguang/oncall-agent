@@ -15,7 +15,9 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { getToken, setToken } from './api/client';
+import { shouldClearLocalPreferences } from './api/tokenSubject';
 import ChatPage from './features/chat/ChatPage';
+import { clearLocalPreferences } from './lib/localPreferences';
 import ConsolePage from './features/console/ConsolePage';
 import RunDetailPage from './features/runs/RunDetailPage';
 import RunsPage from './features/runs/RunsPage';
@@ -42,8 +44,13 @@ function TokenDialog() {
   };
 
   const save = () => {
-    setToken(value.trim());
-    setHasToken(Boolean(value.trim()));
+    const next = value.trim();
+    if (shouldClearLocalPreferences(getToken(), next)) {
+      // 同一浏览器换账号时，别让上一位的会话/审计过滤带到下一位。
+      clearLocalPreferences();
+    }
+    setToken(next);
+    setHasToken(Boolean(next));
     setSaved(true);
   };
 

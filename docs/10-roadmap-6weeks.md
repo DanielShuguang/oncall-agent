@@ -1869,6 +1869,23 @@ ADR-0075 只记住日期预设。管理员按用户/会话排查后刷新页面�
 
 详见 [ADR-0079](decisions/0079-last-session-restore.md)。
 
+## W6 后补：切换账号时清理本地偏好（ADR-0080）
+
+会话恢复、审计过滤、审计日期预设三个键都是全局 `localStorage`，同一浏览器换账号时会把上一位的
+`user_id`/`session_id` 过滤和上次会话 id 带过来。保存新 token 时比较 JWT `sub`，subject 变了就清理
+三个键；同 subject 续签保留偏好，不引入服务端存储。
+
+| 事项 | 落地 |
+|---|---|
+| 判断 | `tokenSubject()` 只解析 JWT payload 的 `sub`，不验签、不参与鉴权；解析失败为 `null` |
+| 触发 | `TokenDialog` 保存时，新 token 有合法 subject 且与旧 subject 不同（旧为空也算不同）才清理 |
+| 清理 | `oncall.last-session.v1`、`oncall.audit-filters.v1`、`oncall.audit-date-preset.v1`；不动 `oncall.token` |
+| 保留 | 同 subject token 续签不清；清空 token 不主动清，下一次不同账号登录仍会触发 |
+| 范围 | 只清三个已知键；不按账号命名空间存储、不跨设备、无后端/迁移 |
+| 验证 | 前端 114/24、tsc/oxlint/oxfmt/build 通过；后端未改，沿用 506+40 / 543+3 / 546 |
+
+详见 [ADR-0080](decisions/0080-local-preferences-on-account-switch.md)。
+
 ---
 
 ## 每周固定动作

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { cn } from 'cn';
+import { MessagesSquare } from 'lucide-react';
 import { NavLink, Navigate, Route, Routes } from 'react-router';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -81,16 +82,24 @@ function TokenDialog() {
 
 export default function App() {
   return (
-    <div className="mx-auto flex h-full w-full max-w-4xl flex-col bg-panel md:border-x">
-      <header className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b px-3 py-2.5 sm:px-4">
-        <h1 className="m-0 text-[15px] font-semibold">OnCall</h1>
+    <div className="flex h-full w-full flex-col bg-canvas">
+      <header className="z-20 flex flex-wrap items-center gap-x-4 gap-y-2 border-b bg-panel/95 px-4 py-2.5 shadow-xs backdrop-blur sm:px-6">
+        <div className="flex items-center gap-2.5">
+          <span className="grid size-8 place-items-center rounded-lg bg-brand text-primary-foreground shadow-sm">
+            <MessagesSquare className="size-4" />
+          </span>
+          <div className="leading-tight">
+            <h1 className="m-0 text-[15px] font-semibold tracking-tight">OnCall</h1>
+            <p className="m-0 text-[11px] text-muted-foreground">企业智能体工作台</p>
+          </div>
+        </div>
         <Badge
           variant="outline"
           className="hidden border-brand/20 bg-brand/10 text-brand sm:inline-flex"
         >
-          私有化企业智能体
+          私有化部署
         </Badge>
-        <nav className="ml-auto flex gap-3 text-[13px] sm:gap-4">
+        <nav className="ml-auto flex items-center gap-1 rounded-lg bg-canvas p-1 text-[13px]">
           {NAV.map((item) => (
             <NavLink
               key={item.to}
@@ -98,8 +107,10 @@ export default function App() {
               end={item.end}
               className={({ isActive }) =>
                 cn(
-                  'transition-colors hover:text-brand',
-                  isActive ? 'font-medium text-brand' : 'text-muted-foreground',
+                  'rounded-md px-3 py-1.5 transition-colors',
+                  isActive
+                    ? 'bg-panel font-medium text-brand shadow-xs'
+                    : 'text-muted-foreground hover:text-foreground',
                 )
               }
             >
@@ -110,7 +121,7 @@ export default function App() {
         <TokenDialog />
       </header>
 
-      <main className="flex min-h-0 flex-1 flex-col">
+      <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <Routes>
           <Route path="/" element={<ChatPage />} />
           <Route path="/runs" element={<RunsPage />} />

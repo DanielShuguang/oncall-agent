@@ -1,7 +1,7 @@
 /** 会话侧栏（ADR-0030）：只展示服务端投影，不在浏览器本地缓存会话。 */
 
 import { useState } from 'react';
-import { Pencil, Pin, Trash2 } from 'lucide-react';
+import { MessageSquare, Pencil, Pin, Plus, Search, Trash2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import type { HiddenSession, SessionSummary } from '@/api/sessions';
@@ -151,44 +151,48 @@ export function SessionList({
     hiddenSessions.length > 0 &&
     hiddenSessions.every((item) => hiddenSelected.has(item.session_id));
   return (
-    <aside className="hidden w-56 shrink-0 flex-col gap-2 border-r p-3 sm:flex">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-medium text-muted-foreground">会话</span>
-        <div className="flex items-center gap-1">
-          <Button size="sm" variant="outline" disabled={batchMode} onClick={onNew}>
-            新会话
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            aria-pressed={batchMode}
-            onClick={() => {
-              setConfirmingBatch(false);
-              onToggleBatchMode();
-            }}
-          >
-            {batchMode ? '完成' : '管理'}
-          </Button>
-        </div>
+    <aside className="hidden w-72 shrink-0 flex-col gap-3 border-r bg-panel p-3 sm:flex">
+      <div className="flex items-center justify-between gap-2 px-1">
+        <span className="text-xs font-semibold tracking-wide text-muted-foreground">会话</span>
+        <Button
+          size="sm"
+          variant={batchMode ? 'secondary' : 'ghost'}
+          className="h-7 px-2 text-xs"
+          aria-pressed={batchMode}
+          onClick={() => {
+            setConfirmingBatch(false);
+            onToggleBatchMode();
+          }}
+        >
+          {batchMode ? '完成' : '管理'}
+        </Button>
       </div>
 
+      <Button
+        size="sm"
+        className="w-full justify-center gap-1.5"
+        disabled={batchMode}
+        onClick={onNew}
+      >
+        <Plus className="size-4" />
+        新会话
+      </Button>
+
       <form
-        className="flex gap-1"
+        className="relative"
         onSubmit={(event) => {
           event.preventDefault();
           onSearch();
         }}
       >
+        <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
         <input
           value={searchDraft}
           onChange={(event) => onSearchDraftChange(event.target.value)}
-          placeholder="搜索标题"
+          placeholder="搜索会话标题"
           aria-label="搜索会话标题"
-          className="h-8 min-w-0 flex-1 rounded-md border bg-transparent px-2 text-xs outline-none focus-visible:ring-1 focus-visible:ring-brand/40"
+          className="h-9 w-full rounded-lg border bg-canvas/60 pr-2 pl-8 text-xs outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-brand/30 focus-visible:ring-1 focus-visible:ring-brand/20"
         />
-        <Button size="sm" variant="outline" type="submit">
-          搜索
-        </Button>
       </form>
 
       {loading && <p className="px-1 py-2 text-xs text-muted-foreground">加载中…</p>}
@@ -211,24 +215,32 @@ export function SessionList({
         </p>
       )}
 
-      <ul className="min-h-0 flex-1 space-y-1 overflow-y-auto">
+      <ul className="min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-0.5">
         {sessions.map((session) => {
           const active = session.session_id === activeSessionId;
           if (batchMode) {
             return (
               <li key={session.session_id}>
-                <label className="flex items-start gap-1.5 rounded-md border bg-canvas p-1.5 text-xs">
+                <label
+                  className={cn(
+                    'flex cursor-pointer items-start gap-2 rounded-xl border bg-canvas/60 p-2.5 text-xs transition-colors',
+                    batchSelected.has(session.session_id) && 'border-brand/30 bg-brand/5',
+                  )}
+                >
                   <input
                     type="checkbox"
-                    className="mt-0.5"
+                    className="mt-0.5 accent-brand"
                     checked={batchSelected.has(session.session_id)}
                     onChange={() => onBatchToggleSelect(session.session_id)}
                     disabled={batchHiding}
                     aria-label={`选择会话 ${session.title ?? '无标题'}`}
                   />
                   <span className="min-w-0 flex-1">
-                    <span className="line-clamp-2 break-words">{session.title ?? '无标题'}</span>
-                    <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                    <span className="line-clamp-2 break-words text-[13px] font-medium">
+                      {session.title ?? '无标题'}
+                    </span>
+                    <span className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
+                      <MessageSquare className="size-3" />
                       {session.run_count} 轮 · {formatUpdated(session.updated_at)}
                     </span>
                   </span>
@@ -240,7 +252,7 @@ export function SessionList({
             return (
               <li key={session.session_id}>
                 <form
-                  className="flex flex-col gap-1 rounded-md border bg-canvas p-1.5"
+                  className="flex flex-col gap-1.5 rounded-xl border bg-panel p-2 shadow-sm"
                   onSubmit={(event) => {
                     event.preventDefault();
                     onRenameSubmit();
@@ -276,8 +288,8 @@ export function SessionList({
           if (confirmingId === session.session_id) {
             return (
               <li key={session.session_id}>
-                <div className="flex flex-col gap-1 rounded-md border border-danger/40 bg-canvas p-1.5">
-                  <p className="text-xs text-muted-foreground">
+                <div className="flex flex-col gap-2 rounded-xl border border-danger/30 bg-danger/5 p-2.5">
+                  <p className="text-xs leading-5 text-muted-foreground">
                     从列表移除「{session.title ?? '无标题'}」？run 与审批仍按保留期保存。
                   </p>
                   <div className="flex justify-end gap-1">
@@ -307,59 +319,74 @@ export function SessionList({
             );
           }
           return (
-            <li key={session.session_id}>
-              <div className="flex items-start gap-1">
+            <li key={session.session_id} className="group relative">
+              <div
+                className={cn(
+                  'rounded-xl border border-transparent transition-colors',
+                  active ? 'border-brand/20 bg-brand/5' : 'hover:bg-canvas',
+                )}
+              >
                 <button
                   type="button"
                   aria-current={active ? 'true' : undefined}
                   disabled={busy}
-                  className={cn(
-                    'min-w-0 flex-1 rounded-md px-2 py-1.5 text-left text-xs hover:bg-canvas disabled:cursor-default disabled:opacity-60',
-                    active && 'bg-canvas font-medium',
-                  )}
+                  className="w-full min-w-0 rounded-xl px-3 py-2.5 pr-24 text-left disabled:cursor-default disabled:opacity-60"
                   onClick={() => onSelect(session.session_id)}
                 >
-                  <span className="line-clamp-2 break-words">{session.title ?? '无标题'}</span>
-                  <span className="mt-0.5 block text-[11px] text-muted-foreground">
-                    {session.run_count} 轮 · {formatUpdated(session.updated_at)}
+                  <span className="flex items-center gap-1.5">
+                    {session.pinned && <Pin className="size-3 shrink-0 fill-current text-brand" />}
+                    <span className="truncate text-[13px] font-medium">
+                      {session.title ?? '无标题'}
+                    </span>
+                  </span>
+                  <span className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
+                    <MessageSquare className="size-3" />
+                    {session.run_count} 轮<span className="px-0.5">·</span>
+                    {formatUpdated(session.updated_at)}
                   </span>
                 </button>
-                {session.pinned !== undefined && (
+                <div
+                  className={cn(
+                    'absolute top-1/2 right-1.5 flex -translate-y-1/2 items-center gap-0.5 rounded-md bg-panel/95 p-0.5 shadow-sm ring-1 ring-line/60 transition-opacity',
+                    active
+                      ? 'opacity-100'
+                      : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',
+                  )}
+                >
+                  {session.pinned !== undefined && (
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className={cn('size-6 text-muted-foreground', session.pinned && 'text-brand')}
+                      aria-label={`${session.pinned ? '取消置顶' : '置顶'}会话 ${session.title ?? '无标题'}`}
+                      aria-pressed={session.pinned}
+                      disabled={busy || pinningId !== null}
+                      onClick={() => onTogglePin(session)}
+                    >
+                      <Pin className={cn('size-3.5', session.pinned && 'fill-current')} />
+                    </Button>
+                  )}
                   <Button
-                    size="sm"
+                    size="icon"
                     variant="ghost"
-                    className={cn(
-                      'h-7 shrink-0 px-1.5 text-muted-foreground',
-                      session.pinned && 'text-brand',
-                    )}
-                    aria-label={`${session.pinned ? '取消置顶' : '置顶'}会话 ${session.title ?? '无标题'}`}
-                    aria-pressed={session.pinned}
-                    disabled={busy || pinningId !== null}
-                    onClick={() => onTogglePin(session)}
+                    className="size-6 text-muted-foreground"
+                    aria-label={`重命名会话 ${session.title ?? '无标题'}`}
+                    disabled={busy}
+                    onClick={() => onRenameStart(session)}
                   >
-                    <Pin className={cn('h-3.5 w-3.5', session.pinned && 'fill-current')} />
+                    <Pencil className="size-3.5" />
                   </Button>
-                )}
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-7 shrink-0 px-1.5"
-                  aria-label={`重命名会话 ${session.title ?? '无标题'}`}
-                  disabled={busy}
-                  onClick={() => onRenameStart(session)}
-                >
-                  <Pencil className="h-3.5 w-3.5" />
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-7 shrink-0 px-1.5 text-muted-foreground hover:text-danger"
-                  aria-label={`从列表移除会话 ${session.title ?? '无标题'}`}
-                  disabled={busy || hidingId !== null}
-                  onClick={() => setConfirmingId(session.session_id)}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="size-6 text-muted-foreground hover:text-danger"
+                    aria-label={`从列表移除会话 ${session.title ?? '无标题'}`}
+                    disabled={busy || hidingId !== null}
+                    onClick={() => setConfirmingId(session.session_id)}
+                  >
+                    <Trash2 className="size-3.5" />
+                  </Button>
+                </div>
               </div>
             </li>
           );
@@ -373,9 +400,9 @@ export function SessionList({
       )}
 
       {batchMode && (
-        <div className="space-y-1 border-t pt-2">
+        <div className="space-y-2 border-t pt-2.5">
           {confirmingBatch ? (
-            <div className="space-y-1 rounded-md border border-danger/40 bg-canvas p-1.5">
+            <div className="space-y-2 rounded-xl border border-danger/30 bg-danger/5 p-2.5">
               <p className="text-xs text-muted-foreground">
                 从列表移除选中的 {batchSelected.size} 个会话？run 与审批仍按保留期保存。
               </p>

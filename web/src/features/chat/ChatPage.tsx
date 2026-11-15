@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { cn } from 'cn';
+import { Bot, Info, Plus, Send, Sparkles, Square } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -23,7 +24,7 @@ import {
 import { CitationPreviewDialog } from './CitationPreviewDialog';
 import { SessionList } from './SessionList';
 import { Timeline } from './Timeline';
-import { transcriptMessages } from './history';
+import { REDACTED_NOTE, transcriptMessages } from './history';
 import { formatRestoreNotice } from './restoreNotice';
 import { useChat } from './store';
 import type { Citation } from './types';
@@ -535,8 +536,10 @@ export default function ChatPage() {
     }
   };
 
+  const activeSession = sessions.find((item) => item.session_id === sessionId);
+
   return (
-    <div className="flex min-h-0 flex-1">
+    <div className="flex min-h-0 flex-1 bg-canvas">
       <SessionList
         sessions={sessions}
         activeSessionId={sessionId}
@@ -593,208 +596,308 @@ export default function ChatPage() {
         onToggleHidden={() => void onToggleHiddenSessions()}
         onRestore={(id) => void onRestoreSession(id)}
       />
-      <div className="flex min-h-0 flex-1 flex-col">
-        <div aria-live="polite" className="flex flex-1 flex-col gap-3 overflow-y-auto p-4">
-          {historyCursor && (
-            <div className="flex justify-center">
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={historyOlderLoading}
-                onClick={() => void loadEarlier()}
-              >
-                {historyOlderLoading ? '加载中…' : '加载更早的对话'}
-              </Button>
+      <section className="flex min-h-0 min-w-0 flex-1 flex-col bg-panel">
+        <div className="border-b px-4 py-3 sm:px-6">
+          <div className="mx-auto flex w-full max-w-3xl items-center justify-between gap-3">
+            <div className="min-w-0">
+              <h2 className="truncate text-sm font-semibold">{activeSession?.title ?? '新对话'}</h2>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                {activeSession
+                  ? `${activeSession.run_count} 轮对话 · 更新于 ${new Date(activeSession.updated_at).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}`
+                  : '输入问题，开始一轮排查'}
+              </p>
             </div>
-          )}
-          {runtime.messages.length === 0 && (
-            <Card className="gap-0 py-0">
-              <CardContent className="p-3 text-sm">
-                试试：「VPN 连不上怎么办」　或　「我电脑连不上打印机了」
-              </CardContent>
-            </Card>
-          )}
-
-          {runtime.steps.map((step) => (
-            <div
-              key={step.seq ?? `${step.node}-${step.title}`}
-              className="flex items-center gap-2 text-xs text-muted-foreground"
+            <Badge
+              variant="outline"
+              className={cn(
+                'shrink-0',
+                runtime.phase === 'failed'
+                  ? 'border-danger/30 bg-danger/5 text-danger'
+                  : runtime.phase === 'running'
+                    ? 'border-brand/30 bg-brand/5 text-brand'
+                    : 'text-muted-foreground',
+              )}
             >
-              <Badge
-                variant="outline"
-                className={cn(
-                  step.status === 'done' ? 'border-ok/40 text-ok' : 'border-brand/40 text-brand',
-                )}
-              >
-                {step.status === 'done' ? '完成' : '进行'}
-              </Badge>
-              <span>
-                {step.title}
-                {step.summary ? ` · ${step.summary}` : ''}
-              </span>
-            </div>
-          ))}
+              {PHASE_LABEL[runtime.phase] ?? runtime.phase}
+            </Badge>
+          </div>
+        </div>
 
-          {runtime.tools.map((tool) => (
-            <Card
-              key={tool.callId}
-              className={cn('gap-0 py-0', tool.write ? 'border-warn/40 bg-warn/5' : 'bg-canvas/50')}
-            >
-              <CardContent className="p-3">
-                <div className="flex items-center gap-2">
-                  <Badge variant={tool.write ? 'destructive' : 'secondary'}>{tool.tool}</Badge>
-                  <span className="text-xs text-muted-foreground">
-                    {tool.status}
-                    {tool.durationMs ? ` · ${tool.durationMs}ms` : ''}
-                    {tool.attempts && tool.attempts > 1 ? ` · 重试${tool.attempts - 1}次` : ''}
-                  </span>
-                </div>
-                <div className="mt-2 text-[11px] text-muted-foreground">参数</div>
-                <pre className="mt-1 max-h-48 overflow-auto rounded-md border bg-panel p-2 font-mono text-xs whitespace-pre-wrap">
-                  {JSON.stringify(tool.args, null, 2)}
-                </pre>
-                {tool.result !== undefined && (
-                  <>
-                    <div className="mt-2 text-[11px] text-muted-foreground">结果</div>
-                    <pre className="mt-1 max-h-64 overflow-auto rounded-md border bg-panel p-2 font-mono text-xs whitespace-pre-wrap">
-                      {JSON.stringify(tool.result, null, 2)}
-                    </pre>
-                  </>
-                )}
-                {tool.error && <div className="mt-1 text-sm text-destructive">{tool.error}</div>}
-              </CardContent>
-            </Card>
-          ))}
-
-          {runtime.approval && (
-            <Card className="gap-0 border-warn/40 bg-warn/5 py-0">
-              <CardContent className="p-3">
-                <div className="text-sm font-semibold">需要你确认</div>
-                <div className="mt-1.5 flex flex-wrap items-center gap-2 text-sm">
-                  即将执行 <Badge variant="outline">{runtime.approval.tool}</Badge>
-                  {runtime.approval.reason ? `：${runtime.approval.reason}` : ''}
-                </div>
-                <pre className="mt-2 max-h-64 overflow-auto rounded-md border bg-panel p-2 font-mono text-xs whitespace-pre-wrap">
-                  {JSON.stringify(runtime.approval.args, null, 2)}
-                </pre>
-                <p className="mt-2 text-xs text-muted-foreground">
-                  审批人角色才能决议，且不能审批自己发起的操作。
+        <div
+          aria-live="polite"
+          className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-6 sm:px-6"
+        >
+          <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-5">
+            {historyCursor && (
+              <div className="flex justify-center">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={historyOlderLoading}
+                  onClick={() => void loadEarlier()}
+                >
+                  {historyOlderLoading ? '加载中…' : '加载更早的对话'}
+                </Button>
+              </div>
+            )}
+            {runtime.messages.length === 0 && (
+              <div className="flex flex-1 flex-col items-center justify-center py-16 text-center">
+                <span className="grid size-14 place-items-center rounded-2xl bg-brand/10 text-brand">
+                  <Sparkles className="size-6" />
+                </span>
+                <h2 className="mt-4 text-lg font-semibold tracking-tight">今天想解决什么问题？</h2>
+                <p className="mt-1.5 max-w-md text-sm leading-6 text-muted-foreground">
+                  查资产、查工单、报修或申请软件，都可以直接用一句话说明。
                 </p>
-                <div className="mt-2 flex gap-2">
-                  <Button size="sm" disabled={sending} onClick={() => void resolve('approved')}>
-                    {sending ? '提交中…' : '批准'}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={sending}
-                    onClick={() => void resolve('rejected')}
-                  >
-                    拒绝
-                  </Button>
+                <div className="mt-5 flex flex-wrap justify-center gap-2">
+                  {['VPN 连不上怎么办', '我电脑连不上打印机了', '帮我申请安装设计软件'].map(
+                    (suggestion) => (
+                      <button
+                        key={suggestion}
+                        type="button"
+                        className="rounded-full border bg-panel px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-brand/30 hover:text-brand"
+                        onClick={() => setText(suggestion)}
+                      >
+                        {suggestion}
+                      </button>
+                    ),
+                  )}
                 </div>
-              </CardContent>
-            </Card>
-          )}
+              </div>
+            )}
 
-          {runtime.messages.map((msg) => (
-            <div
-              key={msg.id}
-              className={
-                msg.role === 'user'
-                  ? 'ml-auto max-w-[78%] rounded-xl bg-brand/10 px-3 py-2.5 text-sm leading-relaxed whitespace-pre-wrap'
-                  : 'text-sm leading-relaxed whitespace-pre-wrap'
-              }
-            >
-              {msg.text}
-              {msg.streaming && <span className="text-muted-foreground">▍</span>}
-              {msg.citations?.length ? (
-                <div className="mt-1.5 flex flex-wrap gap-2">
-                  {msg.citations.map((c: Citation, i: number) => (
-                    <Tooltip key={c.chunk_id}>
-                      <TooltipTrigger asChild>
-                        <button
-                          type="button"
-                          className="text-xs text-brand underline-offset-4 hover:underline"
-                          onClick={() => setActiveCitation(c)}
-                        >
-                          [{i + 1}] {c.title}
-                          {c.page ? ` p.${c.page}` : ''}
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent className="max-w-80">{c.snippet}</TooltipContent>
-                    </Tooltip>
-                  ))}
-                </div>
-              ) : null}
-              {msg.role === 'assistant' &&
-              ((msg.timeline?.length ?? 0) > 0 || msg.timelineAvailable === false) ? (
-                <Timeline
-                  items={msg.timeline ?? []}
-                  available={msg.timelineAvailable ?? true}
-                  truncated={Boolean(msg.timelineTruncated)}
-                />
-              ) : null}
-            </div>
-          ))}
+            {runtime.steps.map((step) => (
+              <div
+                key={step.seq ?? `${step.node}-${step.title}`}
+                className="flex items-center gap-2 text-xs text-muted-foreground"
+              >
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    step.status === 'done' ? 'border-ok/40 text-ok' : 'border-brand/40 text-brand',
+                  )}
+                >
+                  {step.status === 'done' ? '完成' : '进行'}
+                </Badge>
+                <span>
+                  {step.title}
+                  {step.summary ? ` · ${step.summary}` : ''}
+                </span>
+              </div>
+            ))}
 
-          {runtime.error && (
-            <Card className="border-danger/30 bg-danger/5">
-              <CardContent className="flex flex-wrap items-center gap-3 p-3">
-                <span className="min-w-0 flex-1 text-sm text-danger">{runtime.error}</span>
-                {runtime.phase === 'failed' && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={sending}
-                    onClick={() => void retry()}
-                  >
-                    重试
-                  </Button>
+            {runtime.tools.map((tool) => (
+              <Card
+                key={tool.callId}
+                className={cn(
+                  'gap-0 py-0',
+                  tool.write ? 'border-warn/40 bg-warn/5' : 'bg-canvas/50',
                 )}
-              </CardContent>
-            </Card>
-          )}
+              >
+                <CardContent className="p-3">
+                  <div className="flex items-center gap-2">
+                    <Badge variant={tool.write ? 'destructive' : 'secondary'}>{tool.tool}</Badge>
+                    <span className="text-xs text-muted-foreground">
+                      {tool.status}
+                      {tool.durationMs ? ` · ${tool.durationMs}ms` : ''}
+                      {tool.attempts && tool.attempts > 1 ? ` · 重试${tool.attempts - 1}次` : ''}
+                    </span>
+                  </div>
+                  <div className="mt-2 text-[11px] text-muted-foreground">参数</div>
+                  <pre className="mt-1 max-h-48 overflow-auto rounded-md border bg-panel p-2 font-mono text-xs whitespace-pre-wrap">
+                    {JSON.stringify(tool.args, null, 2)}
+                  </pre>
+                  {tool.result !== undefined && (
+                    <>
+                      <div className="mt-2 text-[11px] text-muted-foreground">结果</div>
+                      <pre className="mt-1 max-h-64 overflow-auto rounded-md border bg-panel p-2 font-mono text-xs whitespace-pre-wrap">
+                        {JSON.stringify(tool.result, null, 2)}
+                      </pre>
+                    </>
+                  )}
+                  {tool.error && <div className="mt-1 text-sm text-destructive">{tool.error}</div>}
+                </CardContent>
+              </Card>
+            ))}
+
+            {runtime.approval && (
+              <Card className="gap-0 border-warn/40 bg-warn/5 py-0">
+                <CardContent className="p-3">
+                  <div className="text-sm font-semibold">需要你确认</div>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-2 text-sm">
+                    即将执行 <Badge variant="outline">{runtime.approval.tool}</Badge>
+                    {runtime.approval.reason ? `：${runtime.approval.reason}` : ''}
+                  </div>
+                  <pre className="mt-2 max-h-64 overflow-auto rounded-md border bg-panel p-2 font-mono text-xs whitespace-pre-wrap">
+                    {JSON.stringify(runtime.approval.args, null, 2)}
+                  </pre>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    审批人角色才能决议，且不能审批自己发起的操作。
+                  </p>
+                  <div className="mt-2 flex gap-2">
+                    <Button size="sm" disabled={sending} onClick={() => void resolve('approved')}>
+                      {sending ? '提交中…' : '批准'}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={sending}
+                      onClick={() => void resolve('rejected')}
+                    >
+                      拒绝
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {runtime.messages.map((msg) => {
+              const assistant = msg.role === 'assistant';
+              const redacted = assistant && msg.text === REDACTED_NOTE;
+              return (
+                <div key={msg.id} className={cn('flex gap-3', !assistant && 'justify-end')}>
+                  {assistant && (
+                    <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-full bg-brand/10 text-brand">
+                      <Bot className="size-4" />
+                    </span>
+                  )}
+                  <div
+                    className={cn('flex min-w-0 max-w-[85%] flex-col', !assistant && 'items-end')}
+                  >
+                    <div
+                      className={cn(
+                        'text-sm leading-7 whitespace-pre-wrap',
+                        redacted
+                          ? 'rounded-2xl rounded-tl-sm border border-dashed bg-muted/30 px-4 py-3 text-muted-foreground'
+                          : assistant
+                            ? 'rounded-2xl rounded-tl-sm border bg-canvas/60 px-4 py-3 text-ink'
+                            : 'rounded-2xl rounded-tr-sm bg-brand px-4 py-2.5 text-primary-foreground shadow-sm',
+                      )}
+                    >
+                      {redacted ? (
+                        <span className="flex items-center gap-2 text-xs leading-5">
+                          <Info className="size-3.5 shrink-0" />
+                          回答引用的文档已不可见，正文不再展示
+                        </span>
+                      ) : (
+                        msg.text
+                      )}
+                      {msg.streaming && <span className="text-muted-foreground">▍</span>}
+                    </div>
+                    {msg.citations?.length ? (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {msg.citations.map((c: Citation, i: number) => (
+                          <Tooltip key={c.chunk_id}>
+                            <TooltipTrigger asChild>
+                              <button
+                                type="button"
+                                className="rounded-full border bg-panel px-2.5 py-1 text-xs text-brand transition-colors hover:border-brand/30 hover:bg-brand/5"
+                                onClick={() => setActiveCitation(c)}
+                              >
+                                [{i + 1}] {c.title}
+                                {c.page ? ` p.${c.page}` : ''}
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent className="max-w-80">{c.snippet}</TooltipContent>
+                          </Tooltip>
+                        ))}
+                      </div>
+                    ) : null}
+                    {assistant &&
+                    ((msg.timeline?.length ?? 0) > 0 || msg.timelineAvailable === false) ? (
+                      <Timeline
+                        items={msg.timeline ?? []}
+                        available={msg.timelineAvailable ?? true}
+                        truncated={Boolean(msg.timelineTruncated)}
+                      />
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })}
+
+            {runtime.error && (
+              <Card className="border-danger/30 bg-danger/5">
+                <CardContent className="flex flex-wrap items-center gap-3 p-3">
+                  <span className="min-w-0 flex-1 text-sm text-danger">{runtime.error}</span>
+                  {runtime.phase === 'failed' && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={sending}
+                      onClick={() => void retry()}
+                    >
+                      重试
+                    </Button>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+          </div>
         </div>
 
         <CitationPreviewDialog citation={activeCitation} onClose={() => setActiveCitation(null)} />
 
-        <div className="border-t px-3 py-3 sm:px-4">
-          <div className="flex flex-wrap items-end gap-2">
-            <Textarea
-              value={text}
-              rows={1}
-              aria-label="消息输入框"
-              placeholder="描述你的问题…（Enter 发送，Shift+Enter 换行）"
-              className="max-h-40 min-h-9 min-w-0 flex-1 resize-none py-2 text-sm"
-              onChange={(e) => setText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  void onSend();
-                }
-              }}
-            />
-            {sending ? (
-              <Button variant="destructive" onClick={abort}>
-                停止
-              </Button>
-            ) : (
-              <Button onClick={() => void onSend()}>发送</Button>
-            )}
-            <Button variant="outline" onClick={onNewSession} disabled={sending}>
-              新会话
-            </Button>
-          </div>
-          <div className="mt-2 text-xs text-muted-foreground">
-            状态：{PHASE_LABEL[runtime.phase] ?? runtime.phase}
-            {runtime.costCents !== null
-              ? ` · 本轮成本 ¥${(runtime.costCents / 100).toFixed(2)}`
-              : ''}
-            {historyLoading ? ' · 历史会话加载中…' : ''}
+        <div className="border-t bg-panel px-4 py-3 sm:px-6">
+          <div className="mx-auto w-full max-w-3xl">
+            <div className="rounded-xl border bg-panel p-2 shadow-sm ring-1 ring-transparent transition-shadow focus-within:border-brand/30 focus-within:ring-brand/10">
+              <Textarea
+                value={text}
+                rows={1}
+                aria-label="消息输入框"
+                placeholder="描述你的问题…"
+                className="max-h-40 min-h-11 w-full resize-none border-0 bg-transparent px-2 py-2 text-sm shadow-none focus-visible:ring-0"
+                onChange={(e) => setText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    void onSend();
+                  }
+                }}
+              />
+              <div className="mt-1 flex items-center justify-between gap-2 px-1">
+                <span className="hidden text-[11px] text-muted-foreground sm:inline">
+                  Enter 发送 · Shift+Enter 换行
+                </span>
+                <div className="ml-auto flex items-center gap-1.5">
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="size-8 text-muted-foreground"
+                    aria-label="新会话"
+                    disabled={sending}
+                    onClick={onNewSession}
+                  >
+                    <Plus className="size-4" />
+                  </Button>
+                  {sending ? (
+                    <Button size="sm" variant="destructive" onClick={abort}>
+                      <Square className="size-3.5 fill-current" />
+                      停止
+                    </Button>
+                  ) : (
+                    <Button size="sm" onClick={() => void onSend()} disabled={!text.trim()}>
+                      <Send className="size-3.5" />
+                      发送
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </div>
+            <div className="mt-2 flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
+              <span>
+                状态：{PHASE_LABEL[runtime.phase] ?? runtime.phase}
+                {historyLoading ? ' · 历史会话加载中…' : ''}
+              </span>
+              <span>
+                {runtime.costCents !== null
+                  ? `本轮成本 ¥${(runtime.costCents / 100).toFixed(2)}`
+                  : ''}
+              </span>
+            </div>
           </div>
         </div>
-      </div>
+      </section>
     </div>
   );
 }

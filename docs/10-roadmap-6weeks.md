@@ -1712,8 +1712,6 @@ tsc、`oxlint` 0/0（73 files）、`oxfmt --check` 81 files、`pnpm build` 通�
 
 ---
 
----
-
 ## W6 后补：审计日期范围快捷预设（ADR-0071）
 
 审计页已有 UTC 起止日期（ADR-0067），但每次交接/复盘都要手填。本次只加前端快捷入口：
@@ -1729,6 +1727,8 @@ tsc、`oxlint` 0/0（73 files）、`oxfmt --check` 81 files、`pnpm build` 通�
 | 边界 | 仅 UTC；「本月/上月」按 UTC；预设不绕过 365 天上限与服务端 422；无自定义预设/记住上次选择 |
 
 详见 [ADR-0071](decisions/0071-audit-date-presets.md)。
+
+---
 
 ## 每周固定动作
 

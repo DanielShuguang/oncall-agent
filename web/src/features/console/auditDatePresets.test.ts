@@ -10,6 +10,10 @@ describe('auditDatePresetRange', () => {
       from: '2026-03-09',
       to: '2026-03-15',
     });
+    expect(auditDatePresetRange('last7', new Date('2026-03-03T12:00:00Z'))).toEqual({
+      from: '2026-02-25',
+      to: '2026-03-03',
+    });
   });
 
   it('covers the last 30 and 90 days', () => {
@@ -38,6 +42,14 @@ describe('auditDatePresetRange', () => {
     expect(auditDatePresetRange('lastMonth', new Date('2024-03-15T12:00:00Z'))).toEqual({
       from: '2024-02-01',
       to: '2024-02-29',
+    });
+    expect(auditDatePresetRange('lastMonth', new Date('2026-01-15T12:00:00Z'))).toEqual({
+      from: '2025-12-01',
+      to: '2025-12-31',
+    });
+    expect(auditDatePresetRange('lastMonth', new Date('2026-03-31T12:00:00Z'))).toEqual({
+      from: '2026-02-01',
+      to: '2026-02-28',
     });
   });
 });

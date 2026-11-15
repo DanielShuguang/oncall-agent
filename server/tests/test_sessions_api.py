@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import json
 import uuid
 from unittest.mock import AsyncMock
 
@@ -123,6 +125,64 @@ async def test_sessions_paginate_with_cursor(
     second_body = second.json()
     assert [item["session_id"] for item in second_body["items"]] == ["sess_a"]
     assert second_body["next_cursor"] is None
+
+
+async def test_sessions_pin_and_legacy_cursor(
+    client: AsyncClient, mem_store: InMemoryRunStore
+) -> None:
+    await _run(mem_store, "sess_a", "会话 A")
+    await asyncio.sleep(0.005)
+    await _run(mem_store, "sess_b", "会话 B")
+    await asyncio.sleep(0.005)
+    await _run(mem_store, "sess_c", "会话 C")
+    await _run(mem_store, "sess_other", "别人的会话", user_id="u_205")
+
+    assert (await client.post("/api/sessions/sess_a/pin")).status_code == 204
+    body = (await client.get("/api/sessions")).json()
+    assert [item["session_id"] for item in body["items"]] == ["sess_a", "sess_c", "sess_b"]
+    assert [item["pinned"] for item in body["items"]] == [True, False, False]
+
+    assert (await client.post("/api/sessions/sess_b/pin")).status_code == 204
+    ordered = (await client.get("/api/sessions")).json()["items"]
+    assert [item["session_id"] for item in ordered] == ["sess_b", "sess_a", "sess_c"]
+
+    first = await client.get("/api/sessions", params={"limit": 1})
+    first_body = first.json()
+    assert [item["session_id"] for item in first_body["items"]] == ["sess_b"]
+    second = await client.get(
+        "/api/sessions", params={"limit": 1, "cursor": first_body["next_cursor"]}
+    )
+    assert [item["session_id"] for item in second.json()["items"]] == ["sess_a"]
+    third = await client.get(
+        "/api/sessions", params={"limit": 1, "cursor": second.json()["next_cursor"]}
+    )
+    assert [item["session_id"] for item in third.json()["items"]] == ["sess_c"]
+
+    assert (await client.delete("/api/sessions/sess_b/pin")).status_code == 204
+    unpinned = (await client.get("/api/sessions")).json()["items"]
+    assert [item["session_id"] for item in unpinned] == ["sess_a", "sess_c", "sess_b"]
+
+    # 隐藏会话不能置顶；恢复后也不带置顶
+    assert (await client.delete("/api/sessions/sess_c")).status_code == 204
+    assert (await client.post("/api/sessions/sess_c/pin")).status_code == 404
+    assert (await client.delete("/api/sessions/sess_c/hidden")).status_code == 204
+    restored = (await client.get("/api/sessions")).json()["items"]
+    assert {item["session_id"]: item["pinned"] for item in restored}["sess_c"] is False
+
+    # 别人的、不存在的会话都 404
+    assert (await client.post("/api/sessions/sess_other/pin")).status_code == 404
+    assert (await client.post("/api/sessions/sess_missing/pin")).status_code == 404
+
+    # 旧的二段游标没有 p：仍可从非置顶段继续（ADR-0069 的兼容口径）
+    assert (await client.delete("/api/sessions/sess_a/pin")).status_code == 204
+    page = (await client.get("/api/sessions", params={"limit": 2})).json()
+    assert [item["session_id"] for item in page["items"]] == ["sess_c", "sess_b"]
+    legacy = base64.urlsafe_b64encode(
+        json.dumps({"t": page["items"][-1]["updated_at"], "s": "sess_b"}).encode()
+    ).decode()
+    older = await client.get("/api/sessions", params={"limit": 2, "cursor": legacy})
+    assert older.status_code == 200
+    assert [item["session_id"] for item in older.json()["items"]] == ["sess_a"]
 
 
 async def test_sessions_search_by_title_is_case_insensitive(

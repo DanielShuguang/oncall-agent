@@ -25,6 +25,7 @@ from app.core.logging import get_logger
 from app.models.run import Run
 from app.models.run import RunEvent as RunEventRow
 from app.models.session_hidden import HiddenSession as HiddenSessionRow
+from app.models.session_pin import PinnedSession as PinnedSessionRow
 from app.models.session_restore_audit import SessionRestoreAudit as SessionRestoreAuditRow
 from app.models.session_title import SessionTitle as SessionTitleRow
 from app.schemas.event import EventType, RunEvent, RunStatus
@@ -190,6 +191,8 @@ class SessionSummary:
     run_count: int
     started_at: datetime
     updated_at: datetime
+    #: 当前用户是否置顶；旧游标/旧后端缺省 False（ADR-0069）
+    pinned: bool = False
 
 
 @dataclass(frozen=True)
@@ -497,14 +500,17 @@ class RunStore(Protocol):
         limit: int = 20,
         before_updated_at: datetime | None = None,
         before_session_id: str | None = None,
+        before_pinned: bool | None = None,
         query: str | None = None,
     ) -> list[SessionSummary]:
-        """按 `session_id` 聚合该用户最近的会话，按最近一次 run 倒序（ADR-0030）。
+        """按 `session_id` 聚合该用户最近的会话，置顶优先、组内按最近 run 倒序。
 
         会话没有独立表：标题取最早一条非空 `input`，计数与时间来自 runs 投影。
-        没有 run 的会话不存在，因此不需要清理任务。`(before_updated_at,
-        before_session_id)` 是上一页游标（ADR-0033）；新 run 会把会话移到更前，
-        翻页途中可能重复或跳过一页，刷新列表即重置。
+        没有 run 的会话不存在，因此不需要清理任务。`(before_pinned,
+        before_updated_at, before_session_id)` 是上一页游标（ADR-0069）；置顶
+        会话排在前面，置顶组内仍按最近活动倒序。旧游标没有 pinned 位时按
+        False（升级前只可能是非置顶段）。新 run 会把会话移到更前，翻页途中
+        可能重复或跳过一页，刷新列表即重置。
 
         `query` 只按投影标题做大小写不敏感的子串匹配（ADR-0039）：不搜回答正文、
         不搜被保留策略清空的历史；标题来自首条非空问题，不是最后一轮。
@@ -525,7 +531,24 @@ class RunStore(Protocol):
 
         只写一行 `hidden_sessions`；`runs`、事件、审批与标题行都保留，保留清理
         仍按时间执行。返回 False 表示这个用户没有该会话（没有任何 run），
-        调用方翻成 404。重复移除是幂等的，仍返回 True。
+        调用方翻成 404。重复移除是幂等的，仍返回 True。隐藏时同事务删除
+        该用户的置顶行（ADR-0069）：已隐藏的会话不保留置顶，恢复后也不会
+        自动回到顶部。
+        """
+        ...
+
+    async def pin_session(self, *, user_id: str, session_id: str) -> bool:
+        """把会话置顶（ADR-0069）。重复置顶幂等。
+
+        返回 False 表示这个用户没有该会话或它已被隐藏——调用方翻成 404，
+        不泄露存在性。置顶不影响其他用户。
+        """
+        ...
+
+    async def unpin_session(self, *, user_id: str, session_id: str) -> bool:
+        """取消会话置顶（ADR-0069）。重复取消幂等。
+
+        返回 False 表示这个用户没有该会话或它已被隐藏。
         """
         ...
 
@@ -714,6 +737,8 @@ class InMemoryRunStore:
         #: 用户从列表移除的会话（ADR-0041）；run/事件仍保留
         #: 从列表移除的会话 → 移除时间（ADR-0041/0043）；行仍在 runs 里
         self._hidden_sessions: dict[tuple[str, str], datetime] = {}
+        #: 用户置顶的会话（ADR-0069）；隐藏会话时同步删除
+        self._pinned_sessions: set[tuple[str, str]] = set()
         #: 恢复审计，按发生顺序追加（ADR-0059）；列表时反向读出
         self._session_restore_audits: list[SessionRestoreAuditRecord] = []
         self._lock = asyncio.Lock()
@@ -952,6 +977,7 @@ class InMemoryRunStore:
         limit: int = 20,
         before_updated_at: datetime | None = None,
         before_session_id: str | None = None,
+        before_pinned: bool | None = None,
         query: str | None = None,
     ) -> list[SessionSummary]:
         grouped: dict[str, list[RunRecord]] = {}
@@ -977,6 +1003,7 @@ class InMemoryRunStore:
                     run_count=len(records),
                     started_at=records[0].started_at,
                     updated_at=records[-1].started_at,
+                    pinned=(user_id, session_id) in self._pinned_sessions,
                 )
             )
         if query:
@@ -986,12 +1013,18 @@ class InMemoryRunStore:
                 for item in summaries
                 if _matches_session_query(needle, item.title, generated.get(item.session_id))
             ]
-        summaries.sort(key=lambda item: (item.updated_at, item.session_id), reverse=True)
+        summaries.sort(
+            key=lambda item: (item.pinned, item.updated_at, item.session_id),
+            reverse=True,
+        )
         if before_updated_at is not None and before_session_id is not None:
+            # 旧游标没有 p 位：升级前只可能是非置顶段（ADR-0069）
+            cursor_pinned = bool(before_pinned)
             summaries = [
                 item
                 for item in summaries
-                if (item.updated_at, item.session_id) < (before_updated_at, before_session_id)
+                if (item.pinned, item.updated_at, item.session_id)
+                < (cursor_pinned, before_updated_at, before_session_id)
             ]
         return summaries[:limit]
 
@@ -1019,6 +1052,32 @@ class InMemoryRunStore:
                 return False
             # 重复移除保留第一次的 hidden_at，与 PG 的 on_conflict_do_nothing 一致
             self._hidden_sessions.setdefault((user_id, session_id), datetime.now(UTC))
+            # 隐藏会话不保留置顶（ADR-0069）
+            self._pinned_sessions.discard((user_id, session_id))
+            return True
+
+    async def pin_session(self, *, user_id: str, session_id: str) -> bool:
+        async with self._lock:
+            if not any(
+                record.user_id == user_id and record.session_id == session_id
+                for record in self._runs.values()
+            ):
+                return False
+            if (user_id, session_id) in self._hidden_sessions:
+                return False
+            self._pinned_sessions.add((user_id, session_id))
+            return True
+
+    async def unpin_session(self, *, user_id: str, session_id: str) -> bool:
+        async with self._lock:
+            if not any(
+                record.user_id == user_id and record.session_id == session_id
+                for record in self._runs.values()
+            ):
+                return False
+            if (user_id, session_id) in self._hidden_sessions:
+                return False
+            self._pinned_sessions.discard((user_id, session_id))
             return True
 
     async def list_hidden_sessions(
@@ -1646,6 +1705,7 @@ class PostgresRunStore:
         limit: int = 20,
         before_updated_at: datetime | None = None,
         before_session_id: str | None = None,
+        before_pinned: bool | None = None,
         query: str | None = None,
     ) -> list[SessionSummary]:
         # 标题优先自定义标题（ADR-0040），否则取最早一条非空 input；用窗口函数
@@ -1670,6 +1730,8 @@ class PostgresRunStore:
         )
         first_input = select(ranked.c.session_id, ranked.c.input).where(ranked.c.rn == 1).subquery()
         title = func.coalesce(SessionTitleRow.title, first_input.c.input).label("title")
+        # 置顶是 per-user 的左连接；null 即未置顶（ADR-0069）
+        pinned_expr = PinnedSessionRow.session_id.is_not(None).label("pinned")
         agg = (
             select(
                 Run.session_id,
@@ -1677,6 +1739,7 @@ class PostgresRunStore:
                 func.max(Run.started_at).label("updated_at"),
                 func.count().label("run_count"),
                 title,
+                pinned_expr,
             )
             .where(Run.user_id == user_id)
             .outerjoin(first_input, first_input.c.session_id == Run.session_id)
@@ -1685,6 +1748,13 @@ class PostgresRunStore:
                 and_(
                     SessionTitleRow.user_id == Run.user_id,
                     SessionTitleRow.session_id == Run.session_id,
+                ),
+            )
+            .outerjoin(
+                PinnedSessionRow,
+                and_(
+                    PinnedSessionRow.user_id == Run.user_id,
+                    PinnedSessionRow.session_id == Run.session_id,
                 ),
             )
             # 软移除（ADR-0041）：不算 run 数、不参与排序，也不出现在搜索结果里
@@ -1696,7 +1766,12 @@ class PostgresRunStore:
                 )
                 .exists()
             )
-            .group_by(Run.session_id, SessionTitleRow.title, first_input.c.input)
+            .group_by(
+                Run.session_id,
+                SessionTitleRow.title,
+                first_input.c.input,
+                PinnedSessionRow.session_id,
+            )
         )
         if query:
             # strpos 而不是 LIKE：用户输入里的 % 和 _ 不应变成通配符。
@@ -1708,17 +1783,30 @@ class PostgresRunStore:
                 )
             )
         if before_updated_at is not None and before_session_id is not None:
-            # keyset 作用在聚合结果上：HAVING + max(started_at)/session_id 比较。
-            agg = agg.having(
-                or_(
-                    func.max(Run.started_at) < before_updated_at,
-                    and_(
-                        func.max(Run.started_at) == before_updated_at,
-                        Run.session_id < before_session_id,
-                    ),
-                )
+            # keyset 作用在聚合结果上：HAVING 比较 (pinned, max(started_at), session_id)。
+            # 旧游标没有 p 位时按 False（升级前只可能是非置顶段）。
+            cursor_pinned = bool(before_pinned)
+            after = or_(
+                func.max(Run.started_at) < before_updated_at,
+                and_(
+                    func.max(Run.started_at) == before_updated_at,
+                    Run.session_id < before_session_id,
+                ),
             )
-        agg = agg.order_by(func.max(Run.started_at).desc(), Run.session_id.desc()).limit(limit)
+            if cursor_pinned:
+                agg = agg.having(
+                    or_(
+                        and_(PinnedSessionRow.session_id.is_not(None), after),
+                        PinnedSessionRow.session_id.is_(None),
+                    )
+                )
+            else:
+                agg = agg.having(and_(PinnedSessionRow.session_id.is_(None), after))
+        agg = agg.order_by(
+            PinnedSessionRow.session_id.is_not(None).desc(),
+            func.max(Run.started_at).desc(),
+            Run.session_id.desc(),
+        ).limit(limit)
         async with self._sessionmaker() as session:
             rows = (await session.execute(agg)).all()
         return [
@@ -1728,6 +1816,7 @@ class PostgresRunStore:
                 run_count=int(row.run_count),
                 started_at=row.started_at,
                 updated_at=row.updated_at,
+                pinned=bool(row.pinned),
             )
             for row in rows
         ]
@@ -1777,8 +1866,69 @@ class PostgresRunStore:
                     index_elements=[HiddenSessionRow.user_id, HiddenSessionRow.session_id]
                 )
             )
+            # 隐藏会话不保留置顶（ADR-0069）
+            await session.execute(
+                delete(PinnedSessionRow).where(
+                    PinnedSessionRow.user_id == user_id,
+                    PinnedSessionRow.session_id == session_id,
+                )
+            )
             await session.commit()
         return True
+
+    async def pin_session(self, *, user_id: str, session_id: str) -> bool:
+        async with self._sessionmaker() as session:
+            if not await self._visible_session_exists(
+                session, user_id=user_id, session_id=session_id
+            ):
+                return False
+            await session.execute(
+                pg_insert(PinnedSessionRow)
+                .values(user_id=user_id, session_id=session_id)
+                .on_conflict_do_nothing(
+                    index_elements=[PinnedSessionRow.user_id, PinnedSessionRow.session_id]
+                )
+            )
+            await session.commit()
+        return True
+
+    async def unpin_session(self, *, user_id: str, session_id: str) -> bool:
+        async with self._sessionmaker() as session:
+            if not await self._visible_session_exists(
+                session, user_id=user_id, session_id=session_id
+            ):
+                return False
+            await session.execute(
+                delete(PinnedSessionRow).where(
+                    PinnedSessionRow.user_id == user_id,
+                    PinnedSessionRow.session_id == session_id,
+                )
+            )
+            await session.commit()
+        return True
+
+    async def _visible_session_exists(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: str,
+        session_id: str,
+    ) -> bool:
+        """用户有该会话且没有被隐藏（ADR-0069 的 404 口径）。"""
+        has_run = await session.scalar(
+            select(Run.id)
+            .where(Run.user_id == user_id, Run.session_id == session_id)
+            .where(
+                ~select(HiddenSessionRow.session_id)
+                .where(
+                    HiddenSessionRow.user_id == user_id,
+                    HiddenSessionRow.session_id == Run.session_id,
+                )
+                .exists()
+            )
+            .limit(1)
+        )
+        return has_run is not None
 
     async def list_hidden_sessions(
         self,

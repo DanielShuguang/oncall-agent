@@ -201,17 +201,27 @@ def _session_title(raw: str | None) -> str | None:
     return text[:59] + "…"
 
 
-def _encode_session_cursor(updated_at: datetime, session_id: str) -> str:
-    """会话列表的 keyset 游标：`(updated_at, session_id)`，base64(JSON) 对前端不透明。
+def _encode_session_cursor(
+    updated_at: datetime,
+    session_id: str,
+    *,
+    pinned: bool | None = None,
+) -> str:
+    """会话列表的 keyset 游标：`(pinned, updated_at, session_id)`，base64(JSON)。
 
+    主列表带 `p`（ADR-0069）；已移除列表不传 `pinned`，保持旧的两字段形状。
     不用 `isoformat|session_id` 拼接，因为 session_id 由客户端生成（1–64 字符），
     可能包含分隔符。
     """
-    raw = json.dumps({"t": updated_at.isoformat(), "s": session_id}, ensure_ascii=False)
+    data: dict[str, object] = {"t": updated_at.isoformat(), "s": session_id}
+    if pinned is not None:
+        data["p"] = pinned
+    raw = json.dumps(data, ensure_ascii=False)
     return base64.urlsafe_b64encode(raw.encode()).decode()
 
 
-def _decode_session_cursor(cursor: str) -> tuple[datetime, str]:
+def _decode_session_cursor_pin(cursor: str) -> tuple[datetime, str, bool]:
+    """解码主列表游标；旧游标没有 `p` 时按 False（升级前只可能是非置顶段）。"""
     try:
         raw = base64.urlsafe_b64decode(cursor.encode()).decode()
         data = json.loads(raw)
@@ -223,9 +233,18 @@ def _decode_session_cursor(cursor: str) -> tuple[datetime, str]:
             raise ValueError("invalid session id")
         if updated_at.tzinfo is None:
             raise ValueError("cursor datetime must be timezone-aware")
-        return updated_at.astimezone(UTC), session_id
+        pinned = data.get("p", False)
+        if not isinstance(pinned, bool):
+            raise ValueError("invalid pinned flag")
+        return updated_at.astimezone(UTC), session_id, pinned
     except (ValueError, TypeError, KeyError, UnicodeDecodeError, binascii.Error) as exc:
         raise ApiError(400, "INVALID_CURSOR", "cursor 无效，请从第一页重新拉取") from exc
+
+
+def _decode_session_cursor(cursor: str) -> tuple[datetime, str]:
+    """解码已移除列表游标（两字段；多余的 `p` 被忽略）。"""
+    updated_at, session_id, _ = _decode_session_cursor_pin(cursor)
+    return updated_at, session_id
 
 
 @router.get("/sessions")
@@ -236,7 +255,7 @@ async def list_sessions(
     cursor: Annotated[str | None, Query(max_length=512)] = None,
     q: Annotated[str | None, Query(min_length=1, max_length=100)] = None,
 ) -> dict[str, Any]:
-    """当前用户最近的会话（ADR-0030），按最近活动 keyset 分页（ADR-0033），可按标题搜（ADR-0039）。
+    """当前用户最近的会话（ADR-0030），置顶优先、组内按最近活动分页（ADR-0069）。
 
     会话是 `runs.session_id` 的投影，没有独立表。`next_cursor` 只在当前页取满时
     返回；新 run 会把会话移到列表前面，翻页途中可能重复或跳过一页，刷新即重置。
@@ -244,8 +263,9 @@ async def list_sessions(
     """
     before_updated_at: datetime | None = None
     before_session_id: str | None = None
+    before_pinned: bool | None = None
     if cursor:
-        before_updated_at, before_session_id = _decode_session_cursor(cursor)
+        before_updated_at, before_session_id, before_pinned = _decode_session_cursor_pin(cursor)
     query = q.strip() if q is not None else None
     try:
         sessions = await store.list_sessions(
@@ -253,12 +273,17 @@ async def list_sessions(
             limit=limit,
             before_updated_at=before_updated_at,
             before_session_id=before_session_id,
+            before_pinned=before_pinned,
             query=query or None,
         )
     except SQLAlchemyError as exc:
         raise ApiError(503, "DATABASE_UNAVAILABLE", "database unavailable") from exc
     next_cursor = (
-        _encode_session_cursor(sessions[-1].updated_at, sessions[-1].session_id)
+        _encode_session_cursor(
+            sessions[-1].updated_at,
+            sessions[-1].session_id,
+            pinned=sessions[-1].pinned,
+        )
         if len(sessions) == limit
         else None
     )
@@ -270,6 +295,7 @@ async def list_sessions(
                 "run_count": item.run_count,
                 "started_at": item.started_at,
                 "updated_at": item.updated_at,
+                "pinned": item.pinned,
             }
             for item in sessions
         ],
@@ -429,6 +455,45 @@ async def hide_session(
     except SQLAlchemyError as exc:
         raise ApiError(503, "DATABASE_UNAVAILABLE", "database unavailable") from exc
     if not hidden:
+        raise _session_not_found()
+    return Response(status_code=204)
+
+
+@router.post("/sessions/{session_id}/pin", status_code=204)
+async def pin_session(
+    session_id: Annotated[str, Path(min_length=1, max_length=64)],
+    store: Annotated[RunStore, Depends(get_store)],
+    identity: Annotated[Identity, Depends(get_identity)],
+) -> Response:
+    """把会话固定在列表顶部（ADR-0069）。重复置顶幂等。
+
+    只写当前用户的 `pinned_sessions` 行，不影响其他用户。没有该会话、属于
+    别人或已被隐藏都返回 404，不泄露存在性；隐藏会话时置顶行同事务删除。
+    """
+    try:
+        pinned = await store.pin_session(user_id=identity.user_id, session_id=session_id)
+    except SQLAlchemyError as exc:
+        raise ApiError(503, "DATABASE_UNAVAILABLE", "database unavailable") from exc
+    if not pinned:
+        raise _session_not_found()
+    return Response(status_code=204)
+
+
+@router.delete("/sessions/{session_id}/pin", status_code=204)
+async def unpin_session(
+    session_id: Annotated[str, Path(min_length=1, max_length=64)],
+    store: Annotated[RunStore, Depends(get_store)],
+    identity: Annotated[Identity, Depends(get_identity)],
+) -> Response:
+    """取消会话置顶（ADR-0069）。重复取消幂等。
+
+    没有该会话、属于别人或已被隐藏都返回 404；不删除任何 run、事件或标题。
+    """
+    try:
+        unpinned = await store.unpin_session(user_id=identity.user_id, session_id=session_id)
+    except SQLAlchemyError as exc:
+        raise ApiError(503, "DATABASE_UNAVAILABLE", "database unavailable") from exc
+    if not unpinned:
         raise _session_not_found()
     return Response(status_code=204)
 

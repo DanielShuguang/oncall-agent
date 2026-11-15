@@ -543,6 +543,60 @@ async def _exercise_sessions(store: RunStore) -> None:
     assert other_runs == []
 
 
+async def _exercise_pinned_sessions(store: RunStore) -> None:
+    """置顶会话（ADR-0069）：置顶优先、组内最近活动、游标跨段、隐藏清置顶。"""
+    user = "u_pinned_sessions"
+    other = "u_pinned_other"
+    await store.create(run_id=str(uuid.uuid4()), user_id=user, session_id="sess_old", message="旧")
+    await asyncio.sleep(0.005)
+    await store.create(run_id=str(uuid.uuid4()), user_id=user, session_id="sess_mid", message="中")
+    await asyncio.sleep(0.005)
+    await store.create(run_id=str(uuid.uuid4()), user_id=user, session_id="sess_new", message="新")
+    await store.create(
+        run_id=str(uuid.uuid4()), user_id=other, session_id="sess_other", message="别人"
+    )
+
+    assert await store.pin_session(user_id=user, session_id="sess_old") is True
+    assert await store.pin_session(user_id=user, session_id="sess_mid") is True
+    assert await store.pin_session(user_id=user, session_id="sess_other") is False
+    assert await store.pin_session(user_id=user, session_id="sess_missing") is False
+
+    sessions = await store.list_sessions(user_id=user, limit=10)
+    assert [item.session_id for item in sessions] == ["sess_mid", "sess_old", "sess_new"]
+    assert [item.pinned for item in sessions] == [True, True, False]
+
+    first = await store.list_sessions(user_id=user, limit=1)
+    assert [item.session_id for item in first] == ["sess_mid"]
+    second = await store.list_sessions(
+        user_id=user,
+        limit=1,
+        before_updated_at=first[-1].updated_at,
+        before_session_id=first[-1].session_id,
+        before_pinned=first[-1].pinned,
+    )
+    assert [item.session_id for item in second] == ["sess_old"]
+    third = await store.list_sessions(
+        user_id=user,
+        limit=1,
+        before_updated_at=second[-1].updated_at,
+        before_session_id=second[-1].session_id,
+        before_pinned=second[-1].pinned,
+    )
+    assert [item.session_id for item in third] == ["sess_new"]
+
+    # 旧的二段游标没有 p：升级前只可能落在非置顶段，按 False 处理
+    assert await store.unpin_session(user_id=user, session_id="sess_old") is True
+    assert await store.unpin_session(user_id=user, session_id="sess_mid") is True
+    plain_first = await store.list_sessions(user_id=user, limit=2)
+    plain_second = await store.list_sessions(
+        user_id=user,
+        limit=2,
+        before_updated_at=plain_first[-1].updated_at,
+        before_session_id=plain_first[-1].session_id,
+    )
+    assert [item.session_id for item in plain_second] == ["sess_old"]
+
+
 async def _exercise_session_titles(store: RunStore) -> None:
     """自定义会话标题（ADR-0040）：显示优先、搜索双匹配、清除恢复默认。"""
     user = "u_session_titles"
@@ -839,6 +893,7 @@ async def test_memory_store_contract() -> None:
     await _exercise_prune_contents(store)
     await _exercise_cited_documents(store)
     await _exercise_sessions(store)
+    await _exercise_pinned_sessions(store)
     await _exercise_session_titles(store)
     await _exercise_hidden_sessions(store)
     await _exercise_events_for_runs(store)
@@ -873,6 +928,7 @@ async def test_postgres_store_contract(pg_store: PostgresRunStore) -> None:
     await _exercise_prune_contents(pg_store)
     await _exercise_cited_documents(pg_store)
     await _exercise_sessions(pg_store)
+    await _exercise_pinned_sessions(pg_store)
     await _exercise_session_titles(pg_store)
     await _exercise_hidden_sessions(pg_store)
     await _exercise_events_for_runs(pg_store)

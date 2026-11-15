@@ -1658,6 +1658,31 @@ Excel 里按 `section` 筛选；分组超过 20 组时只导出前 20 组；不�
 也不支持异步任务/对象存储。详见
 [ADR-0068](decisions/0068-approval-stats-export.md)。
 
+## W6 后补：会话置顶（ADR-0069）
+
+会话列表按最近活动排序，常用会话几天没有新 run 就会沉底。新增 per-user 置顶：
+`pinned_sessions` 旁挂表 + 列表排序/游标扩展 + 行内置顶按钮；隐藏会话时同事务清置顶。
+
+| 事项 | 落地 |
+|---|---|
+| 表 | `pinned_sessions(user_id, session_id, pinned_at)`，复合主键、无外键/额外索引；迁移 `0021` |
+| 排序 | `GET /sessions` 先置顶、组内按 `(updated_at, session_id)` 倒序；搜索 `q` 同样适用 |
+| 游标 | `{t,s,p}`；旧 `{t,s}` 缺 `p` 按 `false`；取满编码最后一条 `pinned` |
+| 接口 | `POST/DELETE /sessions/{session_id}/pin`，204、幂等；别人/不存在/已移除一律 404 |
+| 隐藏联动 | `DELETE /sessions/{session_id}` 同一事务删置顶；恢复后不恢复置顶 |
+| 前端 | 行内 Pin 按钮（`aria-pressed`、在途禁用）；旧后端无 `pinned` 字段时隐藏按钮 |
+| 范围 | 不做拖拽排序、置顶数量上限、批量置顶、置顶审计 |
+
+验证：默认 **503 passed + 40 skipped**；真实 Postgres **540 passed + 3 skipped**；
+Postgres + Redis **543 passed**；`ruff check` / `ruff format --check`（196 files）/
+`mypy app`（114 files）通过；前端 **87 tests / 18 files**、`tsc --noEmit`、
+`oxlint` 0/0（73 files）、`oxfmt --check` 81 files、`pnpm build` 通过。
+迁移 `0021` 往返通过。无前端手工验收。
+
+已知边界：置顶组内按最近活动而不是置顶时间；置顶数量不设上限；已隐藏会话不保留置顶；
+滚动升级期间新前端在旧后端上隐藏按钮、旧前端忽略 `pinned` 字段。详见
+[ADR-0069](decisions/0069-session-pin.md)。
+
 ---
 
 ## 每周固定动作

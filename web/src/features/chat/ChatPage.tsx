@@ -11,9 +11,11 @@ import {
   hideSession,
   listHiddenSessions,
   listSessions,
+  pinSession,
   renameSession,
   restoreSession,
   restoreSessions,
+  unpinSession,
   type HiddenSession,
   type SessionSummary,
 } from '@/api/sessions';
@@ -65,6 +67,8 @@ export default function ChatPage() {
   const renameRequest = useRef(0);
   // 正在从会话列表移除的会话（ADR-0041）；移除只影响列表，不删 run
   const [hidingId, setHidingId] = useState<string | null>(null);
+  // 正在置顶/取消置顶的会话（ADR-0069）；置顶后刷新列表回到第一页
+  const [pinningId, setPinningId] = useState<string | null>(null);
   // 已移除的会话折叠区（ADR-0043）；打开时才拉取，恢复只删 hidden_sessions 行
   const [hiddenOpen, setHiddenOpen] = useState(false);
   const [hiddenSessions, setHiddenSessions] = useState<HiddenSession[]>([]);
@@ -309,6 +313,22 @@ export default function ChatPage() {
     }
   };
 
+  const onTogglePin = async (session: SessionSummary) => {
+    if (pinningId || session.pinned === undefined) return;
+    setPinningId(session.session_id);
+    setSessionsError(null);
+    try {
+      if (session.pinned) await unpinSession(session.session_id);
+      else await pinSession(session.session_id);
+      // 排序变化：回到第一页重新拉，避免当前页仍按旧顺序排列。
+      refreshSessions();
+    } catch (err) {
+      setSessionsError(err instanceof Error ? err.message : '置顶操作失败');
+    } finally {
+      setPinningId(null);
+    }
+  };
+
   const loadHiddenFirstPage = async (query: string) => {
     const requestId = ++hiddenRequest.current;
     setHiddenLoading(true);
@@ -462,6 +482,8 @@ export default function ChatPage() {
         onRenameDraftChange={setRenameDraft}
         onRenameSubmit={() => void onRenameSubmit()}
         onRenameCancel={onRenameCancel}
+        pinningId={pinningId}
+        onTogglePin={(item) => void onTogglePin(item)}
         hidingId={hidingId}
         onHide={(id) => void onHideSession(id)}
         hiddenOpen={hiddenOpen}

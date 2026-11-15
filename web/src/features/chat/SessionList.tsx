@@ -1,7 +1,7 @@
 /** 会话侧栏（ADR-0030）：只展示服务端投影，不在浏览器本地缓存会话。 */
 
 import { useState } from 'react';
-import { Pencil, Trash2 } from 'lucide-react';
+import { Pencil, Pin, Trash2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import type { HiddenSession, SessionSummary } from '@/api/sessions';
@@ -33,6 +33,9 @@ interface SessionListProps {
   onRenameDraftChange: (value: string) => void;
   onRenameSubmit: () => void;
   onRenameCancel: () => void;
+  /** 正在置顶/取消置顶的会话（ADR-0069） */
+  pinningId: string | null;
+  onTogglePin: (session: SessionSummary) => void;
   /** 正在从列表移除的会话（ADR-0041） */
   hidingId: string | null;
   onHide: (sessionId: string) => void;
@@ -96,6 +99,8 @@ export function SessionList({
   onRenameDraftChange,
   onRenameSubmit,
   onRenameCancel,
+  pinningId,
+  onTogglePin,
   hidingId,
   onHide,
   hiddenOpen,
@@ -258,6 +263,22 @@ export function SessionList({
                     {session.run_count} 轮 · {formatUpdated(session.updated_at)}
                   </span>
                 </button>
+                {session.pinned !== undefined && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className={cn(
+                      'h-7 shrink-0 px-1.5 text-muted-foreground',
+                      session.pinned && 'text-brand',
+                    )}
+                    aria-label={`${session.pinned ? '取消置顶' : '置顶'}会话 ${session.title ?? '无标题'}`}
+                    aria-pressed={session.pinned}
+                    disabled={busy || pinningId !== null}
+                    onClick={() => onTogglePin(session)}
+                  >
+                    <Pin className={cn('h-3.5 w-3.5', session.pinned && 'fill-current')} />
+                  </Button>
+                )}
                 <Button
                   size="sm"
                   variant="ghost"

@@ -31,9 +31,11 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | GET | `/health` | 健康检查（含 db/redis 探活） | W1 D1 |
 | POST | `/chat/stream` | 发起一次对话，返回 SSE 流 | W1 D3 |
 | GET | `/runs` | 运行列表（分页、按状态/会话筛选） | W4 D19 / W6 后补 |
-| GET | `/sessions` | 当前用户的会话列表（keyset 游标，按活动倒序；可选 `q` 按标题搜索） | W6 后补 |
+| GET | `/sessions` | 当前用户的会话列表（keyset 游标，置顶优先、组内按活动倒序；可选 `q` 按标题搜索） | W6 后补 |
 | PATCH | `/sessions/{session_id}` | 改会话显示标题；`title: null` 恢复默认 | W6 后补 |
-| DELETE | `/sessions/{session_id}` | 从会话列表移除（软移除；不删 run/事件/审批，204） | W6 后补 |
+| POST | `/sessions/{session_id}/pin` | 置顶会话（幂等，204） | W6 后补 |
+| DELETE | `/sessions/{session_id}/pin` | 取消置顶（幂等，204） | W6 后补 |
+| DELETE | `/sessions/{session_id}` | 从会话列表移除（软移除；不删 run/事件/审批，204；同事务清置顶） | W6 后补 |
 | GET | `/sessions/hidden` | 本人从列表移除的会话（游标分页 + 标题搜索，ADR-0043/0047） | W6 后补 |
 | DELETE | `/sessions/{session_id}/hidden` | 恢复已移除的会话（只删 `hidden_sessions` 行，204） | W6 后补 |
 | POST | `/sessions/hidden/restore` | 批量恢复已移除会话（最多 50，部分成功，返回逐条结果） | W6 后补 |
@@ -365,6 +367,7 @@ Authorization: Bearer <token>
       "session_id": "sess_01H...",
       "title": "我电脑连不上打印机了",
       "run_count": 3,
+      "pinned": false,
       "started_at": "2026-11-09T02:11:03.120Z",
       "updated_at": "2026-11-09T02:26:41.008Z"
     }
@@ -388,15 +391,17 @@ GET /api/sessions?limit=20&q=打印机
 - 会话不是独立实体：按 `runs.session_id` 聚合投影，没有 `sessions` 生命周期表；
   用户改过的显示标题存在旁挂的 `session_titles`（ADR-0040，迁移 `0016`），
   没有 run 的会话不存在，不需要清理任务
-- 只返回当前用户的会话；按 `updated_at`（最近一次 run 的 `started_at`）倒序，
-  同一时刻按 `session_id` 倒序，避免顺序抖动
+- 只返回当前用户的会话；先按是否置顶分组，置顶组在前，组内按 `updated_at`（最近一次
+  run 的 `started_at`）倒序，同一时刻按 `session_id` 倒序，避免顺序抖动（ADR-0069）。
+  `pinned_at` 不参与排序。
 - `title` 优先取自定义标题（ADR-0040），否则取**最早一条非空 `input`**，压成单行并截到
   60 字符；正文按 ADR-0023 过期清空且没改过名时为 `null`，前端显示「无标题」，
   **会话本身仍会返回**（不能因为标题没了就藏掉历史）
 - `limit` 默认 20、上限 50；`next_cursor` 是 keyset 游标，当前页取满就会返回；
   下一页没有数据时返回空列表且 `next_cursor` 为 `null`（恰好取满时会多一次空请求）。
-  游标对前端不透明（base64url JSON，带 `updated_at` 与 `session_id`，最多 512 字符），
-  非法游标返回 `400 {"code":"INVALID_CURSOR"}`，不要静默从头开始
+  游标对前端不透明（base64url JSON，带 `updated_at`、`session_id` 与置顶段 `p`，
+  最多 512 字符）；旧游标缺 `p` 按 `false` 处理，升级前一定处在非置顶段。
+  非法游标返回 `400 {"code":"INVALID_CURSOR"}`，不要静默从头开始。
 - 游标不签名：伪造游标只能改变自己的起点，不会越权读到别人的会话（ADR-0033）
 - `q` 同时匹配自定义标题与投影标题（最早一条非空 `input`），不搜回答正文、工具结果与
   审批理由；正文被清空且没改过名的会话（`title` 为 `null`）也搜不到。搜索作用于首条问题
@@ -410,6 +415,29 @@ GET /api/sessions?limit=20&q=打印机
 - 取历史：优先用下面的批量接口 `GET /sessions/{session_id}/runs`（一次拿一页正文/引用/
   运行过程）；单条详情路径仍保留。更早的轮次把响应里的 `next_cursor` 带回同一接口。
   继续对话直接用这个 `session_id` 调 `/chat/stream`，服务端按 ADR-0020 续上下文
+
+### 3.3.1 置顶会话（ADR-0069）
+
+```http
+POST /api/sessions/sess_01H.../pin
+Authorization: Bearer <token>
+```
+
+```http
+DELETE /api/sessions/sess_01H.../pin
+Authorization: Bearer <token>
+```
+
+- 成功返回 `204 No Content`；重复置顶/重复取消仍 204（幂等）
+- 别人的会话、不存在的会话、已从列表移除的会话都返回
+  `404 {"detail":"session not found"}`（不泄露存在性）
+- 只影响当前用户的 `GET /sessions` 顺序：置顶组在前，组内仍按最近活动倒序；
+  不改变 `updated_at`、`run_count` 与会话内容，也不影响其他用户
+- 置顶数量不设上限；置顶组内不按 `pinned_at` 排序（最近置顶的旧会话不一定排第一）
+- 移除会话（`DELETE /sessions/{session_id}`）会在同一事务里清掉置顶行；恢复后不恢复
+  置顶，需要用户重新点击
+- 库不可用时返回 `503 {"code":"DATABASE_UNAVAILABLE"}`；旧后端没有置顶接口时，
+  新前端按 `pinned` 字段缺失隐藏按钮
 
 ### 3.4 一页会话详情（ADR-0036）
 

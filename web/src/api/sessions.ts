@@ -1,7 +1,7 @@
 /** 会话列表接口（ADR-0030/0033）。会话是 runs.session_id 的投影，没有独立表。 */
 
 import type { HistoryRun } from './runs';
-import { del, getJson, patch, postJson } from './client';
+import { del, getJson, patch, post, postJson } from './client';
 
 export interface SessionSummary {
   session_id: string;
@@ -10,6 +10,8 @@ export interface SessionSummary {
   run_count: number;
   started_at: string;
   updated_at: string;
+  /** 当前用户是否置顶（ADR-0069）；旧后端没有该字段时不显示置顶按钮 */
+  pinned?: boolean;
 }
 
 export interface SessionPage {
@@ -57,6 +59,16 @@ export async function renameSession(sessionId: string, title: string | null): Pr
 /** 从会话列表移除（ADR-0041，软移除）；run/事件仍按保留期保存。 */
 export async function hideSession(sessionId: string): Promise<void> {
   await del(`/sessions/${encodeURIComponent(sessionId)}`);
+}
+
+/** 置顶会话（ADR-0069，幂等）；只影响当前用户的列表顺序。 */
+export async function pinSession(sessionId: string): Promise<void> {
+  await post(`/sessions/${encodeURIComponent(sessionId)}/pin`);
+}
+
+/** 取消置顶（ADR-0069，幂等）；不删除会话或 run。 */
+export async function unpinSession(sessionId: string): Promise<void> {
+  await del(`/sessions/${encodeURIComponent(sessionId)}/pin`);
 }
 
 export interface HiddenSession {

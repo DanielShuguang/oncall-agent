@@ -7,6 +7,7 @@ from app.models.kb import KbChunk, KbDocument
 from app.models.model_call import ModelCall
 from app.models.run import Run, RunEvent
 from app.models.session_hidden import HiddenSession
+from app.models.session_pin import PinnedSession
 from app.models.session_restore_audit import SessionRestoreAudit
 from app.models.session_title import SessionTitle
 from app.models.tool_setting import ToolSetting, ToolSettingChange
@@ -21,6 +22,7 @@ __all__ = [
     "KbChunk",
     "KbDocument",
     "ModelCall",
+    "PinnedSession",
     "Run",
     "RunEvent",
     "SessionRestoreAudit",

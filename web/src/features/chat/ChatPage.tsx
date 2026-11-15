@@ -25,6 +25,7 @@ import { CitationPreviewDialog } from './CitationPreviewDialog';
 import { SessionList } from './SessionList';
 import { Timeline } from './Timeline';
 import { REDACTED_NOTE, transcriptMessages } from './history';
+import { clearLastSession, readLastSession, writeLastSession } from './lastSession';
 import { formatRestoreNotice } from './restoreNotice';
 import { useChat } from './store';
 import type { Citation } from './types';
@@ -116,6 +117,12 @@ export default function ChatPage() {
   const historyRequest = useRef(0);
   // 刷新会替换整个会话列表：加载更多/初始加载的旧页回来时不能 append 到新列表上。
   const sessionsRequest = useRef(0);
+  // 首屏只尝试恢复一次上次会话；避免列表刷新后反复覆盖用户当前选择。
+  const lastSessionRestored = useRef(false);
+  const sessionIdRef = useRef(sessionId);
+  const sendingRef = useRef(sending);
+  // 用户已主动打开/新建会话时，首屏迟到的列表响应不能再自动恢复上次会话。
+  const sessionSelectionStarted = useRef(false);
 
   useEffect(() => {
     hiddenQueryRef.current = hiddenQuery;
@@ -131,6 +138,18 @@ export default function ChatPage() {
   }, [closeSessionDrawer, sessionDrawerOpen]);
 
   useEffect(() => {
+    if (sessionId) writeLastSession(sessionId);
+  }, [sessionId]);
+
+  useEffect(() => {
+    sessionIdRef.current = sessionId;
+  }, [sessionId]);
+
+  useEffect(() => {
+    sendingRef.current = sending;
+  }, [sending]);
+
+  useEffect(() => {
     let cancelled = false;
     const requestId = ++sessionsRequest.current;
     listSessions(20)
@@ -140,6 +159,42 @@ export default function ChatPage() {
           setSessionsCursor(page.next_cursor);
           setPinnedCount(page.pinned_count ?? null);
           setPinLimit(page.pin_limit ?? null);
+          // 首屏只在用户尚未进入任何会话时恢复一次上次会话；只接受仍在当前用户首屏列表里的 id。
+          if (!lastSessionRestored.current) {
+            lastSessionRestored.current = true;
+            const last = readLastSession();
+            if (
+              last &&
+              !sessionIdRef.current &&
+              !sendingRef.current &&
+              !sessionSelectionStarted.current &&
+              page.items.some((item) => item.session_id === last)
+            ) {
+              const historyId = ++historyRequest.current;
+              setHistoryLoading(true);
+              void getSessionRuns(last, 20)
+                .then((history) => {
+                  if (historyId !== historyRequest.current) return undefined;
+                  setActiveCitation(null);
+                  setText('');
+                  renameRequest.current += 1;
+                  setRenameSaving(false);
+                  setRenamingId(null);
+                  setRenameDraft('');
+                  setHistoryCursor(history.next_cursor);
+                  switchSession(last, transcriptMessages(history.items));
+                  return undefined;
+                })
+                .catch((err: unknown) => {
+                  if (historyId === historyRequest.current) {
+                    setSessionsError(err instanceof Error ? err.message : '上次会话加载失败');
+                  }
+                })
+                .finally(() => {
+                  if (historyId === historyRequest.current) setHistoryLoading(false);
+                });
+            }
+          }
         }
         return page.items;
       })
@@ -156,7 +211,7 @@ export default function ChatPage() {
       historyRequest.current += 1;
       sessionsRequest.current += 1;
     };
-  }, []);
+  }, [switchSession]);
 
   const refreshSessions = (query: string = sessionQuery) => {
     const requestId = ++sessionsRequest.current;
@@ -271,6 +326,7 @@ export default function ChatPage() {
 
   const onSelectSession = async (nextSessionId: string) => {
     if (sending || historyLoading || nextSessionId === sessionId) return;
+    sessionSelectionStarted.current = true;
     const requestId = ++historyRequest.current;
     setHistoryLoading(true);
     setHistoryOlderLoading(false);
@@ -315,6 +371,7 @@ export default function ChatPage() {
   };
 
   const onNewSession = () => {
+    clearLastSession();
     historyRequest.current += 1;
     renameRequest.current += 1;
     setHistoryLoading(false);

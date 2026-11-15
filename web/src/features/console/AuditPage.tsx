@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/table';
 import {
   exportSessionRestoreAuditsCsv,
+  exportSessionRestoreAuditStatsCsv,
   getSessionRestoreAuditStats,
   listSessionRestoreAudits,
   type SessionRestoreAudit,
@@ -47,12 +48,18 @@ export default function AuditPage() {
   const [exportMessage, setExportMessage] = useState<{ text: string; failed: boolean } | null>(
     null,
   );
+  const [statsExporting, setStatsExporting] = useState(false);
+  const [statsExportMessage, setStatsExportMessage] = useState<{
+    text: string;
+    failed: boolean;
+  } | null>(null);
   const hasDateRange = Boolean(filters.restoredFrom && filters.restoredTo);
   const hasActiveFilters = Boolean(filters.userId || filters.sessionId || hasDateRange);
   // 切过滤/重试后在途请求不能覆盖新列表；导出/统计同理。
   const listRequest = useRef(0);
   const exportRequest = useRef(0);
   const statsRequest = useRef(0);
+  const statsExportRequest = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -156,6 +163,33 @@ export default function AuditPage() {
     }
   };
 
+  const exportStats = async () => {
+    if (statsExporting || !stats) return;
+    const requestId = ++statsExportRequest.current;
+    setStatsExporting(true);
+    setStatsExportMessage(null);
+    try {
+      const result = await exportSessionRestoreAuditStatsCsv(
+        hasDateRange ? null : statsDays,
+        filters,
+      );
+      if (statsExportRequest.current !== requestId) return;
+      downloadBlob(result.blob, `session-restore-stats-${result.days}d.csv`);
+      setStatsExportMessage({
+        failed: false,
+        text: `已导出近 ${result.days} 天统计：恢复 ${result.restores} 次 / ${result.users} 个用户 / ${result.sessions} 个会话。`,
+      });
+    } catch (exc) {
+      if (statsExportRequest.current !== requestId) return;
+      setStatsExportMessage({
+        failed: true,
+        text: exc instanceof Error ? exc.message : '统计导出失败',
+      });
+    } finally {
+      if (statsExportRequest.current === requestId) setStatsExporting(false);
+    }
+  };
+
   const resetForFilters = () => {
     // 立即失效旧列表/旧导出/旧统计，避免 setFilters 生效前的一帧里旧数据
     // 显示在新过滤条件下。
@@ -173,6 +207,9 @@ export default function AuditPage() {
     setStats(null);
     setStatsLoading(true);
     setStatsError(null);
+    statsExportRequest.current += 1;
+    setStatsExporting(false);
+    setStatsExportMessage(null);
   };
 
   const changeStatsDays = (days: number) => {
@@ -182,6 +219,9 @@ export default function AuditPage() {
     setStats(null);
     setStatsLoading(true);
     setStatsError(null);
+    statsExportRequest.current += 1;
+    setStatsExporting(false);
+    setStatsExportMessage(null);
     setStatsDays(days);
   };
 
@@ -266,6 +306,17 @@ export default function AuditPage() {
                   </Button>
                 ))
               )}
+              {stats && !statsLoading && !statsError && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  disabled={statsExporting}
+                  onClick={() => void exportStats()}
+                >
+                  {statsExporting ? '导出中…' : '导出统计'}
+                </Button>
+              )}
             </div>
           </div>
           {statsLoading ? (
@@ -291,6 +342,11 @@ export default function AuditPage() {
           {stats && !statsLoading && !statsError ? (
             <p className="text-[11px] text-muted-foreground">
               UTC 日期；{stats.daily.length} 个日期有恢复记录。统计跟随下方已应用的过滤。
+            </p>
+          ) : null}
+          {statsExportMessage ? (
+            <p className={statsExportMessage.failed ? 'text-xs text-danger' : 'text-xs text-ok'}>
+              {statsExportMessage.text}
             </p>
           ) : null}
         </CardContent>

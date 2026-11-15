@@ -26,7 +26,12 @@ from app.api.deps import require_admin
 from app.api.errors import ApiError
 from app.core.csv import csv_document
 from app.core.logging import get_logger
-from app.core.store import RunStore, SessionRestoreAuditRecord, get_store
+from app.core.store import (
+    RunStore,
+    SessionRestoreAuditRecord,
+    SessionRestoreAuditStats,
+    get_store,
+)
 from app.schemas.session import (
     SessionRestoreAuditDayOut,
     SessionRestoreAuditListResponse,
@@ -48,6 +53,8 @@ CSV_HEADERS = (
     "restored_count",
     "session_ids",
 )
+#: 统计导出是长表：summary 行放总汇总，daily 行按 UTC 自然日拆恢复次数/会话数。
+STATS_CSV_HEADERS = ("section", "key", "day", "value")
 #: 审计默认保留 365 天，日期范围最多覆盖同样长的窗口（ADR-0067）。
 MAX_AUDIT_RANGE_DAYS = 365
 
@@ -101,6 +108,37 @@ def _audits_csv(records: list[SessionRestoreAuditRecord]) -> str:
             for record in records
         ),
     )
+
+
+def _stats_window(
+    days: int | None, restored_from: date | None, restored_to: date | None
+) -> tuple[datetime, datetime, int]:
+    """统计窗口：`days` 与日期范围二选一，返回 since/until/对外天数（ADR-0067）。"""
+    window = _audit_date_window(restored_from, restored_to)
+    if window is None:
+        selected_days = days or 30
+        until = datetime.now(UTC)
+        return until - timedelta(days=selected_days), until, selected_days
+    if days is not None:
+        raise ApiError(422, "INVALID_RANGE", "days 与 restored_from/restored_to 不能同时使用")
+    since, until, _ = window
+    return since, until, (until.date() - since.date()).days + 1
+
+
+def _stats_csv(stats: SessionRestoreAuditStats, *, days: int) -> str:
+    """统计导出的长表：summary 是总汇总，daily 每个指标一行。"""
+    rows: list[tuple[object, ...]] = [
+        ("meta", "days", "", days),
+        ("meta", "since", "", stats.since),
+        ("meta", "until", "", stats.until),
+        ("summary", "restores", "", stats.restores),
+        ("summary", "users", "", stats.users),
+        ("summary", "sessions", "", stats.sessions),
+    ]
+    for day in stats.daily:
+        rows.append(("daily", "restores", day.day, day.restores))
+        rows.append(("daily", "sessions", day.day, day.sessions))
+    return csv_document(STATS_CSV_HEADERS, rows)
 
 
 def _cursor_error() -> ApiError:
@@ -164,17 +202,7 @@ async def session_restore_stats(
     session_id: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
 ) -> SessionRestoreAuditStatsOut:
     """窗口内恢复活动汇总（ADR-0065/0066/0067）；日期范围与 `days` 二选一。"""
-    window = _audit_date_window(restored_from, restored_to)
-    if window is None:
-        selected_days = days or 30
-        until = datetime.now(UTC)
-        since = until - timedelta(days=selected_days)
-        days_out = selected_days
-    else:
-        if days is not None:
-            raise ApiError(422, "INVALID_RANGE", "days 与 restored_from/restored_to 不能同时使用")
-        since, until, _ = window
-        days_out = (until.date() - since.date()).days + 1
+    since, until, days_out = _stats_window(days, restored_from, restored_to)
     try:
         stats = await store.session_restore_audit_stats(
             since=since,
@@ -196,6 +224,43 @@ async def session_restore_stats(
             SessionRestoreAuditDayOut(day=day.day, restores=day.restores, sessions=day.sessions)
             for day in stats.daily
         ],
+    )
+
+
+@router.get("/stats/export")
+async def export_session_restore_stats(
+    store: Annotated[RunStore, Depends(get_store)],
+    _admin: Annotated[Identity, Depends(require_admin)],
+    days: Annotated[int | None, Query(ge=1, le=365)] = None,
+    restored_from: Annotated[date | None, Query()] = None,
+    restored_to: Annotated[date | None, Query()] = None,
+    user_id: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
+    session_id: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
+) -> Response:
+    """导出当前过滤下的统计长表（ADR-0070）；同步生成，不做异步任务。"""
+    since, until, days_out = _stats_window(days, restored_from, restored_to)
+    try:
+        stats = await store.session_restore_audit_stats(
+            since=since,
+            until=until,
+            user_id=user_id,
+            session_id=session_id,
+        )
+    except SQLAlchemyError as exc:
+        log.error("session_restore_audit_stats_export_failed", error=str(exc))
+        raise ApiError(503, "DATABASE_UNAVAILABLE", "会话恢复审计暂不可用") from exc
+    filename = f"session-restore-stats-{days_out}d-{datetime.now(UTC):%Y%m%d-%H%M%S}.csv"
+    return Response(
+        content=_stats_csv(stats, days=days_out),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+            "X-Export-Days": str(days_out),
+            "X-Export-Restores": str(stats.restores),
+            "X-Export-Users": str(stats.users),
+            "X-Export-Sessions": str(stats.sessions),
+        },
     )
 
 

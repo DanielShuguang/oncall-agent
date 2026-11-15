@@ -45,6 +45,10 @@ async def test_session_restore_audits_require_admin(client: AsyncClient) -> None
     assert stats.status_code == 403
     assert stats.json()["code"] == "FORBIDDEN"
 
+    stats_export = await client.get("/api/admin/session-restores/stats/export")
+    assert stats_export.status_code == 403
+    assert stats_export.json()["code"] == "FORBIDDEN"
+
 
 async def test_list_session_restore_audits(
     client: AsyncClient, mem_store: InMemoryRunStore
@@ -663,6 +667,51 @@ async def test_session_restore_audit_stats(
     )
 
 
+async def test_export_session_restore_audit_stats_csv(
+    client: AsyncClient, mem_store: InMemoryRunStore
+) -> None:
+    await _restore_once(mem_store, user_id="u_102", session_id="sess_a")
+    await asyncio.sleep(0.002)
+    await _restore_once(mem_store, user_id="u_103", session_id="sess_b")
+
+    res = await client.get(
+        "/api/admin/session-restores/stats/export",
+        headers=ADMIN,
+        params={"days": 7},
+    )
+    assert res.status_code == 200
+    assert res.headers["content-type"].startswith("text/csv")
+    assert 'attachment; filename="session-restore-stats-7d-' in res.headers["content-disposition"]
+    assert res.headers["cache-control"] == "no-store"
+    assert res.headers["x-export-days"] == "7"
+    assert res.headers["x-export-restores"] == "2"
+    assert res.headers["x-export-users"] == "2"
+    assert res.headers["x-export-sessions"] == "2"
+    assert res.text.startswith("\ufeff")
+    assert "\r\n" in res.text
+    rows = list(csv.reader(io.StringIO(res.text.lstrip("\ufeff"))))
+    assert rows[0] == ["section", "key", "day", "value"]
+    meta = {row[1]: row[3] for row in rows if row[0] == "meta"}
+    assert meta["days"] == "7" and meta["since"] and meta["until"]
+    summary = {row[1]: row[3] for row in rows if row[0] == "summary"}
+    assert summary == {"restores": "2", "users": "2", "sessions": "2"}
+    daily = [row for row in rows if row[0] == "daily"]
+    assert {row[1] for row in daily} == {"restores", "sessions"}
+    assert sum(int(row[3]) for row in daily if row[1] == "restores") == 2
+    assert sum(int(row[3]) for row in daily if row[1] == "sessions") == 2
+
+    filtered = await client.get(
+        "/api/admin/session-restores/stats/export",
+        headers=ADMIN,
+        params={"days": 7, "user_id": "u_102"},
+    )
+    assert filtered.status_code == 200
+    assert filtered.headers["x-export-restores"] == "1"
+    filtered_rows = list(csv.reader(io.StringIO(filtered.text.lstrip("\ufeff"))))
+    filtered_summary = {row[1]: row[3] for row in filtered_rows if row[0] == "summary"}
+    assert filtered_summary == {"restores": "1", "users": "1", "sessions": "1"}
+
+
 async def test_session_restore_audit_stats_return_503_on_store_failure(
     client: AsyncClient, mem_store: InMemoryRunStore, monkeypatch
 ) -> None:
@@ -674,6 +723,10 @@ async def test_session_restore_audit_stats_return_503_on_store_failure(
     res = await client.get("/api/admin/session-restores/stats", headers=ADMIN)
     assert res.status_code == 503
     assert res.json()["code"] == "DATABASE_UNAVAILABLE"
+
+    export = await client.get("/api/admin/session-restores/stats/export", headers=ADMIN)
+    assert export.status_code == 503
+    assert export.json()["code"] == "DATABASE_UNAVAILABLE"
 
 
 async def test_session_restore_audits_return_503_on_store_failure(

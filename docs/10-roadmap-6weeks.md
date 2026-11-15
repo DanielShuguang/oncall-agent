@@ -1685,6 +1685,33 @@ Postgres + Redis **543 passed**；`ruff check` / `ruff format --check`（196 fil
 
 ---
 
+## W6 后补：会话恢复审计统计 CSV 导出（ADR-0070）
+
+审计统计卡（ADR-0065/0066/0067）只能看不能带走。新增
+`GET /admin/session-restores/stats/export`：与统计同参数/同窗口，同步生成
+`section,key,day,value` 长表 CSV，覆盖 `meta`/`summary`/`daily`，复用
+`csv_document` 的 BOM/CRLF/公式防护。
+
+| 事项 | 落地 |
+|---|---|
+| 接口 | `GET /admin/session-restores/stats/export`；`days` 与日期范围二选一，可带 `user_id`/`session_id` |
+| 窗口 | 抽出 `_stats_window` 与 `/stats` 共用，避免两处边界漂移 |
+| CSV | 长表 `section,key,day,value`；`meta`（days/since/until）、`summary`（restores/users/sessions）、`daily`（每日期 restores/sessions 各一行） |
+| 响应头 | `X-Export-Days/Restores/Users/Sessions`；文件名 `session-restore-stats-{days}d-{UTC}.csv`；`Cache-Control: no-store` |
+| 前端 | 统计卡「导出统计」按钮跟随当前窗口/过滤；切换窗口/过滤立即失效在途导出 |
+| 范围 | 不做下载审计、异步导出、XLSX、统计与导出同一快照 |
+
+验证：默认 **504 passed + 40 skipped**；真实 Postgres **541 passed + 3 skipped**；
+Postgres + Redis **544 passed**；`ruff check` / `ruff format --check`
+（196 files）/ `mypy app`（114 files）通过；前端 **89 tests / 18 files**、
+tsc、`oxlint` 0/0（73 files）、`oxfmt --check` 81 files、`pnpm build` 通过。
+
+已知边界：统计与导出是两次独立查询，可能相差一条新恢复；CSV 为长表，透视前需按
+`section` 过滤；旧后端没有该端点时前端显示错误，不影响统计加载。详见
+[ADR-0070](decisions/0070-session-restore-audit-stats-export.md)。
+
+---
+
 ## 每周固定动作
 
 | 时点 | 动作 |

@@ -52,6 +52,14 @@ export interface SessionRestoreAuditStats {
   daily: SessionRestoreAuditDayStats[];
 }
 
+export interface SessionRestoreAuditStatsExport {
+  blob: Blob;
+  days: number;
+  restores: number;
+  users: number;
+  sessions: number;
+}
+
 function applyFilters(params: URLSearchParams, filters: SessionRestoreAuditFilters): void {
   if (filters.userId) params.set('user_id', filters.userId);
   if (filters.sessionId) params.set('session_id', filters.sessionId);
@@ -96,4 +104,24 @@ export function getSessionRestoreAuditStats(
   if (!hasRange) params.set('days', String(days ?? 30));
   applyFilters(params, filters);
   return getJson<SessionRestoreAuditStats>(`/admin/session-restores/stats?${params.toString()}`);
+}
+
+export async function exportSessionRestoreAuditStatsCsv(
+  days: number | null,
+  filters: SessionRestoreAuditFilters = {},
+): Promise<SessionRestoreAuditStatsExport> {
+  const params = new URLSearchParams();
+  const hasRange = Boolean(filters.restoredFrom && filters.restoredTo);
+  if (!hasRange) params.set('days', String(days ?? 30));
+  applyFilters(params, filters);
+  const { blob, headers } = await getFile(
+    `/admin/session-restores/stats/export?${params.toString()}`,
+  );
+  return {
+    blob,
+    days: Number(headers.get('X-Export-Days') ?? 0) || 0,
+    restores: Number(headers.get('X-Export-Restores') ?? 0) || 0,
+    users: Number(headers.get('X-Export-Users') ?? 0) || 0,
+    sessions: Number(headers.get('X-Export-Sessions') ?? 0) || 0,
+  };
 }

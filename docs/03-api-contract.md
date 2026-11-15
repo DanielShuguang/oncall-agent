@@ -41,6 +41,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | POST | `/sessions/hidden/restore` | 批量恢复已移除会话（最多 50，部分成功，返回逐条结果） | W6 后补 |
 | GET | `/admin/session-restores` | 会话恢复审计（按用户/会话/日期范围过滤，最近在前，游标分页；第一页附总数） | W6 后补 |
 | GET | `/admin/session-restores/stats` | 会话恢复审计统计（窗口内恢复次数/用户数/会话数/UTC 日趋势，可按用户/会话/日期范围过滤） | W6 后补 |
+| GET | `/admin/session-restores/stats/export` | 会话恢复审计统计 CSV 导出（与统计同参数/同窗口，长表） | W6 后补 |
 | GET | `/admin/session-restores/export` | 会话恢复审计 CSV 导出（按用户/会话/日期范围过滤，最多 5000 条） | W6 后补 |
 | GET | `/sessions/{session_id}/runs` | 一页会话详情（正文/引用/运行过程，一次返回） | W6 后补 |
 | GET | `/runs/{run_id}` | 单次运行详情（含指标与模型调用明细） | W1 D4 / W4 D19 |
@@ -826,7 +827,7 @@ POST /api/approvals/{approval_id}/resolve
 > 引用全文只要求登录，且受文档级可见性约束（[ADR-0018](decisions/0018-citation-fulltext-preview.md)、
 > [ADR-0019](decisions/0019-document-level-access.md)）。
 
-### 会话恢复审计（ADR-0059/0060/0061/0062/0064/0065/0066/0067）
+### 会话恢复审计（ADR-0059/0060/0061/0062/0064/0065/0066/0067/0070）
 
 ```http
 GET /api/admin/session-restores?user_id=u_102&session_id=sess_a&restored_from=2026-11-01&restored_to=2026-11-14&limit=20
@@ -920,7 +921,26 @@ Authorization: Bearer <admin token>
   独立查询，不是同一快照。库不可用返回 503 `DATABASE_UNAVAILABLE`，不返回
   全 0 冒充「没有恢复」
 - 旧后端没有该接口时前端显示统计错误卡，不影响列表/导出；不做统计缓存、
-  页码或统计 CSV
+  页码或下钻
+
+统计导出（ADR-0070）：
+
+```http
+GET /api/admin/session-restores/stats/export?days=7&user_id=u_102
+Authorization: Bearer <admin token>
+```
+
+- 与统计接口相同参数：`days`（1–365，可选）、`restored_from`/`restored_to`、
+  `user_id`/`session_id`；`days` 与日期范围二选一，窗口解析与 `/stats` 共用
+- 不接收 `cursor`/`limit`；同步导出，日趋势最多 365 天，不做截断
+- CSV 为长表 `section,key,day,value`：`meta` 行（`days`/`since`/`until`）、
+  `summary` 行（`restores`/`users`/`sessions`）、`daily` 行（每个日期分别有
+  `restores` 与 `sessions` 两行，`day` 为 UTC `YYYY-MM-DD`）
+- 响应头 `X-Export-Days`/`X-Export-Restores`/`X-Export-Users`/
+  `X-Export-Sessions`；文件名 `session-restore-stats-{days}d-{UTC}.csv`；
+  `Cache-Control: no-store`；BOM/CRLF/公式注入防护与其它导出一致
+- 管理接口；数据库不可用返回 503；不做异步导出/下载审计。旧后端没有该端点时
+  前端在统计卡显示错误，不影响统计本身
 
 导出（ADR-0062/0067）：
 

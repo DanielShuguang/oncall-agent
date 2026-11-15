@@ -23,6 +23,7 @@ import {
 } from '@/api/sessionAudits';
 import { formatTime } from '@/lib/format';
 import { downloadBlob } from '@/lib/download';
+import { AUDIT_DATE_PRESETS, auditDatePresetRange, type AuditDatePreset } from './auditDatePresets';
 
 const PAGE_SIZE = 20;
 const STATS_DAYS = [7, 30, 90] as const;
@@ -232,11 +233,11 @@ export default function AuditPage() {
     setStatsDays(days);
   };
 
-  const applyFilters = () => {
+  const applyFilters = (dates?: { from: string; to: string }) => {
     const userId = filterUserId.trim();
     const sessionId = filterSessionId.trim();
-    const restoredFrom = filterFrom.trim();
-    const restoredTo = filterTo.trim();
+    const restoredFrom = dates?.from ?? filterFrom.trim();
+    const restoredTo = dates?.to ?? filterTo.trim();
     if (Boolean(restoredFrom) !== Boolean(restoredTo)) {
       setFilterError('开始日期与结束日期必须同时选择');
       return;
@@ -252,6 +253,13 @@ export default function AuditPage() {
       ...(sessionId ? { sessionId } : {}),
       ...(restoredFrom && restoredTo ? { restoredFrom, restoredTo } : {}),
     });
+  };
+
+  const applyDatePreset = (preset: AuditDatePreset) => {
+    const range = auditDatePresetRange(preset);
+    setFilterFrom(range.from);
+    setFilterTo(range.to);
+    applyFilters(range);
   };
 
   const clearFilters = () => {
@@ -361,6 +369,20 @@ export default function AuditPage() {
 
       <Card className="py-0">
         <CardContent className="p-3">
+          <div className="mb-2 flex flex-wrap items-center gap-1">
+            <span className="text-[11px] text-muted-foreground">快捷日期</span>
+            {AUDIT_DATE_PRESETS.map((preset) => (
+              <Button
+                key={preset.value}
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={() => applyDatePreset(preset.value)}
+              >
+                {preset.label}
+              </Button>
+            ))}
+          </div>
           <div className="flex flex-wrap items-end gap-2">
             <div className="space-y-1">
               <div className="text-[11px] text-muted-foreground">用户</div>
@@ -404,7 +426,7 @@ export default function AuditPage() {
                 onChange={(event) => setFilterTo(event.target.value)}
               />
             </div>
-            <Button size="sm" className="h-8 text-xs" onClick={applyFilters}>
+            <Button size="sm" className="h-8 text-xs" onClick={() => applyFilters()}>
               筛选
             </Button>
             <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={clearFilters}>

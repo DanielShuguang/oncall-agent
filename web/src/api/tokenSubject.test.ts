@@ -25,9 +25,11 @@ describe('tokenSubject', () => {
     const b = makeToken({ sub: 'u_b' });
 
     expect(shouldClearLocalPreferences(null, a)).toBe(true);
+    expect(shouldClearLocalPreferences('not-a-jwt', a)).toBe(true);
     expect(shouldClearLocalPreferences(a, b)).toBe(true);
     expect(shouldClearLocalPreferences(a, aReissued)).toBe(false);
     expect(shouldClearLocalPreferences(a, a)).toBe(false);
+    expect(shouldClearLocalPreferences(a, '')).toBe(false);
     expect(shouldClearLocalPreferences(null, null)).toBe(false);
     expect(shouldClearLocalPreferences(a, 'not-a-jwt')).toBe(false);
   });

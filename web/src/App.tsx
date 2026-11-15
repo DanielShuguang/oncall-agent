@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { cn } from 'cn';
 import { MessagesSquare } from 'lucide-react';
 import { NavLink, Navigate, Route, Routes } from 'react-router';
@@ -44,13 +44,19 @@ function TokenDialog() {
   };
 
   const save = () => {
+    const previous = getToken();
     const next = value.trim();
-    if (shouldClearLocalPreferences(getToken(), next)) {
+    if (shouldClearLocalPreferences(previous, next)) {
       // 同一浏览器换账号时，别让上一位的会话/审计过滤带到下一位。
       clearLocalPreferences();
     }
     setToken(next);
     setHasToken(Boolean(next));
+    if (next !== previous) {
+      // 换账号/清 token 后整页重载，避免旧账号已加载的会话与审计行留在屏幕上。
+      window.location.reload();
+      return;
+    }
     setSaved(true);
   };
 
@@ -88,6 +94,15 @@ function TokenDialog() {
 }
 
 export default function App() {
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      // 其它标签页换账号/清 token 时，本页也要丢掉旧账号已加载的数据。
+      if (event.key === 'oncall.token') window.location.reload();
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+
   return (
     <div className="flex h-full w-full flex-col bg-canvas">
       <header className="z-20 flex flex-wrap items-center gap-x-4 gap-y-2 border-b bg-panel/95 px-4 py-2.5 shadow-xs backdrop-blur sm:px-6">

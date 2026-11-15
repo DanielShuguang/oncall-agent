@@ -38,22 +38,35 @@ ADR 先采用最小、可验证的方案。
 
 1. **只解析、不验签**：`tokenSubject()` 从 JWT payload 取 `sub`，用于本地偏好归属
    判断；不参与鉴权，解析失败返回 `null`。
-2. **subject 变化才清理**：`TokenDialog` 保存时比较新旧 token 的 subject；新 token
-   有合法 subject 且与旧 subject 不同（旧 token 为空时也视为不同）时，调用
-   `clearLocalPreferences()`。
+2. **subject 变化清偏好，token 变化整页刷新**：`TokenDialog` 保存时比较新旧 token
+   的 subject；新 token 有合法 subject 且与旧 subject 不同（旧 token 为空时也视为
+   不同）时，调用 `clearLocalPreferences()`。只要 token 字符串发生变化（换账号、
+   清空、无效 token、同 subject 续签），保存后都调用 `window.location.reload()`，
+   把旧账号已加载的会话与审计行从内存中清掉；同 token 重复保存不刷新。
 3. **清理三个已知键**：会话、审计过滤、审计日期预设；不清理 `oncall.token`，也
    不动其他站点/应用的键。
-4. **同一 subject 续签不清理**：token 过期后重新签发同一用户的 token，保留本地
-   偏好。
-5. **退出到空 token 不主动清理**：当前没有退出按钮；清空 token 后下一位用户登录
-   时 subject 仍会变化并触发清理。
+4. **同一 subject 续签不清理偏好**：token 过期后重新签发同一用户的 token，保留
+   本地偏好；但仍整页刷新，避免旧页面继续展示旧数据。
+5. **退出到空 token 不主动清偏好，但刷新页面**：当前没有退出按钮；清空 token
+   时 `next` 没有 subject，三键保留，页面刷新后回到未登录状态。之后即使同一账号
+   重新登录，旧 token 为空导致 subject 比较必然触发一次清理——这是「不引入
+   last-subject 存储」的代价。
 6. **旧全局键不迁移**：不按账号拆分存储，清理后偏好从默认值开始；ADR 的「记住」
    只在同一账号、同一浏览器内成立。
+7. **整页刷新而不是组件级重置**：认证、偏好、页面数据分散在多个组件与请求中，
+   刷新是最小且完整的隔离；保存 token 变化时主动刷新，其它标签页监听
+   `storage` 的 `oncall.token` 事件并同样刷新。代价是保存 token 时丢失未提交的
+   输入。
 
 ## 后果
 
-- 同一浏览器切换账号后，上一位的会话/审计过滤和日期预设不会带到下一位。
+- 同一浏览器切换账号后，上一位的会话/审计过滤和日期预设不会带到下一位；保存新
+  token 会整页刷新，旧账号已加载的页面内容不会留在屏幕上。多标签页也一样：其它
+  标签页收到 `storage` 事件后刷新。
 - 切换回原账号不会恢复之前的偏好；这是「清理」而非「按账号隔离」的代价。
+- 清空 token 后重新登录，即使还是同一账号，也会清一次偏好：空 token 无法判断
+  上一位是谁，只有保留 last-subject 才能区分。
+- 保存任何不同的 token（包括同 subject 续签）都会刷新页面，未提交的输入会丢失。
 - 不是安全边界：JWT 客户端可伪造，`localStorage` 也可被用户直接修改；本方案只
   解决正常账号切换时的误继承。
 - 没有 `sub` 的 token（非 JWT 或手工构造）无法可靠判断归属；下一次保存带 `sub`
@@ -68,7 +81,9 @@ ADR 先采用最小、可验证的方案。
   时静默跳过。
 - `pnpm exec tsc --noEmit` 通过；`pnpm test -- --run` **114 tests / 24 files**；
   `pnpm lint` 0 warnings/0 errors（85 files/231 rules）；`pnpm format:check` 93 files；
-  `pnpm build` 通过（2898 modules，257ms）。
+  `pnpm build` 通过（2898 modules，268ms）。
+- `TokenDialog` 的整页刷新与跨标签页 `storage` 刷新是组件/浏览器行为，现有前端
+  套件没有 TokenDialog 测试，由 tsc/build 与手工流程覆盖；三个纯函数模块有单测。
 - 后端未改：默认 506+40 / PG 543+3 / Redis 546；ruff 196 / mypy 114。
 
 ## 待定

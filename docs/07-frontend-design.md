@@ -43,7 +43,9 @@
 > `oncall.audit-filters.v1` 与 `oncall.audit-date-preset.v1`（审计过滤/日期预设，
 > ADR-0075/0078）均按浏览器保存，不跨设备。TokenDialog 保存新 token 时解析 JWT
 > `sub`，subject 变化（含从无 token 切换到有 subject）就清空这三个键，避免同一
-> 浏览器换账号后继承上一位的会话/审计过滤值；同 subject 续签不清（ADR-0080）。
+> 浏览器换账号后继承上一位的会话/审计过滤值；同 subject 续签不清。token 字符串
+> 变化后整页刷新，清掉旧账号已加载的页面数据；其它标签页收到 `storage` 的
+> `oncall.token` 事件也刷新；清空 token 后即使同账号重登也会清一次偏好（ADR-0080）。
 >
 ## 3. 状态机
 

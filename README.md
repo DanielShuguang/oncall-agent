@@ -221,7 +221,7 @@ oncall/
 | 窄屏抽屉焦点陷阱（W6 后补） | ✅ 已完成 | 打开聚焦 X、Tab/Shift+Tab 在抽屉内循环、焦点在外时拉回；`overflow:hidden` + 遮罩 `touch-none`/抽屉 `overscroll-contain` 锁定背景滚动；窄屏 `role=dialog`+`aria-modal`；变宽自动关闭并把焦点移回搜索框；`nextFocusTarget` 纯函数 + 4 tests；不引依赖/无迁移；[ADR-0077](docs/decisions/0077-session-drawer-focus-trap.md) |
 | 记住审计过滤与统计窗口（W6 后补） | ✅ 已完成 | `localStorage` 键 `oncall.audit-filters.v1` 记住 `userId`/`sessionId`/`statsDays`；首屏恢复过滤与窗口，点「筛选」/切窗口写入，「清除」或默认值删除并恢复默认 30 天；按浏览器、不跨设备；无后端/迁移；[ADR-0078](docs/decisions/0078-audit-filter-memory.md) |
 | 刷新恢复上次会话（W6 后补） | ✅ 已完成 | `localStorage` 键 `oncall.last-session.v1` 只存 session_id；首屏列表确认仍在当前用户第一页且未手选/未发送时恢复；竞态 ref 防迟到响应覆盖；新会话/隐藏当前会话清除；仅首屏 20 条、不跨设备、无后端/迁移；[ADR-0079](docs/decisions/0079-last-session-restore.md) |
-| 切换账号清理本地偏好（W6 后补） | ✅ 已完成 | TokenDialog 保存时解析 JWT `sub`（不验签），subject 变化（含从无 token 到有 subject）清空 `oncall.last-session.v1`、`oncall.audit-filters.v1`、`oncall.audit-date-preset.v1`；同 subject 续签保留；清空 token 不主动清；无后端/迁移；`web/src/api/tokenSubject.test.ts`、`web/src/lib/localPreferences.test.ts`；[ADR-0080](docs/decisions/0080-local-preferences-on-account-switch.md) |
+| 切换账号清理本地偏好（W6 后补） | ✅ 已完成 | TokenDialog 保存时解析 JWT `sub`（不验签），subject 变化（含从无 token 到有 subject）清空 `oncall.last-session.v1`、`oncall.audit-filters.v1`、`oncall.audit-date-preset.v1`；同 subject 续签保留偏好；token 字符串变化后整页刷新，其它标签页收到 `storage` 的 `oncall.token` 事件也刷新，避免旧账号页面数据残留；清空 token 不主动清，但之后即使同账号重登也会清一次；无后端/迁移；`web/src/api/tokenSubject.test.ts`、`web/src/lib/localPreferences.test.ts`；[ADR-0080](docs/decisions/0080-local-preferences-on-account-switch.md) |
 | 会话列表与历史会话继续（W6 后补） | ✅ 已完成 | 不建表，按 `runs.session_id` 投影（复用 `idx_runs_user_session_time`，无迁移）；`GET /sessions` 只读本人、标题取最早非空 `input`；左侧会话栏点开最近 20 条 run，拼只读 transcript（正文过期/引用回收/未结束/失败各有占位），继续对话沿用同一 `session_id`；`tests/test_sessions_api.py`、`test_store_contract.py`（`_exercise_sessions`）、`web/src/features/chat/history.test.ts`；[ADR-0030](docs/decisions/0030-session-list.md) |
 | 会话列表与历史轮次分页（W6 后补） | ✅ 已完成 | `/sessions` 用 `(updated_at, session_id)` keyset 游标（base64url JSON，非法 400 `INVALID_CURSOR`）；会话内用 `/runs` 已有游标翻更早轮次（`prependHistory`）；翻页期间新 run 可能造成重复/跳过，刷新即重置；无新表/索引/迁移；[ADR-0033](docs/decisions/0033-session-history-pagination.md) |
 | 会话列表按标题搜索（W6 后补） | ✅ 已完成 | `GET /sessions?q=`（1–100 字符，本人，大小写不敏感子串）只匹配投影标题（最早非空 `input`），不搜正文/工具结果/审批理由；与 keyset 分页共用游标；Postgres 用 `row_number()` 子查询 + `strpos(lower(...))`（`%`/`_` 按字面量，不是通配符）；无新表/索引/迁移；`tests/test_sessions_api.py`、`test_store_contract.py`；[ADR-0039](docs/decisions/0039-session-search.md) |
@@ -285,8 +285,8 @@ W6 基线（3 轮均值，mock 规则路径，口径见 [baseline-v1](docs/eval/
   真实泛化需要另建不参与调参的盲测集，当前没有
 - 压测脚本已在开发机跑通；**8C16G 生产容量尚未验收**，README 不写未测出的 QPS/并发承诺
 - 本地偏好（上次会话、审计过滤/日期预设）按浏览器保存，不跨设备；同一浏览器切换账号时
-  会清空上一位的三个本地键（[ADR-0080](docs/decisions/0080-local-preferences-on-account-switch.md)），
-  不按账号分别保留
+  会清空上一位的三个本地键并整页刷新（[ADR-0080](docs/decisions/0080-local-preferences-on-account-switch.md)），
+  不按账号分别保留；清空 token 后即使同账号重登也会清一次，同 subject 续签保留偏好但同样刷新
 - `web/Dockerfile` 的 Node 构建层在本机因 registry 拉取超时未跑完；运行态用本地 `pnpm build`
   + Nginx 镜像验证（SPA、SSE、审批链路均通），正式交付前需在同网络环境重跑 `make stack`
 - 默认 embedding 是确定性哈希，不是语义模型；生产建议切 `ONCALL_EMBEDDING_PROVIDER=http` 接 bge-m3

@@ -10,6 +10,7 @@ describe('clearLocalPreferences', () => {
     storage.setItem(LAST_SESSION_KEY, 'sess_1');
     storage.setItem(AUDIT_FILTER_MEMORY_KEY, '{"userId":"u_1","statsDays":7}');
     storage.setItem(AUDIT_DATE_PRESET_STORAGE_KEY, 'last7');
+    storage.setItem('oncall.token', 'keep-token');
     storage.setItem('unrelated', 'keep');
 
     clearLocalPreferences(storage);
@@ -17,6 +18,7 @@ describe('clearLocalPreferences', () => {
     expect(storage.getItem(LAST_SESSION_KEY)).toBeNull();
     expect(storage.getItem(AUDIT_FILTER_MEMORY_KEY)).toBeNull();
     expect(storage.getItem(AUDIT_DATE_PRESET_STORAGE_KEY)).toBeNull();
+    expect(storage.getItem('oncall.token')).toBe('keep-token');
     expect(storage.getItem('unrelated')).toBe('keep');
   });
 

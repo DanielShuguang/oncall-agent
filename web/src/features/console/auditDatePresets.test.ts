@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { auditDatePresetRange } from './auditDatePresets';
+import {
+  AUDIT_DATE_PRESET_STORAGE_KEY,
+  auditDatePresetRange,
+  clearLastAuditDatePreset,
+  readLastAuditDatePreset,
+  writeLastAuditDatePreset,
+} from './auditDatePresets';
 
 const NOW = new Date('2026-03-15T12:00:00Z');
 
@@ -51,5 +57,56 @@ describe('auditDatePresetRange', () => {
       from: '2026-02-01',
       to: '2026-02-28',
     });
+  });
+});
+
+class MemoryStorage {
+  private readonly values = new Map<string, string>();
+
+  getItem(key: string): string | null {
+    return this.values.get(key) ?? null;
+  }
+
+  setItem(key: string, value: string): void {
+    this.values.set(key, value);
+  }
+
+  removeItem(key: string): void {
+    this.values.delete(key);
+  }
+}
+
+describe('auditDatePreset storage', () => {
+  it('reads only known preset ids', () => {
+    const storage = new MemoryStorage();
+    expect(readLastAuditDatePreset(storage)).toBeNull();
+    storage.setItem(AUDIT_DATE_PRESET_STORAGE_KEY, 'last30');
+    expect(readLastAuditDatePreset(storage)).toBe('last30');
+    storage.setItem(AUDIT_DATE_PRESET_STORAGE_KEY, 'custom');
+    expect(readLastAuditDatePreset(storage)).toBeNull();
+  });
+
+  it('writes and clears the preset without throwing on unavailable storage', () => {
+    const storage = new MemoryStorage();
+    writeLastAuditDatePreset('lastMonth', storage);
+    expect(storage.getItem(AUDIT_DATE_PRESET_STORAGE_KEY)).toBe('lastMonth');
+    clearLastAuditDatePreset(storage);
+    expect(readLastAuditDatePreset(storage)).toBeNull();
+
+    const throwing = {
+      getItem: () => {
+        throw new Error('blocked');
+      },
+      setItem: () => {
+        throw new Error('blocked');
+      },
+      removeItem: () => {
+        throw new Error('blocked');
+      },
+    };
+    expect(() => readLastAuditDatePreset(throwing)).not.toThrow();
+    expect(() => writeLastAuditDatePreset('last7', throwing)).not.toThrow();
+    expect(() => clearLastAuditDatePreset(throwing)).not.toThrow();
+    expect(readLastAuditDatePreset(throwing)).toBeNull();
   });
 });

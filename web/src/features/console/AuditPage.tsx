@@ -1,4 +1,4 @@
-/** 会话恢复审计（W6 后补）：管理端只读列表、过滤、翻页、首屏总数、统计与 CSV 导出（ADR-0063/0064/0065/0067）。 */
+/** 会话恢复审计（W6 后补）：管理端只读列表、过滤、翻页、首屏总数、统计与 CSV 导出（ADR-0063/0064/0065/0067/0075）。 */
 
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -23,7 +23,14 @@ import {
 } from '@/api/sessionAudits';
 import { formatTime } from '@/lib/format';
 import { downloadBlob } from '@/lib/download';
-import { AUDIT_DATE_PRESETS, auditDatePresetRange, type AuditDatePreset } from './auditDatePresets';
+import {
+  AUDIT_DATE_PRESETS,
+  auditDatePresetRange,
+  clearLastAuditDatePreset,
+  readLastAuditDatePreset,
+  writeLastAuditDatePreset,
+  type AuditDatePreset,
+} from './auditDatePresets';
 
 const PAGE_SIZE = 20;
 const STATS_DAYS = [7, 30, 90] as const;
@@ -35,11 +42,25 @@ export default function AuditPage() {
   const [stats, setStats] = useState<SessionRestoreAuditStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
   const [statsError, setStatsError] = useState<string | null>(null);
-  const [filters, setFilters] = useState<SessionRestoreAuditFilters>({});
+  const [initialAuditState] = useState(() => {
+    const preset = readLastAuditDatePreset();
+    return { preset, range: preset ? auditDatePresetRange(preset) : null };
+  });
+  const [activePreset, setActivePreset] = useState<AuditDatePreset | null>(
+    initialAuditState.preset,
+  );
+  const [filters, setFilters] = useState<SessionRestoreAuditFilters>(
+    initialAuditState.range
+      ? {
+          restoredFrom: initialAuditState.range.from,
+          restoredTo: initialAuditState.range.to,
+        }
+      : {},
+  );
   const [filterUserId, setFilterUserId] = useState('');
   const [filterSessionId, setFilterSessionId] = useState('');
-  const [filterFrom, setFilterFrom] = useState('');
-  const [filterTo, setFilterTo] = useState('');
+  const [filterFrom, setFilterFrom] = useState(initialAuditState.range?.from ?? '');
+  const [filterTo, setFilterTo] = useState(initialAuditState.range?.to ?? '');
   const [filterError, setFilterError] = useState<string | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -233,7 +254,10 @@ export default function AuditPage() {
     setStatsDays(days);
   };
 
-  const applyFilters = (dates?: { from: string; to: string }) => {
+  const applyFilters = (
+    dates?: { from: string; to: string },
+    preset: AuditDatePreset | null = null,
+  ) => {
     const userId = filterUserId.trim();
     const sessionId = filterSessionId.trim();
     const restoredFrom = dates?.from ?? filterFrom.trim();
@@ -247,6 +271,13 @@ export default function AuditPage() {
       return;
     }
     setFilterError(null);
+    if (preset) {
+      writeLastAuditDatePreset(preset);
+    } else {
+      // 只记住预设；手填日期不持久化，避免下次落到过期窗口。
+      clearLastAuditDatePreset();
+    }
+    setActivePreset(preset);
     resetForFilters();
     setFilters({
       ...(userId ? { userId } : {}),
@@ -259,10 +290,12 @@ export default function AuditPage() {
     const range = auditDatePresetRange(preset);
     setFilterFrom(range.from);
     setFilterTo(range.to);
-    applyFilters(range);
+    applyFilters(range, preset);
   };
 
   const clearFilters = () => {
+    clearLastAuditDatePreset();
+    setActivePreset(null);
     resetForFilters();
     setFilterUserId('');
     setFilterSessionId('');
@@ -370,13 +403,14 @@ export default function AuditPage() {
       <Card className="py-0">
         <CardContent className="p-3">
           <div className="mb-2 flex flex-wrap items-center gap-1">
-            <span className="text-[11px] text-muted-foreground">快捷日期</span>
+            <span className="text-[11px] text-muted-foreground">快捷日期（记住上次选择）</span>
             {AUDIT_DATE_PRESETS.map((preset) => (
               <Button
                 key={preset.value}
-                variant="ghost"
+                variant={activePreset === preset.value ? 'default' : 'ghost'}
                 size="sm"
                 className="h-7 px-2 text-xs"
+                aria-pressed={activePreset === preset.value}
                 onClick={() => applyDatePreset(preset.value)}
               >
                 {preset.label}

@@ -1751,7 +1751,7 @@ tsc、`oxlint` 0/0（73 files）、`oxfmt --check` 81 files、`pnpm build` 通�
 | 上限 | 每个用户最多 50 个置顶；已置顶幂等，新增第 51 个拒绝 |
 | 接口 | `POST /sessions/{id}/pin` 超限返回 `409 PIN_LIMIT_REACHED`；`DELETE` 不受影响 |
 | 存储 | 内存与 Postgres 同口径计数；PG 在 `pin_session` 事务内先查已存在再 `count(*)`；无迁移 |
-| 一致性 | 软上限：检查与插入非同一行锁，并发可能短暂多 1 个；既有超限数据不回溯 |
+| 一致性 | 严格上限：PG 在事务内按用户取 advisory lock，串行化检查与插入；内存用 store 锁；并发不会超过 50；既有超限数据不回溯 |
 | 前端 | 沿用置顶按钮；409 走现有 `sessionsError`；无新增 UI |
 | 验证 | 506+40 / 543+3 / 546；ruff 196 / mypy 114；前端沿用 94/19 |
 | 边界 | 上限固定 50，不提供环境变量/计数接口；置顶审计与拖拽排序仍未做 |

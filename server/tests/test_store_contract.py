@@ -619,6 +619,26 @@ async def _exercise_pinned_sessions(store: RunStore) -> None:
         with pytest.raises(PinLimitExceeded):
             await store.pin_session(user_id=user, session_id="sess_new")
 
+    # 并发置顶也不能突破上限（PG 用用户级 advisory lock，内存用 store 锁）
+    concurrent_user = "u_pin_limit_concurrent"
+    for index in range(3):
+        await store.create(
+            run_id=str(uuid.uuid4()),
+            user_id=concurrent_user,
+            session_id=f"sess_lc{index}",
+            message="并发置顶",
+        )
+    with patch("app.core.store.MAX_PINNED_SESSIONS", 2):
+        results = await asyncio.gather(
+            *(
+                store.pin_session(user_id=concurrent_user, session_id=f"sess_lc{index}")
+                for index in range(3)
+            ),
+            return_exceptions=True,
+        )
+    assert sum(result is True for result in results) == 2
+    assert sum(isinstance(result, PinLimitExceeded) for result in results) == 1
+
 
 async def _exercise_session_titles(store: RunStore) -> None:
     """自定义会话标题（ADR-0040）：显示优先、搜索双匹配、清除恢复默认。"""

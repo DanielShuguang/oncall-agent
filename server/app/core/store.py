@@ -1931,6 +1931,10 @@ class PostgresRunStore:
 
     async def pin_session(self, *, user_id: str, session_id: str) -> bool:
         async with self._sessionmaker() as session:
+            # ADR-0073：同一用户的置顶检查与插入必须串行，否则并发请求会同时
+            # 看到 49 个置顶并都插入，突破上限。锁随事务结束自动释放；
+            # 不同用户哈希碰撞只会短暂串行，不影响结果。
+            await session.execute(select(func.pg_advisory_xact_lock(func.hashtext(user_id))))
             if not await self._visible_session_exists(
                 session, user_id=user_id, session_id=session_id
             ):

@@ -436,7 +436,8 @@ Authorization: Bearer <token>
 - 只影响当前用户的 `GET /sessions` 顺序：置顶组在前，组内仍按最近活动倒序；
   不改变 `updated_at`、`run_count` 与会话内容，也不影响其他用户
 - 每个用户最多置顶 50 个会话（ADR-0073）；已置顶的会话重复置顶仍 204，新增第 51 个
-  时返回 `409 {"code":"PIN_LIMIT_REACHED"}`。这是软上限，并发置顶可能短暂多出 1 个
+  时返回 `409 {"code":"PIN_LIMIT_REACHED"}`。PG 在事务内按用户取 advisory lock，
+  并发置顶也不会突破 50
 - 置顶组内不按 `pinned_at` 排序（最近置顶的旧会话不一定排第一）
 - 移除会话（`DELETE /sessions/{session_id}`）会在同一事务里清掉置顶行；恢复时也会
   同事务兜底清掉该会话的置顶行。因此恢复后一定不置顶，需要用户重新点击

@@ -68,7 +68,8 @@
 
 ## 6. 待定
 
-- CSV 导出、前端管理页与按日统计；分页已由 [ADR-0082](0082-session-pin-audit-pagination.md) 补上；
+- CSV 导出已由 [ADR-0084](0084-session-pin-audit-export.md) 补上；前端管理页与按日统计仍未做；
+  分页已由 [ADR-0082](0082-session-pin-audit-pagination.md) 补上；
 - 独立保留期与 `RetentionSweeper`/`prune` 接入；已由 [ADR-0083](0083-session-pin-audit-retention.md) 补上，默认 365 天；
 - 防篡改（链式哈希/外部归档）与审计访问日志；
 - 是否把「隐藏导致置顶清理」作为系统动作单独记一条审计；

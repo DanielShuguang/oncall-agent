@@ -110,7 +110,7 @@
 | [0080](decisions/0080-local-preferences-on-account-switch.md) | 切换账号清理本地偏好 | 解析 JWT `sub`（不验签）比较新旧账号；subject 变化时清空 `oncall.last-session.v1`、`oncall.audit-filters.v1`、`oncall.audit-date-preset.v1`；同 subject 续签保留；清空 token 不主动清；不按账号命名空间存储、无后端/迁移 |
 | [0081](decisions/0081-session-pin-audit.md) | 置顶审计 | `session_pin_audits` 只记显式 pin/unpin（重复、隐藏清理不写），与置顶行同事务；管理端 `GET /admin/session-pins` 按用户/会话/动作过滤，分页见 0082、保留清理见 0083、CSV 导出见 0084；无外键；迁移 `0022` |
 | [0082](decisions/0082-session-pin-audit-pagination.md) | 置顶审计分页 | `(created_at, id)` 倒序 keyset 游标，base64url `{t,i,f?}`，`f` 为过滤条件指纹（不存原始 id）；取满才给 `next_cursor`；换过滤复用游标 400；无迁移/新索引 |
-| [0083](decisions/0083-session-pin-audit-retention.md) | 置顶审计保留清理 | 独立 `ONCALL_SESSION_PIN_AUDIT_RETENTION_DAYS`（默认 365 天）；`RetentionSweeper` 按 `created_at` 分批删除，支持 dry-run；`RetentionResult`/CLI/日志增加计数；无迁移（仍 0022） |
+| [0083](decisions/0083-session-pin-audit-retention.md) | 置顶审计保留清理 | 独立 `ONCALL_SESSION_PIN_AUDIT_RETENTION_DAYS`（默认 365 天）；`RetentionSweeper` 按 `created_at` 分批删除，支持 dry-run；`RetentionResult`/CLI/日志增加计数；CSV 导出见 0084；无迁移（仍 0022） |
 | [0084](decisions/0084-session-pin-audit-export.md) | 置顶审计 CSV 导出 | `GET /admin/session-pins/export`，同列表过滤，最多 5000 条；五列元数据、BOM/CRLF/公式防护；`X-Export-Count`/`X-Export-Truncated`；复用 `csv_document`；无迁移 |
 
 > ADR 的写法：背景 → 方案对比 → 决策 → 后果。面试被问"为什么这么做"时，直接念 ADR。

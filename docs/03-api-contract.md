@@ -479,7 +479,9 @@ Authorization: Bearer <admin-token>
 - `user_id`/`session_id` 可选、1–64；`action` 只接受 `pin`/`unpin`；`created_from`/
   `created_to` 是 UTC 自然日闭区间（`YYYY-MM-DD`），必须同时提供、`from <= to`、
   最多 365 天，否则 `422 INVALID_RANGE`；`limit` 1–200 默认 50，按
-  `created_at DESC, id DESC` 返回。内部窗口为 `[from 00:00Z, to 次日 00:00Z)`
+  `created_at DESC, id DESC` 返回。内部窗口为 `[from 00:00Z, to 次日 00:00Z)`；
+  旧后端会忽略这两个未知参数并返回未过滤结果，滚动升级需前后端同版本，旧前端
+  不发送日期参数不受影响
 - 只有显式状态变化才写：重复置顶、重复取消、隐藏/恢复导致的置顶清理都不产生审计；
   Postgres 用 `DELETE ... RETURNING` 判断取消是否真的发生，并发取消也只写一条
 - 游标分页：`(created_at, id)` 倒序 keyset；游标最长为 512，base64url JSON

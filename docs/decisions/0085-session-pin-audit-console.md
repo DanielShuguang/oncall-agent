@@ -21,7 +21,7 @@ ADR-0081 的「待定」也明确列着前端管理页。
 
 1. 新增 ConsolePage 的「置顶审计」标签，路由 `/console/pins`，页面只读。
 2. 过滤条件与接口一致：`user_id`、`session_id` 精确匹配（1–64），`action`
-   `pin`/`unpin`；空值不下发；输入框 `maxLength=64`。
+   `pin`/`unpin`；空值不下发；输入框 `maxLength=64`；日期范围由 ADR-0086 补上。
 3. 列表每页 20 条，按 `(created_at, id)` 倒序；`next_cursor` 存在时显示「加载
    更多」，不做页码/总数。
 4. 表格四列：时间、用户、会话、动作；动作显示「置顶 / 取消置顶」，不展示

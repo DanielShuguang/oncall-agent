@@ -1950,7 +1950,7 @@ ADR-0075 只记住日期预设。管理员按用户/会话排查后刷新页面�
 | CSV | `audit_id,user_id,session_id,action,created_at`；BOM + CRLF、ISO 时间、公式注入前置单引号 |
 | 响应 | `X-Export-Count`、`X-Export-Truncated`、`Cache-Control: no-store`；文件名带 UTC 时间 |
 | 复用 | `app/core/csv.py` 的 `csv_document`；无迁移、无新索引 |
-| 范围 | 同步、5000 行硬上限、不返回部分 CSV；无异步/下载审计/日期范围；前端页见 ADR-0085 |
+| 范围 | 同步、5000 行硬上限、不返回部分 CSV；无异步/下载审计；日期范围见 ADR-0086；前端页见 ADR-0085 |
 | 验证 | 默认 514+40、PG 551+3、Redis 554；ruff 200 / mypy 116；前端未改 114/24 |
 
 详见 [ADR-0084](decisions/0084-session-pin-audit-export.md)。

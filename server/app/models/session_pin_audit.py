@@ -4,8 +4,8 @@
 会话」。这里只记录显式 pin/unpin 操作：重复置顶、重复取消、隐藏/恢复会话导致
 的置顶清理都不写审计，避免把无状态变化的请求放大成审计噪声。
 
-没有外键：会话由 `runs.session_id` 投影，审计不随会话删除；审计暂随数据库保留，
-不接入 RetentionSweeper（待定）。
+没有外键：会话由 `runs.session_id` 投影，审计不随会话删除；由 RetentionSweeper
+按 `ONCALL_SESSION_PIN_AUDIT_RETENTION_DAYS` 独立清理（ADR-0083）。
 """
 
 from __future__ import annotations

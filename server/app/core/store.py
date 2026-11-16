@@ -607,8 +607,16 @@ class RunStore(Protocol):
         """按 `(created_at, id)` 倒序列出显式置顶/取消置顶审计（ADR-0081/0082）。
 
         `action` 只接受 `pin`/`unpin`。`before` 是 keyset 游标
-        `(created_at, audit_id)`，只返回严格更小的记录；时间范围与保留清理
-        仍留作后续 ADR。
+        `(created_at, audit_id)`，只返回严格更小的记录；保留清理见 ADR-0083。
+        """
+        ...
+
+    async def prune_session_pin_audits(
+        self, *, created_before: datetime, limit: int = 200, dry_run: bool = False
+    ) -> int:
+        """删除 `created_at` 早于阈值的置顶审计（ADR-0083），返回条数。
+
+        与恢复审计一样，审计按自己的 365 天保留期清理；dry-run 只数候选。
         """
         ...
 
@@ -1201,6 +1209,26 @@ class InMemoryRunStore:
             ]
             records.sort(key=lambda record: (record.created_at, record.audit_id), reverse=True)
             return records[:limit]
+
+    async def prune_session_pin_audits(
+        self, *, created_before: datetime, limit: int = 200, dry_run: bool = False
+    ) -> int:
+        async with self._lock:
+            candidates = sorted(
+                (
+                    record
+                    for record in self._session_pin_audits
+                    if record.created_at < created_before
+                ),
+                key=lambda record: (record.created_at, record.audit_id),
+            )[:limit]
+            if dry_run or not candidates:
+                return len(candidates)
+            expired = {record.audit_id for record in candidates}
+            self._session_pin_audits = [
+                record for record in self._session_pin_audits if record.audit_id not in expired
+            ]
+            return len(candidates)
 
     async def list_hidden_sessions(
         self,
@@ -2124,6 +2152,22 @@ class PostgresRunStore:
             )
             for row in rows
         ]
+
+    async def prune_session_pin_audits(
+        self, *, created_before: datetime, limit: int = 200, dry_run: bool = False
+    ) -> int:
+        stmt = (
+            select(SessionPinAuditRow.id)
+            .where(SessionPinAuditRow.created_at < created_before)
+            .order_by(SessionPinAuditRow.created_at, SessionPinAuditRow.id)
+            .limit(limit)
+        )
+        async with self._sessionmaker() as session, session.begin():
+            ids = (await session.scalars(stmt)).all()
+            if dry_run or not ids:
+                return len(ids)
+            await session.execute(delete(SessionPinAuditRow).where(SessionPinAuditRow.id.in_(ids)))
+        return len(ids)
 
     async def _visible_session_exists(
         self,

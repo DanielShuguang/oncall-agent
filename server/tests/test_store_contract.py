@@ -671,6 +671,17 @@ async def _exercise_pinned_sessions(store: RunStore) -> None:
     assert [record.audit_id for record in seen] == [record.audit_id for record in all_audits]
     assert len({record.audit_id for record in seen}) == len(seen)
 
+    # 保留清理（ADR-0083）：dry-run 只数候选，实跑按阈值删一批
+    total_audits = await store.list_session_pin_audits(limit=200)
+    assert len(total_audits) >= 5
+    future = datetime.now(UTC) + timedelta(days=1)
+    dry = await store.prune_session_pin_audits(created_before=future, limit=3, dry_run=True)
+    assert dry == 3
+    assert len(await store.list_session_pin_audits(limit=200)) == len(total_audits)
+    pruned = await store.prune_session_pin_audits(created_before=future, limit=3)
+    assert pruned == 3
+    assert len(await store.list_session_pin_audits(limit=200)) == len(total_audits) - 3
+
 
 async def _exercise_session_titles(store: RunStore) -> None:
     """自定义会话标题（ADR-0040）：显示优先、搜索双匹配、清除恢复默认。"""

@@ -220,7 +220,9 @@ CREATE INDEX idx_session_pin_audits_time ON session_pin_audits (created_at);
 > 只记录**显式状态变化**（[ADR-0081](decisions/0081-session-pin-audit.md)，迁移
 > `0022`）：重复置顶/取消、隐藏或恢复会话导致的置顶清理都不写，避免把无状态变化的
 > 请求放大成审计噪声。审计与置顶行写入在同一事务内完成；无外键，会话由
-> `runs.session_id` 投影。当前审计随数据库保留，未接入 `RetentionSweeper`（待定）。
+> `runs.session_id` 投影。审计由 `RetentionSweeper` 按
+> `ONCALL_SESSION_PIN_AUDIT_RETENTION_DAYS`（默认 365 天）独立清理
+> （[ADR-0083](decisions/0083-session-pin-audit-retention.md)）。
 
 ### 2.2 run_events（事件，只追加）
 
@@ -553,6 +555,7 @@ CREATE TABLE user_budgets (
 | approvals（决议行） | 不清理 | 审批决议是治理证据（批准了什么、谁批的、为什么），量小；冷归档见「待定」 |
 | approval_grants | 过期即删 | `expires_at < now` 的行由清理任务删除；过期授权本来就不再生效，删行不改变授权语义（[ADR-0027](decisions/0027-approval-snapshot-retention.md)） |
 | session_restore_audits | 365 天 | `ONCALL_SESSION_RESTORE_AUDIT_RETENTION_DAYS`；恢复审计独立于事件/正文保留期，按 `restored_at` 清理（[ADR-0059](decisions/0059-session-restore-audit.md)） |
+| session_pin_audits | 365 天 | `ONCALL_SESSION_PIN_AUDIT_RETENTION_DAYS`；置顶审计独立清理，按 `created_at` 判断（[ADR-0083](decisions/0083-session-pin-audit-retention.md)） |
 | kb_documents / kb_chunks | 不清理 | 知识库由管理员维护，删除是业务操作，不是保留策略 |
 | 评测报告（文件） | 永久 | 不入库，体量小，是能力证明（§2.8） |
 

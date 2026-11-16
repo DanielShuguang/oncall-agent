@@ -1900,7 +1900,7 @@ ADR-0075 只记住日期预设。管理员按用户/会话排查后刷新页面�
 | 索引 | `(user_id, created_at DESC)`、`(session_id, created_at DESC)`、`(created_at)` |
 | 写入 | 只有状态真正变化才写；与 `pinned_sessions` 插入/删除同事务；失败回滚 |
 | 接口 | `GET /admin/session-pins`；`user_id`/`session_id` 1–64、`action` 必为 `pin`/`unpin`、`limit` 1–200 默认 50；按时间倒序 |
-| 范围 | 不导出、无前端页面、无总数；分页见 ADR-0082；审计随库保留，未接 `RetentionSweeper` |
+| 范围 | 不导出、无前端页面、无总数；分页见 ADR-0082；审计由 ADR-0083 接入 `RetentionSweeper`，默认独立保留 365 天 |
 | 迁移 | `0022`；`upgrade → check → downgrade 0021 → upgrade` 往返 |
 | 验证 | 默认 510+40、PG 547+3、Redis 550；ruff 200 / mypy 116；前端未改 114/24 |
 
@@ -1921,6 +1921,23 @@ ADR-0075 只记住日期预设。管理员按用户/会话排查后刷新页面�
 | 验证 | 默认 511+40、PG 548+3、Redis 551；ruff 202 / mypy 116；前端未改 114/24 |
 
 详见 [ADR-0082](decisions/0082-session-pin-audit-pagination.md)。
+
+## W6 后补：置顶审计接入保留清理（ADR-0083）
+
+`session_pin_audits` 在 ADR-0081 里只增不删；治理审计也应到期回收，但不复用
+事件/正文的 180 天保留期。新增独立的 `ONCALL_SESSION_PIN_AUDIT_RETENTION_DAYS`
+（默认 365 天），接入 `RetentionSweeper` 的「恢复审计 → 置顶审计 → 计量」链路。
+
+| 事项 | 落地 |
+|---|---|
+| 配置 | `ONCALL_SESSION_PIN_AUDIT_RETENTION_DAYS=365`；启动校验 >=1 |
+| 清理 | `prune_session_pin_audits(created_before, limit, dry_run)`；按 `created_at` 先到先删，单批上限复用 `ONCALL_RETENTION_BATCH` |
+| 执行 | `RetentionSweeper` 每轮追加一步，结果与 `prune --dry-run` 输出 `session_pin_audits_before`/`session_pin_audits`；跑满批次仍计 `retention_backlog_remaining` |
+| 存储 | 内存按 `(created_at, audit_id)` 排序；PG `created_at < before ORDER BY created_at, id LIMIT`；dry-run 只计数 |
+| 范围 | 独立保留期，不与事件/正文/恢复审计联动；无前端、无导出；迁移仍 `0022` |
+| 验证 | 默认 512+40、PG 549+3、Redis 552；ruff 200 / mypy 116；前端未改 114/24 |
+
+详见 [ADR-0083](decisions/0083-session-pin-audit-retention.md)。
 
 ---
 

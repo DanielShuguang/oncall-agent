@@ -110,6 +110,7 @@ async def _sweep_retention(stop: asyncio.Event) -> None:
                 or result.approval_snapshots
                 or result.approval_grants
                 or result.session_restores
+                or result.session_pin_audits
             ):
                 log.info(
                     "retention_pruned",
@@ -120,11 +121,13 @@ async def _sweep_retention(stop: asyncio.Event) -> None:
                     approval_snapshots=result.approval_snapshots,
                     approval_grants=result.approval_grants,
                     session_restores=result.session_restores,
+                    session_pin_audits=result.session_pin_audits,
                     batch=result.batch,
                     events_before=result.events_before.isoformat(),
                     calls_before=result.calls_before.isoformat(),
                     content_before=result.content_before.isoformat(),
                     session_restores_before=result.session_restores_before.isoformat(),
+                    session_pin_audits_before=result.session_pin_audits_before.isoformat(),
                 )
             if result.capped:
                 # 跑到批次上限还有候选：清理在追赶，不是「已经清完」
@@ -138,6 +141,7 @@ async def _sweep_retention(stop: asyncio.Event) -> None:
                     approval_snapshots=result.approval_snapshots,
                     approval_grants=result.approval_grants,
                     session_restores=result.session_restores,
+                    session_pin_audits=result.session_pin_audits,
                 )
         except Exception as exc:  # 库没起来时不能让后台任务炸掉整个进程
             log.warning("retention_sweep_failed", error=str(exc))

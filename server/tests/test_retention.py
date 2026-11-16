@@ -312,6 +312,7 @@ async def test_sweep_cutoffs_follow_settings() -> None:
     assert result.calls_before == now - timedelta(days=90)
     assert result.content_before == now - timedelta(days=60)
     assert result.session_restores_before == now - timedelta(days=365)
+    assert result.session_pin_audits_before == now - timedelta(days=365)
 
 
 async def test_invalid_limit_is_rejected() -> None:
@@ -551,6 +552,27 @@ async def test_prunes_session_restore_audits_by_own_retention() -> None:
     assert await store.list_session_restore_audits() == []
     again = await sweeper.sweep(now=later)
     assert again.session_restores == 0
+
+
+async def test_prunes_session_pin_audits_by_own_retention() -> None:
+    """置顶审计按自己的保留期清理（ADR-0083），与恢复审计/正文互不影响。"""
+    store = InMemoryRunStore()
+    await _finished_run(store, session_id="sess_pin_audit")
+    assert await store.pin_session(user_id="u_701", session_id="sess_pin_audit") is True
+    assert len(await store.list_session_pin_audits()) == 1
+
+    sweeper = _sweeper(store)
+    now = datetime.now(UTC)
+    later = now + timedelta(days=366)
+    dry = await sweeper.sweep(now=later, dry_run=True)
+    assert dry.session_pin_audits == 1
+    assert len(await store.list_session_pin_audits()) == 1
+
+    result = await sweeper.sweep(now=later)
+    assert result.session_pin_audits == 1
+    assert await store.list_session_pin_audits() == []
+    again = await sweeper.sweep(now=later)
+    assert again.session_pin_audits == 0
 
 
 async def test_prunes_expired_approval_grants_only() -> None:

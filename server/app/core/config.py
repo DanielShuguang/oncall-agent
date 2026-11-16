@@ -106,6 +106,9 @@ class Settings(BaseSettings):
     #: 已移除会话恢复审计的保留天数（ADR-0059）。恢复动作是治理审计，不是会话
     #: 内容，因此不复用正文保留期；默认一年，够覆盖一次审计周期。
     session_restore_audit_retention_days: int = 365
+    #: 会话置顶/取消置顶审计的保留天数（ADR-0083）。同样属于治理审计，按
+    #: `created_at` 独立清理；默认一年。
+    session_pin_audit_retention_days: int = 365
     #: 超过该时长没有任何事件的 running run 判定为进程中断（ADR-0017）。
     #: 必须明显大于单 run 时长上限（agent.state.RUN_TIMEOUT_S=120s），否则会误杀活着的 run。
     stale_run_min: int = 10
@@ -176,6 +179,8 @@ class Settings(BaseSettings):
             raise ValueError("ONCALL_RETENTION_MAX_BATCHES 必须 >= 1")
         if self.session_restore_audit_retention_days < 1:
             raise ValueError("ONCALL_SESSION_RESTORE_AUDIT_RETENTION_DAYS 必须 >= 1")
+        if self.session_pin_audit_retention_days < 1:
+            raise ValueError("ONCALL_SESSION_PIN_AUDIT_RETENTION_DAYS 必须 >= 1")
         return self
 
     @model_validator(mode="after")

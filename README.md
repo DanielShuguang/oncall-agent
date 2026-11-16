@@ -168,9 +168,9 @@ oncall/
 
 | 模块 | 状态 | 验证方式 |
 |---|---|---|
-| 文档（12 篇 + 82 篇 ADR + 评测基线） | ✅ 完成 | — |
+| 文档（12 篇 + 83 篇 ADR + 评测基线） | ✅ 完成 | — |
 | 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡 / 运行回放 / 成本页） | ✅ 可用 | `tsc --noEmit`、`oxlint 0`、`oxfmt --check` 通过；`vitest` 114/114；`pnpm build` 成功 |
-| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **511 passed + 40 skipped**；设 `ONCALL_TEST_DATABASE_URL`（指向一个可清空的库）后 **548 passed + 3 skipped**，再加 `ONCALL_TEST_REDIS_URL` 为 **551 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约与审批快照、引用快照与内容回收、个人预算与账本快照、工单自助查询、工单详情、会话列表/标题搜索/分页/重命名/移除/恢复/置顶、资产查询接表、运行过程回放与载荷上限、批量会话详情、工具配置变更历史、历史引用回填、已移除会话分页与搜索、已移除会话批量恢复、批量恢复逐条结果、会话恢复审计、会话恢复审计分页、恢复审计按 session 反查、恢复审计 CSV 导出、恢复审计列表总数、恢复审计统计、恢复审计统计按过滤、恢复审计按日期范围、审批积压与等待统计、审批统计分组、审批列表分页、已办审批按决议时间排序、已办审批筛选、审批列表导出 CSV、审批列表首屏总数、审批统计按小时分布、审批统计聚合导出、恢复审计统计导出、会话批量移除、会话置顶上限、置顶容量提示、置顶审计与分页、记住审计过滤与统计窗口、计量一致性） |
+| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **512 passed + 40 skipped**；设 `ONCALL_TEST_DATABASE_URL`（指向一个可清空的库）后 **549 passed + 3 skipped**，再加 `ONCALL_TEST_REDIS_URL` 为 **552 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约与审批快照、引用快照与内容回收、个人预算与账本快照、工单自助查询、工单详情、会话列表/标题搜索/分页/重命名/移除/恢复/置顶、资产查询接表、运行过程回放与载荷上限、批量会话详情、工具配置变更历史、历史引用回填、已移除会话分页与搜索、已移除会话批量恢复、批量恢复逐条结果、会话恢复审计、会话恢复审计分页、恢复审计按 session 反查、恢复审计 CSV 导出、恢复审计列表总数、恢复审计统计、恢复审计统计按过滤、恢复审计按日期范围、审批积压与等待统计、审批统计分组、审批列表分页、已办审批按决议时间排序、已办审批筛选、审批列表导出 CSV、审批列表首屏总数、审批统计按小时分布、审批统计聚合导出、恢复审计统计导出、会话批量移除、会话置顶上限、置顶容量提示、置顶审计与分页、置顶审计保留清理、记住审计过滤与统计窗口、计量一致性） |
 | 本地 JWT（W1 D2） | ✅ 已完成 | `tests/test_auth.py` 20 条：签发/验签、过期、alg=none、401 JSON、OpenAPI Bearer、run 归属隔离 |
 | 事件落库 + 断线续传（D4） | ✅ 已完成 | `alembic upgrade head` + `alembic check` 无漂移；`tests/test_store_contract.py`（内存 + Postgres 契约）、`tests/test_chat_stream.py`（落库、幂等回放、503 语义） |
 | 最小 Agent 运行时（W1 D5） | ✅ 已完成 | `tests/test_agent_runtime.py` 9 条：工具真实执行、检索引用、写操作挂起审批、工具失败降级、步数/时长上限 |
@@ -223,6 +223,7 @@ oncall/
 | 刷新恢复上次会话（W6 后补） | ✅ 已完成 | `localStorage` 键 `oncall.last-session.v1` 只存 session_id；首屏列表确认仍在当前用户第一页且未手选/未发送时恢复；竞态 ref 防迟到响应覆盖；新会话/隐藏当前会话清除；仅首屏 20 条、不跨设备、无后端/迁移；[ADR-0079](docs/decisions/0079-last-session-restore.md) |
 | 切换账号清理本地偏好（W6 后补） | ✅ 已完成 | TokenDialog 保存时解析 JWT `sub`（不验签），subject 变化（含从无 token 到有 subject）清空 `oncall.last-session.v1`、`oncall.audit-filters.v1`、`oncall.audit-date-preset.v1`；同 subject 续签保留偏好；token 字符串变化后整页刷新，其它标签页收到 `storage` 的 `oncall.token` 事件也刷新，避免旧账号页面数据残留；清空 token 不主动清，但之后即使同账号重登也会清一次；无后端/迁移；`web/src/api/tokenSubject.test.ts`、`web/src/lib/localPreferences.test.ts`；[ADR-0080](docs/decisions/0080-local-preferences-on-account-switch.md) |
 | 置顶审计与分页（W6 后补） | ✅ 已完成 | 旁挂 `session_pin_audits`（迁移 0022，无外键）：只记显式 `pin`/`unpin`，重复置顶/取消、隐藏导致置顶清理不写；审计与置顶行同事务；管理端 `GET /admin/session-pins` 按 `user_id`/`session_id`/`action` 过滤，`limit` 1–200 默认 50，按 `(created_at, id)` 倒序；keyset 游标 `{t,i,f?}`（`f` 为过滤条件指纹，不存原始 id）绑定过滤条件、取满才给 `next_cursor`、换过滤复用 400；不导出/无前端页面，未接 `RetentionSweeper`；`tests/test_admin_pins.py`、`test_store_contract.py`；[ADR-0081](docs/decisions/0081-session-pin-audit.md)、[ADR-0082](docs/decisions/0082-session-pin-audit-pagination.md) |
+| 置顶审计保留清理（W6 后补） | ✅ 已完成 | `ONCALL_SESSION_PIN_AUDIT_RETENTION_DAYS`（默认 365 天）独立于事件/正文/恢复审计；`RetentionSweeper` 按 `created_at` 分批删除，`RetentionResult`/`prune` CLI/日志增加计数，dry-run 只计数；无迁移（仍 0022）；`tests/test_retention.py`、`test_config.py`、`test_store_contract.py`；[ADR-0083](docs/decisions/0083-session-pin-audit-retention.md) |
 | 会话列表与历史会话继续（W6 后补） | ✅ 已完成 | 不建表，按 `runs.session_id` 投影（复用 `idx_runs_user_session_time`，无迁移）；`GET /sessions` 只读本人、标题取最早非空 `input`；左侧会话栏点开最近 20 条 run，拼只读 transcript（正文过期/引用回收/未结束/失败各有占位），继续对话沿用同一 `session_id`；`tests/test_sessions_api.py`、`test_store_contract.py`（`_exercise_sessions`）、`web/src/features/chat/history.test.ts`；[ADR-0030](docs/decisions/0030-session-list.md) |
 | 会话列表与历史轮次分页（W6 后补） | ✅ 已完成 | `/sessions` 用 `(updated_at, session_id)` keyset 游标（base64url JSON，非法 400 `INVALID_CURSOR`）；会话内用 `/runs` 已有游标翻更早轮次（`prependHistory`）；翻页期间新 run 可能造成重复/跳过，刷新即重置；无新表/索引/迁移；[ADR-0033](docs/decisions/0033-session-history-pagination.md) |
 | 会话列表按标题搜索（W6 后补） | ✅ 已完成 | `GET /sessions?q=`（1–100 字符，本人，大小写不敏感子串）只匹配投影标题（最早非空 `input`），不搜正文/工具结果/审批理由；与 keyset 分页共用游标；Postgres 用 `row_number()` 子查询 + `strpos(lower(...))`（`%`/`_` 按字面量，不是通配符）；无新表/索引/迁移；`tests/test_sessions_api.py`、`test_store_contract.py`；[ADR-0039](docs/decisions/0039-session-search.md) |
@@ -290,8 +291,10 @@ W6 基线（3 轮均值，mock 规则路径，口径见 [baseline-v1](docs/eval/
   不按账号分别保留；清空 token 后即使同账号重登也会清一次，同 subject 续签保留偏好但同样刷新
 - 置顶审计只记显式 `pin`/`unpin`，隐藏/恢复导致的置顶清理不写；已有
   `(created_at, id)` keyset 游标（绑定过滤条件），但不导出、无前端页面，审计随数据库保留、
-  未接 `RetentionSweeper`（[ADR-0081](docs/decisions/0081-session-pin-audit.md)、
-  [ADR-0082](docs/decisions/0082-session-pin-audit-pagination.md)）
+  由 `RetentionSweeper` 按 `ONCALL_SESSION_PIN_AUDIT_RETENTION_DAYS` 独立保留
+  365 天（[ADR-0081](docs/decisions/0081-session-pin-audit.md)、
+  [ADR-0082](docs/decisions/0082-session-pin-audit-pagination.md)、
+  [ADR-0083](docs/decisions/0083-session-pin-audit-retention.md)）
 - `web/Dockerfile` 的 Node 构建层在本机因 registry 拉取超时未跑完；运行态用本地 `pnpm build`
   + Nginx 镜像验证（SPA、SSE、审批链路均通），正式交付前需在同网络环境重跑 `make stack`
 - 默认 embedding 是确定性哈希，不是语义模型；生产建议切 `ONCALL_EMBEDDING_PROVIDER=http` 接 bge-m3

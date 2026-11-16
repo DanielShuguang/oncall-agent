@@ -476,7 +476,8 @@ Authorization: Bearer <admin-token>
   状态变化事务内写入
 - `user_id`/`session_id` 可选、1–64；`action` 只接受 `pin`/`unpin`；`limit`
   1–200 默认 50，按 `created_at DESC, id DESC` 返回
-- 只有显式状态变化才写：重复置顶、重复取消、隐藏/恢复导致的置顶清理都不产生审计
+- 只有显式状态变化才写：重复置顶、重复取消、隐藏/恢复导致的置顶清理都不产生审计；
+  Postgres 用 `DELETE ... RETURNING` 判断取消是否真的发生，并发取消也只写一条
 - 暂不分页、不导出、无前端页面；审计随数据库保留，未接入 `RetentionSweeper`
 - 数据库不可用返回 `503 {"code":"DATABASE_UNAVAILABLE"}`
 

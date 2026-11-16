@@ -32,7 +32,8 @@
    无法解释的取值。
 3. 只有**显式状态变化**才写审计：重复置顶、重复取消不写；隐藏/恢复会话导致的
    置顶清理不写。审计行与 `pinned_sessions` 的插入/删除在**同一事务**内完成，
-   不能置顶成功但审计丢失。
+   不能置顶成功但审计丢失。Postgres 取消置顶用 `DELETE ... RETURNING` 判断是否
+   真的删掉，两个并发取消也只写一条 `unpin`。
 4. 新增只读管理接口 `GET /admin/session-pins`，要求 `ONCALL_ADMIN_ROLES`；
    `user_id`/`session_id` 可选、1–64，`action` 只接受 `pin`/`unpin`，`limit`
    1–200 默认 50，按 `created_at DESC, id DESC` 返回。

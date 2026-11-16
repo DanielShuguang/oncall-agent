@@ -2052,19 +2052,17 @@ class PostgresRunStore:
                 session, user_id=user_id, session_id=session_id
             ):
                 return False
-            pinned = await session.scalar(
-                select(PinnedSessionRow.session_id).where(
+            # ADR-0081：用 DELETE ... RETURNING 判断状态是否真的变化。先 SELECT
+            # 再 DELETE 时两个并发取消都能看到同一行，会写出两条 unpin 审计。
+            deleted = await session.scalar(
+                delete(PinnedSessionRow)
+                .where(
                     PinnedSessionRow.user_id == user_id,
                     PinnedSessionRow.session_id == session_id,
                 )
+                .returning(PinnedSessionRow.session_id)
             )
-            if pinned is not None:
-                await session.execute(
-                    delete(PinnedSessionRow).where(
-                        PinnedSessionRow.user_id == user_id,
-                        PinnedSessionRow.session_id == session_id,
-                    )
-                )
+            if deleted is not None:
                 session.add(
                     SessionPinAuditRow(user_id=user_id, session_id=session_id, action="unpin")
                 )

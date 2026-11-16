@@ -107,7 +107,8 @@ class SessionPinAuditOut(BaseModel):
 
 class SessionPinAuditListResponse(BaseModel):
     items: list[SessionPinAuditOut]
-    """最近 N 条；审计量小，暂不分页。"""
+    next_cursor: str | None = None
+    """取满 `limit` 时给下一页游标（ADR-0082）；否则为 None。"""
 
 
 class SessionRestoreAuditDayOut(BaseModel):

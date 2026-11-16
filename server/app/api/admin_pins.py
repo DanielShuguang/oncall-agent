@@ -1,15 +1,21 @@
-"""会话置顶审计的只读管理接口（ADR-0081）。
+"""会话置顶审计的只读管理接口（ADR-0081/0082）。
 
 - 只读：置顶/取消置顶仍走 `POST/DELETE /sessions/{id}/pin`，审计由 store 在
   状态变化事务内写
 - 默认返回全部用户最近 50 条；`user_id`/`session_id`/`action` 可选过滤
-- 暂不分页；审计量小，先给有界最近 N 条
+- `(created_at, id)` 倒序 keyset 分页；游标绑定当前过滤条件，换过滤复用旧游标
+  返回 400，避免静默跳到另一组结果
 - 数据库不可用返回 503，不返回空列表冒充「没有置顶记录」
 """
 
 from __future__ import annotations
 
+import base64
+import binascii
+import json
+from datetime import datetime
 from typing import Annotated, Literal
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.exc import SQLAlchemyError
@@ -35,6 +41,67 @@ def _out(record: SessionPinAuditRecord) -> SessionPinAuditOut:
     )
 
 
+def _cursor_error() -> ApiError:
+    return ApiError(400, "INVALID_CURSOR", "cursor 无效，请从第一页重新拉取")
+
+
+def _encode_cursor(
+    record: SessionPinAuditRecord,
+    *,
+    user_id: str | None,
+    session_id: str | None,
+    action: str | None,
+) -> str:
+    payload: dict[str, str] = {
+        "t": record.created_at.isoformat(),
+        "i": record.audit_id,
+    }
+    if user_id is not None:
+        payload["u"] = user_id
+    if session_id is not None:
+        payload["s"] = session_id
+    if action is not None:
+        payload["a"] = action
+    raw = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
+    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+
+def _decode_cursor(
+    cursor: str,
+    *,
+    user_id: str | None,
+    session_id: str | None,
+    action: str | None,
+) -> tuple[datetime, str]:
+    try:
+        padded = cursor + "=" * (-len(cursor) % 4)
+        data = json.loads(base64.urlsafe_b64decode(padded.encode()))
+        if not isinstance(data, dict):
+            raise ValueError("cursor payload must be an object")
+        expected = {"t", "i"}
+        if user_id is not None:
+            expected.add("u")
+        if session_id is not None:
+            expected.add("s")
+        if action is not None:
+            expected.add("a")
+        if set(data) != expected:
+            raise ValueError("cursor filters do not match")
+        if user_id is not None and data.get("u") != user_id:
+            raise ValueError("cursor user_id does not match")
+        if session_id is not None and data.get("s") != session_id:
+            raise ValueError("cursor session_id does not match")
+        if action is not None and data.get("a") != action:
+            raise ValueError("cursor action does not match")
+        created_at = datetime.fromisoformat(str(data["t"]))
+        if created_at.tzinfo is None:
+            raise ValueError("cursor timestamp must be timezone-aware")
+        audit_id = str(UUID(str(data["i"])))
+    except (ValueError, TypeError, KeyError, binascii.Error, json.JSONDecodeError) as exc:
+        raise _cursor_error() from exc
+    return created_at, audit_id
+
+
 @router.get("", response_model=SessionPinAuditListResponse)
 async def list_session_pin_audits(
     store: Annotated[RunStore, Depends(get_store)],
@@ -42,17 +109,41 @@ async def list_session_pin_audits(
     user_id: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
     session_id: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
     action: Annotated[Literal["pin", "unpin"] | None, Query()] = None,
+    cursor: Annotated[str | None, Query(max_length=512)] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> SessionPinAuditListResponse:
-    """按 `created_at` 倒序返回置顶审计，可选用户/会话/动作过滤（ADR-0081）。"""
+    """按 `(created_at, id)` 倒序返回置顶审计，可选用户/会话/动作过滤（ADR-0081/0082）。"""
+    before = (
+        _decode_cursor(
+            cursor,
+            user_id=user_id,
+            session_id=session_id,
+            action=action,
+        )
+        if cursor is not None
+        else None
+    )
     try:
         records = await store.list_session_pin_audits(
             user_id=user_id,
             session_id=session_id,
             action=action,
+            before=before,
             limit=limit,
         )
     except SQLAlchemyError as exc:
         log.warning("session_pin_audit_read_failed", error=str(exc))
         raise ApiError(503, "DATABASE_UNAVAILABLE", "置顶审计暂不可用") from exc
-    return SessionPinAuditListResponse(items=[_out(record) for record in records])
+    return SessionPinAuditListResponse(
+        items=[_out(record) for record in records],
+        next_cursor=(
+            _encode_cursor(
+                records[-1],
+                user_id=user_id,
+                session_id=session_id,
+                action=action,
+            )
+            if len(records) == limit
+            else None
+        ),
+    )

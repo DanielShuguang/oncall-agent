@@ -1900,11 +1900,27 @@ ADR-0075 只记住日期预设。管理员按用户/会话排查后刷新页面�
 | 索引 | `(user_id, created_at DESC)`、`(session_id, created_at DESC)`、`(created_at)` |
 | 写入 | 只有状态真正变化才写；与 `pinned_sessions` 插入/删除同事务；失败回滚 |
 | 接口 | `GET /admin/session-pins`；`user_id`/`session_id` 1–64、`action` 必为 `pin`/`unpin`、`limit` 1–200 默认 50；按时间倒序 |
-| 范围 | 不分页、不导出、无前端页面、无总数；审计随库保留，未接 `RetentionSweeper` |
+| 范围 | 不导出、无前端页面、无总数；分页见 ADR-0082；审计随库保留，未接 `RetentionSweeper` |
 | 迁移 | `0022`；`upgrade → check → downgrade 0021 → upgrade` 往返 |
 | 验证 | 默认 510+40、PG 547+3、Redis 550；ruff 200 / mypy 116；前端未改 114/24 |
 
 详见 [ADR-0081](decisions/0081-session-pin-audit.md)。
+
+## W6 后补：置顶审计列表游标分页（ADR-0082）
+
+置顶审计只有 `limit`（最大 200），更早记录在管理端不可达；按 `(created_at, id)`
+倒序增加 keyset 游标，游标绑定 `user_id`/`session_id`/`action` 过滤条件。
+
+| 事项 | 落地 |
+|---|---|
+| 接口 | `GET /admin/session-pins` 增加 `cursor`（≤512）；`limit` 仍 1–200 默认 50；取满才给 `next_cursor` |
+| 游标 | base64url JSON `{t,i,u?,s?,a?}`；`t` 时间、`i` 审计 UUID；换过滤复用旧游标 400 `INVALID_CURSOR` |
+| 存储 | 内存/PG `list_session_pin_audits(before=(created_at, id))`；PG keyset `created_at < t OR (= AND id < i)` |
+| 索引 | 复用 ADR-0081 的 `(created_at)`、`(user_id, created_at DESC)`、`(session_id, created_at DESC)`；无迁移 |
+| 范围 | 不导出、无前端页面、无总数/跳页；无稳定快照，翻页期间新增可能重复/跳过 |
+| 验证 | 默认 511+40、PG 548+3、Redis 551；ruff 202 / mypy 116；前端未改 114/24 |
+
+详见 [ADR-0082](decisions/0082-session-pin-audit-pagination.md)。
 
 ---
 

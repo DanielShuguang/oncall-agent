@@ -26,6 +26,7 @@ from app.core.store import (
     PrunedEvents,
     RunNotFoundError,
     RunStore,
+    SessionPinAuditRecord,
 )
 from app.models import Base
 from app.schemas.event import EventType, RunStatus
@@ -656,6 +657,19 @@ async def _exercise_pinned_sessions(store: RunStore) -> None:
         )
     assert sum(result is True for result in results) == 2
     assert sum(isinstance(result, PinLimitExceeded) for result in results) == 1
+
+    # keyset 分页（ADR-0082）：按 (created_at, id) 倒序翻完，不重不漏
+    all_audits = await store.list_session_pin_audits(user_id=user, limit=100)
+    seen: list[SessionPinAuditRecord] = []
+    before: tuple[datetime, str] | None = None
+    for _ in range(20):
+        page = await store.list_session_pin_audits(user_id=user, before=before, limit=2)
+        if not page:
+            break
+        seen.extend(page)
+        before = (page[-1].created_at, page[-1].audit_id)
+    assert [record.audit_id for record in seen] == [record.audit_id for record in all_audits]
+    assert len({record.audit_id for record in seen}) == len(seen)
 
 
 async def _exercise_session_titles(store: RunStore) -> None:

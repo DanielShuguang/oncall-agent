@@ -77,6 +77,101 @@ async def test_list_session_pin_audits(client: AsyncClient, mem_store: InMemoryR
     assert len(limited.json()["items"]) == 1
 
 
+async def test_session_pin_audits_paginate(
+    client: AsyncClient, mem_store: InMemoryRunStore
+) -> None:
+    await _pin_once(mem_store, user_id="u_102", session_id="sess_a")
+    await asyncio.sleep(0.002)
+    await _pin_once(mem_store, user_id="u_103", session_id="sess_b")
+    await asyncio.sleep(0.002)
+    await _pin_once(mem_store, user_id="u_102", session_id="sess_c")
+
+    first = await client.get(
+        "/api/admin/session-pins",
+        headers=ADMIN,
+        params={"limit": 2},
+    )
+    assert first.status_code == 200
+    first_body = first.json()
+    assert len(first_body["items"]) == 2
+    assert first_body["next_cursor"]
+
+    second = await client.get(
+        "/api/admin/session-pins",
+        headers=ADMIN,
+        params={"limit": 2, "cursor": first_body["next_cursor"]},
+    )
+    assert second.status_code == 200
+    second_body = second.json()
+    assert len(second_body["items"]) == 1
+    assert second_body["next_cursor"] is None
+    first_ids = {item["id"] for item in first_body["items"]}
+    assert not first_ids & {item["id"] for item in second_body["items"]}
+
+    bad = await client.get(
+        "/api/admin/session-pins",
+        headers=ADMIN,
+        params={"cursor": "not-a-cursor"},
+    )
+    assert bad.status_code == 400
+    assert bad.json()["code"] == "INVALID_CURSOR"
+
+    filtered = await client.get(
+        "/api/admin/session-pins",
+        headers=ADMIN,
+        params={"user_id": "u_102", "limit": 1},
+    )
+    assert filtered.status_code == 200
+    filtered_cursor = filtered.json()["next_cursor"]
+    assert filtered_cursor
+    mismatch = await client.get(
+        "/api/admin/session-pins",
+        headers=ADMIN,
+        params={"limit": 1, "cursor": filtered_cursor},
+    )
+    assert mismatch.status_code == 400
+    assert mismatch.json()["code"] == "INVALID_CURSOR"
+    action_mismatch = await client.get(
+        "/api/admin/session-pins",
+        headers=ADMIN,
+        params={"user_id": "u_102", "action": "pin", "limit": 1, "cursor": filtered_cursor},
+    )
+    assert action_mismatch.status_code == 400
+    assert action_mismatch.json()["code"] == "INVALID_CURSOR"
+
+    by_session = await client.get(
+        "/api/admin/session-pins",
+        headers=ADMIN,
+        params={"session_id": "sess_a", "limit": 1},
+    )
+    session_cursor = by_session.json()["next_cursor"]
+    assert session_cursor
+    session_mismatch = await client.get(
+        "/api/admin/session-pins",
+        headers=ADMIN,
+        params={"session_id": "sess_b", "limit": 1, "cursor": session_cursor},
+    )
+    assert session_mismatch.status_code == 400
+    assert session_mismatch.json()["code"] == "INVALID_CURSOR"
+
+    # 恰好取满也仍给游标，下一页为空（ADR-0082 决策 5）
+    exact = await client.get(
+        "/api/admin/session-pins",
+        headers=ADMIN,
+        params={"limit": 3},
+    )
+    assert exact.status_code == 200
+    assert exact.json()["next_cursor"]
+    empty = await client.get(
+        "/api/admin/session-pins",
+        headers=ADMIN,
+        params={"limit": 3, "cursor": exact.json()["next_cursor"]},
+    )
+    assert empty.status_code == 200
+    assert empty.json()["items"] == []
+    assert empty.json()["next_cursor"] is None
+
+
 async def test_session_pin_audits_reject_bad_params(client: AsyncClient) -> None:
     for params in (
         {"user_id": ""},

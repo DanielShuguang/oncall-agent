@@ -44,7 +44,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | GET | `/admin/session-restores/stats` | 会话恢复审计统计（窗口内恢复次数/用户数/会话数/UTC 日趋势，可按用户/会话/日期范围过滤） | W6 后补 |
 | GET | `/admin/session-restores/stats/export` | 会话恢复审计统计 CSV 导出（与统计同参数/同窗口，长表） | W6 后补 |
 | GET | `/admin/session-restores/export` | 会话恢复审计 CSV 导出（按用户/会话/日期范围过滤，最多 5000 条） | W6 后补 |
-| GET | `/admin/session-pins` | 会话置顶审计（按用户/会话/动作过滤，最近在前，有界 200 条） | W6 后补 |
+| GET | `/admin/session-pins` | 会话置顶审计（按用户/会话/动作过滤，`(created_at, id)` 游标分页） | W6 后补 |
 | GET | `/sessions/{session_id}/runs` | 一页会话详情（正文/引用/运行过程，一次返回） | W6 后补 |
 | GET | `/runs/{run_id}` | 单次运行详情（含指标与模型调用明细） | W1 D4 / W4 D19 |
 | GET | `/runs/{run_id}/events?after_seq=` | 补拉事件（断线续传，兼容 `Last-Event-ID`） | W1 D4 |
@@ -451,7 +451,7 @@ Authorization: Bearer <token>
 - 库不可用时返回 `503 {"code":"DATABASE_UNAVAILABLE"}`；旧后端没有置顶接口时，
   新前端按 `pinned` 字段缺失隐藏按钮
 
-### 3.3.2 置顶审计（管理员，ADR-0081）
+### 3.3.2 置顶审计（管理员，ADR-0081/0082）
 
 ```http
 GET /api/admin/session-pins?user_id=u_102&session_id=sess_a&action=pin&limit=50
@@ -468,7 +468,8 @@ Authorization: Bearer <admin-token>
       "action": "pin",
       "created_at": "2026-11-16T12:00:00+00:00"
     }
-  ]
+  ],
+  "next_cursor": null
 }
 ```
 
@@ -478,7 +479,10 @@ Authorization: Bearer <admin-token>
   1–200 默认 50，按 `created_at DESC, id DESC` 返回
 - 只有显式状态变化才写：重复置顶、重复取消、隐藏/恢复导致的置顶清理都不产生审计；
   Postgres 用 `DELETE ... RETURNING` 判断取消是否真的发生，并发取消也只写一条
-- 暂不分页、不导出、无前端页面；审计随数据库保留，未接入 `RetentionSweeper`
+- 游标分页：`(created_at, id)` 倒序 keyset；游标最长为 512，base64url JSON
+  `{t,i,u?,s?,a?}` 只包含本次过滤条件，换 `user_id`/`session_id`/`action`
+  复用旧游标返回 `400 INVALID_CURSOR`；取满 `limit` 才给 `next_cursor`
+- 已支持分页；不导出、无前端页面；审计随数据库保留，未接入 `RetentionSweeper`
 - 数据库不可用返回 `503 {"code":"DATABASE_UNAVAILABLE"}`
 
 ### 3.4 一页会话详情（ADR-0036）

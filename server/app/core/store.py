@@ -601,12 +601,14 @@ class RunStore(Protocol):
         user_id: str | None = None,
         session_id: str | None = None,
         action: str | None = None,
+        before: tuple[datetime, str] | None = None,
         limit: int = 50,
     ) -> list[SessionPinAuditRecord]:
-        """按 `created_at` 倒序列出显式置顶/取消置顶审计（ADR-0081）。
+        """按 `(created_at, id)` 倒序列出显式置顶/取消置顶审计（ADR-0081/0082）。
 
-        `action` 只接受 `pin`/`unpin`。这里刻意不做分页：审计量小，管理端先给
-        有界最近 N 条；分页、时间范围与保留清理都留作后续 ADR。
+        `action` 只接受 `pin`/`unpin`。`before` 是 keyset 游标
+        `(created_at, audit_id)`，只返回严格更小的记录；时间范围与保留清理
+        仍留作后续 ADR。
         """
         ...
 
@@ -1185,6 +1187,7 @@ class InMemoryRunStore:
         user_id: str | None = None,
         session_id: str | None = None,
         action: str | None = None,
+        before: tuple[datetime, str] | None = None,
         limit: int = 50,
     ) -> list[SessionPinAuditRecord]:
         async with self._lock:
@@ -1194,6 +1197,7 @@ class InMemoryRunStore:
                 if (user_id is None or record.user_id == user_id)
                 and (session_id is None or record.session_id == session_id)
                 and (action is None or record.action == action)
+                and (before is None or (record.created_at, record.audit_id) < before)
             ]
             records.sort(key=lambda record: (record.created_at, record.audit_id), reverse=True)
             return records[:limit]
@@ -2084,6 +2088,7 @@ class PostgresRunStore:
         user_id: str | None = None,
         session_id: str | None = None,
         action: str | None = None,
+        before: tuple[datetime, str] | None = None,
         limit: int = 50,
     ) -> list[SessionPinAuditRecord]:
         stmt = select(SessionPinAuditRow)
@@ -2093,6 +2098,17 @@ class PostgresRunStore:
             stmt = stmt.where(SessionPinAuditRow.session_id == session_id)
         if action is not None:
             stmt = stmt.where(SessionPinAuditRow.action == action)
+        if before is not None:
+            before_at, before_id = before
+            stmt = stmt.where(
+                or_(
+                    SessionPinAuditRow.created_at < before_at,
+                    and_(
+                        SessionPinAuditRow.created_at == before_at,
+                        SessionPinAuditRow.id < uuid.UUID(before_id),
+                    ),
+                )
+            )
         stmt = stmt.order_by(
             SessionPinAuditRow.created_at.desc(), SessionPinAuditRow.id.desc()
         ).limit(limit)

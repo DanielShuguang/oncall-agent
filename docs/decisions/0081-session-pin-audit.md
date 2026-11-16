@@ -68,7 +68,8 @@
 
 ## 6. 待定
 
-- CSV 导出已由 [ADR-0084](0084-session-pin-audit-export.md) 补上；前端管理页与按日统计仍未做；
+- CSV 导出已由 [ADR-0084](0084-session-pin-audit-export.md) 补上，前端管理页已由
+  [ADR-0085](0085-session-pin-audit-console.md) 补上；按日统计仍未做；
   分页已由 [ADR-0082](0082-session-pin-audit-pagination.md) 补上；
 - 独立保留期与 `RetentionSweeper`/`prune` 接入；已由 [ADR-0083](0083-session-pin-audit-retention.md) 补上，默认 365 天；
 - 防篡改（链式哈希/外部归档）与审计访问日志；

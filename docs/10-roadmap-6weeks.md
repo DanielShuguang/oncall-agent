@@ -1950,10 +1950,27 @@ ADR-0075 只记住日期预设。管理员按用户/会话排查后刷新页面�
 | CSV | `audit_id,user_id,session_id,action,created_at`；BOM + CRLF、ISO 时间、公式注入前置单引号 |
 | 响应 | `X-Export-Count`、`X-Export-Truncated`、`Cache-Control: no-store`；文件名带 UTC 时间 |
 | 复用 | `app/core/csv.py` 的 `csv_document`；无迁移、无新索引 |
-| 范围 | 同步、5000 行硬上限、不返回部分 CSV；无异步/前端/下载审计/日期范围 |
+| 范围 | 同步、5000 行硬上限、不返回部分 CSV；无异步/下载审计/日期范围；前端页见 ADR-0085 |
 | 验证 | 默认 514+40、PG 551+3、Redis 554；ruff 200 / mypy 116；前端未改 114/24 |
 
 详见 [ADR-0084](decisions/0084-session-pin-audit-export.md)。
+
+## W6 后补：置顶审计管理页（ADR-0085）
+
+置顶审计已有列表、分页、保留清理与 CSV 导出，但只有管理员 HTTP 接口；交接/排障需要
+手工拼 `curl` 和游标。新增 ConsolePage「置顶审计」只读页，复用现有接口，不新增后端。
+
+| 事项 | 落地 |
+|---|---|
+| 入口 | ConsolePage 新增「置顶审计」Tab，路由 `/console/pins` |
+| 过滤 | `user_id`/`session_id` 精确匹配（1–64），`action` 为 `pin`/`unpin`；空值不下发 |
+| 列表 | 每页 20 条，按 `(created_at, id)` 倒序 keyset；`next_cursor` 时显示「加载更多」，无总数/页码 |
+| 表格 | 时间、用户、会话、动作；动作显示置顶/取消置顶，不展示正文 |
+| 状态 | 应用/清除过滤立即清旧行与游标、失效在途列表/导出；导出只读已应用过滤；空态/错误/重试 |
+| 范围 | 只读；无按日统计、总数、编辑/删除、会话详情跳转、下载审计；无迁移 |
+| 验证 | tsc、117/25、oxlint 0/0（88 files/231 rules）、oxfmt 96 files、build 2900 modules/527ms；后端未改 514+40 / 551+3 / 554、ruff 200 / mypy 116 |
+
+详见 [ADR-0085](decisions/0085-session-pin-audit-console.md)。
 
 ---
 

@@ -11,6 +11,7 @@ const PAGES: Record<string, { component: LazyExoticComponent<ComponentType>; loa
   approvals: { component: lazy(() => import('./ApprovalsPage')), loading: '加载审批中心…' },
   cost: { component: lazy(() => import('./CostPage')), loading: '加载成本页…' },
   audits: { component: lazy(() => import('./AuditPage')), loading: '加载恢复审计…' },
+  pins: { component: lazy(() => import('./PinAuditPage')), loading: '加载置顶审计…' },
 };
 
 const PANELS = [
@@ -38,6 +39,12 @@ const PANELS = [
     key: 'audits',
     label: '审计',
     title: '会话恢复审计（按用户 / 会话过滤、游标翻页、CSV 导出）',
+    milestone: 'W6 后补',
+  },
+  {
+    key: 'pins',
+    label: '置顶审计',
+    title: '会话置顶审计（按用户 / 会话 / 动作过滤、游标翻页、CSV 导出）',
     milestone: 'W6 后补',
   },
 ];

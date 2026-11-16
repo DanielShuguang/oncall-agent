@@ -63,5 +63,6 @@ ADR-0081 新增了只读接口 `GET /admin/session-pins`，按 `(created_at, id)
 ## 待定
 
 - 审计保留期与 `RetentionSweeper` 接入。
-- 导出 CSV、前端管理页、总数/跳页。
+- 导出 CSV 已由 [ADR-0084](0084-session-pin-audit-export.md) 补上，前端管理页已由
+  [ADR-0085](0085-session-pin-audit-console.md) 补上；总数/跳页仍未做。
 - 审计量变大后的 `(created_at, id)` 复合索引与查询计划。

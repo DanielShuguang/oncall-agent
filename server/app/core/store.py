@@ -601,12 +601,15 @@ class RunStore(Protocol):
         user_id: str | None = None,
         session_id: str | None = None,
         action: str | None = None,
+        created_after: datetime | None = None,
+        created_before: datetime | None = None,
         before: tuple[datetime, str] | None = None,
         limit: int = 50,
     ) -> list[SessionPinAuditRecord]:
-        """按 `(created_at, id)` 倒序列出显式置顶/取消置顶审计（ADR-0081/0082）。
+        """按 `(created_at, id)` 倒序列出显式置顶/取消置顶审计（ADR-0081/0082/0086）。
 
-        `action` 只接受 `pin`/`unpin`。`before` 是 keyset 游标
+        `action` 只接受 `pin`/`unpin`。`created_after`/`created_before` 是半开时间窗
+        `[created_after, created_before)`（ADR-0086）；`before` 是 keyset 游标
         `(created_at, audit_id)`，只返回严格更小的记录；保留清理见 ADR-0083。
         """
         ...
@@ -1195,6 +1198,8 @@ class InMemoryRunStore:
         user_id: str | None = None,
         session_id: str | None = None,
         action: str | None = None,
+        created_after: datetime | None = None,
+        created_before: datetime | None = None,
         before: tuple[datetime, str] | None = None,
         limit: int = 50,
     ) -> list[SessionPinAuditRecord]:
@@ -1205,6 +1210,8 @@ class InMemoryRunStore:
                 if (user_id is None or record.user_id == user_id)
                 and (session_id is None or record.session_id == session_id)
                 and (action is None or record.action == action)
+                and (created_after is None or record.created_at >= created_after)
+                and (created_before is None or record.created_at < created_before)
                 and (before is None or (record.created_at, record.audit_id) < before)
             ]
             records.sort(key=lambda record: (record.created_at, record.audit_id), reverse=True)
@@ -2116,6 +2123,8 @@ class PostgresRunStore:
         user_id: str | None = None,
         session_id: str | None = None,
         action: str | None = None,
+        created_after: datetime | None = None,
+        created_before: datetime | None = None,
         before: tuple[datetime, str] | None = None,
         limit: int = 50,
     ) -> list[SessionPinAuditRecord]:
@@ -2126,6 +2135,10 @@ class PostgresRunStore:
             stmt = stmt.where(SessionPinAuditRow.session_id == session_id)
         if action is not None:
             stmt = stmt.where(SessionPinAuditRow.action == action)
+        if created_after is not None:
+            stmt = stmt.where(SessionPinAuditRow.created_at >= created_after)
+        if created_before is not None:
+            stmt = stmt.where(SessionPinAuditRow.created_at < created_before)
         if before is not None:
             before_at, before_id = before
             stmt = stmt.where(

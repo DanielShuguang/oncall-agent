@@ -44,6 +44,9 @@ export default function PinAuditPage() {
   const [filterUserId, setFilterUserId] = useState('');
   const [filterSessionId, setFilterSessionId] = useState('');
   const [filterAction, setFilterAction] = useState<ActionFilter>('all');
+  const [filterFrom, setFilterFrom] = useState('');
+  const [filterTo, setFilterTo] = useState('');
+  const [filterError, setFilterError] = useState<string | null>(null);
   const [items, setItems] = useState<SessionPinAudit[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -53,7 +56,9 @@ export default function PinAuditPage() {
   const [exportMessage, setExportMessage] = useState<{ text: string; failed: boolean } | null>(
     null,
   );
-  const hasActiveFilters = Boolean(filters.userId || filters.sessionId || filters.action);
+  const hasActiveFilters = Boolean(
+    filters.userId || filters.sessionId || filters.action || filters.createdFrom,
+  );
   // 切换过滤后，旧列表/旧导出都不能再覆盖新结果。
   const listRequest = useRef(0);
   const exportRequest = useRef(0);
@@ -111,6 +116,27 @@ export default function PinAuditPage() {
   const applyFilters = () => {
     const userId = filterUserId.trim();
     const sessionId = filterSessionId.trim();
+    if (Boolean(filterFrom) !== Boolean(filterTo)) {
+      setFilterError('日期范围需要同时填写开始和结束日期。');
+      return;
+    }
+    if (filterFrom && filterTo) {
+      const from = Date.parse(filterFrom);
+      const to = Date.parse(filterTo);
+      if (Number.isNaN(from) || Number.isNaN(to)) {
+        setFilterError('日期格式不正确。');
+        return;
+      }
+      if (from > to) {
+        setFilterError('开始日期不能晚于结束日期。');
+        return;
+      }
+      if ((to - from) / 86_400_000 + 1 > 365) {
+        setFilterError('日期范围最多 365 天。');
+        return;
+      }
+    }
+    setFilterError(null);
     // 立即清空旧行，避免 setFilters 生效前的一帧仍显示旧过滤结果。
     listRequest.current += 1;
     setItems([]);
@@ -125,6 +151,7 @@ export default function PinAuditPage() {
       ...(userId ? { userId } : {}),
       ...(sessionId ? { sessionId } : {}),
       ...(filterAction === 'all' ? {} : { action: filterAction }),
+      ...(filterFrom && filterTo ? { createdFrom: filterFrom, createdTo: filterTo } : {}),
     });
   };
 
@@ -132,6 +159,9 @@ export default function PinAuditPage() {
     setFilterUserId('');
     setFilterSessionId('');
     setFilterAction('all');
+    setFilterFrom('');
+    setFilterTo('');
+    setFilterError(null);
     listRequest.current += 1;
     setItems([]);
     setCursor(null);
@@ -182,6 +212,7 @@ export default function PinAuditPage() {
           size="sm"
           className="h-8 text-xs"
           disabled={exporting}
+          title="按下方已应用的筛选导出"
           onClick={() => void exportCsv()}
         >
           {exporting ? '导出中…' : '导出 CSV'}
@@ -235,6 +266,26 @@ export default function PinAuditPage() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="space-y-1">
+              <div className="text-[11px] text-muted-foreground">开始（UTC）</div>
+              <Input
+                aria-label="置顶审计开始日期"
+                className="h-8 w-36 text-xs"
+                type="date"
+                value={filterFrom}
+                onChange={(event) => setFilterFrom(event.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <div className="text-[11px] text-muted-foreground">结束（UTC）</div>
+              <Input
+                aria-label="置顶审计结束日期"
+                className="h-8 w-36 text-xs"
+                type="date"
+                value={filterTo}
+                onChange={(event) => setFilterTo(event.target.value)}
+              />
+            </div>
             <Button size="sm" className="h-8 text-xs" onClick={applyFilters}>
               筛选
             </Button>
@@ -242,8 +293,10 @@ export default function PinAuditPage() {
               清除
             </Button>
           </div>
+          {filterError && <p className="mt-2 text-[11px] text-danger">{filterError}</p>}
           <p className="mt-2 text-[11px] text-muted-foreground">
-            用户与会话均为精确匹配；重置或续签不产生审计，审计只属于显式置顶/取消置顶。
+            用户与会话均为精确匹配；日期为 UTC 自然日闭区间，两端需同时填写且最多 365
+            天；重置或续签不产生审计，审计只属于显式置顶/取消置顶。
           </p>
         </CardContent>
       </Card>

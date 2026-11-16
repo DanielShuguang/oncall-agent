@@ -671,6 +671,23 @@ async def _exercise_pinned_sessions(store: RunStore) -> None:
     assert [record.audit_id for record in seen] == [record.audit_id for record in all_audits]
     assert len({record.audit_id for record in seen}) == len(seen)
 
+    # 创建时间窗（ADR-0086）：半开区间 [after, before)
+    now = datetime.now(UTC)
+    recent = await store.list_session_pin_audits(
+        user_id=user,
+        created_after=now - timedelta(minutes=5),
+        created_before=now + timedelta(minutes=5),
+        limit=100,
+    )
+    assert len(recent) == len(all_audits)
+    assert (
+        await store.list_session_pin_audits(
+            user_id=user,
+            created_before=now - timedelta(minutes=5),
+        )
+        == []
+    )
+
     # 保留清理（ADR-0083）：dry-run 只数候选，实跑按阈值删一批
     total_audits = await store.list_session_pin_audits(limit=200)
     assert len(total_audits) >= 5

@@ -1,4 +1,4 @@
-/** 置顶审计接口：契约见 docs/03 §3.3.2（ADR-0081/0082/0084）。 */
+/** 置顶审计接口：契约见 docs/03 §3.3.2（ADR-0081/0082/0084/0086）。 */
 
 import { getFile, getJson } from './client';
 
@@ -22,6 +22,9 @@ export interface SessionPinAuditFilters {
   userId?: string;
   sessionId?: string;
   action?: SessionPinAction;
+  /** UTC 自然日闭区间；两端同时提供（ADR-0086）。 */
+  createdFrom?: string;
+  createdTo?: string;
 }
 
 export interface SessionPinAuditExport {
@@ -35,6 +38,10 @@ function applyFilters(params: URLSearchParams, filters: SessionPinAuditFilters):
   if (filters.userId) params.set('user_id', filters.userId);
   if (filters.sessionId) params.set('session_id', filters.sessionId);
   if (filters.action) params.set('action', filters.action);
+  if (filters.createdFrom && filters.createdTo) {
+    params.set('created_from', filters.createdFrom);
+    params.set('created_to', filters.createdTo);
+  }
 }
 
 export function listSessionPinAudits(

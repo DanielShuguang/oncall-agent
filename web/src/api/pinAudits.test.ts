@@ -13,11 +13,20 @@ describe('listSessionPinAudits', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    await listSessionPinAudits({ userId: 'u_102', sessionId: 'sess a', action: 'unpin' }, 'cur-1');
+    await listSessionPinAudits(
+      {
+        userId: 'u_102',
+        sessionId: 'sess a',
+        action: 'unpin',
+        createdFrom: '2026-11-01',
+        createdTo: '2026-11-16',
+      },
+      'cur-1',
+    );
     await listSessionPinAudits();
 
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
-      '/api/admin/session-pins?limit=20&cursor=cur-1&user_id=u_102&session_id=sess+a&action=unpin',
+      '/api/admin/session-pins?limit=20&cursor=cur-1&user_id=u_102&session_id=sess+a&action=unpin&created_from=2026-11-01&created_to=2026-11-16',
     );
     expect(fetchMock.mock.calls[1]?.[0]).toBe('/api/admin/session-pins?limit=20');
   });
@@ -40,6 +49,27 @@ describe('exportSessionPinAuditsCsv', () => {
     expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/admin/session-pins/export?action=pin');
     expect(result.count).toBe(2);
     expect(result.truncated).toBe(true);
+  });
+
+  it('按日期范围导出', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    fetchMock.mockImplementation(
+      async () =>
+        new Response(new Blob(['csv']), {
+          status: 200,
+          headers: { 'X-Export-Count': '1', 'X-Export-Truncated': 'false' },
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await exportSessionPinAuditsCsv({
+      createdFrom: '2026-11-01',
+      createdTo: '2026-11-16',
+    });
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      '/api/admin/session-pins/export?created_from=2026-11-01&created_to=2026-11-16',
+    );
   });
 
   it('无过滤导出不带查询串', async () => {

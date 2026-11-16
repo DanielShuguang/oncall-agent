@@ -6,6 +6,7 @@ import asyncio
 import csv
 import io
 import uuid
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock
 
 from httpx import AsyncClient
@@ -203,6 +204,119 @@ async def test_session_pin_audits_paginate(
     assert {item["id"] for item in long_first.json()["items"]} & {
         item["id"] for item in long_second.json()["items"]
     } == set()
+
+
+async def test_session_pin_audit_date_range(
+    client: AsyncClient, mem_store: InMemoryRunStore
+) -> None:
+    await _pin_once(mem_store, user_id="u_102", session_id="sess_a")
+    await asyncio.sleep(0.002)
+    assert await mem_store.unpin_session(user_id="u_102", session_id="sess_a") is True
+
+    today = datetime.now(UTC).date()
+    tomorrow = today + timedelta(days=1)
+    yesterday = today - timedelta(days=1)
+
+    by_today = await client.get(
+        "/api/admin/session-pins",
+        headers=ADMIN,
+        params={
+            "created_from": today.isoformat(),
+            "created_to": today.isoformat(),
+        },
+    )
+    assert by_today.status_code == 200
+    assert len(by_today.json()["items"]) == 2
+
+    by_tomorrow = await client.get(
+        "/api/admin/session-pins",
+        headers=ADMIN,
+        params={
+            "created_from": tomorrow.isoformat(),
+            "created_to": tomorrow.isoformat(),
+        },
+    )
+    assert by_tomorrow.status_code == 200
+    assert by_tomorrow.json()["items"] == []
+
+    across_days = await client.get(
+        "/api/admin/session-pins",
+        headers=ADMIN,
+        params={
+            "created_from": yesterday.isoformat(),
+            "created_to": today.isoformat(),
+        },
+    )
+    assert across_days.status_code == 200
+    assert len(across_days.json()["items"]) == 2
+
+    first = await client.get(
+        "/api/admin/session-pins",
+        headers=ADMIN,
+        params={
+            "created_from": today.isoformat(),
+            "created_to": today.isoformat(),
+            "limit": 1,
+        },
+    )
+    assert first.status_code == 200
+    cursor = first.json()["next_cursor"]
+    assert cursor
+    mismatched = await client.get(
+        "/api/admin/session-pins",
+        headers=ADMIN,
+        params={
+            "created_from": tomorrow.isoformat(),
+            "created_to": tomorrow.isoformat(),
+            "cursor": cursor,
+        },
+    )
+    assert mismatched.status_code == 400
+    assert mismatched.json()["code"] == "INVALID_CURSOR"
+
+    for params in (
+        {"created_from": today.isoformat()},
+        {
+            "created_from": tomorrow.isoformat(),
+            "created_to": today.isoformat(),
+        },
+        {
+            "created_from": (today - timedelta(days=365)).isoformat(),
+            "created_to": today.isoformat(),
+        },
+        {"created_from": "9999-12-31", "created_to": "9999-12-31"},
+    ):
+        res = await client.get("/api/admin/session-pins", headers=ADMIN, params=params)
+        assert res.status_code == 422, params
+        assert res.json()["code"] == "INVALID_RANGE"
+
+    exported = await client.get(
+        "/api/admin/session-pins/export",
+        headers=ADMIN,
+        params={
+            "created_from": today.isoformat(),
+            "created_to": today.isoformat(),
+        },
+    )
+    assert exported.status_code == 200
+    assert exported.headers["x-export-count"] == "2"
+    empty = await client.get(
+        "/api/admin/session-pins/export",
+        headers=ADMIN,
+        params={
+            "created_from": tomorrow.isoformat(),
+            "created_to": tomorrow.isoformat(),
+        },
+    )
+    assert empty.status_code == 200
+    assert empty.headers["x-export-count"] == "0"
+    bad_export = await client.get(
+        "/api/admin/session-pins/export",
+        headers=ADMIN,
+        params={"created_from": today.isoformat()},
+    )
+    assert bad_export.status_code == 422
+    assert bad_export.json()["code"] == "INVALID_RANGE"
 
 
 async def test_export_session_pin_audits_csv(

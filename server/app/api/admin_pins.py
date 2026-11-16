@@ -14,7 +14,7 @@ import base64
 import binascii
 import hashlib
 import json
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -33,7 +33,32 @@ router = APIRouter(prefix="/admin/session-pins", tags=["admin-session-pins"])
 log = get_logger(__name__)
 
 MAX_EXPORT_ROWS = 5000
+MAX_AUDIT_RANGE_DAYS = 365
 CSV_HEADERS = ("audit_id", "user_id", "session_id", "action", "created_at")
+
+
+def _created_window(
+    created_from: date | None,
+    created_to: date | None,
+) -> tuple[datetime, datetime, str] | None:
+    """把 UTC 自然日闭区间转成半开窗口，并校验两端/顺序/跨度（ADR-0086）。"""
+    if created_from is None and created_to is None:
+        return None
+    if created_from is None or created_to is None:
+        raise ApiError(422, "INVALID_RANGE", "created_from 与 created_to 需要同时提供")
+    if created_to < created_from:
+        raise ApiError(422, "INVALID_RANGE", "created_from 不能晚于 created_to")
+    if created_to == date.max:
+        raise ApiError(422, "INVALID_RANGE", "created_to 超出可查询范围")
+    if (created_to - created_from).days + 1 > MAX_AUDIT_RANGE_DAYS:
+        raise ApiError(
+            422,
+            "INVALID_RANGE",
+            f"查询范围最多 {MAX_AUDIT_RANGE_DAYS} 天",
+        )
+    after = datetime.combine(created_from, time.min, tzinfo=UTC)
+    before = datetime.combine(created_to + timedelta(days=1), time.min, tzinfo=UTC)
+    return after, before, f"{created_from.isoformat()}:{created_to.isoformat()}"
 
 
 def _audits_csv(records: list[SessionPinAuditRecord]) -> str:
@@ -71,16 +96,20 @@ def _filter_fingerprint(
     user_id: str | None,
     session_id: str | None,
     action: str | None,
+    created_range: str | None,
 ) -> str | None:
     """把过滤条件压成短指纹，避免把原始 id 塞进游标。"""
-    if user_id is None and session_id is None and action is None:
+    if user_id is None and session_id is None and action is None and created_range is None:
         return None
-    payload = json.dumps(
-        {"u": user_id, "s": session_id, "a": action},
-        separators=(",", ":"),
-        sort_keys=True,
-    ).encode()
-    return hashlib.sha256(payload).hexdigest()[:16]
+    payload: dict[str, str | None] = {
+        "u": user_id,
+        "s": session_id,
+        "a": action,
+    }
+    if created_range is not None:
+        payload["d"] = created_range
+    raw = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
+    return hashlib.sha256(raw).hexdigest()[:16]
 
 
 def _encode_cursor(
@@ -131,13 +160,18 @@ async def export_session_pin_audits(
     user_id: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
     session_id: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
     action: Annotated[Literal["pin", "unpin"] | None, Query()] = None,
+    created_from: Annotated[date | None, Query()] = None,
+    created_to: Annotated[date | None, Query()] = None,
 ) -> Response:
-    """导出置顶审计 CSV；过滤口径与列表一致，最多 5000 行（ADR-0084）。"""
+    """导出置顶审计 CSV；过滤口径与列表一致，最多 5000 行（ADR-0084/0086）。"""
+    window = _created_window(created_from, created_to)
     try:
         records = await store.list_session_pin_audits(
             user_id=user_id,
             session_id=session_id,
             action=action,
+            created_after=window[0] if window else None,
+            created_before=window[1] if window else None,
             limit=MAX_EXPORT_ROWS + 1,
         )
     except SQLAlchemyError as exc:
@@ -165,14 +199,21 @@ async def list_session_pin_audits(
     user_id: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
     session_id: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
     action: Annotated[Literal["pin", "unpin"] | None, Query()] = None,
+    created_from: Annotated[date | None, Query()] = None,
+    created_to: Annotated[date | None, Query()] = None,
     cursor: Annotated[str | None, Query(max_length=512)] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> SessionPinAuditListResponse:
-    """按 `(created_at, id)` 倒序返回置顶审计，可选用户/会话/动作过滤（ADR-0081/0082）。"""
+    """按 `(created_at, id)` 倒序返回置顶审计，可选用户/会话/动作/日期过滤。
+
+    ADR-0081/0082/0086。
+    """
+    window = _created_window(created_from, created_to)
     fingerprint = _filter_fingerprint(
         user_id=user_id,
         session_id=session_id,
         action=action,
+        created_range=window[2] if window else None,
     )
     before = (
         _decode_cursor(
@@ -187,6 +228,8 @@ async def list_session_pin_audits(
             user_id=user_id,
             session_id=session_id,
             action=action,
+            created_after=window[0] if window else None,
+            created_before=window[1] if window else None,
             before=before,
             limit=limit,
         )

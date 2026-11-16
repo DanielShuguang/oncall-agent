@@ -44,7 +44,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | GET | `/admin/session-restores/stats` | 会话恢复审计统计（窗口内恢复次数/用户数/会话数/UTC 日趋势，可按用户/会话/日期范围过滤） | W6 后补 |
 | GET | `/admin/session-restores/stats/export` | 会话恢复审计统计 CSV 导出（与统计同参数/同窗口，长表） | W6 后补 |
 | GET | `/admin/session-restores/export` | 会话恢复审计 CSV 导出（按用户/会话/日期范围过滤，最多 5000 条） | W6 后补 |
-| GET | `/admin/session-pins` | 会话置顶审计（按用户/会话/动作过滤，`(created_at, id)` 游标分页） | W6 后补 |
+| GET | `/admin/session-pins` | 会话置顶审计（按用户/会话/动作/日期过滤，`(created_at, id)` 游标分页） | W6 后补 |
 | GET | `/admin/session-pins/export` | 会话置顶审计 CSV 导出（同一组过滤，最多 5000 条） | W6 后补 |
 | GET | `/sessions/{session_id}/runs` | 一页会话详情（正文/引用/运行过程，一次返回） | W6 后补 |
 | GET | `/runs/{run_id}` | 单次运行详情（含指标与模型调用明细） | W1 D4 / W4 D19 |
@@ -452,10 +452,10 @@ Authorization: Bearer <token>
 - 库不可用时返回 `503 {"code":"DATABASE_UNAVAILABLE"}`；旧后端没有置顶接口时，
   新前端按 `pinned` 字段缺失隐藏按钮
 
-### 3.3.2 置顶审计（管理员，ADR-0081/0082/0084）
+### 3.3.2 置顶审计（管理员，ADR-0081/0082/0084/0086）
 
 ```http
-GET /api/admin/session-pins?user_id=u_102&session_id=sess_a&action=pin&limit=50
+GET /api/admin/session-pins?user_id=u_102&session_id=sess_a&action=pin&created_from=2026-11-01&created_to=2026-11-16&limit=50
 Authorization: Bearer <admin-token>
 ```
 
@@ -476,26 +476,29 @@ Authorization: Bearer <admin-token>
 
 - 只读，要求 `ONCALL_ADMIN_ROLES`；审计由 `POST/DELETE /sessions/{id}/pin` 在
   状态变化事务内写入
-- `user_id`/`session_id` 可选、1–64；`action` 只接受 `pin`/`unpin`；`limit`
-  1–200 默认 50，按 `created_at DESC, id DESC` 返回
+- `user_id`/`session_id` 可选、1–64；`action` 只接受 `pin`/`unpin`；`created_from`/
+  `created_to` 是 UTC 自然日闭区间（`YYYY-MM-DD`），必须同时提供、`from <= to`、
+  最多 365 天，否则 `422 INVALID_RANGE`；`limit` 1–200 默认 50，按
+  `created_at DESC, id DESC` 返回。内部窗口为 `[from 00:00Z, to 次日 00:00Z)`
 - 只有显式状态变化才写：重复置顶、重复取消、隐藏/恢复导致的置顶清理都不产生审计；
   Postgres 用 `DELETE ... RETURNING` 判断取消是否真的发生，并发取消也只写一条
 - 游标分页：`(created_at, id)` 倒序 keyset；游标最长为 512，base64url JSON
   `{t,i,f?}`：`t` 时间、`i` 审计 UUID；带过滤时 `f` 是
-  `{u,s,a}` canonical JSON 的 SHA-256 前 16 hex，不包含原始 id。换
-  `user_id`/`session_id`/`action` 复用旧游标返回 `400 INVALID_CURSOR`；
+  `{u,s,a,d?}` canonical JSON 的 SHA-256 前 16 hex，不包含原始 id 或日期。换
+  `user_id`/`session_id`/`action`/日期范围复用旧游标返回 `400 INVALID_CURSOR`；
   `f` 不是签名、不防伪造。取满 `limit` 才给 `next_cursor`
-- 列表支持分页；无前端页面；审计由 `RetentionSweeper` 按
+- 列表支持分页；管理页见 ADR-0085；审计由 `RetentionSweeper` 按
   `ONCALL_SESSION_PIN_AUDIT_RETENTION_DAYS`（默认 365 天）独立清理（ADR-0083）
 
 导出当前过滤下的审计快照（ADR-0084），最多 5000 条：
 
 ```http
-GET /api/admin/session-pins/export?user_id=u_102&action=pin
+GET /api/admin/session-pins/export?user_id=u_102&action=pin&created_from=2026-11-01&created_to=2026-11-16
 Authorization: Bearer <admin-token>
 ```
 
-- 与列表相同的 `user_id`/`session_id`/`action` 过滤；不接收 `cursor`/`limit`
+- 与列表相同的 `user_id`/`session_id`/`action`/`created_from`/`created_to` 过滤；
+  日期窗口校验与错误同上；不接收 `cursor`/`limit`
 - CSV 列 `audit_id,user_id,session_id,action,created_at`；UTF-8 BOM + CRLF，
   时间 ISO 8601，公式注入字符前置单引号
 - 响应头 `X-Export-Count`、`X-Export-Truncated`；`Cache-Control: no-store`，

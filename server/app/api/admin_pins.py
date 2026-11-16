@@ -14,15 +14,16 @@ import base64
 import binascii
 import hashlib
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.deps import require_admin
 from app.api.errors import ApiError
+from app.core.csv import csv_document
 from app.core.logging import get_logger
 from app.core.store import RunStore, SessionPinAuditRecord, get_store
 from app.schemas.session import SessionPinAuditListResponse, SessionPinAuditOut
@@ -30,6 +31,25 @@ from app.tools.registry import Identity
 
 router = APIRouter(prefix="/admin/session-pins", tags=["admin-session-pins"])
 log = get_logger(__name__)
+
+MAX_EXPORT_ROWS = 5000
+CSV_HEADERS = ("audit_id", "user_id", "session_id", "action", "created_at")
+
+
+def _audits_csv(records: list[SessionPinAuditRecord]) -> str:
+    return csv_document(
+        CSV_HEADERS,
+        (
+            (
+                record.audit_id,
+                record.user_id,
+                record.session_id,
+                record.action,
+                record.created_at,
+            )
+            for record in records
+        ),
+    )
 
 
 def _out(record: SessionPinAuditRecord) -> SessionPinAuditOut:
@@ -102,6 +122,40 @@ def _decode_cursor(
     except (ValueError, TypeError, KeyError, binascii.Error, json.JSONDecodeError) as exc:
         raise _cursor_error() from exc
     return created_at, audit_id
+
+
+@router.get("/export")
+async def export_session_pin_audits(
+    store: Annotated[RunStore, Depends(get_store)],
+    _admin: Annotated[Identity, Depends(require_admin)],
+    user_id: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
+    session_id: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
+    action: Annotated[Literal["pin", "unpin"] | None, Query()] = None,
+) -> Response:
+    """导出置顶审计 CSV；过滤口径与列表一致，最多 5000 行（ADR-0084）。"""
+    try:
+        records = await store.list_session_pin_audits(
+            user_id=user_id,
+            session_id=session_id,
+            action=action,
+            limit=MAX_EXPORT_ROWS + 1,
+        )
+    except SQLAlchemyError as exc:
+        log.warning("session_pin_audit_export_failed", error=str(exc))
+        raise ApiError(503, "DATABASE_UNAVAILABLE", "置顶审计暂不可用") from exc
+    truncated = len(records) > MAX_EXPORT_ROWS
+    rows = records[:MAX_EXPORT_ROWS]
+    filename = f"session-pins-{datetime.now(UTC):%Y%m%d-%H%M%S}.csv"
+    return Response(
+        content=_audits_csv(rows),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+            "X-Export-Count": str(len(rows)),
+            "X-Export-Truncated": "true" if truncated else "false",
+        },
+    )
 
 
 @router.get("", response_model=SessionPinAuditListResponse)

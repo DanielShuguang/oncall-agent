@@ -1900,7 +1900,7 @@ ADR-0075 只记住日期预设。管理员按用户/会话排查后刷新页面�
 | 索引 | `(user_id, created_at DESC)`、`(session_id, created_at DESC)`、`(created_at)` |
 | 写入 | 只有状态真正变化才写；与 `pinned_sessions` 插入/删除同事务；失败回滚 |
 | 接口 | `GET /admin/session-pins`；`user_id`/`session_id` 1–64、`action` 必为 `pin`/`unpin`、`limit` 1–200 默认 50；按时间倒序 |
-| 范围 | 不导出、无前端页面、无总数；分页见 ADR-0082；审计由 ADR-0083 接入 `RetentionSweeper`，默认独立保留 365 天 |
+| 范围 | 无前端页面、无总数；分页见 ADR-0082，导出见 ADR-0084；审计由 ADR-0083 接入 `RetentionSweeper`，默认独立保留 365 天 |
 | 迁移 | `0022`；`upgrade → check → downgrade 0021 → upgrade` 往返 |
 | 验证 | 默认 510+40、PG 547+3、Redis 550；ruff 200 / mypy 116；前端未改 114/24 |
 
@@ -1917,7 +1917,7 @@ ADR-0075 只记住日期预设。管理员按用户/会话排查后刷新页面�
 | 游标 | base64url JSON `{t,i,f?}`；`t` 时间、`i` 审计 UUID、`f` 为过滤条件 SHA-256 前 16 hex（不存原始 id，避免超 512）；换过滤复用旧游标 400 `INVALID_CURSOR` |
 | 存储 | 内存/PG `list_session_pin_audits(before=(created_at, id))`；PG keyset `created_at < t OR (= AND id < i)` |
 | 索引 | 复用 ADR-0081 的 `(created_at)`、`(user_id, created_at DESC)`、`(session_id, created_at DESC)`；无迁移 |
-| 范围 | 不导出、无前端页面、无总数/跳页；无稳定快照，翻页期间新增可能重复/跳过 |
+| 范围 | 无前端页面、无总数/跳页；导出见 ADR-0084；无稳定快照，翻页期间新增可能重复/跳过 |
 | 验证 | 默认 511+40、PG 548+3、Redis 551；ruff 202 / mypy 116；前端未改 114/24 |
 
 详见 [ADR-0082](decisions/0082-session-pin-audit-pagination.md)。
@@ -1934,10 +1934,26 @@ ADR-0075 只记住日期预设。管理员按用户/会话排查后刷新页面�
 | 清理 | `prune_session_pin_audits(created_before, limit, dry_run)`；按 `created_at` 先到先删，单批上限复用 `ONCALL_RETENTION_BATCH` |
 | 执行 | `RetentionSweeper` 每轮追加一步，结果与 `prune --dry-run` 输出 `session_pin_audits_before`/`session_pin_audits`；跑满批次仍计 `retention_backlog_remaining` |
 | 存储 | 内存按 `(created_at, audit_id)` 排序；PG `created_at < before ORDER BY created_at, id LIMIT`；dry-run 只计数 |
-| 范围 | 独立保留期，不与事件/正文/恢复审计联动；无前端、无导出；迁移仍 `0022` |
+| 范围 | 独立保留期，不与事件/正文/恢复审计联动；无前端；导出由 ADR-0084 补上；迁移仍 `0022` |
 | 验证 | 默认 512+40、PG 549+3、Redis 552；ruff 200 / mypy 116；前端未改 114/24 |
 
 详见 [ADR-0083](decisions/0083-session-pin-audit-retention.md)。
+
+## W6 后补：置顶审计 CSV 导出（ADR-0084）
+
+置顶审计已有列表、游标分页和独立保留期，但管理员只能逐页浏览；交接/对账与保留期前
+归档需要一次快照。新增同步 CSV 导出，与列表共用 `user_id`/`session_id`/`action` 过滤。
+
+| 事项 | 落地 |
+|---|---|
+| 接口 | `GET /admin/session-pins/export`；同一组过滤，不接收 `cursor`/`limit`；最多 5000 条 |
+| CSV | `audit_id,user_id,session_id,action,created_at`；BOM + CRLF、ISO 时间、公式注入前置单引号 |
+| 响应 | `X-Export-Count`、`X-Export-Truncated`、`Cache-Control: no-store`；文件名带 UTC 时间 |
+| 复用 | `app/core/csv.py` 的 `csv_document`；无迁移、无新索引 |
+| 范围 | 同步、5000 行硬上限、不返回部分 CSV；无异步/前端/下载审计/日期范围 |
+| 验证 | 默认 514+40、PG 551+3、Redis 554；ruff 200 / mypy 116；前端未改 114/24 |
+
+详见 [ADR-0084](decisions/0084-session-pin-audit-export.md)。
 
 ---
 

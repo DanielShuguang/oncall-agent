@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import csv
+import io
 import uuid
 from unittest.mock import AsyncMock
 
@@ -31,9 +33,10 @@ async def _pin_once(
 
 
 async def test_session_pin_audits_require_admin(client: AsyncClient) -> None:
-    res = await client.get("/api/admin/session-pins")
-    assert res.status_code == 403
-    assert res.json()["code"] == "FORBIDDEN"
+    for path in ("/api/admin/session-pins", "/api/admin/session-pins/export"):
+        res = await client.get(path)
+        assert res.status_code == 403
+        assert res.json()["code"] == "FORBIDDEN"
 
 
 async def test_list_session_pin_audits(client: AsyncClient, mem_store: InMemoryRunStore) -> None:
@@ -202,14 +205,76 @@ async def test_session_pin_audits_paginate(
     } == set()
 
 
+async def test_export_session_pin_audits_csv(
+    client: AsyncClient, mem_store: InMemoryRunStore
+) -> None:
+    await _pin_once(mem_store, user_id="u_102", session_id="sess_a")
+    await asyncio.sleep(0.002)
+    await _pin_once(mem_store, user_id="u_103", session_id="sess_b")
+    await asyncio.sleep(0.002)
+    assert await mem_store.unpin_session(user_id="u_102", session_id="sess_a") is True
+
+    res = await client.get("/api/admin/session-pins/export", headers=ADMIN)
+    assert res.status_code == 200
+    assert res.headers["content-type"].startswith("text/csv")
+    assert res.headers["cache-control"] == "no-store"
+    assert res.headers["x-export-count"] == "3"
+    assert res.headers["x-export-truncated"] == "false"
+    assert "attachment; filename=" in res.headers["content-disposition"]
+    assert res.text.startswith("\ufeff")
+    assert "\r\n" in res.text
+
+    rows = list(csv.reader(io.StringIO(res.text.lstrip("\ufeff"))))
+    assert rows[0] == ["audit_id", "user_id", "session_id", "action", "created_at"]
+    assert [(row[1], row[2], row[3]) for row in rows[1:]] == [
+        ("u_102", "sess_a", "unpin"),
+        ("u_103", "sess_b", "pin"),
+        ("u_102", "sess_a", "pin"),
+    ]
+
+    filtered = await client.get(
+        "/api/admin/session-pins/export",
+        headers=ADMIN,
+        params={"action": "pin"},
+    )
+    assert filtered.status_code == 200
+    assert filtered.headers["x-export-count"] == "2"
+    filtered_rows = list(csv.reader(io.StringIO(filtered.text.lstrip("\ufeff"))))
+    assert [row[3] for row in filtered_rows[1:]] == ["pin", "pin"]
+
+    # 共享 csv_cell 的公式注入防护：admin 导出的用户字段也不能以 = 开头。
+    await _pin_once(mem_store, user_id="=cmd", session_id="sess_formula")
+    formula = await client.get(
+        "/api/admin/session-pins/export",
+        headers=ADMIN,
+        params={"user_id": "=cmd"},
+    )
+    assert formula.status_code == 200
+    formula_rows = list(csv.reader(io.StringIO(formula.text.lstrip("\ufeff"))))
+    assert formula_rows[1][1] == "'=cmd"
+
+
+async def test_export_session_pin_audits_truncates(
+    client: AsyncClient, mem_store: InMemoryRunStore, monkeypatch
+) -> None:
+    monkeypatch.setattr("app.api.admin_pins.MAX_EXPORT_ROWS", 2)
+    for index in range(3):
+        await _pin_once(mem_store, user_id="u_102", session_id=f"sess_{index}")
+
+    res = await client.get("/api/admin/session-pins/export", headers=ADMIN)
+    assert res.status_code == 200
+    assert res.headers["x-export-count"] == "2"
+    assert res.headers["x-export-truncated"] == "true"
+    rows = list(csv.reader(io.StringIO(res.text.lstrip("\ufeff"))))
+    assert len(rows) == 3
+
+
 async def test_session_pin_audits_reject_bad_params(client: AsyncClient) -> None:
-    for params in (
-        {"user_id": ""},
-        {"session_id": ""},
-        {"action": "delete"},
-        {"limit": 0},
-        {"limit": 201},
-    ):
+    for path in ("/api/admin/session-pins", "/api/admin/session-pins/export"):
+        for params in ({"user_id": ""}, {"session_id": ""}, {"action": "delete"}):
+            res = await client.get(path, headers=ADMIN, params=params)
+            assert res.status_code == 422, (path, params)
+    for params in ({"limit": 0}, {"limit": 201}):
         res = await client.get("/api/admin/session-pins", headers=ADMIN, params=params)
         assert res.status_code == 422, params
 
@@ -219,6 +284,7 @@ async def test_session_pin_audits_return_503_on_store_failure(
 ) -> None:
     failing = AsyncMock(side_effect=SQLAlchemyError("boom"))
     monkeypatch.setattr(mem_store, "list_session_pin_audits", failing)
-    res = await client.get("/api/admin/session-pins", headers=ADMIN)
-    assert res.status_code == 503
-    assert res.json()["code"] == "DATABASE_UNAVAILABLE"
+    for path in ("/api/admin/session-pins", "/api/admin/session-pins/export"):
+        res = await client.get(path, headers=ADMIN)
+        assert res.status_code == 503
+        assert res.json()["code"] == "DATABASE_UNAVAILABLE"

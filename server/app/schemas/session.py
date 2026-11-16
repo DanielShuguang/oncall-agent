@@ -95,6 +95,21 @@ class SessionRestoreAuditListResponse(BaseModel):
     """第一页（无 cursor）返回同过滤条件下的总数（ADR-0064）；后续页为 None。"""
 
 
+class SessionPinAuditOut(BaseModel):
+    """一次显式置顶/取消置顶的审计（ADR-0081）。"""
+
+    id: str
+    user_id: str
+    session_id: str
+    action: str
+    created_at: datetime
+
+
+class SessionPinAuditListResponse(BaseModel):
+    items: list[SessionPinAuditOut]
+    """最近 N 条；审计量小，暂不分页。"""
+
+
 class SessionRestoreAuditDayOut(BaseModel):
     """UTC 自然日内的恢复活动（ADR-0065）。"""
 

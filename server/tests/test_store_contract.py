@@ -592,6 +592,19 @@ async def _exercise_pinned_sessions(store: RunStore) -> None:
     assert await store.unpin_session(user_id=user, session_id="sess_old") is True
     assert await store.unpin_session(user_id=user, session_id="sess_mid") is True
     assert await store.count_pinned_sessions(user_id=user) == 0
+
+    # 显式状态变化才写审计（ADR-0081）：两次 pin、两次 unpin
+    audits = await store.list_session_pin_audits(user_id=user, limit=10)
+    assert len(audits) == 4
+    assert {record.action for record in audits} == {"pin", "unpin"}
+    assert {record.session_id for record in audits} == {"sess_old", "sess_mid"}
+    assert len(await store.list_session_pin_audits(user_id=user, action="pin")) == 2
+    assert len(await store.list_session_pin_audits(user_id=user, action="unpin")) == 2
+    old_audits = await store.list_session_pin_audits(user_id=user, session_id="sess_old")
+    assert len(old_audits) == 2
+    assert {record.session_id for record in old_audits} == {"sess_old"}
+    assert await store.list_session_pin_audits(user_id=other) == []
+
     plain_first = await store.list_sessions(user_id=user, limit=2)
     plain_second = await store.list_sessions(
         user_id=user,
@@ -616,6 +629,7 @@ async def _exercise_pinned_sessions(store: RunStore) -> None:
     assert restored_sessions["sess_mid"].pinned is False
     assert await store.unpin_session(user_id=user, session_id="sess_mid") is True
     assert await store.unpin_session(user_id=user, session_id="sess_mid") is True
+    assert len(await store.list_session_pin_audits(user_id=user, limit=10)) == 5
 
     # 置顶数量上限（ADR-0073）：已置顶幂等，新增超出上限抛 PinLimitExceeded
     with patch("app.core.store.MAX_PINNED_SESSIONS", 1):

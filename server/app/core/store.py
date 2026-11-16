@@ -26,6 +26,7 @@ from app.models.run import Run
 from app.models.run import RunEvent as RunEventRow
 from app.models.session_hidden import HiddenSession as HiddenSessionRow
 from app.models.session_pin import PinnedSession as PinnedSessionRow
+from app.models.session_pin_audit import SessionPinAudit as SessionPinAuditRow
 from app.models.session_restore_audit import SessionRestoreAudit as SessionRestoreAuditRow
 from app.models.session_title import SessionTitle as SessionTitleRow
 from app.schemas.event import EventType, RunEvent, RunStatus
@@ -123,6 +124,20 @@ class SessionRestoreAuditRecord:
     requested_count: int
     restored_count: int
     restored_at: datetime
+
+
+@dataclass(frozen=True)
+class SessionPinAuditRecord:
+    """一次显式置顶/取消置顶的审计（ADR-0081）。
+
+    只有状态真正变化才落一行：重复置顶/取消、隐藏导致的置顶清理都不写。
+    """
+
+    audit_id: str
+    user_id: str
+    session_id: str
+    action: str
+    created_at: datetime
 
 
 @dataclass(frozen=True)
@@ -580,6 +595,21 @@ class RunStore(Protocol):
         """返回当前用户置顶会话数（ADR-0074），用于前端提前禁用置顶按钮。"""
         ...
 
+    async def list_session_pin_audits(
+        self,
+        *,
+        user_id: str | None = None,
+        session_id: str | None = None,
+        action: str | None = None,
+        limit: int = 50,
+    ) -> list[SessionPinAuditRecord]:
+        """按 `created_at` 倒序列出显式置顶/取消置顶审计（ADR-0081）。
+
+        `action` 只接受 `pin`/`unpin`。这里刻意不做分页：审计量小，管理端先给
+        有界最近 N 条；分页、时间范围与保留清理都留作后续 ADR。
+        """
+        ...
+
     async def list_hidden_sessions(
         self,
         *,
@@ -769,6 +799,8 @@ class InMemoryRunStore:
         self._pinned_sessions: set[tuple[str, str]] = set()
         #: 恢复审计，按发生顺序追加（ADR-0059）；列表时反向读出
         self._session_restore_audits: list[SessionRestoreAuditRecord] = []
+        #: 置顶/取消置顶审计（ADR-0081）；只记显式状态变化
+        self._session_pin_audits: list[SessionPinAuditRecord] = []
         self._lock = asyncio.Lock()
         self._started_at: datetime | None = None
 
@@ -1110,6 +1142,15 @@ class InMemoryRunStore:
             if pinned >= MAX_PINNED_SESSIONS:
                 raise PinLimitExceeded(MAX_PINNED_SESSIONS)
             self._pinned_sessions.add((user_id, session_id))
+            self._session_pin_audits.append(
+                SessionPinAuditRecord(
+                    audit_id=str(uuid.uuid4()),
+                    user_id=user_id,
+                    session_id=session_id,
+                    action="pin",
+                    created_at=datetime.now(UTC),
+                )
+            )
             return True
 
     async def unpin_session(self, *, user_id: str, session_id: str) -> bool:
@@ -1121,12 +1162,41 @@ class InMemoryRunStore:
                 return False
             if (user_id, session_id) in self._hidden_sessions:
                 return False
-            self._pinned_sessions.discard((user_id, session_id))
+            if (user_id, session_id) in self._pinned_sessions:
+                self._pinned_sessions.discard((user_id, session_id))
+                self._session_pin_audits.append(
+                    SessionPinAuditRecord(
+                        audit_id=str(uuid.uuid4()),
+                        user_id=user_id,
+                        session_id=session_id,
+                        action="unpin",
+                        created_at=datetime.now(UTC),
+                    )
+                )
             return True
 
     async def count_pinned_sessions(self, *, user_id: str) -> int:
         async with self._lock:
             return sum(1 for current_user, _ in self._pinned_sessions if current_user == user_id)
+
+    async def list_session_pin_audits(
+        self,
+        *,
+        user_id: str | None = None,
+        session_id: str | None = None,
+        action: str | None = None,
+        limit: int = 50,
+    ) -> list[SessionPinAuditRecord]:
+        async with self._lock:
+            records = [
+                record
+                for record in self._session_pin_audits
+                if (user_id is None or record.user_id == user_id)
+                and (session_id is None or record.session_id == session_id)
+                and (action is None or record.action == action)
+            ]
+            records.sort(key=lambda record: (record.created_at, record.audit_id), reverse=True)
+            return records[:limit]
 
     async def list_hidden_sessions(
         self,
@@ -1972,6 +2042,7 @@ class PostgresRunStore:
                     index_elements=[PinnedSessionRow.user_id, PinnedSessionRow.session_id]
                 )
             )
+            session.add(SessionPinAuditRow(user_id=user_id, session_id=session_id, action="pin"))
             await session.commit()
         return True
 
@@ -1981,12 +2052,22 @@ class PostgresRunStore:
                 session, user_id=user_id, session_id=session_id
             ):
                 return False
-            await session.execute(
-                delete(PinnedSessionRow).where(
+            pinned = await session.scalar(
+                select(PinnedSessionRow.session_id).where(
                     PinnedSessionRow.user_id == user_id,
                     PinnedSessionRow.session_id == session_id,
                 )
             )
+            if pinned is not None:
+                await session.execute(
+                    delete(PinnedSessionRow).where(
+                        PinnedSessionRow.user_id == user_id,
+                        PinnedSessionRow.session_id == session_id,
+                    )
+                )
+                session.add(
+                    SessionPinAuditRow(user_id=user_id, session_id=session_id, action="unpin")
+                )
             await session.commit()
         return True
 
@@ -1998,6 +2079,37 @@ class PostgresRunStore:
                 .where(PinnedSessionRow.user_id == user_id)
             )
         return int(pinned or 0)
+
+    async def list_session_pin_audits(
+        self,
+        *,
+        user_id: str | None = None,
+        session_id: str | None = None,
+        action: str | None = None,
+        limit: int = 50,
+    ) -> list[SessionPinAuditRecord]:
+        stmt = select(SessionPinAuditRow)
+        if user_id is not None:
+            stmt = stmt.where(SessionPinAuditRow.user_id == user_id)
+        if session_id is not None:
+            stmt = stmt.where(SessionPinAuditRow.session_id == session_id)
+        if action is not None:
+            stmt = stmt.where(SessionPinAuditRow.action == action)
+        stmt = stmt.order_by(
+            SessionPinAuditRow.created_at.desc(), SessionPinAuditRow.id.desc()
+        ).limit(limit)
+        async with self._sessionmaker() as session:
+            rows = (await session.scalars(stmt)).all()
+        return [
+            SessionPinAuditRecord(
+                audit_id=str(row.id),
+                user_id=row.user_id,
+                session_id=row.session_id,
+                action=row.action,
+                created_at=row.created_at,
+            )
+            for row in rows
+        ]
 
     async def _visible_session_exists(
         self,

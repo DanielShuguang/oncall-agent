@@ -18,6 +18,7 @@ runs ──< run_events
   └──< pinned_sessions（用户置顶的会话；主键 user_id+session_id，无外键）
 
 session_restore_audits（每次恢复操作一行；无外键，独立保留）
+session_pin_audits（每次显式置顶/取消置顶一行；无外键）
 
 user_budgets（按用户日预算覆盖；user_id 来自 JWT，无外键）
 kb_documents ──< kb_chunks (embedding)
@@ -196,6 +197,30 @@ CREATE TABLE pinned_sessions (
 > `pinned_at` 不参与排序，只用于排错。
 > 置顶/取消置顶幂等；已移除会话在 `DELETE /sessions/{session_id}` 的同一事务内删除
 > 置顶行，恢复时也会同事务兜底清理，恢复后不恢复置顶。置顶不改变 `updated_at`。
+
+### 2.1.5 session_pin_audits（置顶审计）
+
+```sql
+CREATE TABLE session_pin_audits (
+  id         UUID PRIMARY KEY,
+  user_id    TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  action     TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT ck_session_pin_audits_action_is_pin_or_unpin
+    CHECK (action IN ('pin', 'unpin'))
+);
+CREATE INDEX idx_session_pin_audits_user_time
+  ON session_pin_audits (user_id, created_at DESC);
+CREATE INDEX idx_session_pin_audits_session_time
+  ON session_pin_audits (session_id, created_at DESC);
+CREATE INDEX idx_session_pin_audits_time ON session_pin_audits (created_at);
+```
+
+> 只记录**显式状态变化**（[ADR-0081](decisions/0081-session-pin-audit.md)，迁移
+> `0022`）：重复置顶/取消、隐藏或恢复会话导致的置顶清理都不写，避免把无状态变化的
+> 请求放大成审计噪声。审计与置顶行写入在同一事务内完成；无外键，会话由
+> `runs.session_id` 投影。当前审计随数据库保留，未接入 `RetentionSweeper`（待定）。
 
 ### 2.2 run_events（事件，只追加）
 
@@ -562,7 +587,7 @@ uv run alembic upgrade head --sql    # 无库环境渲染 DDL，评审用
 
 - 迁移文件在 `server/migrations/versions/`；`alembic.ini` 只放占位 DSN，真实 DSN 由 `migrations/env.py` 从环境变量读
 - 必须写 `downgrade`，并在空库上验证一次 `downgrade base && upgrade head`
-- 当前迁移链：`0001` runs/events → `0002` 幂等键按用户作用域 → `0003` kb（pgvector/tsvector）+ assets/tickets → `0004` approvals → `0005` 会话授权按用户隔离 → `0006` model_calls + failure_category → `0007` tool_settings → `0008` 文档可见性 → `0009` 会话索引 → `0010` 事件清理标记/部分索引 → `0011` 回答引用快照 → `0012` 正文清理标记/部分索引 → `0013` 按用户日预算覆盖（`user_budgets`）→ `0014` 回答引用快照（`runs.citations`，ADR-0031）→ `0015` 工具配置变更历史（`tool_setting_changes`，ADR-0037）→ `0016` 会话显示标题（`session_titles`，ADR-0040）→ `0017` 从列表移除的会话（`hidden_sessions`，ADR-0041）→ `0018` 已办审批决议时间索引（`idx_approvals_resolved`，ADR-0053）→ `0019` 会话恢复审计（`session_restore_audits`，ADR-0059）→ `0020` 恢复审计按 session 反查的 GIN 索引（`idx_session_restore_audits_sessions`，ADR-0061）→ `0021` 会话置顶（`pinned_sessions`，ADR-0069）
+- 当前迁移链：`0001` runs/events → `0002` 幂等键按用户作用域 → `0003` kb（pgvector/tsvector）+ assets/tickets → `0004` approvals → `0005` 会话授权按用户隔离 → `0006` model_calls + failure_category → `0007` tool_settings → `0008` 文档可见性 → `0009` 会话索引 → `0010` 事件清理标记/部分索引 → `0011` 回答引用快照 → `0012` 正文清理标记/部分索引 → `0013` 按用户日预算覆盖（`user_budgets`）→ `0014` 回答引用快照（`runs.citations`，ADR-0031）→ `0015` 工具配置变更历史（`tool_setting_changes`，ADR-0037）→ `0016` 会话显示标题（`session_titles`，ADR-0040）→ `0017` 从列表移除的会话（`hidden_sessions`，ADR-0041）→ `0018` 已办审批决议时间索引（`idx_approvals_resolved`，ADR-0053）→ `0019` 会话恢复审计（`session_restore_audits`，ADR-0059）→ `0020` 恢复审计按 session 反查的 GIN 索引（`idx_session_restore_audits_sessions`，ADR-0061）→ `0021` 会话置顶（`pinned_sessions`，ADR-0069）→ `0022` 置顶审计（`session_pin_audits`，ADR-0081）
 
 > `0003` 先 `CREATE EXTENSION IF NOT EXISTS vector`，否则 vector 类型与 HNSW 索引会失败；
 > 测试库由 fixture 建扩展后再 `create_all`（扩展是库级对象，`drop_all` 不会删）。

@@ -7,6 +7,7 @@ from fastapi import APIRouter
 from app.api import (
     admin_budgets,
     admin_kb,
+    admin_pins,
     admin_sessions,
     admin_tools,
     approvals,
@@ -27,5 +28,6 @@ api_router.include_router(kb.router)
 api_router.include_router(admin_kb.router)
 api_router.include_router(admin_tools.router)
 api_router.include_router(admin_sessions.router)
+api_router.include_router(admin_pins.router)
 api_router.include_router(cost.router)
 api_router.include_router(admin_budgets.router)

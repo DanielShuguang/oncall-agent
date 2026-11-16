@@ -1888,6 +1888,24 @@ ADR-0075 只记住日期预设。管理员按用户/会话排查后刷新页面�
 
 详见 [ADR-0080](decisions/0080-local-preferences-on-account-switch.md)。
 
+## W6 后补：会话置顶/取消置顶审计（ADR-0081）
+
+`pinned_sessions` 只保留当前状态，取消置顶会删行，回答不了「谁在何时置顶或取消」。
+新增 `session_pin_audits`，只在**显式状态变化**时写一行（重复置顶/取消、隐藏导致的
+置顶清理不写），审计与置顶行写入同事务；管理员只读接口按用户/会话/动作过滤。
+
+| 事项 | 落地 |
+|---|---|
+| 表 | `session_pin_audits(id, user_id, session_id, action, created_at)`；`action` CHECK 为 `pin`/`unpin`；无外键 |
+| 索引 | `(user_id, created_at DESC)`、`(session_id, created_at DESC)`、`(created_at)` |
+| 写入 | 只有状态真正变化才写；与 `pinned_sessions` 插入/删除同事务；失败回滚 |
+| 接口 | `GET /admin/session-pins`；`user_id`/`session_id` 1–64、`action` 必为 `pin`/`unpin`、`limit` 1–200 默认 50；按时间倒序 |
+| 范围 | 不分页、不导出、无前端页面、无总数；审计随库保留，未接 `RetentionSweeper` |
+| 迁移 | `0022`；`upgrade → check → downgrade 0021 → upgrade` 往返 |
+| 验证 | 默认 510+40、PG 547+3、Redis 550；ruff 200 / mypy 116；前端未改 114/24 |
+
+详见 [ADR-0081](decisions/0081-session-pin-audit.md)。
+
 ---
 
 ## 每周固定动作

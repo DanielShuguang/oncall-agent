@@ -28,9 +28,12 @@ ADR-0081 新增了只读接口 `GET /admin/session-pins`，按 `(created_at, id)
 3. 游标是 base64url JSON：
    - `t`：`created_at` 的 ISO 8601 时间；
    - `i`：审计 UUID；
-   - `u`/`s`/`a`：仅当本次请求带 `user_id`/`session_id`/`action` 时出现。
-   服务端严格校验键集合与值；换过滤条件复用旧游标返回
-   `400 INVALID_CURSOR`，不静默跳到另一组结果。
+   - `f`：仅当本次请求带 `user_id`/`session_id`/`action` 时出现，是
+     `{"u":…,"s":…,"a":…}` canonical JSON 的 SHA-256 前 16 hex。
+   不把原始过滤 id 放进游标：最多 64 字符的非 ASCII id 经 `\uXXXX` 转义和
+   base64 后会超过 512 上限，下一页直接 422；指纹固定长度，也避免游标暴露
+   管理员填写的 id。服务端严格校验键集合与指纹；换过滤条件复用旧游标返回
+   `400 INVALID_CURSOR`，不静默跳到另一组结果。`f` 不是签名，不能防伪造。
 4. 只有取满 `limit` 才返回 `next_cursor`；未取满为 `null`（下一页为空）。
 5. 取满时即使已经是最后一页也仍给游标，下一页返回空数组和 `null`；不在
    “取满且没有更多”时做额外探测。
@@ -54,7 +57,8 @@ ADR-0081 新增了只读接口 `GET /admin/session-pins`，按 `(created_at, id)
 - `ruff check` / `ruff format --check` 202 files / `mypy app` 116 files。
 - 前端未改，沿用 114 tests / 24 files。
 - 覆盖：API 两页翻完、空页 `next_cursor=null`、非法游标 400、换过滤复用旧游标
-  400；store 内存/PG 契约按 `(created_at, id)` 翻完不重不漏。
+  400、64 字符非 ASCII 的 `user_id`+`session_id` 过滤游标仍 ≤512 且能翻页；
+  store 内存/PG 契约按 `(created_at, id)` 翻完不重不漏。
 
 ## 待定
 

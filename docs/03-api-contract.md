@@ -480,8 +480,10 @@ Authorization: Bearer <admin-token>
 - 只有显式状态变化才写：重复置顶、重复取消、隐藏/恢复导致的置顶清理都不产生审计；
   Postgres 用 `DELETE ... RETURNING` 判断取消是否真的发生，并发取消也只写一条
 - 游标分页：`(created_at, id)` 倒序 keyset；游标最长为 512，base64url JSON
-  `{t,i,u?,s?,a?}` 只包含本次过滤条件，换 `user_id`/`session_id`/`action`
-  复用旧游标返回 `400 INVALID_CURSOR`；取满 `limit` 才给 `next_cursor`
+  `{t,i,f?}`：`t` 时间、`i` 审计 UUID；带过滤时 `f` 是
+  `{u,s,a}` canonical JSON 的 SHA-256 前 16 hex，不包含原始 id。换
+  `user_id`/`session_id`/`action` 复用旧游标返回 `400 INVALID_CURSOR`；
+  `f` 不是签名、不防伪造。取满 `limit` 才给 `next_cursor`
 - 已支持分页；不导出、无前端页面；审计随数据库保留，未接入 `RetentionSweeper`
 - 数据库不可用返回 `503 {"code":"DATABASE_UNAVAILABLE"}`
 

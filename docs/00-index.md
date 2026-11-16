@@ -109,7 +109,7 @@
 | [0079](decisions/0079-last-session-restore.md) | 刷新恢复上次会话 | `localStorage` 键 `oncall.last-session.v1` 只存 session_id（trim、1–64）；会话变化写入，新会话/隐藏当前会话清除；首屏列表确认仍可见且用户未手选/未发送时恢复；竞态 ref 防覆盖；失败不清记忆；仅首屏 20 条、不跨设备、无后端/迁移 |
 | [0080](decisions/0080-local-preferences-on-account-switch.md) | 切换账号清理本地偏好 | 解析 JWT `sub`（不验签）比较新旧账号；subject 变化时清空 `oncall.last-session.v1`、`oncall.audit-filters.v1`、`oncall.audit-date-preset.v1`；同 subject 续签保留；清空 token 不主动清；不按账号命名空间存储、无后端/迁移 |
 | [0081](decisions/0081-session-pin-audit.md) | 置顶审计 | `session_pin_audits` 只记显式 pin/unpin（重复、隐藏清理不写），与置顶行同事务；管理端 `GET /admin/session-pins` 按用户/会话/动作过滤，分页见 0082；无外键、未接保留清理；迁移 `0022` |
-| [0082](decisions/0082-session-pin-audit-pagination.md) | 置顶审计分页 | `(created_at, id)` 倒序 keyset 游标，base64url `{t,i,u?,s?,a?}` 绑定过滤条件；取满才给 `next_cursor`；换过滤复用游标 400；无迁移/新索引 |
+| [0082](decisions/0082-session-pin-audit-pagination.md) | 置顶审计分页 | `(created_at, id)` 倒序 keyset 游标，base64url `{t,i,f?}`，`f` 为过滤条件指纹（不存原始 id）；取满才给 `next_cursor`；换过滤复用游标 400；无迁移/新索引 |
 
 > ADR 的写法：背景 → 方案对比 → 决策 → 后果。面试被问"为什么这么做"时，直接念 ADR。
 

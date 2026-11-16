@@ -171,6 +171,36 @@ async def test_session_pin_audits_paginate(
     assert empty.json()["items"] == []
     assert empty.json()["next_cursor"] is None
 
+    # 过滤条件只进指纹，不把最多 64 字符的原始 id 塞进游标；否则非 ASCII id
+    # 经 \uXXXX 转义 + base64 后可能超过 512 上限，下一页直接 422。
+    long_user = "用" * 64
+    long_session = "会" * 64
+    await _pin_once(mem_store, user_id=long_user, session_id=long_session)
+    assert await mem_store.unpin_session(user_id=long_user, session_id=long_session) is True
+    long_first = await client.get(
+        "/api/admin/session-pins",
+        headers=ADMIN,
+        params={"user_id": long_user, "session_id": long_session, "limit": 1},
+    )
+    assert long_first.status_code == 200
+    long_cursor = long_first.json()["next_cursor"]
+    assert long_cursor
+    assert len(long_cursor) <= 512
+    long_second = await client.get(
+        "/api/admin/session-pins",
+        headers=ADMIN,
+        params={
+            "user_id": long_user,
+            "session_id": long_session,
+            "limit": 1,
+            "cursor": long_cursor,
+        },
+    )
+    assert long_second.status_code == 200
+    assert {item["id"] for item in long_first.json()["items"]} & {
+        item["id"] for item in long_second.json()["items"]
+    } == set()
+
 
 async def test_session_pin_audits_reject_bad_params(client: AsyncClient) -> None:
     for params in (

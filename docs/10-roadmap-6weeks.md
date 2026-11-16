@@ -1914,7 +1914,7 @@ ADR-0075 只记住日期预设。管理员按用户/会话排查后刷新页面�
 | 事项 | 落地 |
 |---|---|
 | 接口 | `GET /admin/session-pins` 增加 `cursor`（≤512）；`limit` 仍 1–200 默认 50；取满才给 `next_cursor` |
-| 游标 | base64url JSON `{t,i,u?,s?,a?}`；`t` 时间、`i` 审计 UUID；换过滤复用旧游标 400 `INVALID_CURSOR` |
+| 游标 | base64url JSON `{t,i,f?}`；`t` 时间、`i` 审计 UUID、`f` 为过滤条件 SHA-256 前 16 hex（不存原始 id，避免超 512）；换过滤复用旧游标 400 `INVALID_CURSOR` |
 | 存储 | 内存/PG `list_session_pin_audits(before=(created_at, id))`；PG keyset `created_at < t OR (= AND id < i)` |
 | 索引 | 复用 ADR-0081 的 `(created_at)`、`(user_id, created_at DESC)`、`(session_id, created_at DESC)`；无迁移 |
 | 范围 | 不导出、无前端页面、无总数/跳页；无稳定快照，翻页期间新增可能重复/跳过 |

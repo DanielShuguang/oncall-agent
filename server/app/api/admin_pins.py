@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
 import json
 from datetime import datetime
 from typing import Annotated, Literal
@@ -45,23 +46,34 @@ def _cursor_error() -> ApiError:
     return ApiError(400, "INVALID_CURSOR", "cursor 无效，请从第一页重新拉取")
 
 
-def _encode_cursor(
-    record: SessionPinAuditRecord,
+def _filter_fingerprint(
     *,
     user_id: str | None,
     session_id: str | None,
     action: str | None,
+) -> str | None:
+    """把过滤条件压成短指纹，避免把原始 id 塞进游标。"""
+    if user_id is None and session_id is None and action is None:
+        return None
+    payload = json.dumps(
+        {"u": user_id, "s": session_id, "a": action},
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode()
+    return hashlib.sha256(payload).hexdigest()[:16]
+
+
+def _encode_cursor(
+    record: SessionPinAuditRecord,
+    *,
+    fingerprint: str | None,
 ) -> str:
     payload: dict[str, str] = {
         "t": record.created_at.isoformat(),
         "i": record.audit_id,
     }
-    if user_id is not None:
-        payload["u"] = user_id
-    if session_id is not None:
-        payload["s"] = session_id
-    if action is not None:
-        payload["a"] = action
+    if fingerprint is not None:
+        payload["f"] = fingerprint
     raw = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
     return base64.urlsafe_b64encode(raw).decode().rstrip("=")
 
@@ -69,9 +81,7 @@ def _encode_cursor(
 def _decode_cursor(
     cursor: str,
     *,
-    user_id: str | None,
-    session_id: str | None,
-    action: str | None,
+    fingerprint: str | None,
 ) -> tuple[datetime, str]:
     try:
         padded = cursor + "=" * (-len(cursor) % 4)
@@ -79,20 +89,12 @@ def _decode_cursor(
         if not isinstance(data, dict):
             raise ValueError("cursor payload must be an object")
         expected = {"t", "i"}
-        if user_id is not None:
-            expected.add("u")
-        if session_id is not None:
-            expected.add("s")
-        if action is not None:
-            expected.add("a")
+        if fingerprint is not None:
+            expected.add("f")
         if set(data) != expected:
             raise ValueError("cursor filters do not match")
-        if user_id is not None and data.get("u") != user_id:
-            raise ValueError("cursor user_id does not match")
-        if session_id is not None and data.get("s") != session_id:
-            raise ValueError("cursor session_id does not match")
-        if action is not None and data.get("a") != action:
-            raise ValueError("cursor action does not match")
+        if fingerprint is not None and data.get("f") != fingerprint:
+            raise ValueError("cursor filter fingerprint does not match")
         created_at = datetime.fromisoformat(str(data["t"]))
         if created_at.tzinfo is None:
             raise ValueError("cursor timestamp must be timezone-aware")
@@ -113,12 +115,15 @@ async def list_session_pin_audits(
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> SessionPinAuditListResponse:
     """按 `(created_at, id)` 倒序返回置顶审计，可选用户/会话/动作过滤（ADR-0081/0082）。"""
+    fingerprint = _filter_fingerprint(
+        user_id=user_id,
+        session_id=session_id,
+        action=action,
+    )
     before = (
         _decode_cursor(
             cursor,
-            user_id=user_id,
-            session_id=session_id,
-            action=action,
+            fingerprint=fingerprint,
         )
         if cursor is not None
         else None
@@ -139,9 +144,7 @@ async def list_session_pin_audits(
         next_cursor=(
             _encode_cursor(
                 records[-1],
-                user_id=user_id,
-                session_id=session_id,
-                action=action,
+                fingerprint=fingerprint,
             )
             if len(records) == limit
             else None

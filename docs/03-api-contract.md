@@ -484,7 +484,8 @@ Authorization: Bearer <admin-token>
   `{u,s,a}` canonical JSON 的 SHA-256 前 16 hex，不包含原始 id。换
   `user_id`/`session_id`/`action` 复用旧游标返回 `400 INVALID_CURSOR`；
   `f` 不是签名、不防伪造。取满 `limit` 才给 `next_cursor`
-- 已支持分页；不导出、无前端页面；审计随数据库保留，未接入 `RetentionSweeper`
+- 已支持分页；不导出、无前端页面；审计由 `RetentionSweeper` 按
+  `ONCALL_SESSION_PIN_AUDIT_RETENTION_DAYS`（默认 365 天）独立清理（ADR-0083）
 - 数据库不可用返回 `503 {"code":"DATABASE_UNAVAILABLE"}`
 
 ### 3.4 一页会话详情（ADR-0036）

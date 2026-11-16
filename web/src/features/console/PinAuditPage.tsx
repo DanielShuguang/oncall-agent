@@ -273,7 +273,7 @@ export default function PinAuditPage() {
           )}
           {loading ? (
             <div className="p-8 text-center text-xs text-muted-foreground">加载中…</div>
-          ) : items.length === 0 ? (
+          ) : error ? null : items.length === 0 ? (
             <div className="p-8 text-center text-xs text-muted-foreground">
               {hasActiveFilters ? '没有符合筛选条件的置顶审计。' : '还没有置顶审计记录。'}
             </div>

@@ -2002,12 +2002,12 @@ ADR-0075 只记住日期预设。管理员按用户/会话排查后刷新页面�
 | 事项 | 落地 |
 |---|---|
 | 接口 | `GET /admin/session-pins/stats?days=30`；`days` 1–365，默认 30 |
-| 窗口 | `[until - days 天, until]`，`until=now(UTC)`；全局口径，不接列表过滤 |
+| 窗口 | `[until - days 天, until]`，`until=now(UTC)`；默认全局，跟随过滤见 ADR-0089 |
 | 汇总 | `pins`/`unpins` 为显式状态变化次数；`users`/`sessions` 为窗口内去重数 |
 | 日趋势 | `daily` 只含有活动的 UTC 自然日，稀疏不补零；`pins`/`unpins` 之和等于汇总 |
 | 存储 | 内存遍历聚合；PG 用 `count(distinct)` 求用户/会话，再按 UTC 日期 + 动作分组；`pins`/`unpins` 从日行求和；无迁移 |
-| 前端 | 管理页顶部「近 7/30/90 天」统计卡；四项汇总 + 最近 7 个有活动日期；不随下方筛选变化 |
-| 范围 | 不做按过滤统计、图表库、缓存、异步导出/下载审计 |
+| 前端 | 管理页顶部「近 7/30/90 天」统计卡；四项汇总 + 最近 7 个有活动日期；默认全局，跟随过滤见 ADR-0089 |
+| 范围 | 过滤统计见 ADR-0089；不做图表库、缓存、异步导出/下载审计 |
 | 验证 | 默认 516+40、PG 553+3、PG+Redis 556、ruff 200 / mypy 116；前端 119/25、oxlint 88、oxfmt 96、build 2900 modules/588ms |
 
 详见 [ADR-0087](decisions/0087-session-pin-audit-stats.md)。
@@ -2033,6 +2033,24 @@ ADR-0075 只记住日期预设。管理员按用户/会话排查后刷新页面�
 
 ---
 
+## W6 后补：置顶审计统计跟随过滤与日期范围（ADR-0089）
+
+置顶审计列表已支持用户/会话/动作/日期过滤，但统计接口只接受 `days`，页面筛选后
+统计卡仍是全局数字。扩展统计端点复用列表过滤参数，并支持日期范围与 `days` 二选一。
+
+| 事项 | 落地 |
+|---|---|
+| 接口 | `GET /admin/session-pins/stats`；`days` 可选 1–365 默认 30，或 `created_from`/`created_to`；可选 `user_id`/`session_id`/`action` |
+| 窗口 | `days` 窗口 `[until-days 天, until]`；日期范围内部 `[from 00:00Z, to 次日 00:00Z)`，响应 `until=before-1µs`、`days` 为闭区间天数；二者同时传或只给一端 422 `INVALID_RANGE` |
+| 汇总 | 过滤后 `pins`/`unpins` 只统计命中记录；`users`/`sessions` 为命中记录内去重数；`daily` 为命中记录的 UTC 稀疏日，求和等于汇总 |
+| 存储 | 内存先过滤；PG 在汇总与日趋势共用的 `window` 子查询追加 `user_id`/`session_id`/`action`；复用 `idx_session_pin_audits_time`，无迁移 |
+| 前端 | 统计卡跟随已应用过滤；无过滤时 7/30/90 天切换，带日期范围显示「按筛选日期（N 天）」；`PinAuditStatsCard.tsx` 独立，`PinAuditSections` 保持 ≤300 行 |
+| 范围 | 不做图表库、缓存/物化、统计 CSV；统计与列表两次查询，可能相差一条 |
+| 验证 | 默认 516+40、PG 553+3、PG+Redis 556、ruff 200 / mypy 116；前端 26 files/125 tests、oxlint 125 files、oxfmt 133 files、build 2933 modules/324ms |
+
+详见 [ADR-0089](decisions/0089-session-pin-audit-stats-filters.md)。
+
+---
 ## 每周固定动作
 
 | 时点 | 动作 |

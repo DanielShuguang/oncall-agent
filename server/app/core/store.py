@@ -656,12 +656,18 @@ class RunStore(Protocol):
         ...
 
     async def session_pin_audit_stats(
-        self, *, since: datetime, until: datetime
+        self,
+        *,
+        since: datetime,
+        until: datetime,
+        user_id: str | None = None,
+        session_id: str | None = None,
+        action: str | None = None,
     ) -> SessionPinAuditStats:
-        """按 UTC 自然日统计 `[since, until]` 内的显式置顶/取消置顶（ADR-0087）。
+        """统计 `[since, until]` 内的显式置顶/取消置顶（ADR-0087/0089）。
 
-        `since`/`until` 是闭区间；返回稀疏 `daily`，不补零。统计是全局的，
-        不接列表过滤，供管理页展示窗口趋势。
+        `since`/`until` 是闭区间；返回稀疏 `daily`，不补零。可选用户/会话/动作
+        过滤与列表同口径（ADR-0089）。
         """
 
     async def prune_session_pin_audits(
@@ -1288,11 +1294,22 @@ class InMemoryRunStore:
             )
 
     async def session_pin_audit_stats(
-        self, *, since: datetime, until: datetime
+        self,
+        *,
+        since: datetime,
+        until: datetime,
+        user_id: str | None = None,
+        session_id: str | None = None,
+        action: str | None = None,
     ) -> SessionPinAuditStats:
         async with self._lock:
             records = [
-                record for record in self._session_pin_audits if since <= record.created_at <= until
+                record
+                for record in self._session_pin_audits
+                if since <= record.created_at <= until
+                and (user_id is None or record.user_id == user_id)
+                and (session_id is None or record.session_id == session_id)
+                and (action is None or record.action == action)
             ]
         per_day: dict[date, list[int]] = {}
         for record in records:
@@ -2290,12 +2307,24 @@ class PostgresRunStore:
         return int(total or 0)
 
     async def session_pin_audit_stats(
-        self, *, since: datetime, until: datetime
+        self,
+        *,
+        since: datetime,
+        until: datetime,
+        user_id: str | None = None,
+        session_id: str | None = None,
+        action: str | None = None,
     ) -> SessionPinAuditStats:
         window = [
             SessionPinAuditRow.created_at >= since,
             SessionPinAuditRow.created_at <= until,
         ]
+        if user_id is not None:
+            window.append(SessionPinAuditRow.user_id == user_id)
+        if session_id is not None:
+            window.append(SessionPinAuditRow.session_id == session_id)
+        if action is not None:
+            window.append(SessionPinAuditRow.action == action)
         day_column = func.date(func.timezone("UTC", SessionPinAuditRow.created_at))
         async with self._sessionmaker() as session:
             # pins/unpins 从 daily 行求和，保证「日趋势之和等于汇总」始终成立；

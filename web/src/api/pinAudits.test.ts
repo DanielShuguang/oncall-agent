@@ -70,6 +70,64 @@ describe('getSessionPinAuditStats', () => {
   });
 });
 
+describe('getSessionPinAuditStats filters', () => {
+  it('带用户/会话/动作过滤时拼接参数，仍保留 days', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    fetchMock.mockImplementation(
+      async () =>
+        new Response(
+          JSON.stringify({
+            days: 30,
+            since: '2026-10-18T00:00:00Z',
+            until: '2026-11-17T00:00:00Z',
+            pins: 1,
+            unpins: 0,
+            users: 1,
+            sessions: 1,
+            daily: [],
+          }),
+          { status: 200 },
+        ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await getSessionPinAuditStats(30, { userId: 'u_102', sessionId: 'sess a', action: 'pin' });
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      '/api/admin/session-pins/stats?user_id=u_102&session_id=sess+a&action=pin&days=30',
+    );
+  });
+
+  it('日期范围优先，不再发送 days', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    fetchMock.mockImplementation(
+      async () =>
+        new Response(
+          JSON.stringify({
+            days: 2,
+            since: '2026-11-01T00:00:00Z',
+            until: '2026-11-02T23:59:59.999999Z',
+            pins: 0,
+            unpins: 0,
+            users: 0,
+            sessions: 0,
+            daily: [],
+          }),
+          { status: 200 },
+        ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await getSessionPinAuditStats(30, {
+      createdFrom: '2026-11-01',
+      createdTo: '2026-11-02',
+    });
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      '/api/admin/session-pins/stats?created_from=2026-11-01&created_to=2026-11-02',
+    );
+  });
+});
 describe('exportSessionPinAuditsCsv', () => {
   it('按当前过滤导出并读取截断响应头', async () => {
     const fetchMock = vi.fn<typeof fetch>();

@@ -498,10 +498,10 @@ Authorization: Bearer <admin-token>
 - 列表支持分页；管理页见 ADR-0085；审计由 `RetentionSweeper` 按
   `ONCALL_SESSION_PIN_AUDIT_RETENTION_DAYS`（默认 365 天）独立清理（ADR-0083）
 
-统计全局窗口内的置顶/取消置顶（ADR-0087），不接列表过滤：
+统计窗口内的置顶/取消置顶，跟随与列表相同的用户/会话/动作/日期过滤（ADR-0087/0089）：
 
 ```http
-GET /api/admin/session-pins/stats?days=30
+GET /api/admin/session-pins/stats?days=30&user_id=u_102&action=pin
 Authorization: Bearer <admin-token>
 ```
 
@@ -511,21 +511,25 @@ Authorization: Bearer <admin-token>
   "since": "2026-10-18T12:00:00Z",
   "until": "2026-11-17T12:00:00Z",
   "pins": 2,
-  "unpins": 1,
+  "unpins": 0,
   "users": 1,
   "sessions": 1,
   "daily": [
-    {"day": "2026-11-16", "pins": 2, "unpins": 1}
+    {"day": "2026-11-16", "pins": 2, "unpins": 0}
   ]
 }
 ```
 
-- `days` 1–365，默认 30；窗口是 `[until - days 天, until]`，`until=now(UTC)`
-- `pins`/`unpins` 是显式状态变化次数；`users`/`sessions` 是窗口内去重后的操作者
-  与会话数；`daily` 只含有活动的 UTC 自然日（稀疏、不补零），`pins`/`unpins`
-  之和分别等于汇总
-- 统计是全局口径，不接受 `user_id`/`session_id`/`action`/日期范围；需要过滤后的
-  细目用列表或导出。管理页的统计卡不随下方筛选变化
+- `days` 可选 1–365，默认 30；窗口是 `[until - days 天, until]`，`until=now(UTC)`。
+  `created_from`/`created_to` 是 UTC 自然日闭区间，必须同时提供、`from <= to`、
+  最多 365 天，否则 `422 INVALID_RANGE`；日期范围与 `days` 二选一，同时传也返回
+  `422 INVALID_RANGE`。范围内部窗口为 `[from 00:00Z, to 次日 00:00Z)`，响应
+  `days` 为闭区间天数，`until` 为 `to 次日 00:00Z - 1µs`
+- `user_id`/`session_id`/`action` 与列表同义；过滤后 `pins`/`unpins` 只统计命中
+  记录，`users`/`sessions` 是命中记录内去重后的操作者与会话数；`daily` 只含命中
+  记录的 UTC 有活动日（稀疏、不补零），`pins`/`unpins` 之和分别等于汇总
+- 不带过滤参数时是全局口径，等价于旧 `?days=` 行为；管理页统计卡跟随已应用的
+  用户/会话/动作/日期过滤，带日期范围时隐藏 7/30/90 天按钮（ADR-0089）
 - 数据库不可用返回 `503 {"code":"DATABASE_UNAVAILABLE"}`
 
 导出当前过滤下的审计快照（ADR-0084），最多 5000 条：

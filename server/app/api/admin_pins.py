@@ -5,7 +5,8 @@
 - 默认返回全部用户最近 50 条；`user_id`/`session_id`/`action` 可选过滤
 - `(created_at, id)` 倒序 keyset 分页；游标绑定当前过滤条件，换过滤复用旧游标
   返回 400，避免静默跳到另一组结果
-- `/stats` 给全局窗口汇总与 UTC 稀疏日趋势；不接列表过滤
+- `/stats` 给窗口汇总与 UTC 稀疏日趋势；可选用户/会话/动作/日期过滤，
+  与列表同口径（ADR-0089）
 - 数据库不可用返回 503，不返回空列表冒充「没有置顶记录」
 """
 
@@ -65,6 +66,24 @@ def _created_window(
     after = datetime.combine(created_from, time.min, tzinfo=UTC)
     before = datetime.combine(created_to + timedelta(days=1), time.min, tzinfo=UTC)
     return after, before, f"{created_from.isoformat()}:{created_to.isoformat()}"
+
+
+def _stats_window(
+    days: int | None,
+    created_from: date | None,
+    created_to: date | None,
+) -> tuple[datetime, datetime, int]:
+    """统计窗口：`days` 与日期范围二选一（ADR-0089）。"""
+    window = _created_window(created_from, created_to)
+    if window is None:
+        selected_days = days or 30
+        until = datetime.now(UTC)
+        return until - timedelta(days=selected_days), until, selected_days
+    if days is not None:
+        raise ApiError(422, "INVALID_RANGE", "days 与 created_from/created_to 不能同时使用")
+    since, before, _ = window
+    until = before - timedelta(microseconds=1)
+    return since, until, (until.date() - since.date()).days + 1
 
 
 def _audits_csv(records: list[SessionPinAuditRecord]) -> str:
@@ -163,18 +182,28 @@ def _decode_cursor(
 async def get_session_pin_audit_stats(
     store: Annotated[RunStore, Depends(get_store)],
     _admin: Annotated[Identity, Depends(require_admin)],
-    days: Annotated[int, Query(ge=1, le=365)] = 30,
+    days: Annotated[int | None, Query(ge=1, le=365)] = None,
+    created_from: Annotated[date | None, Query()] = None,
+    created_to: Annotated[date | None, Query()] = None,
+    user_id: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
+    session_id: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
+    action: Annotated[Literal["pin", "unpin"] | None, Query()] = None,
 ) -> SessionPinAuditStatsOut:
-    """全局置顶/取消置顶审计的窗口统计（ADR-0087）。"""
-    until = datetime.now(UTC)
-    since = until - timedelta(days=days)
+    """置顶/取消置顶审计的窗口统计（ADR-0087/0089）；筛选与列表同口径。"""
+    since, until, days_out = _stats_window(days, created_from, created_to)
     try:
-        stats = await store.session_pin_audit_stats(since=since, until=until)
+        stats = await store.session_pin_audit_stats(
+            since=since,
+            until=until,
+            user_id=user_id,
+            session_id=session_id,
+            action=action,
+        )
     except SQLAlchemyError as exc:
         log.warning("session_pin_audit_stats_failed", error=str(exc))
         raise ApiError(503, "DATABASE_UNAVAILABLE", "置顶审计统计暂不可用") from exc
     return SessionPinAuditStatsOut(
-        days=days,
+        days=days_out,
         since=stats.since,
         until=stats.until,
         pins=stats.pins,

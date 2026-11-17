@@ -75,8 +75,15 @@ export function listSessionPinAudits(
   return getJson<SessionPinAuditListResponse>(`/admin/session-pins?${params.toString()}`);
 }
 
-export function getSessionPinAuditStats(days = 30): Promise<SessionPinAuditStats> {
-  return getJson<SessionPinAuditStats>(`/admin/session-pins/stats?days=${days}`);
+export function getSessionPinAuditStats(
+  days = 30,
+  filters: SessionPinAuditFilters = {},
+): Promise<SessionPinAuditStats> {
+  const params = new URLSearchParams();
+  applyFilters(params, filters);
+  // 日期范围与 days 二选一；带范围时由后端按闭区间算窗口。
+  if (!(filters.createdFrom && filters.createdTo)) params.set('days', String(days));
+  return getJson<SessionPinAuditStats>(`/admin/session-pins/stats?${params.toString()}`);
 }
 
 export async function exportSessionPinAuditsCsv(

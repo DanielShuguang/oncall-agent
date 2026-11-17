@@ -6,7 +6,7 @@ import asyncio
 import csv
 import io
 import uuid
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock
 
 from httpx import AsyncClient
@@ -434,9 +434,58 @@ async def test_session_pin_audit_stats(client: AsyncClient, mem_store: InMemoryR
         bad = await client.get("/api/admin/session-pins/stats", headers=ADMIN, params=params)
         assert bad.status_code == 422
 
+    filtered = await client.get(
+        "/api/admin/session-pins/stats",
+        headers=ADMIN,
+        params={"days": 7, "user_id": "u_102"},
+    )
+    assert filtered.status_code == 200
+    filtered_body = filtered.json()
+    assert (filtered_body["pins"], filtered_body["unpins"]) == (1, 1)
+    assert (filtered_body["users"], filtered_body["sessions"]) == (1, 1)
+
+    pin_only = await client.get(
+        "/api/admin/session-pins/stats",
+        headers=ADMIN,
+        params={"days": 7, "action": "pin"},
+    )
+    assert pin_only.status_code == 200
+    assert (pin_only.json()["pins"], pin_only.json()["unpins"]) == (2, 0)
+
+    today = datetime.now(UTC).date().isoformat()
+    ranged = await client.get(
+        "/api/admin/session-pins/stats",
+        headers=ADMIN,
+        params={"created_from": today, "created_to": today, "user_id": "u_102"},
+    )
+    assert ranged.status_code == 200
+    ranged_body = ranged.json()
+    assert ranged_body["days"] == 1
+    assert (ranged_body["pins"], ranged_body["unpins"]) == (1, 1)
+
+    both = await client.get(
+        "/api/admin/session-pins/stats",
+        headers=ADMIN,
+        params={"days": 7, "created_from": today, "created_to": today},
+    )
+    assert both.status_code == 422
+    assert both.json()["code"] == "INVALID_RANGE"
+
+    half = await client.get(
+        "/api/admin/session-pins/stats",
+        headers=ADMIN,
+        params={"created_from": today},
+    )
+    assert half.status_code == 422
+    assert half.json()["code"] == "INVALID_RANGE"
+
 
 async def test_session_pin_audits_reject_bad_params(client: AsyncClient) -> None:
-    for path in ("/api/admin/session-pins", "/api/admin/session-pins/export"):
+    for path in (
+        "/api/admin/session-pins",
+        "/api/admin/session-pins/export",
+        "/api/admin/session-pins/stats",
+    ):
         for params in ({"user_id": ""}, {"session_id": ""}, {"action": "delete"}):
             res = await client.get(path, headers=ADMIN, params=params)
             assert res.status_code == 422, (path, params)

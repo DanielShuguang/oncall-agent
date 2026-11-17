@@ -12,12 +12,8 @@ import {
   type SessionPinAuditStats,
 } from '@/api/pinAudits';
 import { downloadBlob } from '@/lib/download';
-import {
-  PinAuditFilterCard,
-  PinAuditListCard,
-  PinAuditStatsCard,
-  type PinAuditDraft,
-} from './PinAuditSections';
+import { PinAuditStatsCard } from './PinAuditStatsCard';
+import { PinAuditFilterCard, PinAuditListCard, type PinAuditDraft } from './PinAuditSections';
 
 const PAGE_SIZE = 20;
 
@@ -94,8 +90,9 @@ export default function PinAuditPage() {
     const load = async () => {
       setStatsLoading(true);
       setStatsError(null);
+      setStats(null);
       try {
-        const data = await getSessionPinAuditStats(statsDays);
+        const data = await getSessionPinAuditStats(statsDays, filters);
         if (!cancelled && statsRequest.current === requestId) setStats(data);
       } catch (exc) {
         if (!cancelled && statsRequest.current === requestId) {
@@ -110,7 +107,7 @@ export default function PinAuditPage() {
       cancelled = true;
       statsRequest.current += 1;
     };
-  }, [statsDays]);
+  }, [filters, statsDays]);
 
   const changeStatsDays = (days: number) => {
     if (days === statsDays) return;
@@ -255,6 +252,8 @@ export default function PinAuditPage() {
         loading={statsLoading}
         error={statsError}
         days={statsDays}
+        filtered={hasActiveFilters}
+        dateRangeActive={Boolean(filters.createdFrom && filters.createdTo)}
         onChangeDays={changeStatsDays}
       />
 

@@ -43,6 +43,19 @@ export function auditDatePresetRange(
   return { from: isoDate(from), to: isoDate(today) };
 }
 
+/** 当前手填/预设区间匹配的预设；用于高亮，不写回存储。 */
+export function activeAuditDatePreset(
+  from: string,
+  to: string,
+  now: Date = new Date(),
+): AuditDatePreset | null {
+  return (
+    AUDIT_DATE_PRESETS.find(({ value }) => {
+      const range = auditDatePresetRange(value, now);
+      return range.from === from && range.to === to;
+    })?.value ?? null
+  );
+}
 function defaultPresetStorage(): PresetStorage | null {
   if (typeof window === 'undefined') return null;
   try {

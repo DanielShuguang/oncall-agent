@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   AUDIT_DATE_PRESET_STORAGE_KEY,
+  activeAuditDatePreset,
   auditDatePresetRange,
   clearLastAuditDatePreset,
   readLastAuditDatePreset,
@@ -76,6 +77,13 @@ class MemoryStorage {
   }
 }
 
+describe('activeAuditDatePreset', () => {
+  it('matches only the exact preset range', () => {
+    expect(activeAuditDatePreset('2026-03-09', '2026-03-15', NOW)).toBe('last7');
+    expect(activeAuditDatePreset('2026-03-09', '2026-03-14', NOW)).toBeNull();
+    expect(activeAuditDatePreset('', '', NOW)).toBeNull();
+  });
+});
 describe('auditDatePreset storage', () => {
   it('reads only known preset ids', () => {
     const storage = new MemoryStorage();

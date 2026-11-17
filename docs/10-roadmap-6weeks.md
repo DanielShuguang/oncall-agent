@@ -1987,7 +1987,7 @@ ADR-0075 只记住日期预设。管理员按用户/会话排查后刷新页面�
 | 存储 | 内部半开 `[from 00:00Z, to 次日 00:00Z)`；复用 `idx_session_pin_audits_time`；无迁移 |
 | 游标 | `{t,i,f?}`；`f` 的过滤指纹加入日期范围，换范围复用旧游标 400；旧无日期游标兼容 |
 | 前端 | PinAuditPage 增加两个日期输入；应用前校验两端/顺序/365 天；清除同步清日期；导出只读已应用过滤 |
-| 范围 | 不做快捷预设/可配置时区/异步导出/下载审计；按日统计见 ADR-0087 |
+| 范围 | 快捷预设见 ADR-0091；不做可配置时区/异步导出/下载审计；按日统计见 ADR-0087 |
 | 验证 | 默认 515+40、PG 552+3、PG+Redis 555、ruff 200 / mypy 116；前端 118/25、oxlint 88、oxfmt 96、build 2900 modules/262ms |
 
 详见 [ADR-0086](decisions/0086-session-pin-audit-date-range.md)。
@@ -2069,6 +2069,26 @@ ADR-0075 只记住日期预设。管理员按用户/会话排查后刷新页面�
 | 验证 | 默认 517+40、PG 554+3、PG+Redis 557、ruff 200 / mypy 116；前端 26 files/127 tests、oxlint 125 files、oxfmt 133 files、build 2933 modules/346ms |
 
 详见 [ADR-0090](decisions/0090-session-pin-audit-stats-export.md)。
+
+---
+
+## W6 后补：置顶审计日期快捷预设（ADR-0091）
+
+置顶审计页只有两个日期输入；恢复审计页已有近 7/30/90 天、本月/上月快捷预设。
+复用同一套 UTC 日期算法，给置顶页加一行快捷按钮，点击即写入草稿并立即筛选，
+不改查询契约、不新增后端参数。
+
+| 事项 | 落地 |
+|---|---|
+| 入口 | `PinAuditFilterCard` 顶部「快捷日期（UTC）」五个按钮：近 7/30/90 天、本月、上月 |
+| 行为 | 点击把 `createdFrom`/`createdTo` 写入草稿，并调用与「筛选」相同的 `commitFilters`；立即清空旧列表/统计/导出提示 |
+| 高亮 | `activeAuditDatePreset(from, to)` 只在区间与某预设完全相等时高亮；手填日期不误高亮 |
+| 记忆 | 不持久化，不读写 `oncall.audit-date-preset.v1`；刷新回到空筛选，避免与恢复审计页跨页耦合 |
+| 组件 | 筛选卡拆到 `PinAuditFilterCard.tsx`，导出状态拆到 `usePinAuditExport.ts`；`PinAuditPage` ≤300 行 |
+| 范围 | 不做自定义区间命名/保存、可配置时区；后端 365 天/UTC 校验不变 |
+| 验证 | 前端 26 files/128 tests、tsc、oxlint 0/0（127 files）、oxfmt 135 files、build 通过；后端未改，沿用 517+40 / 554+3 / 557 |
+
+详见 [ADR-0091](decisions/0091-pin-audit-date-presets.md)。
 
 ---
 

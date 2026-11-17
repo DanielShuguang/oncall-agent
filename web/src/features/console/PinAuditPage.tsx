@@ -4,30 +4,31 @@ import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import {
-  exportSessionPinAuditsCsv,
   getSessionPinAuditStats,
   listSessionPinAudits,
   type SessionPinAudit,
   type SessionPinAuditFilters,
   type SessionPinAuditStats,
 } from '@/api/pinAudits';
-import { downloadBlob } from '@/lib/download';
+import {
+  activeAuditDatePreset,
+  auditDatePresetRange,
+  type AuditDatePreset,
+} from './auditDatePresets';
+import {
+  EMPTY_PIN_AUDIT_DRAFT,
+  PinAuditFilterCard,
+  type PinAuditDraft,
+} from './PinAuditFilterCard';
+import { PinAuditListCard } from './PinAuditSections';
 import { PinAuditStatsCard } from './PinAuditStatsCard';
-import { PinAuditFilterCard, PinAuditListCard, type PinAuditDraft } from './PinAuditSections';
+import { usePinAuditExport } from './usePinAuditExport';
 
 const PAGE_SIZE = 20;
 
-const EMPTY_DRAFT: PinAuditDraft = {
-  userId: '',
-  sessionId: '',
-  action: 'all',
-  from: '',
-  to: '',
-};
-
 export default function PinAuditPage() {
   const [filters, setFilters] = useState<SessionPinAuditFilters>({});
-  const [draft, setDraft] = useState<PinAuditDraft>(EMPTY_DRAFT);
+  const [draft, setDraft] = useState<PinAuditDraft>(EMPTY_PIN_AUDIT_DRAFT);
   const [filterError, setFilterError] = useState<string | null>(null);
   const [items, setItems] = useState<SessionPinAudit[]>([]);
   const [total, setTotal] = useState<number | null>(null);
@@ -35,10 +36,6 @@ export default function PinAuditPage() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [exporting, setExporting] = useState(false);
-  const [exportMessage, setExportMessage] = useState<{ text: string; failed: boolean } | null>(
-    null,
-  );
   const [statsDays, setStatsDays] = useState<number>(30);
   const [stats, setStats] = useState<SessionPinAuditStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
@@ -49,7 +46,7 @@ export default function PinAuditPage() {
   );
   // 切换过滤后，旧列表/旧导出都不能再覆盖新结果。
   const listRequest = useRef(0);
-  const exportRequest = useRef(0);
+  const { exporting, exportMessage, exportCsv, invalidate } = usePinAuditExport();
 
   useEffect(() => {
     let cancelled = false;
@@ -61,7 +58,6 @@ export default function PinAuditPage() {
       setCursor(null);
       setError(null);
       setLoadingMore(false);
-      setExportMessage(null);
       try {
         const data = await listSessionPinAudits(filters, null, PAGE_SIZE);
         if (!cancelled && listRequest.current === requestId) {
@@ -137,16 +133,16 @@ export default function PinAuditPage() {
     }
   };
 
-  const applyFilters = () => {
-    const userId = draft.userId.trim();
-    const sessionId = draft.sessionId.trim();
-    if (Boolean(draft.from) !== Boolean(draft.to)) {
+  const commitFilters = (nextDraft: PinAuditDraft) => {
+    const userId = nextDraft.userId.trim();
+    const sessionId = nextDraft.sessionId.trim();
+    if (Boolean(nextDraft.from) !== Boolean(nextDraft.to)) {
       setFilterError('日期范围需要同时填写开始和结束日期。');
       return;
     }
-    if (draft.from && draft.to) {
-      const from = Date.parse(draft.from);
-      const to = Date.parse(draft.to);
+    if (nextDraft.from && nextDraft.to) {
+      const from = Date.parse(nextDraft.from);
+      const to = Date.parse(nextDraft.to);
       if (Number.isNaN(from) || Number.isNaN(to)) {
         setFilterError('日期格式不正确。');
         return;
@@ -169,9 +165,7 @@ export default function PinAuditPage() {
     setLoading(true);
     setLoadingMore(false);
     setError(null);
-    setExportMessage(null);
-    exportRequest.current += 1;
-    setExporting(false);
+    invalidate();
     statsRequest.current += 1;
     setStats(null);
     setStatsLoading(true);
@@ -179,13 +173,26 @@ export default function PinAuditPage() {
     setFilters({
       ...(userId ? { userId } : {}),
       ...(sessionId ? { sessionId } : {}),
-      ...(draft.action === 'all' ? {} : { action: draft.action }),
-      ...(draft.from && draft.to ? { createdFrom: draft.from, createdTo: draft.to } : {}),
+      ...(nextDraft.action === 'all' ? {} : { action: nextDraft.action }),
+      ...(nextDraft.from && nextDraft.to
+        ? { createdFrom: nextDraft.from, createdTo: nextDraft.to }
+        : {}),
     });
   };
 
+  const applyFilters = () => {
+    commitFilters(draft);
+  };
+
+  const applyPreset = (preset: AuditDatePreset) => {
+    const range = auditDatePresetRange(preset);
+    const next = { ...draft, from: range.from, to: range.to };
+    setDraft(next);
+    commitFilters(next);
+  };
+
   const clearFilters = () => {
-    setDraft(EMPTY_DRAFT);
+    setDraft(EMPTY_PIN_AUDIT_DRAFT);
     setFilterError(null);
     listRequest.current += 1;
     setItems([]);
@@ -194,9 +201,7 @@ export default function PinAuditPage() {
     setLoading(true);
     setLoadingMore(false);
     setError(null);
-    setExportMessage(null);
-    exportRequest.current += 1;
-    setExporting(false);
+    invalidate();
     statsRequest.current += 1;
     setStats(null);
     setStatsLoading(true);
@@ -204,31 +209,7 @@ export default function PinAuditPage() {
     setFilters({});
   };
 
-  const exportCsv = async () => {
-    if (exporting) return;
-    const requestId = ++exportRequest.current;
-    setExporting(true);
-    setExportMessage(null);
-    try {
-      const result = await exportSessionPinAuditsCsv(filters);
-      if (exportRequest.current !== requestId) return;
-      downloadBlob(result.blob, 'session-pins.csv');
-      setExportMessage({
-        failed: false,
-        text: result.truncated
-          ? `已导出前 ${result.count} 条；超过 5000 条上限，已截断。`
-          : `已导出 ${result.count} 条置顶审计。`,
-      });
-    } catch (exc) {
-      if (exportRequest.current !== requestId) return;
-      setExportMessage({
-        failed: true,
-        text: exc instanceof Error ? exc.message : '导出失败',
-      });
-    } finally {
-      if (exportRequest.current === requestId) setExporting(false);
-    }
-  };
+  const activePreset = activeAuditDatePreset(draft.from, draft.to);
 
   return (
     <div className="space-y-4">
@@ -243,7 +224,7 @@ export default function PinAuditPage() {
           className="h-8 text-xs"
           disabled={exporting}
           title="按下方已应用的筛选导出"
-          onClick={() => void exportCsv()}
+          onClick={() => void exportCsv(filters)}
         >
           {exporting ? '导出中…' : '导出 CSV'}
         </Button>
@@ -268,8 +249,10 @@ export default function PinAuditPage() {
 
       <PinAuditFilterCard
         draft={draft}
+        activePreset={activePreset}
         error={filterError}
         onChange={(patch) => setDraft((current) => ({ ...current, ...patch }))}
+        onApplyPreset={applyPreset}
         onApply={applyFilters}
         onClear={clearFilters}
       />

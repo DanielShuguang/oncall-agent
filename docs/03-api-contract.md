@@ -493,7 +493,8 @@ Authorization: Bearer <admin-token>
   `f` 不是签名、不防伪造。取满 `limit` 才给 `next_cursor`
 - 第一页（无 `cursor`）返回同过滤条件的 `total`；带 `cursor` 的后续页为 `null`。
   `total` 与列表是两次查询，并发写入时可能相差一条，不承诺严格同一快照；
-  计数失败返回 503，不返回缺 `total` 的半成品（ADR-0088）
+  计数失败返回 503，不返回缺 `total` 的半成品；若并发新增导致
+  `total < items.length`，服务端返回 `total: null`，客户端按「未知」处理（ADR-0088）
 - 列表支持分页；管理页见 ADR-0085；审计由 `RetentionSweeper` 按
   `ONCALL_SESSION_PIN_AUDIT_RETENTION_DAYS`（默认 365 天）独立清理（ADR-0083）
 

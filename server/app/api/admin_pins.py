@@ -281,6 +281,10 @@ async def list_session_pin_audits(
     except SQLAlchemyError as exc:
         log.warning("session_pin_audit_read_failed", error=str(exc))
         raise ApiError(503, "DATABASE_UNAVAILABLE", "置顶审计暂不可用") from exc
+    # 计数与列表是两次查询：并发新增可能让 total 小于当前页条数。
+    # 这种 total 自相矛盾，按「未知」返回 null，避免页面出现「共 0 条 · 已加载 1 条」。
+    if total is not None and total < len(records):
+        total = None
     return SessionPinAuditListResponse(
         items=[_out(record) for record in records],
         next_cursor=(

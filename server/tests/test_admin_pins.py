@@ -44,7 +44,9 @@ async def test_session_pin_audits_require_admin(client: AsyncClient) -> None:
         assert res.json()["code"] == "FORBIDDEN"
 
 
-async def test_list_session_pin_audits(client: AsyncClient, mem_store: InMemoryRunStore) -> None:
+async def test_list_session_pin_audits(
+    client: AsyncClient, mem_store: InMemoryRunStore, monkeypatch
+) -> None:
     await _pin_once(mem_store, user_id="u_102", session_id="sess_a")
     await asyncio.sleep(0.002)
     await _pin_once(mem_store, user_id="u_103", session_id="sess_b")
@@ -87,6 +89,18 @@ async def test_list_session_pin_audits(client: AsyncClient, mem_store: InMemoryR
     assert limited.status_code == 200
     assert limited.json()["total"] == 3
     assert len(limited.json()["items"]) == 1
+
+    # 计数与列表之间新增了审计：total < 当前页条数时按「未知」处理，
+    # 不能显示「共 0 条 · 已加载 3 条」。
+    original_count = mem_store.count_session_pin_audits
+    monkeypatch.setattr(mem_store, "count_session_pin_audits", AsyncMock(return_value=0))
+    try:
+        inconsistent = await client.get("/api/admin/session-pins", headers=ADMIN)
+        assert inconsistent.status_code == 200
+        assert inconsistent.json()["total"] is None
+        assert len(inconsistent.json()["items"]) == 3
+    finally:
+        monkeypatch.setattr(mem_store, "count_session_pin_audits", original_count)
 
 
 async def test_session_pin_audits_paginate(

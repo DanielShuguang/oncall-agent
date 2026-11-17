@@ -7,6 +7,7 @@
     "perf": "warn"
   },
   "rules": {
+    "max-lines": ["error", { "max": 300, "skipBlankLines": true, "skipComments": true }],
     "no-console": "warn",
     "eqeqeq": "error",
     "typescript/no-explicit-any": "warn",
@@ -21,5 +22,22 @@
     "browser": true,
     "es2022": true
   },
+  "overrides": [
+    {
+      "files": [
+        "src/features/chat/ChatPage.tsx",
+        "src/features/chat/SessionList.tsx",
+        "src/features/console/ApprovalsPage.tsx",
+        "src/features/console/AuditPage.tsx",
+        "src/features/console/KbPage.tsx",
+        "src/features/console/PinAuditPage.tsx",
+        "src/features/console/ToolsPage.tsx",
+        "src/features/runs/RunDetailPage.tsx"
+      ],
+      "rules": {
+        "max-lines": "off"
+      }
+    }
+  ],
   "ignorePatterns": ["dist", "src/api/generated.ts"]
 }

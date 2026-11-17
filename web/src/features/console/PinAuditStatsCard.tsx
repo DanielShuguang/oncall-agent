@@ -34,7 +34,7 @@ export function PinAuditStatsCard({
                 ? '统计跟随下方已应用的日期范围'
                 : filtered
                   ? '统计跟随下方已应用的用户/会话/动作筛选'
-                  : '全局窗口统计，不随下方筛选变化'}
+                  : '当前无筛选，显示全局窗口；应用筛选后跟随筛选'}
             </div>
           </div>
           {dateRangeActive ? (

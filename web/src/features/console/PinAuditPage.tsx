@@ -172,6 +172,10 @@ export default function PinAuditPage() {
     setExportMessage(null);
     exportRequest.current += 1;
     setExporting(false);
+    statsRequest.current += 1;
+    setStats(null);
+    setStatsLoading(true);
+    setStatsError(null);
     setFilters({
       ...(userId ? { userId } : {}),
       ...(sessionId ? { sessionId } : {}),
@@ -193,6 +197,10 @@ export default function PinAuditPage() {
     setExportMessage(null);
     exportRequest.current += 1;
     setExporting(false);
+    statsRequest.current += 1;
+    setStats(null);
+    setStatsLoading(true);
+    setStatsError(null);
     setFilters({});
   };
 

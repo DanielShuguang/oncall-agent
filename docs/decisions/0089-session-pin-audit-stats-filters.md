@@ -3,7 +3,7 @@
 - 状态：已接受（W6 后补）
 - 日期：2026-11-17
 - 相关：[ADR-0081](0081-session-pin-audit.md)、[ADR-0085](0085-session-pin-audit-console.md)、[ADR-0086](0086-session-pin-audit-date-range.md)、[ADR-0087](0087-session-pin-audit-stats.md)
-- 迁移：无（仍 `0022`）
+- 迁移：本次未新增；沿用 `0022`，未改表结构。
 
 ## 背景
 
@@ -74,10 +74,9 @@
 - 前端 `pinAudits.test.ts`：过滤参数仍带 `days=30`；日期范围只发 `created_from/to`。
 - 实测：默认 **516 passed + 40 skipped**；Postgres-only **553 passed + 3 skipped**；
   Postgres + Redis **556 passed**；`ruff check` / `ruff format --check` 200 files /
-  `mypy app` 116 files；前端 **26 files / 125 tests**、tsc、oxlint 0/0、oxfmt、
-  `pnpm build` 通过。
-- 迁移 `0022` 往返通过（`upgrade head` → `alembic check` → `downgrade 0021` →
-  `upgrade head`），无新迁移。
+  `mypy app` 116 files；前端 **26 files / 125 tests**、tsc、oxlint 0/0、oxfmt 133 files、
+  `pnpm build` 2933 modules/324ms。
+- 本次无新迁移，未执行迁移往返；`0022` 保持不变。
 
 ## 待定
 

@@ -2051,6 +2051,7 @@ ADR-0075 只记住日期预设。管理员按用户/会话排查后刷新页面�
 详见 [ADR-0089](decisions/0089-session-pin-audit-stats-filters.md)。
 
 ---
+
 ## 每周固定动作
 
 | 时点 | 动作 |

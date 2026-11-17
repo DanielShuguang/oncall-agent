@@ -43,8 +43,10 @@ UTC 稀疏日趋势，不接列表过滤。
 4. **稀疏日趋势**：`daily` 只返回有审计活动的 UTC 日期，每行 `{day, pins, unpins}`，
    升序、不补零；`pins`/`unpins` 之和分别等于汇总。低频数据下 30 个空日不值得画。
 5. **存储实现**：内存遍历审计记录按 UTC 日期聚合；Postgres 用
-   `count(*) filter (where action = ...)`、`count(distinct ...)` 与
-   `date(timezone('UTC', created_at))` 分组。复用 `idx_session_pin_audits_time`，无迁移。
+   `count(distinct user_id)`/`count(distinct session_id)` 求汇总，再按
+   `date(timezone('UTC', created_at))` + `action` 分组求日趋势；`pins`/`unpins`
+   从 daily 行求和，保证「日趋势之和等于汇总」不被并发写入破坏。复用
+   `idx_session_pin_audits_time`，无迁移。
 6. **失败语义**：统计与列表同走 `SQLAlchemyError` → 503 `DATABASE_UNAVAILABLE`；
    统计失败不影响列表加载（前端独立错误卡）。
 7. **前端范围**：管理页顶部 7/30/90 天切换，四项汇总 + 最近 7 个有活动日期的
@@ -56,6 +58,8 @@ UTC 稀疏日趋势，不接列表过滤。
 - 统计与列表是两次查询，可能相差一条刚写入的审计；页面不承诺同一快照。
 - `daily` 稀疏，前端需要接受空数组并只展示已有日期；不能把空数组当成错误。
 - 统计是全局口径，管理员想按用户/会话看细目仍需列表或导出。
+- `pins`/`unpins` 从 `daily` 行求和，二者始终一致；`users`/`sessions` 是同一窗口
+  的另一条 distinct 聚合，并发写入时可能与 `daily` 相差一条，页面不承诺严格同一快照。
 - 数据量随操作增长，聚合走 `created_at` 索引；当前量级不需要缓存或物化。
 
 ## 验证

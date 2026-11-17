@@ -2239,17 +2239,17 @@ class PostgresRunStore:
         ]
         day_column = func.date(func.timezone("UTC", SessionPinAuditRow.created_at))
         async with self._sessionmaker() as session:
+            # pins/unpins 从 daily 行求和，保证「日趋势之和等于汇总」始终成立；
+            # users/sessions 是另一条聚合，只作为窗口内去重数展示。
             summary = await session.execute(
                 select(
-                    func.count().filter(SessionPinAuditRow.action == "pin"),
-                    func.count().filter(SessionPinAuditRow.action == "unpin"),
                     func.count(func.distinct(SessionPinAuditRow.user_id)),
                     func.count(func.distinct(SessionPinAuditRow.session_id)),
                 )
                 .select_from(SessionPinAuditRow)
                 .where(*window)
             )
-            pins, unpins, users, sessions = summary.one()
+            users, sessions = summary.one()
             daily_rows = await session.execute(
                 select(day_column, SessionPinAuditRow.action, func.count())
                 .where(*window)
@@ -2271,8 +2271,8 @@ class PostgresRunStore:
         return SessionPinAuditStats(
             since=since,
             until=until,
-            pins=int(pins or 0),
-            unpins=int(unpins or 0),
+            pins=sum(day.pins for day in daily),
+            unpins=sum(day.unpins for day in daily),
             users=int(users or 0),
             sessions=int(sessions or 0),
             daily=daily,

@@ -1,63 +1,19 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { cn } from 'cn';
-import { Bot, Info, Menu, Plus, Send, Sparkles, Square } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { Textarea } from '@/components/ui/textarea';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-
-import {
-  getSessionRuns,
-  hideSession,
-  hideSessions as hideSessionsBatch,
-  listHiddenSessions,
-  listSessions,
-  pinSession,
-  renameSession,
-  restoreSession,
-  restoreSessions,
-  unpinSession,
-  type HiddenSession,
-  type SessionSummary,
-} from '@/api/sessions';
+import { useCallback, useRef, useState } from 'react';
 import { CitationPreviewDialog } from './CitationPreviewDialog';
+import { ChatComposer } from './ChatComposer';
+import { ChatHeader } from './ChatHeader';
+import { ChatMessages } from './ChatMessages';
 import { SessionList } from './SessionList';
-import { Timeline } from './Timeline';
-import { REDACTED_NOTE, transcriptMessages } from './history';
-import { clearLastSession, readLastSession, writeLastSession } from './lastSession';
-import { formatRestoreNotice } from './restoreNotice';
 import { useChat } from './store';
+import { useChatHistory } from './useChatHistory';
+import { useHiddenSessions } from './useHiddenSessions';
+import { useSessionList } from './useSessionList';
+import { useSessionMutations } from './useSessionMutations';
 import type { Citation } from './types';
 
-const PHASE_LABEL: Record<string, string> = {
-  idle: '就绪',
-  running: '执行中',
-  awaiting_approval: '等待审批',
-  completed: '已完成',
-  failed: '失败',
-  interrupted: '已中断',
-};
-
 export default function ChatPage() {
-  const {
-    runtime,
-    sessionId,
-    sending,
-    send,
-    retry,
-    resolve,
-    abort,
-    reset,
-    switchSession,
-    prependHistory,
-  } = useChat();
-  const [text, setText] = useState('');
+  const { runtime, sessionId, sending, retry, resolve, abort } = useChat();
   const [activeCitation, setActiveCitation] = useState<Citation | null>(null);
-  const [sessions, setSessions] = useState<SessionSummary[]>([]);
-  const [sessionsCursor, setSessionsCursor] = useState<string | null>(null);
-  const [pinnedCount, setPinnedCount] = useState<number | null>(null);
-  const [pinLimit, setPinLimit] = useState<number | null>(null);
   // 窄屏（<640px）会话栏默认隐藏，用抽屉访问（ADR-0076）。
   const [sessionDrawerOpen, setSessionDrawerOpen] = useState(false);
   const sessionDrawerTrigger = useRef<HTMLButtonElement>(null);
@@ -68,571 +24,40 @@ export default function ChatPage() {
       sessionDrawerTrigger.current?.focus();
     }
   }, []);
-  const [sessionsLoading, setSessionsLoading] = useState(true);
-  const [sessionsLoadingMore, setSessionsLoadingMore] = useState(false);
-  const [sessionsError, setSessionsError] = useState<string | null>(null);
-  // 已提交的标题搜索词；空串表示不过滤（ADR-0039）
-  const [sessionQuery, setSessionQuery] = useState('');
-  const [sessionDraftQuery, setSessionDraftQuery] = useState('');
-  // 行内改会话标题（ADR-0040）；renamingId 一次只允许一个
-  const [renamingId, setRenamingId] = useState<string | null>(null);
-  const [renameDraft, setRenameDraft] = useState('');
-  // 重命名请求可能晚于下一次编辑返回：token 变了就不要再关掉新的编辑器。
-  const [renameSaving, setRenameSaving] = useState(false);
-  const renameRequest = useRef(0);
-  // 正在从会话列表移除的会话（ADR-0041）；移除只影响列表，不删 run
-  const [hidingId, setHidingId] = useState<string | null>(null);
-  // 批量移除（ADR-0072）：管理模式下按当前已加载页选择
-  const [batchHideMode, setBatchHideMode] = useState(false);
-  const [batchHideSelected, setBatchHideSelected] = useState<Set<string>>(new Set());
-  const [batchHiding, setBatchHiding] = useState(false);
-  const [batchHideNotice, setBatchHideNotice] = useState<string | null>(null);
-  // 正在置顶/取消置顶的会话（ADR-0069）；置顶后刷新列表回到第一页
-  const [pinningId, setPinningId] = useState<string | null>(null);
-  // 已移除的会话折叠区（ADR-0043）；打开时才拉取，恢复只删 hidden_sessions 行
-  const [hiddenOpen, setHiddenOpen] = useState(false);
-  const [hiddenSessions, setHiddenSessions] = useState<HiddenSession[]>([]);
-  const [hiddenLoading, setHiddenLoading] = useState(false);
-  const [hiddenError, setHiddenError] = useState<string | null>(null);
-  // 已移除视图的搜索与分页（ADR-0047）：与主列表共用「标题匹配」口径
-  const [hiddenQuery, setHiddenQuery] = useState('');
-  // 批量恢复期间用户仍可能改搜索词；重拉第一页必须用最新关键词，而不是提交时的闭包值。
-  const hiddenQueryRef = useRef(hiddenQuery);
-  const [hiddenDraftQuery, setHiddenDraftQuery] = useState('');
-  const [hiddenCursor, setHiddenCursor] = useState<string | null>(null);
-  const [hiddenLoadingMore, setHiddenLoadingMore] = useState(false);
-  const [restoringId, setRestoringId] = useState<string | null>(null);
-  // 批量恢复（ADR-0049/0055）：一次最多 50 个，部分成功；选中只作用于当前已加载页
-  const [hiddenSelected, setHiddenSelected] = useState<Set<string>>(new Set());
-  const [restoringBatch, setRestoringBatch] = useState(false);
-  const [hiddenNotice, setHiddenNotice] = useState<string | null>(null);
-  // 快速收起/展开时旧请求可能晚于新请求返回：只接受最后一次展开的结果。
-  const hiddenRequest = useRef(0);
-  const [historyLoading, setHistoryLoading] = useState(false);
-  // 当前会话内更早轮次的 keyset 游标；null 表示没有更早的页（ADR-0033）
-  const [historyCursor, setHistoryCursor] = useState<string | null>(null);
-  const [historyOlderLoading, setHistoryOlderLoading] = useState(false);
-  // 历史会话请求可能乱序返回（连点两个会话、加载中又点了新会话）：
-  // 用自增 token 只接受最后一次请求的结果，避免旧的响应把界面切回去。
-  const historyRequest = useRef(0);
-  // 刷新会替换整个会话列表：加载更多/初始加载的旧页回来时不能 append 到新列表上。
-  const sessionsRequest = useRef(0);
-  // 首屏只尝试恢复一次上次会话；避免列表刷新后反复覆盖用户当前选择。
-  const lastSessionRestored = useRef(false);
-  const sessionIdRef = useRef(sessionId);
-  const sendingRef = useRef(sending);
-  // 用户已主动打开/新建会话时，首屏迟到的列表响应不能再自动恢复上次会话。
-  const sessionSelectionStarted = useRef(false);
-  // 自动恢复占用 historyLoading 时仍允许用户改选其他会话：用户操作优先，旧恢复响应按 token 丢弃。
-  const lastSessionRestoring = useRef(false);
 
-  useEffect(() => {
-    hiddenQueryRef.current = hiddenQuery;
-  }, [hiddenQuery]);
+  const sessions = useSessionList();
+  const history = useChatHistory({
+    sessions: sessions.sessions,
+    sessionsLoaded: sessions.sessionsLoaded,
+    sessionId,
+    sending,
+    refreshSessions: sessions.refresh,
+    resetRename: sessions.resetRename,
+    setSessionsError: sessions.setError,
+    setActiveCitation,
+  });
+  const mutations = useSessionMutations({
+    sessionId,
+    sessions: sessions.sessions,
+    refreshSessions: sessions.refresh,
+    setSessionsError: sessions.setError,
+  });
+  const hidden = useHiddenSessions(sessions.refresh);
+  const activeSession = sessions.sessions.find((item) => item.session_id === sessionId);
 
-  useEffect(() => {
-    if (!sessionDrawerOpen) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') closeSessionDrawer();
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [closeSessionDrawer, sessionDrawerOpen]);
-
-  useEffect(() => {
-    if (sessionId) writeLastSession(sessionId);
-  }, [sessionId]);
-
-  useEffect(() => {
-    sessionIdRef.current = sessionId;
-  }, [sessionId]);
-
-  useEffect(() => {
-    sendingRef.current = sending;
-  }, [sending]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const requestId = ++sessionsRequest.current;
-    listSessions(20)
-      .then((page) => {
-        if (!cancelled && requestId === sessionsRequest.current) {
-          setSessions(page.items);
-          setSessionsCursor(page.next_cursor);
-          setPinnedCount(page.pinned_count ?? null);
-          setPinLimit(page.pin_limit ?? null);
-          // 首屏只在用户尚未进入任何会话时恢复一次上次会话；只接受仍在当前用户首屏列表里的 id。
-          if (!lastSessionRestored.current) {
-            lastSessionRestored.current = true;
-            const last = readLastSession();
-            if (
-              last &&
-              !sessionIdRef.current &&
-              !sendingRef.current &&
-              !sessionSelectionStarted.current &&
-              page.items.some((item) => item.session_id === last)
-            ) {
-              const historyId = ++historyRequest.current;
-              lastSessionRestoring.current = true;
-              setHistoryLoading(true);
-              void getSessionRuns(last, 20)
-                .then((history) => {
-                  if (historyId !== historyRequest.current) return undefined;
-                  setActiveCitation(null);
-                  setText('');
-                  renameRequest.current += 1;
-                  setRenameSaving(false);
-                  setRenamingId(null);
-                  setRenameDraft('');
-                  setHistoryCursor(history.next_cursor);
-                  switchSession(last, transcriptMessages(history.items));
-                  return undefined;
-                })
-                .catch((err: unknown) => {
-                  if (historyId === historyRequest.current) {
-                    setSessionsError(err instanceof Error ? err.message : '上次会话加载失败');
-                  }
-                })
-                .finally(() => {
-                  lastSessionRestoring.current = false;
-                  if (historyId === historyRequest.current) setHistoryLoading(false);
-                });
-            }
-          }
-        }
-        return page.items;
-      })
-      .catch((err: unknown) => {
-        if (!cancelled && requestId === sessionsRequest.current) {
-          setSessionsError(err instanceof Error ? err.message : '会话列表加载失败');
-        }
-      })
-      .finally(() => {
-        if (!cancelled && requestId === sessionsRequest.current) setSessionsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-      historyRequest.current += 1;
-      sessionsRequest.current += 1;
-    };
-  }, [switchSession]);
-
-  const refreshSessions = (query: string = sessionQuery) => {
-    const requestId = ++sessionsRequest.current;
-    setSessionsLoading(true);
-    setSessionsLoadingMore(false);
-    setSessionsError(null);
-    listSessions(20, null, query || null)
-      .then((page) => {
-        if (requestId !== sessionsRequest.current) return page.items;
-        setSessions(page.items);
-        setSessionsCursor(page.next_cursor);
-        setPinnedCount(page.pinned_count ?? null);
-        setPinLimit(page.pin_limit ?? null);
-        // 搜索/刷新可能把已选中的会话移出当前页；不能继续对不可见的行执行批量移除（ADR-0072）
-        setBatchHideSelected((prev) => {
-          if (prev.size === 0) return prev;
-          const visible = new Set(page.items.map((item) => item.session_id));
-          const next = new Set([...prev].filter((id) => visible.has(id)));
-          return next.size === prev.size ? prev : next;
-        });
-        return page.items;
-      })
-      .catch((err: unknown) => {
-        if (requestId === sessionsRequest.current) {
-          setSessionsError(err instanceof Error ? err.message : '会话列表加载失败');
-        }
-      })
-      .finally(() => {
-        if (requestId === sessionsRequest.current) setSessionsLoading(false);
-      });
+  const hideSession = async (targetSessionId: string) => {
+    const result = await mutations.onHideSession(targetSessionId);
+    if (!result.ok) return;
+    if (result.current) history.onNewSession();
+    hidden.reset();
   };
 
-  const loadMoreSessions = async () => {
-    if (!sessionsCursor || sessionsLoadingMore) return;
-    const requestId = sessionsRequest.current;
-    setSessionsLoadingMore(true);
-    setSessionsError(null);
-    try {
-      const page = await listSessions(20, sessionsCursor, sessionQuery || null);
-      if (requestId !== sessionsRequest.current) return;
-      setSessions((prev) => [...prev, ...page.items]);
-      setSessionsCursor(page.next_cursor);
-      setPinnedCount(page.pinned_count ?? null);
-      setPinLimit(page.pin_limit ?? null);
-    } catch (err) {
-      if (requestId === sessionsRequest.current) {
-        setSessionsError(err instanceof Error ? err.message : '更多会话加载失败');
-      }
-    } finally {
-      if (requestId === sessionsRequest.current) setSessionsLoadingMore(false);
-    }
+  const hideSelected = async () => {
+    const result = await mutations.onHideSelectedSessions();
+    if (!result.ok) return;
+    if (result.current) history.onNewSession();
+    hidden.reset();
   };
-
-  const onSearchSessions = () => {
-    const next = sessionDraftQuery.trim();
-    setSessionQuery(next);
-    refreshSessions(next);
-  };
-
-  const onRenameStart = (session: SessionSummary) => {
-    renameRequest.current += 1;
-    setRenameSaving(false);
-    setRenamingId(session.session_id);
-    setRenameDraft(session.title ?? '');
-  };
-
-  const onRenameCancel = () => {
-    renameRequest.current += 1;
-    setRenameSaving(false);
-    setRenamingId(null);
-    setRenameDraft('');
-  };
-
-  const onRenameSubmit = async () => {
-    if (!renamingId || renameSaving) return;
-    const title = renameDraft.trim();
-    if (title.length > 60) {
-      setSessionsError('标题最多 60 个字符');
-      return;
-    }
-    const requestId = ++renameRequest.current;
-    setRenameSaving(true);
-    setSessionsError(null);
-    try {
-      // 留空 = 恢复默认标题（首条问题）
-      await renameSession(renamingId, title || null);
-      refreshSessions();
-      if (requestId === renameRequest.current) {
-        setRenamingId(null);
-        setRenameDraft('');
-      }
-    } catch (err) {
-      if (requestId === renameRequest.current) {
-        setSessionsError(err instanceof Error ? err.message : '会话重命名失败');
-      }
-    } finally {
-      if (requestId === renameRequest.current) setRenameSaving(false);
-    }
-  };
-
-  const onSend = async () => {
-    const value = text.trim();
-    if (!value) return;
-    // 发送本身会占用当前会话：首屏迟到的上一次会话恢复不能把本轮运行切走。
-    sessionSelectionStarted.current = true;
-    lastSessionRestoring.current = false;
-    // 发送会沿用当前会话：取消还在路上的历史会话切换，避免它回来后把本轮 UI 覆盖掉
-    historyRequest.current += 1;
-    setHistoryLoading(false);
-    setHistoryOlderLoading(false);
-    setText('');
-    await send(value);
-    refreshSessions();
-  };
-
-  const onSelectSession = async (nextSessionId: string) => {
-    // 自动恢复在跑时也允许用户改选；此时递增 historyRequest 会让旧恢复响应失效。
-    if (sending || (historyLoading && !lastSessionRestoring.current) || nextSessionId === sessionId)
-      return;
-    sessionSelectionStarted.current = true;
-    lastSessionRestoring.current = false;
-    const requestId = ++historyRequest.current;
-    setHistoryLoading(true);
-    setHistoryOlderLoading(false);
-    setSessionsError(null);
-    try {
-      const page = await getSessionRuns(nextSessionId, 20);
-      if (requestId !== historyRequest.current) return;
-      setActiveCitation(null);
-      setText('');
-      renameRequest.current += 1;
-      setRenameSaving(false);
-      setRenamingId(null);
-      setRenameDraft('');
-      setHistoryCursor(page.next_cursor);
-      switchSession(nextSessionId, transcriptMessages(page.items));
-    } catch (err) {
-      if (requestId === historyRequest.current) {
-        setSessionsError(err instanceof Error ? err.message : '历史会话加载失败');
-      }
-    } finally {
-      if (requestId === historyRequest.current) setHistoryLoading(false);
-    }
-  };
-
-  const loadEarlier = async () => {
-    if (!historyCursor || historyOlderLoading || historyLoading || sending) return;
-    const requestId = historyRequest.current;
-    setHistoryOlderLoading(true);
-    setSessionsError(null);
-    try {
-      const page = await getSessionRuns(sessionId, 20, historyCursor);
-      if (requestId !== historyRequest.current) return;
-      prependHistory(transcriptMessages(page.items));
-      setHistoryCursor(page.next_cursor);
-    } catch (err) {
-      if (requestId === historyRequest.current) {
-        setSessionsError(err instanceof Error ? err.message : '更早的对话加载失败');
-      }
-    } finally {
-      if (requestId === historyRequest.current) setHistoryOlderLoading(false);
-    }
-  };
-
-  const onNewSession = () => {
-    sessionSelectionStarted.current = true;
-    lastSessionRestoring.current = false;
-    clearLastSession();
-    historyRequest.current += 1;
-    renameRequest.current += 1;
-    setHistoryLoading(false);
-    setHistoryOlderLoading(false);
-    setHistoryCursor(null);
-    setRenameSaving(false);
-    setRenamingId(null);
-    setRenameDraft('');
-    setActiveCitation(null);
-    setText('');
-    reset();
-  };
-
-  const onHideSession = async (targetSessionId: string) => {
-    if (hidingId) return;
-    setHidingId(targetSessionId);
-    setSessionsError(null);
-    try {
-      await hideSession(targetSessionId);
-      if (targetSessionId === sessionId) onNewSession();
-      refreshSessions();
-      // 列表已经变化，已移除折叠区下次打开时重新拉取；并让在途请求失效。
-      hiddenRequest.current += 1;
-      setHiddenOpen(false);
-      setHiddenLoading(false);
-      setHiddenLoadingMore(false);
-      setHiddenSessions([]);
-      setHiddenCursor(null);
-      setHiddenSelected(new Set());
-      setHiddenQuery('');
-      setHiddenDraftQuery('');
-      setHiddenNotice(null);
-    } catch (err) {
-      setSessionsError(err instanceof Error ? err.message : '会话移除失败');
-    } finally {
-      setHidingId(null);
-    }
-  };
-
-  const onToggleBatchHide = () => {
-    if (batchHideMode) {
-      setBatchHideMode(false);
-      setBatchHideNotice(null);
-    } else {
-      setBatchHideMode(true);
-    }
-    setBatchHideSelected(new Set());
-  };
-
-  const onBatchHideToggleSelect = (targetSessionId: string) => {
-    setBatchHideSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(targetSessionId)) next.delete(targetSessionId);
-      else next.add(targetSessionId);
-      return next;
-    });
-  };
-
-  const onBatchHideToggleAll = () => {
-    setBatchHideSelected((prev) => {
-      const allSelected =
-        sessions.length > 0 && sessions.every((item) => prev.has(item.session_id));
-      return allSelected ? new Set() : new Set(sessions.map((item) => item.session_id));
-    });
-  };
-
-  const onHideSelectedSessions = async () => {
-    if (batchHiding || batchHideSelected.size === 0) return;
-    const ids = [...batchHideSelected];
-    setBatchHiding(true);
-    setSessionsError(null);
-    setBatchHideNotice(null);
-    try {
-      const result = await hideSessionsBatch(ids);
-      if (ids.includes(sessionId)) onNewSession();
-      setBatchHideMode(false);
-      setBatchHideSelected(new Set());
-      const failed = result.items.filter((item) => !item.hidden).length;
-      setBatchHideNotice(
-        result.hidden === 0
-          ? `没有会话被移除${failed > 0 ? `（${failed} 个不存在或不属于你）` : ''}。`
-          : failed > 0
-            ? `已移除 ${result.hidden} 个会话；${failed} 个未移除（可能不存在或不属于你）。`
-            : `已移除 ${result.hidden} 个会话。`,
-      );
-      refreshSessions();
-      // 已移除列表已变化：下次展开重新拉取，并让在途请求失效。
-      hiddenRequest.current += 1;
-      setHiddenOpen(false);
-      setHiddenLoading(false);
-      setHiddenLoadingMore(false);
-      setHiddenSessions([]);
-      setHiddenCursor(null);
-      setHiddenSelected(new Set());
-      setHiddenQuery('');
-      setHiddenDraftQuery('');
-      setHiddenNotice(null);
-    } catch (err) {
-      setSessionsError(err instanceof Error ? err.message : '批量移除失败');
-    } finally {
-      setBatchHiding(false);
-    }
-  };
-
-  const onTogglePin = async (session: SessionSummary) => {
-    if (pinningId || session.pinned === undefined) return;
-    setPinningId(session.session_id);
-    setSessionsError(null);
-    try {
-      if (session.pinned) await unpinSession(session.session_id);
-      else await pinSession(session.session_id);
-      // 排序变化：回到第一页重新拉，避免当前页仍按旧顺序排列。
-      refreshSessions();
-    } catch (err) {
-      setSessionsError(err instanceof Error ? err.message : '置顶操作失败');
-    } finally {
-      setPinningId(null);
-    }
-  };
-
-  const loadHiddenFirstPage = async (query: string) => {
-    const requestId = ++hiddenRequest.current;
-    setHiddenLoading(true);
-    setHiddenLoadingMore(false);
-    setHiddenError(null);
-    try {
-      const page = await listHiddenSessions(50, null, query || null);
-      if (requestId === hiddenRequest.current) {
-        setHiddenSessions(page.items);
-        setHiddenCursor(page.next_cursor);
-      }
-    } catch (err) {
-      if (requestId === hiddenRequest.current) {
-        setHiddenError(err instanceof Error ? err.message : '已移除会话加载失败');
-      }
-    } finally {
-      if (requestId === hiddenRequest.current) setHiddenLoading(false);
-    }
-  };
-
-  const onToggleHiddenSessions = async () => {
-    if (hiddenOpen) {
-      hiddenRequest.current += 1;
-      setHiddenOpen(false);
-      setHiddenLoading(false);
-      setHiddenLoadingMore(false);
-      setHiddenSelected(new Set());
-      setHiddenNotice(null);
-      return;
-    }
-    setHiddenOpen(true);
-    setHiddenNotice(null);
-    await loadHiddenFirstPage(hiddenQuery);
-  };
-
-  const onHiddenSearch = () => {
-    const nextQuery = hiddenDraftQuery.trim();
-    setHiddenQuery(nextQuery);
-    setHiddenCursor(null);
-    setHiddenSelected(new Set());
-    setHiddenNotice(null);
-    void loadHiddenFirstPage(nextQuery);
-  };
-
-  const onHiddenLoadMore = async () => {
-    if (!hiddenCursor || hiddenLoading || hiddenLoadingMore) return;
-    const requestId = ++hiddenRequest.current;
-    setHiddenLoadingMore(true);
-    setHiddenError(null);
-    try {
-      const page = await listHiddenSessions(50, hiddenCursor, hiddenQuery || null);
-      if (requestId === hiddenRequest.current) {
-        setHiddenSessions((prev) => [...prev, ...page.items]);
-        setHiddenCursor(page.next_cursor);
-      }
-    } catch (err) {
-      if (requestId === hiddenRequest.current) {
-        setHiddenError(err instanceof Error ? err.message : '已移除会话加载失败');
-      }
-    } finally {
-      if (requestId === hiddenRequest.current) setHiddenLoadingMore(false);
-    }
-  };
-
-  const onRestoreSession = async (targetSessionId: string) => {
-    if (restoringId) return;
-    setRestoringId(targetSessionId);
-    setHiddenError(null);
-    setHiddenNotice(null);
-    try {
-      await restoreSession(targetSessionId);
-      // 恢复也是列表变更：让在途的已移除请求失效，避免旧页把刚恢复的会话写回来（ADR-0047）。
-      hiddenRequest.current += 1;
-      setHiddenLoading(false);
-      setHiddenLoadingMore(false);
-      setHiddenSessions((prev) => prev.filter((item) => item.session_id !== targetSessionId));
-      setHiddenSelected((prev) => {
-        const next = new Set(prev);
-        next.delete(targetSessionId);
-        return next;
-      });
-      refreshSessions();
-    } catch (err) {
-      setHiddenError(err instanceof Error ? err.message : '会话恢复失败');
-    } finally {
-      setRestoringId(null);
-    }
-  };
-
-  const onHiddenToggleSelect = (targetSessionId: string) => {
-    setHiddenSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(targetSessionId)) next.delete(targetSessionId);
-      else next.add(targetSessionId);
-      return next;
-    });
-  };
-
-  const onHiddenToggleAll = () => {
-    setHiddenSelected((prev) => {
-      const allSelected =
-        hiddenSessions.length > 0 && hiddenSessions.every((item) => prev.has(item.session_id));
-      return allSelected ? new Set() : new Set(hiddenSessions.map((item) => item.session_id));
-    });
-  };
-
-  const onRestoreSelected = async () => {
-    if (restoringBatch || restoringId !== null || hiddenSelected.size === 0) return;
-    setRestoringBatch(true);
-    setHiddenError(null);
-    setHiddenNotice(null);
-    try {
-      const result = await restoreSessions([...hiddenSelected]);
-      setHiddenNotice(formatRestoreNotice(result.restored, result.items));
-      // 批量恢复同样让在途请求失效，并从服务端重新拉一页，避免部分成功时本地列表撒谎。
-      hiddenRequest.current += 1;
-      setHiddenLoading(false);
-      setHiddenLoadingMore(false);
-      setHiddenSelected(new Set());
-      refreshSessions();
-      await loadHiddenFirstPage(hiddenQueryRef.current);
-    } catch (err) {
-      setHiddenError(err instanceof Error ? err.message : '批量恢复失败');
-    } finally {
-      setRestoringBatch(false);
-    }
-  };
-
-  const activeSession = sessions.find((item) => item.session_id === sessionId);
 
   return (
     <div className="flex min-h-0 flex-1 bg-canvas">
@@ -648,387 +73,100 @@ export default function ChatPage() {
       <SessionList
         mobileOpen={sessionDrawerOpen}
         onCloseMobile={closeSessionDrawer}
-        sessions={sessions}
+        sessions={sessions.sessions}
         activeSessionId={sessionId}
-        loading={sessionsLoading}
-        error={sessionsError}
-        busy={historyLoading}
-        hasMore={sessionsCursor !== null}
-        loadingMore={sessionsLoadingMore}
-        query={sessionQuery}
-        searchDraft={sessionDraftQuery}
-        onSearchDraftChange={setSessionDraftQuery}
-        onSearch={onSearchSessions}
+        loading={sessions.loading}
+        error={sessions.error}
+        busy={history.historyLoading}
+        hasMore={sessions.cursor !== null}
+        loadingMore={sessions.loadingMore}
+        query={sessions.query}
+        searchDraft={sessions.draftQuery}
+        onSearchDraftChange={sessions.setDraftQuery}
+        onSearch={sessions.onSearch}
         onSelect={(id) => {
           closeSessionDrawer();
-          void onSelectSession(id);
+          void history.onSelectSession(id);
         }}
         onNew={() => {
           closeSessionDrawer();
-          onNewSession();
+          history.onNewSession();
         }}
-        onRetry={() => refreshSessions()}
-        onLoadMore={() => void loadMoreSessions()}
-        renamingId={renamingId}
-        renameDraft={renameDraft}
-        renameSaving={renameSaving}
-        onRenameStart={onRenameStart}
-        onRenameDraftChange={setRenameDraft}
-        onRenameSubmit={() => void onRenameSubmit()}
-        onRenameCancel={onRenameCancel}
-        pinningId={pinningId}
-        pinnedCount={pinnedCount}
-        pinLimit={pinLimit}
-        onTogglePin={(item) => void onTogglePin(item)}
-        hidingId={hidingId}
-        onHide={(id) => void onHideSession(id)}
-        batchMode={batchHideMode}
-        batchSelected={batchHideSelected}
-        batchHiding={batchHiding}
-        batchNotice={batchHideNotice}
-        onToggleBatchMode={onToggleBatchHide}
-        onBatchToggleSelect={onBatchHideToggleSelect}
-        onBatchToggleAll={onBatchHideToggleAll}
-        onHideSelected={() => void onHideSelectedSessions()}
-        hiddenOpen={hiddenOpen}
-        hiddenSessions={hiddenSessions}
-        hiddenLoading={hiddenLoading}
-        hiddenError={hiddenError}
-        hiddenNotice={hiddenNotice}
-        hiddenQuery={hiddenQuery}
-        hiddenDraftQuery={hiddenDraftQuery}
-        hiddenHasMore={hiddenCursor !== null}
-        hiddenLoadingMore={hiddenLoadingMore}
-        onHiddenDraftChange={setHiddenDraftQuery}
-        onHiddenSearch={onHiddenSearch}
-        onHiddenLoadMore={() => void onHiddenLoadMore()}
-        restoringId={restoringId}
-        restoringBatch={restoringBatch}
-        hiddenSelected={hiddenSelected}
-        onHiddenToggleSelect={onHiddenToggleSelect}
-        onHiddenToggleAll={onHiddenToggleAll}
-        onRestoreSelected={() => void onRestoreSelected()}
-        onToggleHidden={() => void onToggleHiddenSessions()}
-        onRestore={(id) => void onRestoreSession(id)}
+        onRetry={() => sessions.refresh()}
+        onLoadMore={() => void sessions.loadMore()}
+        renamingId={sessions.renamingId}
+        renameDraft={sessions.renameDraft}
+        renameSaving={sessions.renameSaving}
+        onRenameStart={sessions.onRenameStart}
+        onRenameDraftChange={sessions.setRenameDraft}
+        onRenameSubmit={() => void sessions.onRenameSubmit()}
+        onRenameCancel={sessions.onRenameCancel}
+        pinningId={sessions.pinningId}
+        pinnedCount={sessions.pinnedCount}
+        pinLimit={sessions.pinLimit}
+        onTogglePin={(item) => void sessions.onTogglePin(item)}
+        hidingId={mutations.hidingId}
+        onHide={(id) => void hideSession(id)}
+        batchMode={mutations.batchHideMode}
+        batchSelected={mutations.batchHideSelected}
+        batchHiding={mutations.batchHiding}
+        batchNotice={mutations.batchHideNotice}
+        onToggleBatchMode={mutations.onToggleBatchHide}
+        onBatchToggleSelect={mutations.onBatchHideToggleSelect}
+        onBatchToggleAll={mutations.onBatchHideToggleAll}
+        onHideSelected={() => void hideSelected()}
+        hiddenOpen={hidden.hiddenOpen}
+        hiddenSessions={hidden.hiddenSessions}
+        hiddenLoading={hidden.hiddenLoading}
+        hiddenError={hidden.hiddenError}
+        hiddenNotice={hidden.hiddenNotice}
+        hiddenQuery={hidden.hiddenQuery}
+        hiddenDraftQuery={hidden.hiddenDraftQuery}
+        hiddenHasMore={hidden.hiddenCursor !== null}
+        hiddenLoadingMore={hidden.hiddenLoadingMore}
+        onHiddenDraftChange={hidden.setHiddenDraftQuery}
+        onHiddenSearch={hidden.onHiddenSearch}
+        onHiddenLoadMore={() => void hidden.onHiddenLoadMore()}
+        restoringId={hidden.restoringId}
+        restoringBatch={hidden.restoringBatch}
+        hiddenSelected={hidden.hiddenSelected}
+        onHiddenToggleSelect={hidden.onHiddenToggleSelect}
+        onHiddenToggleAll={hidden.onHiddenToggleAll}
+        onRestoreSelected={() => void hidden.onRestoreSelected()}
+        onToggleHidden={() => void hidden.onToggleHidden()}
+        onRestore={(id) => void hidden.onRestoreSession(id)}
       />
       <section className="flex min-h-0 min-w-0 flex-1 flex-col bg-panel">
-        <div className="border-b px-4 py-3 sm:px-6">
-          <div className="mx-auto flex w-full max-w-3xl items-center justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-2">
-              <Button
-                ref={sessionDrawerTrigger}
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="shrink-0 sm:hidden"
-                aria-label="打开会话列表"
-                aria-controls="session-list"
-                aria-expanded={sessionDrawerOpen}
-                onClick={() => setSessionDrawerOpen(true)}
-              >
-                <Menu className="size-4" />
-              </Button>
-              <div className="min-w-0">
-                <h2 className="truncate text-sm font-semibold">
-                  {activeSession?.title ?? '新对话'}
-                </h2>
-                <p className="mt-0.5 text-[11px] text-muted-foreground">
-                  {activeSession
-                    ? `${activeSession.run_count} 轮对话 · 更新于 ${new Date(activeSession.updated_at).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}`
-                    : '输入问题，开始一轮排查'}
-                </p>
-              </div>
-            </div>
-            <Badge
-              variant="outline"
-              className={cn(
-                'shrink-0',
-                runtime.phase === 'failed'
-                  ? 'border-danger/30 bg-danger/5 text-danger'
-                  : runtime.phase === 'running'
-                    ? 'border-brand/30 bg-brand/5 text-brand'
-                    : 'text-muted-foreground',
-              )}
-            >
-              {PHASE_LABEL[runtime.phase] ?? runtime.phase}
-            </Badge>
-          </div>
-        </div>
-
-        <div
-          aria-live="polite"
-          className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-6 sm:px-6"
-        >
-          <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-5">
-            {historyCursor && (
-              <div className="flex justify-center">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={historyOlderLoading}
-                  onClick={() => void loadEarlier()}
-                >
-                  {historyOlderLoading ? '加载中…' : '加载更早的对话'}
-                </Button>
-              </div>
-            )}
-            {runtime.messages.length === 0 && (
-              <div className="flex flex-1 flex-col items-center justify-center py-16 text-center">
-                <span className="grid size-14 place-items-center rounded-2xl bg-brand/10 text-brand">
-                  <Sparkles className="size-6" />
-                </span>
-                <h2 className="mt-4 text-lg font-semibold tracking-tight">今天想解决什么问题？</h2>
-                <p className="mt-1.5 max-w-md text-sm leading-6 text-muted-foreground">
-                  查资产、查工单、报修或申请软件，都可以直接用一句话说明。
-                </p>
-                <div className="mt-5 flex flex-wrap justify-center gap-2">
-                  {['VPN 连不上怎么办', '我电脑连不上打印机了', '帮我申请安装设计软件'].map(
-                    (suggestion) => (
-                      <button
-                        key={suggestion}
-                        type="button"
-                        className="rounded-full border bg-panel px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-brand/30 hover:text-brand"
-                        onClick={() => setText(suggestion)}
-                      >
-                        {suggestion}
-                      </button>
-                    ),
-                  )}
-                </div>
-              </div>
-            )}
-
-            {runtime.steps.map((step) => (
-              <div
-                key={step.seq ?? `${step.node}-${step.title}`}
-                className="flex items-center gap-2 text-xs text-muted-foreground"
-              >
-                <Badge
-                  variant="outline"
-                  className={cn(
-                    step.status === 'done' ? 'border-ok/40 text-ok' : 'border-brand/40 text-brand',
-                  )}
-                >
-                  {step.status === 'done' ? '完成' : '进行'}
-                </Badge>
-                <span>
-                  {step.title}
-                  {step.summary ? ` · ${step.summary}` : ''}
-                </span>
-              </div>
-            ))}
-
-            {runtime.tools.map((tool) => (
-              <Card
-                key={tool.callId}
-                className={cn(
-                  'gap-0 py-0',
-                  tool.write ? 'border-warn/40 bg-warn/5' : 'bg-canvas/50',
-                )}
-              >
-                <CardContent className="p-3">
-                  <div className="flex items-center gap-2">
-                    <Badge variant={tool.write ? 'destructive' : 'secondary'}>{tool.tool}</Badge>
-                    <span className="text-xs text-muted-foreground">
-                      {tool.status}
-                      {tool.durationMs ? ` · ${tool.durationMs}ms` : ''}
-                      {tool.attempts && tool.attempts > 1 ? ` · 重试${tool.attempts - 1}次` : ''}
-                    </span>
-                  </div>
-                  <div className="mt-2 text-[11px] text-muted-foreground">参数</div>
-                  <pre className="mt-1 max-h-48 overflow-auto rounded-md border bg-panel p-2 font-mono text-xs whitespace-pre-wrap">
-                    {JSON.stringify(tool.args, null, 2)}
-                  </pre>
-                  {tool.result !== undefined && (
-                    <>
-                      <div className="mt-2 text-[11px] text-muted-foreground">结果</div>
-                      <pre className="mt-1 max-h-64 overflow-auto rounded-md border bg-panel p-2 font-mono text-xs whitespace-pre-wrap">
-                        {JSON.stringify(tool.result, null, 2)}
-                      </pre>
-                    </>
-                  )}
-                  {tool.error && <div className="mt-1 text-sm text-destructive">{tool.error}</div>}
-                </CardContent>
-              </Card>
-            ))}
-
-            {runtime.approval && (
-              <Card className="gap-0 border-warn/40 bg-warn/5 py-0">
-                <CardContent className="p-3">
-                  <div className="text-sm font-semibold">需要你确认</div>
-                  <div className="mt-1.5 flex flex-wrap items-center gap-2 text-sm">
-                    即将执行 <Badge variant="outline">{runtime.approval.tool}</Badge>
-                    {runtime.approval.reason ? `：${runtime.approval.reason}` : ''}
-                  </div>
-                  <pre className="mt-2 max-h-64 overflow-auto rounded-md border bg-panel p-2 font-mono text-xs whitespace-pre-wrap">
-                    {JSON.stringify(runtime.approval.args, null, 2)}
-                  </pre>
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    审批人角色才能决议，且不能审批自己发起的操作。
-                  </p>
-                  <div className="mt-2 flex gap-2">
-                    <Button size="sm" disabled={sending} onClick={() => void resolve('approved')}>
-                      {sending ? '提交中…' : '批准'}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={sending}
-                      onClick={() => void resolve('rejected')}
-                    >
-                      拒绝
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {runtime.messages.map((msg) => {
-              const assistant = msg.role === 'assistant';
-              const redacted = assistant && msg.text === REDACTED_NOTE;
-              return (
-                <div key={msg.id} className={cn('flex gap-3', !assistant && 'justify-end')}>
-                  {assistant && (
-                    <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-full bg-brand/10 text-brand">
-                      <Bot className="size-4" />
-                    </span>
-                  )}
-                  <div
-                    className={cn('flex min-w-0 max-w-[85%] flex-col', !assistant && 'items-end')}
-                  >
-                    <div
-                      className={cn(
-                        'text-sm leading-7 whitespace-pre-wrap',
-                        redacted
-                          ? 'rounded-2xl rounded-tl-sm border border-dashed bg-muted/30 px-4 py-3 text-muted-foreground'
-                          : assistant
-                            ? 'rounded-2xl rounded-tl-sm border bg-canvas/60 px-4 py-3 text-ink'
-                            : 'rounded-2xl rounded-tr-sm bg-brand px-4 py-2.5 text-primary-foreground shadow-sm',
-                      )}
-                    >
-                      {redacted ? (
-                        <span className="flex items-center gap-2 text-xs leading-5">
-                          <Info className="size-3.5 shrink-0" />
-                          回答引用的文档已不可见，正文不再展示
-                        </span>
-                      ) : (
-                        msg.text
-                      )}
-                      {msg.streaming && <span className="text-muted-foreground">▍</span>}
-                    </div>
-                    {msg.citations?.length ? (
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {msg.citations.map((c: Citation, i: number) => (
-                          <Tooltip key={c.chunk_id}>
-                            <TooltipTrigger asChild>
-                              <button
-                                type="button"
-                                className="rounded-full border bg-panel px-2.5 py-1 text-xs text-brand transition-colors hover:border-brand/30 hover:bg-brand/5"
-                                onClick={() => setActiveCitation(c)}
-                              >
-                                [{i + 1}] {c.title}
-                                {c.page ? ` p.${c.page}` : ''}
-                              </button>
-                            </TooltipTrigger>
-                            <TooltipContent className="max-w-80">{c.snippet}</TooltipContent>
-                          </Tooltip>
-                        ))}
-                      </div>
-                    ) : null}
-                    {assistant &&
-                    ((msg.timeline?.length ?? 0) > 0 || msg.timelineAvailable === false) ? (
-                      <Timeline
-                        items={msg.timeline ?? []}
-                        available={msg.timelineAvailable ?? true}
-                        truncated={Boolean(msg.timelineTruncated)}
-                      />
-                    ) : null}
-                  </div>
-                </div>
-              );
-            })}
-
-            {runtime.error && (
-              <Card className="border-danger/30 bg-danger/5">
-                <CardContent className="flex flex-wrap items-center gap-3 p-3">
-                  <span className="min-w-0 flex-1 text-sm text-danger">{runtime.error}</span>
-                  {runtime.phase === 'failed' && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={sending}
-                      onClick={() => void retry()}
-                    >
-                      重试
-                    </Button>
-                  )}
-                </CardContent>
-              </Card>
-            )}
-          </div>
-        </div>
-
+        <ChatHeader
+          activeSession={activeSession}
+          phase={runtime.phase}
+          drawerOpen={sessionDrawerOpen}
+          setDrawerOpen={setSessionDrawerOpen}
+          triggerRef={sessionDrawerTrigger}
+        />
+        <ChatMessages
+          runtime={runtime}
+          sending={sending}
+          resolve={resolve}
+          onRetry={retry}
+          historyCursor={history.historyCursor}
+          historyOlderLoading={history.historyOlderLoading}
+          onLoadEarlier={() => void history.loadEarlier()}
+          onSuggestion={history.setText}
+          onCitation={setActiveCitation}
+        />
         <CitationPreviewDialog citation={activeCitation} onClose={() => setActiveCitation(null)} />
-
-        <div className="border-t bg-panel px-4 py-3 sm:px-6">
-          <div className="mx-auto w-full max-w-3xl">
-            <div className="rounded-xl border bg-panel p-2 shadow-sm ring-1 ring-transparent transition-shadow focus-within:border-brand/30 focus-within:ring-brand/10">
-              <Textarea
-                value={text}
-                rows={1}
-                aria-label="消息输入框"
-                placeholder="描述你的问题…"
-                className="max-h-40 min-h-11 w-full resize-none border-0 bg-transparent px-2 py-2 text-sm shadow-none focus-visible:ring-0"
-                onChange={(e) => setText(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    void onSend();
-                  }
-                }}
-              />
-              <div className="mt-1 flex items-center justify-between gap-2 px-1">
-                <span className="hidden text-[11px] text-muted-foreground sm:inline">
-                  Enter 发送 · Shift+Enter 换行
-                </span>
-                <div className="ml-auto flex items-center gap-1.5">
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="size-8 text-muted-foreground"
-                    aria-label="新会话"
-                    disabled={sending}
-                    onClick={onNewSession}
-                  >
-                    <Plus className="size-4" />
-                  </Button>
-                  {sending ? (
-                    <Button size="sm" variant="destructive" onClick={abort}>
-                      <Square className="size-3.5 fill-current" />
-                      停止
-                    </Button>
-                  ) : (
-                    <Button size="sm" onClick={() => void onSend()} disabled={!text.trim()}>
-                      <Send className="size-3.5" />
-                      发送
-                    </Button>
-                  )}
-                </div>
-              </div>
-            </div>
-            <div className="mt-2 flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
-              <span>
-                状态：{PHASE_LABEL[runtime.phase] ?? runtime.phase}
-                {historyLoading ? ' · 历史会话加载中…' : ''}
-              </span>
-              <span>
-                {runtime.costCents !== null
-                  ? `本轮成本 ¥${(runtime.costCents / 100).toFixed(2)}`
-                  : ''}
-              </span>
-            </div>
-          </div>
-        </div>
+        <ChatComposer
+          text={history.text}
+          setText={history.setText}
+          sending={sending}
+          onSend={() => void history.onSend()}
+          abort={abort}
+          onNewSession={history.onNewSession}
+          phase={runtime.phase}
+          historyLoading={history.historyLoading}
+          costCents={runtime.costCents}
+        />
       </section>
     </div>
   );

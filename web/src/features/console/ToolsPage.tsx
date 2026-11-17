@@ -1,76 +1,17 @@
 /** 工具注册与试调用（W5 D22）。schema 只读，启用/角色走治理配置。 */
 
 import { useEffect, useState } from 'react';
-import { FlaskConical, History, Lock, RotateCcw } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import { Textarea } from '@/components/ui/textarea';
 import {
   exampleArgs,
   getToolHistory,
   listTools,
   testTool,
   updateTool,
-  type ToolChange,
   type ToolInfo,
-  type ToolOverrideSnapshot,
-  type ToolTestResponse,
 } from '@/api/tools';
-
-interface TestState {
-  tool: ToolInfo;
-  argsText: string;
-  running: boolean;
-  result: ToolTestResponse | null;
-  error: string | null;
-}
-
-interface HistoryState {
-  tool: ToolInfo;
-  loading: boolean;
-  items: ToolChange[];
-  error: string | null;
-}
-
-function formatTime(value: string): string {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN', { hour12: false });
-}
-
-function describeSnapshot(snapshot: ToolOverrideSnapshot | null): string {
-  if (snapshot === null) return '代码默认';
-  const enabled = snapshot.enabled === null ? '启用继承' : snapshot.enabled ? '启用' : '禁用';
-  const roles =
-    snapshot.roles === null
-      ? '角色继承'
-      : snapshot.roles.length === 0
-        ? '所有登录用户'
-        : snapshot.roles.join('、');
-  return `${enabled} · ${roles}`;
-}
-
-function sourceLabel(source: string): string {
-  if (source === 'matrix') return '权限矩阵';
-  if (source === 'tool') return '工具开关';
-  return source;
-}
+import { ToolsDialogs, type HistoryState, type TestState } from './ToolsDialogs';
+import { ToolsTable } from './ToolsTable';
 
 export default function ToolsPage() {
   const [tools, setTools] = useState<ToolInfo[]>([]);
@@ -218,120 +159,15 @@ export default function ToolsPage() {
         </Card>
       )}
 
-      <Card className="gap-0 py-0">
-        <CardContent className="p-0">
-          {loading ? (
-            <div className="p-8 text-center text-xs text-muted-foreground">加载中…</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>工具</TableHead>
-                    <TableHead>类型</TableHead>
-                    <TableHead>超时</TableHead>
-                    <TableHead>允许角色</TableHead>
-                    <TableHead>状态</TableHead>
-                    <TableHead className="text-right">操作</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {tools.map((tool) => (
-                    <TableRow key={tool.name}>
-                      <TableCell className="max-w-80 align-top">
-                        <div className="font-mono text-xs font-medium">{tool.name}</div>
-                        <div className="mt-1 text-[11px] text-muted-foreground">
-                          {tool.description}
-                        </div>
-                      </TableCell>
-                      <TableCell className="align-top">
-                        <Badge variant={tool.is_write ? 'destructive' : 'secondary'}>
-                          {tool.is_write ? '写操作' : '只读'}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="align-top text-xs text-muted-foreground">
-                        {tool.timeout_ms}ms
-                      </TableCell>
-                      <TableCell className="max-w-56 align-top text-xs">
-                        {tool.roles.length === 0 ? (
-                          <span className="text-muted-foreground">所有登录用户</span>
-                        ) : (
-                          <span className="font-mono">{tool.roles.join(' / ')}</span>
-                        )}
-                        {tool.overridden && (
-                          <Badge variant="outline" className="ml-2 text-[10px]">
-                            已覆盖
-                          </Badge>
-                        )}
-                      </TableCell>
-                      <TableCell className="align-top">
-                        {!tool.code_enabled ? (
-                          <Badge variant="outline" className="text-muted-foreground">
-                            <Lock className="size-3" /> 代码禁用
-                          </Badge>
-                        ) : tool.enabled ? (
-                          <Badge variant="outline" className="border-ok/30 text-ok">
-                            启用
-                          </Badge>
-                        ) : (
-                          <Badge variant="outline" className="border-danger/30 text-danger">
-                            已禁用
-                          </Badge>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right align-top">
-                        <div className="flex flex-wrap justify-end gap-1">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 text-xs"
-                            onClick={() => openHistory(tool)}
-                          >
-                            <History className="size-3" />
-                            历史
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-7 text-xs"
-                            onClick={() => openTester(tool)}
-                          >
-                            <FlaskConical className="size-3" />
-                            试调用
-                          </Button>
-                          {tool.code_enabled && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-7 text-xs"
-                              disabled={busy === tool.name}
-                              onClick={() => void onToggle(tool)}
-                            >
-                              {tool.enabled ? '禁用' : '启用'}
-                            </Button>
-                          )}
-                          {tool.overridden && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-7 text-xs"
-                              disabled={busy === tool.name}
-                              title="撤销启用覆盖，角色覆盖保留"
-                              onClick={() => void onReset(tool)}
-                            >
-                              <RotateCcw className="size-3" />
-                            </Button>
-                          )}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      <ToolsTable
+        tools={tools}
+        loading={loading}
+        busy={busy}
+        onToggle={(tool) => void onToggle(tool)}
+        onReset={(tool) => void onReset(tool)}
+        onTest={openTester}
+        onHistory={openHistory}
+      />
 
       <p className="text-[11px] text-muted-foreground">
         角色矩阵在「权限」页编辑。工具 schema 由代码定义，避免在线修改让入参校验与提示词脱节；
@@ -339,136 +175,13 @@ export default function ToolsPage() {
         记入「历史」（谁、何时、从什么改成什么），长期保留。
       </p>
 
-      <Dialog
-        open={tester !== null}
-        onOpenChange={(open) => {
-          if (!open) setTester(null);
-        }}
-      >
-        <DialogContent className="sm:max-w-2xl">
-          <DialogHeader>
-            <DialogTitle className="font-mono">{tester?.tool.name}</DialogTitle>
-            <DialogDescription>
-              {tester?.tool.description}
-              {tester?.tool.is_write
-                ? ' · 写操作：试调用只验证审批闸门，不会真正执行'
-                : ' · 只读：会真实执行 handler'}
-            </DialogDescription>
-          </DialogHeader>
-
-          <div>
-            <div className="mb-1 text-xs text-muted-foreground">参数（JSON）</div>
-            <Textarea
-              rows={8}
-              aria-label="试调用参数"
-              className="font-mono text-xs"
-              value={tester?.argsText ?? ''}
-              disabled={tester?.running}
-              onChange={(event) => {
-                if (tester) setTester({ ...tester, argsText: event.target.value });
-              }}
-            />
-            <details className="mt-2 text-[11px] text-muted-foreground">
-              <summary className="cursor-pointer select-none">查看只读 schema</summary>
-              <pre className="mt-1 max-h-40 overflow-auto rounded-md border bg-canvas/50 p-2 font-mono text-[11px] whitespace-pre-wrap">
-                {JSON.stringify(tester?.tool.input_schema ?? {}, null, 2)}
-              </pre>
-            </details>
-          </div>
-
-          {tester?.error && (
-            <div className="rounded-md border border-danger/30 bg-danger/5 p-3 text-xs text-danger">
-              {tester.error}
-            </div>
-          )}
-
-          {tester?.result && (
-            <div className="space-y-2">
-              <div className="flex flex-wrap items-center gap-2 text-xs">
-                <Badge variant={tester.result.status === 'ok' ? 'secondary' : 'destructive'}>
-                  {tester.result.status}
-                </Badge>
-                <span className="text-muted-foreground">
-                  decision={tester.result.decision} · {tester.result.duration_ms}ms · 尝试{' '}
-                  {tester.result.attempts} 次
-                </span>
-              </div>
-              {tester.result.error && (
-                <div className="rounded-md border border-danger/30 bg-danger/5 p-3 text-xs text-danger">
-                  {tester.result.error}
-                  {tester.result.error_kind ? `（${tester.result.error_kind}）` : ''}
-                </div>
-              )}
-              <pre className="max-h-64 overflow-auto rounded-md border bg-panel p-3 font-mono text-xs whitespace-pre-wrap">
-                {JSON.stringify(tester.result.result, null, 2)}
-              </pre>
-              {tester.result.decision === 'requires_approval' && (
-                <p className="text-[11px] text-muted-foreground">
-                  真实对话里会生成审批卡；审批人通过后才执行 handler。
-                </p>
-              )}
-            </div>
-          )}
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setTester(null)}>
-              关闭
-            </Button>
-            <Button disabled={tester?.running} onClick={() => void runTest()}>
-              {tester?.running ? '执行中…' : '执行'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={history !== null}
-        onOpenChange={(open) => {
-          if (!open) setHistory(null);
-        }}
-      >
-        <DialogContent className="sm:max-w-2xl">
-          <DialogHeader>
-            <DialogTitle className="font-mono">变更历史 · {history?.tool.name}</DialogTitle>
-            <DialogDescription>
-              只记录管理页真正改变配置的写入；试调用与运行中的工具调用不会产生记录。
-            </DialogDescription>
-          </DialogHeader>
-
-          {history?.loading ? (
-            <div className="p-6 text-center text-xs text-muted-foreground">加载中…</div>
-          ) : history?.error ? (
-            <div className="rounded-md border border-danger/30 bg-danger/5 p-3 text-xs text-danger">
-              {history.error}
-            </div>
-          ) : history && history.items.length === 0 ? (
-            <div className="p-6 text-center text-xs text-muted-foreground">
-              还没有配置变更记录。
-            </div>
-          ) : (
-            <div className="max-h-96 space-y-2 overflow-auto">
-              {history?.items.map((item) => (
-                <div key={item.id} className="rounded-md border p-2 text-xs">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge variant="outline">{sourceLabel(item.source)}</Badge>
-                    <span className="text-muted-foreground">{formatTime(item.changed_at)}</span>
-                    <span className="font-mono">{item.changed_by}</span>
-                  </div>
-                  <div className="mt-1 text-muted-foreground">
-                    {describeSnapshot(item.before)} → {describeSnapshot(item.after)}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setHistory(null)}>
-              关闭
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ToolsDialogs
+        tester={tester}
+        history={history}
+        onTesterChange={setTester}
+        onHistoryChange={setHistory}
+        onRunTest={() => void runTest()}
+      />
     </div>
   );
 }

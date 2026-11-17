@@ -305,7 +305,7 @@ Pydantic 模型 ──► OpenAPI ──► openapi-typescript ──► src/api
 
 - 规则集：`correctness` 报错、`suspicious` 与 `perf` 告警；插件开 react / jsx-a11y / typescript / unicorn / import / promise / vitest
 - 单文件行数：新增 JS/TS 文件不超过 **300 行**（空白行与注释不计）；超限应拆分模块，而不是继续堆逻辑
-- 历史 8 个超限文件在 `web/.oxlintrc.json` 的 `overrides` 中暂时关闭 `max-lines`：`ChatPage.tsx`、`SessionList.tsx`、`ApprovalsPage.tsx`、`AuditPage.tsx`、`KbPage.tsx`、`PinAuditPage.tsx`、`ToolsPage.tsx`、`RunDetailPage.tsx`；拆分到 300 行以内后删除对应豁免
+- 8 个历史超限文件（`ChatPage.tsx`、`SessionList.tsx`、`ApprovalsPage.tsx`、`AuditPage.tsx`、`KbPage.tsx`、`PinAuditPage.tsx`、`ToolsPage.tsx`、`RunDetailPage.tsx`）已全部拆分到 300 行以内，`web/.oxlintrc.json` 不再保留 `overrides`；`max-lines` 对所有文件强制生效
 - 行宽 100、单引号，与 `.editorconfig` 一致
 - 与后端的分工不变：oxc 只管 JS/TS/JSON/Markdown 的格式与静态检查，类型仍由 `tsc --noEmit` 把关
 - **Biome 已移除**，不要混用两套格式化器（会让 diff 来回震荡）

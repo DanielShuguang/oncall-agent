@@ -2,42 +2,29 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import {
-  exportSessionRestoreAuditsCsv,
-  exportSessionRestoreAuditStatsCsv,
   getSessionRestoreAuditStats,
   listSessionRestoreAudits,
   type SessionRestoreAudit,
   type SessionRestoreAuditFilters,
   type SessionRestoreAuditStats,
 } from '@/api/sessionAudits';
-import { formatTime } from '@/lib/format';
-import { downloadBlob } from '@/lib/download';
 import {
-  AUDIT_DATE_PRESETS,
   auditDatePresetRange,
   clearLastAuditDatePreset,
-  readLastAuditDatePreset,
   writeLastAuditDatePreset,
   type AuditDatePreset,
 } from './auditDatePresets';
+import { readInitialAuditState } from './auditInitialState';
 import {
-  AUDIT_STATS_DAYS,
   clearAuditFilterMemory,
-  readAuditFilterMemory,
   writeAuditFilterMemory,
   type AuditStatsDays,
 } from './auditFilterMemory';
+import { AuditFilterCard } from './AuditFilterCard';
+import { AuditStatsCard } from './AuditStatsCard';
+import { AuditTableCard } from './AuditTableCard';
+import { useAuditExports } from './useAuditExports';
 
 const PAGE_SIZE = 20;
 
@@ -47,25 +34,7 @@ export default function AuditPage() {
   const [stats, setStats] = useState<SessionRestoreAuditStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
   const [statsError, setStatsError] = useState<string | null>(null);
-  const [initialAuditState] = useState(() => {
-    const preset = readLastAuditDatePreset();
-    const range = preset ? auditDatePresetRange(preset) : null;
-    const memory = readAuditFilterMemory();
-    const userId = memory?.userId ?? '';
-    const sessionId = memory?.sessionId ?? '';
-    return {
-      preset,
-      range,
-      statsDays: memory?.statsDays ?? 30,
-      userId,
-      sessionId,
-      filters: {
-        ...(userId ? { userId } : {}),
-        ...(sessionId ? { sessionId } : {}),
-        ...(range ? { restoredFrom: range.from, restoredTo: range.to } : {}),
-      } satisfies SessionRestoreAuditFilters,
-    };
-  });
+  const [initialAuditState] = useState(readInitialAuditState);
   const [statsDays, setStatsDays] = useState<AuditStatsDays>(initialAuditState.statsDays);
   const [activePreset, setActivePreset] = useState<AuditDatePreset | null>(
     initialAuditState.preset,
@@ -80,22 +49,20 @@ export default function AuditPage() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [exporting, setExporting] = useState(false);
-  const [exportMessage, setExportMessage] = useState<{ text: string; failed: boolean } | null>(
-    null,
-  );
-  const [statsExporting, setStatsExporting] = useState(false);
-  const [statsExportMessage, setStatsExportMessage] = useState<{
-    text: string;
-    failed: boolean;
-  } | null>(null);
   const hasDateRange = Boolean(filters.restoredFrom && filters.restoredTo);
   const hasActiveFilters = Boolean(filters.userId || filters.sessionId || hasDateRange);
-  // 切过滤/重试后在途请求不能覆盖新列表；导出/统计同理。
+  // 切过滤/重试后在途请求不能覆盖新列表；统计同理。
   const listRequest = useRef(0);
-  const exportRequest = useRef(0);
   const statsRequest = useRef(0);
-  const statsExportRequest = useRef(0);
+  const {
+    exporting,
+    exportMessage,
+    statsExporting,
+    statsExportMessage,
+    exportCsv,
+    exportStats,
+    invalidate: invalidateExports,
+  } = useAuditExports(filters, statsDays, hasDateRange, stats);
 
   useEffect(() => {
     let cancelled = false;
@@ -136,7 +103,6 @@ export default function AuditPage() {
     const load = async () => {
       setStatsLoading(true);
       setStatsError(null);
-      setStatsExportMessage(null);
       try {
         const data = await getSessionRestoreAuditStats(statsDays, filters);
         if (!cancelled && statsRequest.current === requestId) setStats(data);
@@ -174,65 +140,6 @@ export default function AuditPage() {
     }
   };
 
-  const exportCsv = async () => {
-    if (exporting) return;
-    const requestId = ++exportRequest.current;
-    setExporting(true);
-    setExportMessage(null);
-    try {
-      const result = await exportSessionRestoreAuditsCsv(filters);
-      if (exportRequest.current !== requestId) return;
-      downloadBlob(result.blob, 'session-restores.csv');
-      setExportMessage({
-        failed: false,
-        text: result.truncated
-          ? `已导出前 ${result.count} 条；超过 5000 条上限，已截断。`
-          : `已导出 ${result.count} 条恢复审计。`,
-      });
-    } catch (exc) {
-      if (exportRequest.current !== requestId) return;
-      setExportMessage({
-        failed: true,
-        text: exc instanceof Error ? exc.message : '导出失败',
-      });
-    } finally {
-      if (exportRequest.current === requestId) setExporting(false);
-    }
-  };
-
-  const exportStats = async () => {
-    if (statsExporting || !stats) return;
-    const requestId = ++statsExportRequest.current;
-    setStatsExporting(true);
-    setStatsExportMessage(null);
-    try {
-      const result = await exportSessionRestoreAuditStatsCsv(
-        hasDateRange ? null : statsDays,
-        filters,
-      );
-      if (statsExportRequest.current !== requestId) return;
-      const rangeLabel = hasDateRange
-        ? `${filters.restoredFrom ?? ''} 至 ${filters.restoredTo ?? ''}`
-        : `近 ${result.days} 天`;
-      const fileWindow = hasDateRange
-        ? `${filters.restoredFrom ?? ''}_${filters.restoredTo ?? ''}`
-        : `${result.days}d`;
-      downloadBlob(result.blob, `session-restore-stats-${fileWindow}.csv`);
-      setStatsExportMessage({
-        failed: false,
-        text: `已导出 ${rangeLabel} 统计：恢复 ${result.restores} 次 / ${result.users} 个用户 / ${result.sessions} 个会话。`,
-      });
-    } catch (exc) {
-      if (statsExportRequest.current !== requestId) return;
-      setStatsExportMessage({
-        failed: true,
-        text: exc instanceof Error ? exc.message : '统计导出失败',
-      });
-    } finally {
-      if (statsExportRequest.current === requestId) setStatsExporting(false);
-    }
-  };
-
   const resetForFilters = () => {
     // 立即失效旧列表/旧导出/旧统计，避免 setFilters 生效前的一帧里旧数据
     // 显示在新过滤条件下。
@@ -243,16 +150,11 @@ export default function AuditPage() {
     setLoading(true);
     setLoadingMore(false);
     setError(null);
-    exportRequest.current += 1;
-    setExporting(false);
-    setExportMessage(null);
     statsRequest.current += 1;
     setStats(null);
     setStatsLoading(true);
     setStatsError(null);
-    statsExportRequest.current += 1;
-    setStatsExporting(false);
-    setStatsExportMessage(null);
+    invalidateExports();
   };
 
   const changeStatsDays = (days: AuditStatsDays) => {
@@ -262,9 +164,7 @@ export default function AuditPage() {
     setStats(null);
     setStatsLoading(true);
     setStatsError(null);
-    statsExportRequest.current += 1;
-    setStatsExporting(false);
-    setStatsExportMessage(null);
+    invalidateExports();
     setStatsDays(days);
     writeAuditFilterMemory({
       userId: filters.userId ?? '',
@@ -363,239 +263,46 @@ export default function AuditPage() {
         </p>
       )}
 
-      <Card className="py-0">
-        <CardContent className="space-y-3 p-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="text-xs font-medium">
-              {hasActiveFilters ? '恢复活动 · 当前过滤' : '恢复活动 · 全部用户'}
-            </div>
-            <div className="ml-auto flex items-center gap-1">
-              {hasDateRange ? (
-                <span className="text-[11px] text-muted-foreground">
-                  {filters.restoredFrom} ~ {filters.restoredTo}
-                </span>
-              ) : (
-                AUDIT_STATS_DAYS.map((days) => (
-                  <Button
-                    key={days}
-                    variant={statsDays === days ? 'default' : 'ghost'}
-                    size="sm"
-                    className="h-7 px-2 text-xs"
-                    aria-pressed={statsDays === days}
-                    onClick={() => changeStatsDays(days)}
-                  >
-                    近 {days} 天
-                  </Button>
-                ))
-              )}
-              {stats && !statsLoading && !statsError && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 px-2 text-xs"
-                  disabled={statsExporting}
-                  onClick={() => void exportStats()}
-                >
-                  {statsExporting ? '导出中…' : '导出统计'}
-                </Button>
-              )}
-            </div>
-          </div>
-          {statsLoading ? (
-            <p className="text-xs text-muted-foreground">统计加载中…</p>
-          ) : statsError ? (
-            <p className="text-xs text-danger">统计暂不可用：{statsError}</p>
-          ) : stats ? (
-            <div className="grid gap-3 sm:grid-cols-3">
-              <div>
-                <div className="text-[11px] text-muted-foreground">恢复操作</div>
-                <div className="text-lg font-semibold text-foreground">{stats.restores}</div>
-              </div>
-              <div>
-                <div className="text-[11px] text-muted-foreground">涉及用户</div>
-                <div className="text-lg font-semibold text-foreground">{stats.users}</div>
-              </div>
-              <div>
-                <div className="text-[11px] text-muted-foreground">恢复会话</div>
-                <div className="text-lg font-semibold text-foreground">{stats.sessions}</div>
-              </div>
-            </div>
-          ) : null}
-          {stats && !statsLoading && !statsError ? (
-            <p className="text-[11px] text-muted-foreground">
-              UTC 日期；{stats.daily.length} 个日期有恢复记录。统计跟随下方已应用的过滤。
-            </p>
-          ) : null}
-          {statsExportMessage ? (
-            <p className={statsExportMessage.failed ? 'text-xs text-danger' : 'text-xs text-ok'}>
-              {statsExportMessage.text}
-            </p>
-          ) : null}
-        </CardContent>
-      </Card>
+      <AuditStatsCard
+        stats={stats}
+        loading={statsLoading}
+        error={statsError}
+        days={statsDays}
+        hasDateRange={hasDateRange}
+        filters={filters}
+        exporting={statsExporting}
+        message={statsExportMessage}
+        onChangeDays={changeStatsDays}
+        onExport={() => void exportStats()}
+      />
 
-      <Card className="py-0">
-        <CardContent className="p-3">
-          <div className="mb-2 flex flex-wrap items-center gap-1">
-            <span className="text-[11px] text-muted-foreground">快捷日期（记住上次选择）</span>
-            {AUDIT_DATE_PRESETS.map((preset) => (
-              <Button
-                key={preset.value}
-                variant={activePreset === preset.value ? 'default' : 'ghost'}
-                size="sm"
-                className="h-7 px-2 text-xs"
-                aria-pressed={activePreset === preset.value}
-                onClick={() => applyDatePreset(preset.value)}
-              >
-                {preset.label}
-              </Button>
-            ))}
-          </div>
-          <div className="flex flex-wrap items-end gap-2">
-            <div className="space-y-1">
-              <div className="text-[11px] text-muted-foreground">用户</div>
-              <Input
-                aria-label="按用户筛选恢复审计"
-                className="h-8 w-40 text-xs"
-                placeholder="user_id"
-                maxLength={64}
-                value={filterUserId}
-                onChange={(event) => setFilterUserId(event.target.value)}
-              />
-            </div>
-            <div className="space-y-1">
-              <div className="text-[11px] text-muted-foreground">会话</div>
-              <Input
-                aria-label="按会话筛选恢复审计"
-                className="h-8 w-48 text-xs"
-                placeholder="session_id"
-                maxLength={64}
-                value={filterSessionId}
-                onChange={(event) => setFilterSessionId(event.target.value)}
-              />
-            </div>
-            <div className="space-y-1">
-              <div className="text-[11px] text-muted-foreground">开始日期</div>
-              <Input
-                type="date"
-                aria-label="按恢复开始日期筛选"
-                className="h-8 w-36 text-xs"
-                value={filterFrom}
-                onChange={(event) => setFilterFrom(event.target.value)}
-              />
-            </div>
-            <div className="space-y-1">
-              <div className="text-[11px] text-muted-foreground">结束日期</div>
-              <Input
-                type="date"
-                aria-label="按恢复结束日期筛选"
-                className="h-8 w-36 text-xs"
-                value={filterTo}
-                onChange={(event) => setFilterTo(event.target.value)}
-              />
-            </div>
-            <Button size="sm" className="h-8 text-xs" onClick={() => applyFilters()}>
-              筛选
-            </Button>
-            <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={clearFilters}>
-              清除
-            </Button>
-          </div>
-          {filterError && <p className="mt-2 text-[11px] text-danger">{filterError}</p>}
-          <p className="mt-2 text-[11px] text-muted-foreground">
-            用户与会话均为精确匹配；session_id 走 JSONB 包含查询，可定位「这个会话被谁恢复过」。
-            日期按 UTC 自然日闭区间，最多 365 天，需同时选择起止；统计与导出沿用同一组过滤。
-          </p>
-        </CardContent>
-      </Card>
+      <AuditFilterCard
+        userId={filterUserId}
+        sessionId={filterSessionId}
+        from={filterFrom}
+        to={filterTo}
+        activePreset={activePreset}
+        error={filterError}
+        onChangeUserId={setFilterUserId}
+        onChangeSessionId={setFilterSessionId}
+        onChangeFrom={setFilterFrom}
+        onChangeTo={setFilterTo}
+        onApplyPreset={applyDatePreset}
+        onApply={() => applyFilters()}
+        onClear={clearFilters}
+      />
 
-      {error && (
-        <Card className="border-danger/30 bg-danger/5">
-          <CardContent className="flex flex-wrap items-center gap-3 p-3 text-xs text-danger">
-            <span className="min-w-0 flex-1">{error}</span>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 text-xs"
-              onClick={() => setFilters((current) => ({ ...current }))}
-            >
-              重试
-            </Button>
-          </CardContent>
-        </Card>
-      )}
-
-      <Card className="gap-0 py-0">
-        <CardContent className="p-0">
-          {!loading && items.length > 0 && (
-            <div className="border-b px-3 py-2 text-[11px] text-muted-foreground">
-              {total !== null && total > 0
-                ? `共 ${total} 条${hasActiveFilters ? '（当前筛选）' : ''}${
-                    items.length < total ? `，已加载 ${items.length} 条` : ''
-                  }`
-                : `已加载 ${items.length} 条${hasActiveFilters ? '（当前筛选）' : ''}`}
-            </div>
-          )}
-          {loading ? (
-            <div className="p-8 text-center text-xs text-muted-foreground">加载中…</div>
-          ) : items.length === 0 ? (
-            <div className="p-8 text-center text-xs text-muted-foreground">
-              {hasActiveFilters ? '没有符合筛选条件的恢复审计。' : '还没有恢复审计记录。'}
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>恢复时间</TableHead>
-                    <TableHead>用户</TableHead>
-                    <TableHead>请求 / 实际</TableHead>
-                    <TableHead>恢复的会话</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {items.map((item) => (
-                    <TableRow key={item.id}>
-                      <TableCell className="align-top text-xs whitespace-nowrap text-muted-foreground">
-                        {formatTime(item.restored_at)}
-                      </TableCell>
-                      <TableCell className="align-top font-mono text-xs">{item.user_id}</TableCell>
-                      <TableCell className="align-top text-xs whitespace-nowrap">
-                        {item.requested_count} / {item.restored_count}
-                      </TableCell>
-                      <TableCell className="align-top">
-                        <div className="flex max-h-28 max-w-[32rem] flex-wrap gap-1 overflow-auto">
-                          {item.session_ids.map((sessionId) => (
-                            <code
-                              key={sessionId}
-                              className="rounded border bg-canvas/50 px-1 py-0.5 font-mono text-[11px] break-all"
-                            >
-                              {sessionId}
-                            </code>
-                          ))}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-          {!loading && cursor && (
-            <div className="border-t p-3 text-center">
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 text-xs"
-                disabled={loadingMore}
-                onClick={() => void loadMore()}
-              >
-                {loadingMore ? '加载中…' : '加载更多'}
-              </Button>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      <AuditTableCard
+        items={items}
+        total={total}
+        hasActiveFilters={hasActiveFilters}
+        loading={loading}
+        loadingMore={loadingMore}
+        cursor={cursor}
+        error={error}
+        onRetry={() => setFilters((current) => ({ ...current }))}
+        onLoadMore={() => void loadMore()}
+      />
     </div>
   );
 }

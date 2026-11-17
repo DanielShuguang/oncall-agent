@@ -36,14 +36,15 @@ export function PinAuditStatsCard({
     failed: boolean;
   } | null>(null);
   const exportRequest = useRef(0);
-  const filterKey = [
+  // JSON 保留字段边界；用户/会话 id 含分隔符时，简单 join 会让不同筛选撞 key。
+  const filterKey = JSON.stringify([
     days,
     filters.userId ?? '',
     filters.sessionId ?? '',
     filters.action ?? '',
     filters.createdFrom ?? '',
     filters.createdTo ?? '',
-  ].join('|');
+  ]);
   const message = exported?.key === filterKey ? exported : null;
 
   const exportStats = async () => {

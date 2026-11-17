@@ -193,6 +193,7 @@ export default function PinAuditPage() {
 
   const clearFilters = () => {
     setDraft(EMPTY_PIN_AUDIT_DRAFT);
+    setStatsDays(30);
     setFilterError(null);
     listRequest.current += 1;
     setItems([]);
@@ -209,7 +210,8 @@ export default function PinAuditPage() {
     setFilters({});
   };
 
-  const activePreset = activeAuditDatePreset(draft.from, draft.to);
+  // 只按已应用过滤高亮；草稿改了日期但还没筛选时不能提前标记。
+  const activePreset = activeAuditDatePreset(filters.createdFrom ?? '', filters.createdTo ?? '');
 
   return (
     <div className="space-y-4">

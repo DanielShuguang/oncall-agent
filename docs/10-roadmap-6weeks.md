@@ -2082,7 +2082,7 @@ ADR-0075 只记住日期预设。管理员按用户/会话排查后刷新页面�
 |---|---|
 | 入口 | `PinAuditFilterCard` 顶部「快捷日期（UTC）」五个按钮：近 7/30/90 天、本月、上月 |
 | 行为 | 点击把 `createdFrom`/`createdTo` 写入草稿，并调用与「筛选」相同的 `commitFilters`；立即清空旧列表/统计/导出提示 |
-| 高亮 | `activeAuditDatePreset(from, to)` 只在区间与某预设完全相等时高亮；手填日期不误高亮 |
+| 高亮 | `activeAuditDatePreset` 只在已应用 `filters.createdFrom/to` 与某预设完全相等时高亮；草稿未应用不提前高亮 |
 | 记忆 | 不持久化，不读写 `oncall.audit-date-preset.v1`；刷新回到空筛选，避免与恢复审计页跨页耦合 |
 | 组件 | 筛选卡拆到 `PinAuditFilterCard.tsx`，导出状态拆到 `usePinAuditExport.ts`；`PinAuditPage` ≤300 行 |
 | 范围 | 不做自定义区间命名/保存、可配置时区；后端 365 天/UTC 校验不变 |

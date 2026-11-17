@@ -32,8 +32,9 @@ ADR-0086 当时明确「不做快捷预设」，因为日期范围本身已经�
    不要求用户再点一次「筛选」。
 3. **不持久化**：不读写 `oncall.audit-date-preset.v1`，也不新增 key。刷新/重新进入
    页面回到空筛选；需要保留时用户仍可看当前 URL 之外的页面状态，但不跨会话记忆。
-4. **高亮由区间反推**：`activeAuditDatePreset(from, to)` 只在草稿区间与某个预设的
-   当前 UTC 区间完全相等时返回该预设；手填日期不误高亮。比较不写回存储。
+4. **高亮由已应用区间反推**：`activeAuditDatePreset(filters.createdFrom, filters.createdTo)`
+   只在已应用过滤与某个预设的当前 UTC 区间完全相等时返回该预设；草稿已改但尚未点
+   「筛选/预设」时不提前高亮，避免高亮与当前列表/统计口径不一致。比较不写回存储。
 5. **筛选卡独立成文件**：`PinAuditFilterCard` 从 `PinAuditSections.tsx` 拆到
    `PinAuditFilterCard.tsx`，避免置顶页/分段文件超过 300 行；`PinAuditDraft` 与
    `EMPTY_PIN_AUDIT_DRAFT` 一并迁出。
@@ -49,7 +50,7 @@ ADR-0086 当时明确「不做快捷预设」，因为日期范围本身已经�
 - 页面刷新不保留预设；这与置顶页其他过滤条件的行为一致，不引入第二套偏好存储。
 - 预设按 UTC 计算；在 UTC 午夜前后点击可能得到与本地日历不同的「今天」，与后端
   的 UTC 日期范围口径一致。
-- 手填日期与预设区间完全相同时会高亮对应预设；这是展示层的推断，不改变筛选值。
+- 已应用日期与预设区间完全相同时会高亮对应预设；只改草稿、未筛选时不高亮，这是展示层的推断，不改变筛选值。
 - `PinAuditFilterCard`/`usePinAuditExport` 新增两个文件，`PinAuditPage` 仍 ≤300 行；
   `PinAuditSections.tsx` 只保留列表卡。
 
@@ -58,7 +59,8 @@ ADR-0086 当时明确「不做快捷预设」，因为日期范围本身已经�
 - 前端 `auditDatePresets.test.ts` 新增 `activeAuditDatePreset` 用例：精确匹配返回
   `last7`，差一天/空值返回 `null`；原有五个预设与存储用例保持通过。
 - `PinAuditPage` 的预设点击、`commitFilters` 清空列表/统计/导出、`clearFilters`
-  重置草稿均复用既有路径；导出 hook 的单测仍由 `pinAudits.test.ts` 覆盖请求参数。
+  重置草稿与统计窗口（恢复 30 天）均复用既有路径；导出 hook 的单测仍由
+  `pinAudits.test.ts` 覆盖请求参数。
 - 实测：前端 `pnpm test` **26 files / 128 tests**、`tsc --noEmit`、`oxlint` 0/0
   （127 files/232 rules）、`oxfmt --check` 135 files、`pnpm build` 通过；
   后端未改，沿用默认 **517 passed + 40 skipped**、PG-only **554 passed + 3 skipped**、

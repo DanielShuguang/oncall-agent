@@ -2045,10 +2045,30 @@ ADR-0075 只记住日期预设。管理员按用户/会话排查后刷新页面�
 | 汇总 | 过滤后 `pins`/`unpins` 只统计命中记录；`users`/`sessions` 为命中记录内去重数；`daily` 为命中记录的 UTC 稀疏日，求和等于汇总 |
 | 存储 | 内存先过滤；PG 在汇总与日趋势共用的 `window` 子查询追加 `user_id`/`session_id`/`action`；复用 `idx_session_pin_audits_time`，无迁移 |
 | 前端 | 统计卡跟随已应用过滤；无过滤时 7/30/90 天切换，带日期范围显示「按筛选日期（N 天）」；`PinAuditStatsCard.tsx` 独立，`PinAuditSections` 保持 ≤300 行 |
-| 范围 | 不做图表库、缓存/物化、统计 CSV；统计与列表两次查询，可能相差一条 |
+| 范围 | 不做图表库、缓存/物化；统计 CSV 见 ADR-0090；统计与列表两次查询，可能相差一条 |
 | 验证 | 默认 516+40、PG 553+3、PG+Redis 556、ruff 200 / mypy 116；前端 26 files/125 tests、oxlint 125 files、oxfmt 133 files、build 2933 modules/324ms |
 
 详见 [ADR-0089](decisions/0089-session-pin-audit-stats-filters.md)。
+
+---
+
+## W6 后补：置顶审计统计 CSV 导出（ADR-0090）
+
+置顶审计统计卡已经跟随过滤，但数字只能看不能带走。新增统计长表 CSV 导出，
+与恢复审计统计导出（ADR-0070）同格式；统计最多 365 天、每日两行，输出有界，
+同步生成即可。
+
+| 事项 | 落地 |
+|---|---|
+| 接口 | `GET /admin/session-pins/stats/export`；与 `/stats` 同参数/同窗口，不接收 `cursor`/`limit` |
+| CSV | 长表 `section,key,day,value`；`meta`（days/since/until + 过滤字段）、`summary`（pins/unpins/users/sessions）、`daily`（每日期 pins/unpins 两行） |
+| 口径 | 窗口与过滤复用 `_stats_window`；同步导出、不截断（最多 365 天）；`daily` UTC 稀疏、不补零 |
+| 响应 | `X-Export-Days/Pins/Unpins/Users/Sessions`；文件名 `session-pin-stats-{days}d-{UTC}.csv`；`Cache-Control: no-store`；BOM/CRLF/公式防护复用 `csv_document` |
+| 前端 | 统计卡「导出统计」按钮，使用已应用过滤与窗口；导出中禁用，成功/失败提示；过滤变化后隐藏旧提示；页面不新增状态 |
+| 范围 | 不做异步导出/XLSX/下载审计；统计与导出两次独立查询，可能相差一条 |
+| 验证 | 默认 517+40、PG 554+3、PG+Redis 557、ruff 200 / mypy 116；前端 26 files/127 tests、oxlint 125 files、oxfmt 133 files、build 2933 modules/346ms |
+
+详见 [ADR-0090](decisions/0090-session-pin-audit-stats-export.md)。
 
 ---
 

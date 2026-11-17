@@ -1,6 +1,12 @@
+import { useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import type { SessionPinAuditStats } from '@/api/pinAudits';
+import {
+  exportSessionPinAuditStatsCsv,
+  type SessionPinAuditFilters,
+  type SessionPinAuditStats,
+} from '@/api/pinAudits';
+import { downloadBlob } from '@/lib/download';
 
 export const STATS_DAYS = [7, 30, 90] as const;
 
@@ -11,6 +17,7 @@ export function PinAuditStatsCard({
   days,
   filtered,
   dateRangeActive,
+  filters,
   onChangeDays,
 }: {
   stats: SessionPinAuditStats | null;
@@ -19,8 +26,52 @@ export function PinAuditStatsCard({
   days: number;
   filtered: boolean;
   dateRangeActive: boolean;
+  filters: SessionPinAuditFilters;
   onChangeDays: (days: number) => void;
 }) {
+  const [exporting, setExporting] = useState(false);
+  const [exported, setExported] = useState<{
+    key: string;
+    text: string;
+    failed: boolean;
+  } | null>(null);
+  const exportRequest = useRef(0);
+  const filterKey = [
+    days,
+    filters.userId ?? '',
+    filters.sessionId ?? '',
+    filters.action ?? '',
+    filters.createdFrom ?? '',
+    filters.createdTo ?? '',
+  ].join('|');
+  const message = exported?.key === filterKey ? exported : null;
+
+  const exportStats = async () => {
+    if (exporting) return;
+    const requestId = ++exportRequest.current;
+    setExporting(true);
+    setExported(null);
+    try {
+      const result = await exportSessionPinAuditStatsCsv(days, filters);
+      if (exportRequest.current !== requestId) return;
+      downloadBlob(result.blob, 'session-pin-stats.csv');
+      setExported({
+        key: filterKey,
+        failed: false,
+        text: `已导出 ${result.days} 天统计：置顶 ${result.pins} / 取消 ${result.unpins}，涉及 ${result.users} 用户 / ${result.sessions} 会话。`,
+      });
+    } catch (exc) {
+      if (exportRequest.current !== requestId) return;
+      setExported({
+        key: filterKey,
+        failed: true,
+        text: exc instanceof Error ? exc.message : '统计导出失败',
+      });
+    } finally {
+      if (exportRequest.current === requestId) setExporting(false);
+    }
+  };
+
   return (
     <Card className="py-0">
       <CardContent className="space-y-3 p-3">
@@ -57,6 +108,15 @@ export function PinAuditStatsCard({
               ))}
             </div>
           )}
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-[11px]"
+            disabled={exporting}
+            onClick={() => void exportStats()}
+          >
+            {exporting ? '导出中…' : '导出统计'}
+          </Button>
         </div>
         {loading ? (
           <p className="text-xs text-muted-foreground">统计加载中…</p>
@@ -91,6 +151,11 @@ export function PinAuditStatsCard({
             )}
           </>
         ) : null}
+        {message && (
+          <p className={message.failed ? 'text-[11px] text-danger' : 'text-[11px] text-ok'}>
+            {message.text}
+          </p>
+        )}
       </CardContent>
     </Card>
   );

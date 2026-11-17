@@ -38,6 +38,7 @@ async def test_session_pin_audits_require_admin(client: AsyncClient) -> None:
         "/api/admin/session-pins",
         "/api/admin/session-pins/export",
         "/api/admin/session-pins/stats",
+        "/api/admin/session-pins/stats/export",
     ):
         res = await client.get(path)
         assert res.status_code == 403
@@ -480,11 +481,45 @@ async def test_session_pin_audit_stats(client: AsyncClient, mem_store: InMemoryR
     assert half.json()["code"] == "INVALID_RANGE"
 
 
+async def test_session_pin_audit_stats_export(
+    client: AsyncClient, mem_store: InMemoryRunStore
+) -> None:
+    await _pin_once(mem_store, user_id="u_102", session_id="sess_a")
+    assert await mem_store.unpin_session(user_id="u_102", session_id="sess_a") is True
+
+    res = await client.get(
+        "/api/admin/session-pins/stats/export",
+        headers=ADMIN,
+        params={"days": 7, "user_id": "u_102", "action": "unpin"},
+    )
+    assert res.status_code == 200
+    assert res.headers["content-type"].startswith("text/csv")
+    assert res.headers["x-export-days"] == "7"
+    assert res.headers["x-export-pins"] == "0"
+    assert res.headers["x-export-unpins"] == "1"
+    assert res.headers["x-export-users"] == "1"
+    assert res.headers["x-export-sessions"] == "1"
+    rows = list(csv.reader(io.StringIO(res.text.lstrip("\ufeff"))))
+    assert rows[0] == ["section", "key", "day", "value"]
+    cells = {(row[0], row[1], row[2]): row[3] for row in rows[1:]}
+    assert cells[("meta", "days", "")] == "7"
+    assert cells[("meta", "user_id", "")] == "u_102"
+    assert cells[("meta", "action", "")] == "unpin"
+    assert cells[("summary", "pins", "")] == "0"
+    assert cells[("summary", "unpins", "")] == "1"
+    assert cells[("summary", "users", "")] == "1"
+    assert cells[("summary", "sessions", "")] == "1"
+    today = datetime.now(UTC).date().isoformat()
+    assert cells[("daily", "pins", today)] == "0"
+    assert cells[("daily", "unpins", today)] == "1"
+
+
 async def test_session_pin_audits_reject_bad_params(client: AsyncClient) -> None:
     for path in (
         "/api/admin/session-pins",
         "/api/admin/session-pins/export",
         "/api/admin/session-pins/stats",
+        "/api/admin/session-pins/stats/export",
     ):
         for params in ({"user_id": ""}, {"session_id": ""}, {"action": "delete"}):
             res = await client.get(path, headers=ADMIN, params=params)
@@ -510,6 +545,7 @@ async def test_session_pin_audits_return_503_on_store_failure(
         "/api/admin/session-pins",
         "/api/admin/session-pins/export",
         "/api/admin/session-pins/stats",
+        "/api/admin/session-pins/stats/export",
     ):
         res = await client.get(path, headers=ADMIN)
         assert res.status_code == 503

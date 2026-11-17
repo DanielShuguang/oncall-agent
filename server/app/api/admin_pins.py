@@ -27,7 +27,7 @@ from app.api.deps import require_admin
 from app.api.errors import ApiError
 from app.core.csv import csv_document
 from app.core.logging import get_logger
-from app.core.store import RunStore, SessionPinAuditRecord, get_store
+from app.core.store import RunStore, SessionPinAuditRecord, SessionPinAuditStats, get_store
 from app.schemas.session import (
     SessionPinAuditDayOut,
     SessionPinAuditListResponse,
@@ -42,6 +42,7 @@ log = get_logger(__name__)
 MAX_EXPORT_ROWS = 5000
 MAX_AUDIT_RANGE_DAYS = 365
 CSV_HEADERS = ("audit_id", "user_id", "session_id", "action", "created_at")
+STATS_CSV_HEADERS = ("section", "key", "day", "value")
 
 
 def _created_window(
@@ -100,6 +101,40 @@ def _audits_csv(records: list[SessionPinAuditRecord]) -> str:
             for record in records
         ),
     )
+
+
+def _stats_csv(
+    stats: SessionPinAuditStats,
+    *,
+    days: int,
+    user_id: str | None,
+    session_id: str | None,
+    action: str | None,
+) -> str:
+    """统计导出的长表：meta 固定口径，summary 是汇总，daily 每指标一行（ADR-0090）。"""
+    rows: list[tuple[object, ...]] = [
+        ("meta", "days", "", days),
+        ("meta", "since", "", stats.since),
+        ("meta", "until", "", stats.until),
+    ]
+    if user_id is not None:
+        rows.append(("meta", "user_id", "", user_id))
+    if session_id is not None:
+        rows.append(("meta", "session_id", "", session_id))
+    if action is not None:
+        rows.append(("meta", "action", "", action))
+    rows.extend(
+        [
+            ("summary", "pins", "", stats.pins),
+            ("summary", "unpins", "", stats.unpins),
+            ("summary", "users", "", stats.users),
+            ("summary", "sessions", "", stats.sessions),
+        ]
+    )
+    for day in stats.daily:
+        rows.append(("daily", "pins", day.day, day.pins))
+        rows.append(("daily", "unpins", day.day, day.unpins))
+    return csv_document(STATS_CSV_HEADERS, rows)
 
 
 def _out(record: SessionPinAuditRecord) -> SessionPinAuditOut:
@@ -214,6 +249,52 @@ async def get_session_pin_audit_stats(
             SessionPinAuditDayOut(day=day.day, pins=day.pins, unpins=day.unpins)
             for day in stats.daily
         ],
+    )
+
+
+@router.get("/stats/export")
+async def export_session_pin_audit_stats(
+    store: Annotated[RunStore, Depends(get_store)],
+    _admin: Annotated[Identity, Depends(require_admin)],
+    days: Annotated[int | None, Query(ge=1, le=365)] = None,
+    created_from: Annotated[date | None, Query()] = None,
+    created_to: Annotated[date | None, Query()] = None,
+    user_id: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
+    session_id: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
+    action: Annotated[Literal["pin", "unpin"] | None, Query()] = None,
+) -> Response:
+    """导出置顶审计统计长表；窗口/过滤与 `/stats` 同口径（ADR-0089/0090）。"""
+    since, until, days_out = _stats_window(days, created_from, created_to)
+    try:
+        stats = await store.session_pin_audit_stats(
+            since=since,
+            until=until,
+            user_id=user_id,
+            session_id=session_id,
+            action=action,
+        )
+    except SQLAlchemyError as exc:
+        log.warning("session_pin_audit_stats_export_failed", error=str(exc))
+        raise ApiError(503, "DATABASE_UNAVAILABLE", "置顶审计统计暂不可用") from exc
+    filename = f"session-pin-stats-{days_out}d-{datetime.now(UTC):%Y%m%d-%H%M%S}.csv"
+    return Response(
+        content=_stats_csv(
+            stats,
+            days=days_out,
+            user_id=user_id,
+            session_id=session_id,
+            action=action,
+        ),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+            "X-Export-Days": str(days_out),
+            "X-Export-Pins": str(stats.pins),
+            "X-Export-Unpins": str(stats.unpins),
+            "X-Export-Users": str(stats.users),
+            "X-Export-Sessions": str(stats.sessions),
+        },
     )
 
 

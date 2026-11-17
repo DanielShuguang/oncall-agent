@@ -45,7 +45,8 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | GET | `/admin/session-restores/stats/export` | 会话恢复审计统计 CSV 导出（与统计同参数/同窗口，长表） | W6 后补 |
 | GET | `/admin/session-restores/export` | 会话恢复审计 CSV 导出（按用户/会话/日期范围过滤，最多 5000 条） | W6 后补 |
 | GET | `/admin/session-pins` | 会话置顶审计（按用户/会话/动作/日期过滤，`(created_at, id)` 游标分页，第一页附总数） | W6 后补 |
-| GET | `/admin/session-pins/stats` | 置顶审计窗口统计（置顶/取消次数、用户/会话数、UTC 稀疏日趋势） | W6 后补 |
+| GET | `/admin/session-pins/stats` | 置顶审计窗口统计（置顶/取消次数、用户/会话数、UTC 稀疏日趋势；跟随列表过滤） | W6 后补 |
+| GET | `/admin/session-pins/stats/export` | 置顶审计统计长表 CSV 导出（与统计同参数/同窗口） | W6 后补 |
 | GET | `/admin/session-pins/export` | 会话置顶审计 CSV 导出（同一组过滤，最多 5000 条） | W6 后补 |
 | GET | `/sessions/{session_id}/runs` | 一页会话详情（正文/引用/运行过程，一次返回） | W6 后补 |
 | GET | `/runs/{run_id}` | 单次运行详情（含指标与模型调用明细） | W1 D4 / W4 D19 |
@@ -531,6 +532,28 @@ Authorization: Bearer <admin-token>
 - 不带过滤参数时是全局口径，等价于旧 `?days=` 行为；管理页统计卡跟随已应用的
   用户/会话/动作/日期过滤，带日期范围时隐藏 7/30/90 天按钮（ADR-0089）
 - 数据库不可用返回 `503 {"code":"DATABASE_UNAVAILABLE"}`
+
+统计导出（ADR-0090）：
+
+```http
+GET /api/admin/session-pins/stats/export?days=7&user_id=u_102&action=pin
+Authorization: Bearer <admin-token>
+```
+
+- 与 `/stats` 相同参数与窗口：`days`（1–365，可选）、`created_from`/`created_to`、
+  `user_id`/`session_id`/`action`；`days` 与日期范围二选一，窗口解析与统计共用
+- 不接收 `cursor`/`limit`；同步导出，日趋势最多 365 天，不做截断
+- CSV 为长表 `section,key,day,value`：`meta` 行（`days`/`since`/`until`；带过滤时追加
+  `user_id`/`session_id`/`action`）、`summary` 行（`pins`/`unpins`/`users`/`sessions`）、
+  `daily` 行（每个有活动的 UTC 日期分别有 `pins` 与 `unpins` 两行，`day` 为
+  `YYYY-MM-DD`）
+- 导出文件必须能自证口径：无过滤时只有 `days`/`since`/`until`，带过滤时额外写入过滤
+  字段，下载后即可判断统计范围
+- 响应头 `X-Export-Days`/`X-Export-Pins`/`X-Export-Unpins`/`X-Export-Users`/
+  `X-Export-Sessions`；文件名 `session-pin-stats-{days}d-{UTC}.csv`；
+  `Cache-Control: no-store`；BOM/CRLF/公式注入防护与其它导出一致
+- 管理接口；数据库不可用返回 503；不做异步导出/下载审计。旧后端没有该端点时前端
+  显示导出失败提示，不影响统计本身
 
 导出当前过滤下的审计快照（ADR-0084），最多 5000 条：
 

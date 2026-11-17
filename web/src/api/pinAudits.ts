@@ -54,6 +54,15 @@ export interface SessionPinAuditStats {
   daily: SessionPinAuditDayStats[];
 }
 
+export interface SessionPinAuditStatsExport {
+  blob: Blob;
+  days: number;
+  pins: number;
+  unpins: number;
+  users: number;
+  sessions: number;
+}
+
 function applyFilters(params: URLSearchParams, filters: SessionPinAuditFilters): void {
   if (filters.userId) params.set('user_id', filters.userId);
   if (filters.sessionId) params.set('session_id', filters.sessionId);
@@ -84,6 +93,24 @@ export function getSessionPinAuditStats(
   // 日期范围与 days 二选一；带范围时由后端按闭区间算窗口。
   if (!(filters.createdFrom && filters.createdTo)) params.set('days', String(days));
   return getJson<SessionPinAuditStats>(`/admin/session-pins/stats?${params.toString()}`);
+}
+
+export async function exportSessionPinAuditStatsCsv(
+  days = 30,
+  filters: SessionPinAuditFilters = {},
+): Promise<SessionPinAuditStatsExport> {
+  const params = new URLSearchParams();
+  applyFilters(params, filters);
+  if (!(filters.createdFrom && filters.createdTo)) params.set('days', String(days));
+  const { blob, headers } = await getFile(`/admin/session-pins/stats/export?${params.toString()}`);
+  return {
+    blob,
+    days: Number(headers.get('X-Export-Days') ?? 0) || 0,
+    pins: Number(headers.get('X-Export-Pins') ?? 0) || 0,
+    unpins: Number(headers.get('X-Export-Unpins') ?? 0) || 0,
+    users: Number(headers.get('X-Export-Users') ?? 0) || 0,
+    sessions: Number(headers.get('X-Export-Sessions') ?? 0) || 0,
+  };
 }
 
 export async function exportSessionPinAuditsCsv(

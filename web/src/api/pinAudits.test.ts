@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  exportSessionPinAuditStatsCsv,
   exportSessionPinAuditsCsv,
   getSessionPinAuditStats,
   listSessionPinAudits,
@@ -125,6 +126,53 @@ describe('getSessionPinAuditStats filters', () => {
 
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
       '/api/admin/session-pins/stats?created_from=2026-11-01&created_to=2026-11-02',
+    );
+  });
+});
+describe('exportSessionPinAuditStatsCsv', () => {
+  it('按天数与过滤导出统计并读取汇总响应头', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    fetchMock.mockImplementation(
+      async () =>
+        new Response(new Blob(['csv']), {
+          status: 200,
+          headers: {
+            'X-Export-Days': '7',
+            'X-Export-Pins': '3',
+            'X-Export-Unpins': '1',
+            'X-Export-Users': '2',
+            'X-Export-Sessions': '2',
+          },
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await exportSessionPinAuditStatsCsv(7, { userId: 'u_102', action: 'pin' });
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      '/api/admin/session-pins/stats/export?user_id=u_102&action=pin&days=7',
+    );
+    expect(result).toMatchObject({ days: 7, pins: 3, unpins: 1, users: 2, sessions: 2 });
+  });
+
+  it('日期范围优先，不再发送 days', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    fetchMock.mockImplementation(
+      async () =>
+        new Response(new Blob(['csv']), {
+          status: 200,
+          headers: { 'X-Export-Days': '2', 'X-Export-Pins': '0' },
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await exportSessionPinAuditStatsCsv(30, {
+      createdFrom: '2026-11-01',
+      createdTo: '2026-11-02',
+    });
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      '/api/admin/session-pins/stats/export?created_from=2026-11-01&created_to=2026-11-02',
     );
   });
 });

@@ -262,6 +262,7 @@ export default function PinAuditPage() {
         days={statsDays}
         filtered={hasActiveFilters}
         dateRangeActive={Boolean(filters.createdFrom && filters.createdTo)}
+        filters={filters}
         onChangeDays={changeStatsDays}
       />
 

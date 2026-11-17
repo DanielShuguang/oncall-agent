@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type Dispatch, type SetStateAction } from 'react';
 import {
   hideSession,
   hideSessions as hideSessionsBatch,
@@ -8,6 +8,8 @@ import {
 interface Args {
   sessionId: string | null;
   sessions: SessionSummary[];
+  batchHideSelected: Set<string>;
+  setBatchHideSelected: Dispatch<SetStateAction<Set<string>>>;
   refreshSessions: () => void;
   setSessionsError: (message: string | null) => void;
 }
@@ -20,6 +22,8 @@ export interface HideResult {
 export function useSessionMutations({
   sessionId,
   sessions,
+  batchHideSelected,
+  setBatchHideSelected,
   refreshSessions,
   setSessionsError,
 }: Args) {
@@ -27,7 +31,6 @@ export function useSessionMutations({
   const [hidingId, setHidingId] = useState<string | null>(null);
   // 批量移除（ADR-0072）：管理模式下按当前已加载页选择
   const [batchHideMode, setBatchHideMode] = useState(false);
-  const [batchHideSelected, setBatchHideSelected] = useState<Set<string>>(new Set());
   const [batchHiding, setBatchHiding] = useState(false);
   const [batchHideNotice, setBatchHideNotice] = useState<string | null>(null);
 

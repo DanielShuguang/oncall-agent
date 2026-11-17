@@ -6,6 +6,7 @@ import {
   unpinSession,
   type SessionSummary,
 } from '@/api/sessions';
+import { keepVisibleSelection } from './sessionSelection';
 
 export function useSessionList() {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -22,6 +23,8 @@ export function useSessionList() {
   const [renameDraft, setRenameDraft] = useState('');
   const [renameSaving, setRenameSaving] = useState(false);
   const [pinningId, setPinningId] = useState<string | null>(null);
+  // 批量移除的选中集合属于当前列表页；刷新/搜索换页时同步裁剪（ADR-0072）。
+  const [batchHideSelected, setBatchHideSelected] = useState<Set<string>>(new Set());
   const renameRequest = useRef(0);
   // 刷新会替换整个会话列表：加载更多/初始加载的旧页回来时不能 append 到新列表上。
   const sessionsRequest = useRef(0);
@@ -68,6 +71,7 @@ export function useSessionList() {
           setPinnedCount(page.pinned_count ?? null);
           setPinLimit(page.pin_limit ?? null);
           setSessionsLoaded(true);
+          setBatchHideSelected((prev) => keepVisibleSelection(prev, page.items));
         }
         return page.items;
       })
@@ -185,6 +189,8 @@ export function useSessionList() {
     renameDraft,
     renameSaving,
     pinningId,
+    batchHideSelected,
+    setBatchHideSelected,
     setRenameDraft,
     setError,
     refresh,

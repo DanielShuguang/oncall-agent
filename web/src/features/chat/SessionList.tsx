@@ -96,6 +96,11 @@ export function SessionList({
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onCloseMobile();
+        return;
+      }
       if (event.key !== 'Tab') return;
       const container = mobileAside.current;
       if (!container) return;

@@ -39,6 +39,8 @@ export default function ChatPage() {
   const mutations = useSessionMutations({
     sessionId,
     sessions: sessions.sessions,
+    batchHideSelected: sessions.batchHideSelected,
+    setBatchHideSelected: sessions.setBatchHideSelected,
     refreshSessions: sessions.refresh,
     setSessionsError: sessions.setError,
   });

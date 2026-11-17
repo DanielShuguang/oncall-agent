@@ -631,6 +631,9 @@ async def _exercise_pinned_sessions(store: RunStore) -> None:
     assert await store.unpin_session(user_id=user, session_id="sess_mid") is True
     assert await store.unpin_session(user_id=user, session_id="sess_mid") is True
     assert len(await store.list_session_pin_audits(user_id=user, limit=10)) == 5
+    assert await store.count_session_pin_audits(user_id=user) == 5
+    assert await store.count_session_pin_audits(user_id=user, action="pin") == 3
+    assert await store.count_session_pin_audits(user_id=other) == 0
 
     # 窗口统计（ADR-0087）：汇总与列表逐项对齐（store 里可能还有其他用例的审计）
     stats_now = datetime.now(UTC)

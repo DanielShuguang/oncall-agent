@@ -1900,7 +1900,7 @@ ADR-0075 只记住日期预设。管理员按用户/会话排查后刷新页面�
 | 索引 | `(user_id, created_at DESC)`、`(session_id, created_at DESC)`、`(created_at)` |
 | 写入 | 只有状态真正变化才写；与 `pinned_sessions` 插入/删除同事务；失败回滚 |
 | 接口 | `GET /admin/session-pins`；`user_id`/`session_id` 1–64、`action` 必为 `pin`/`unpin`、`limit` 1–200 默认 50；按时间倒序 |
-| 范围 | 无前端页面、无总数；分页见 ADR-0082，导出见 ADR-0084；审计由 ADR-0083 接入 `RetentionSweeper`，默认独立保留 365 天 |
+| 范围 | 管理页见 ADR-0085、首屏总数见 ADR-0088；分页见 ADR-0082，导出见 ADR-0084；审计由 ADR-0083 接入 `RetentionSweeper`，默认独立保留 365 天 |
 | 迁移 | `0022`；`upgrade → check → downgrade 0021 → upgrade` 往返 |
 | 验证 | 默认 510+40、PG 547+3、Redis 550；ruff 200 / mypy 116；前端未改 114/24 |
 
@@ -1917,7 +1917,7 @@ ADR-0075 只记住日期预设。管理员按用户/会话排查后刷新页面�
 | 游标 | base64url JSON `{t,i,f?}`；`t` 时间、`i` 审计 UUID、`f` 为过滤条件 SHA-256 前 16 hex（不存原始 id，避免超 512）；换过滤复用旧游标 400 `INVALID_CURSOR` |
 | 存储 | 内存/PG `list_session_pin_audits(before=(created_at, id))`；PG keyset `created_at < t OR (= AND id < i)` |
 | 索引 | 复用 ADR-0081 的 `(created_at)`、`(user_id, created_at DESC)`、`(session_id, created_at DESC)`；无迁移 |
-| 范围 | 无前端页面、无总数/跳页；导出见 ADR-0084；无稳定快照，翻页期间新增可能重复/跳过 |
+| 范围 | 管理页见 ADR-0085、首屏总数见 ADR-0088，仍无跳页；导出见 ADR-0084；无稳定快照，翻页期间新增可能重复/跳过 |
 | 验证 | 默认 511+40、PG 548+3、Redis 551；ruff 202 / mypy 116；前端未改 114/24 |
 
 详见 [ADR-0082](decisions/0082-session-pin-audit-pagination.md)。
@@ -1964,10 +1964,10 @@ ADR-0075 只记住日期预设。管理员按用户/会话排查后刷新页面�
 |---|---|
 | 入口 | ConsolePage 新增「置顶审计」Tab，路由 `/console/pins` |
 | 过滤 | `user_id`/`session_id` 精确匹配（1–64），`action` 为 `pin`/`unpin`；空值不下发 |
-| 列表 | 每页 20 条，按 `(created_at, id)` 倒序 keyset；`next_cursor` 时显示「加载更多」，无总数/页码 |
+| 列表 | 每页 20 条，按 `(created_at, id)` 倒序 keyset；`next_cursor` 时显示「加载更多」，首屏总数见 ADR-0088；无页码 |
 | 表格 | 时间、用户、会话、动作；动作显示置顶/取消置顶，不展示正文 |
 | 状态 | 应用/清除过滤立即清旧行与游标、失效在途列表/导出；导出只读已应用过滤；首屏失败只显示错误卡与重试，不叠加空态；空态只在成功空结果时显示 |
-| 范围 | 只读；按日统计见 ADR-0087；无总数、编辑/删除、会话详情跳转、下载审计；无迁移 |
+| 范围 | 只读；按日统计见 ADR-0087，首屏总数见 ADR-0088；无编辑/删除、会话详情跳转、下载审计；无迁移 |
 | 验证 | tsc、117/25、oxlint 0/0（88 files/231 rules）、oxfmt 96 files、build 2900 modules/527ms；后端未改 514+40 / 551+3 / 554、ruff 200 / mypy 116 |
 
 详见 [ADR-0085](decisions/0085-session-pin-audit-console.md)。
@@ -2005,12 +2005,31 @@ ADR-0075 只记住日期预设。管理员按用户/会话排查后刷新页面�
 | 窗口 | `[until - days 天, until]`，`until=now(UTC)`；全局口径，不接列表过滤 |
 | 汇总 | `pins`/`unpins` 为显式状态变化次数；`users`/`sessions` 为窗口内去重数 |
 | 日趋势 | `daily` 只含有活动的 UTC 自然日，稀疏不补零；`pins`/`unpins` 之和等于汇总 |
-| 存储 | 内存遍历聚合；PG 用 `count(*) filter` + `count(distinct)` + 按 UTC 日期分组；无迁移 |
+| 存储 | 内存遍历聚合；PG 用 `count(distinct)` 求用户/会话，再按 UTC 日期 + 动作分组；`pins`/`unpins` 从日行求和；无迁移 |
 | 前端 | 管理页顶部「近 7/30/90 天」统计卡；四项汇总 + 最近 7 个有活动日期；不随下方筛选变化 |
 | 范围 | 不做按过滤统计、图表库、缓存、异步导出/下载审计 |
 | 验证 | 默认 516+40、PG 553+3、PG+Redis 556、ruff 200 / mypy 116；前端 119/25、oxlint 88、oxfmt 96、build 2900 modules/588ms |
 
 详见 [ADR-0087](decisions/0087-session-pin-audit-stats.md)。
+
+---
+
+## W6 后补：置顶审计列表首屏总数（ADR-0088）
+
+置顶审计管理页只显示「已加载 N 条」，管理者不知道同过滤条件下总共有多少条；
+审批列表与恢复审计列表已经采用「第一页返回总数、后续页为 null」的口径。
+
+| 事项 | 落地 |
+|---|---|
+| 接口 | `GET /admin/session-pins` 第一页（无 `cursor`）返回 `total`；后续页为 `null` |
+| 口径 | `total` 与列表使用同一组用户/会话/动作/日期过滤；不接收 `cursor`，不按游标截断 |
+| 存储 | `count_session_pin_audits` 与列表共用过滤；PG `count(*)` + 同一组 `where`；无迁移 |
+| 失败 | 计数与列表同一 `try`；任一失败 503，不返回缺 `total` 的半成品 |
+| 前端 | 首屏显示「共 N 条 · 已加载 M 条」；加载更多只增加 M；切过滤立即清空总数；旧后端无字段只显示已加载 |
+| 范围 | 不做页码/跳页、缓存总数、异步计数；按日统计见 ADR-0087 |
+| 验证 | 默认 516+40、PG 553+3、PG+Redis 556、ruff 200 / mypy 116；前端 119/25、oxlint 88、oxfmt 96、build 2900 modules/751ms |
+
+详见 [ADR-0088](decisions/0088-session-pin-audit-total.md)。
 
 ---
 

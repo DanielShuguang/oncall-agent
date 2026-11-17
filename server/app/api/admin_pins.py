@@ -241,7 +241,8 @@ async def list_session_pin_audits(
 ) -> SessionPinAuditListResponse:
     """按 `(created_at, id)` 倒序返回置顶审计，可选用户/会话/动作/日期过滤。
 
-    ADR-0081/0082/0086。
+    第一页同时返回同过滤条件的 `total`（ADR-0088），后续页为 None。
+    ADR-0081/0082/0086/0088。
     """
     window = _created_window(created_from, created_to)
     fingerprint = _filter_fingerprint(
@@ -258,7 +259,16 @@ async def list_session_pin_audits(
         if cursor is not None
         else None
     )
+    total: int | None = None
     try:
+        if before is None:
+            total = await store.count_session_pin_audits(
+                user_id=user_id,
+                session_id=session_id,
+                action=action,
+                created_after=window[0] if window else None,
+                created_before=window[1] if window else None,
+            )
         records = await store.list_session_pin_audits(
             user_id=user_id,
             session_id=session_id,
@@ -281,4 +291,5 @@ async def list_session_pin_audits(
             if len(records) == limit
             else None
         ),
+        total=total,
     )

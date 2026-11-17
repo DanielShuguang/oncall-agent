@@ -53,6 +53,7 @@ async def test_list_session_pin_audits(client: AsyncClient, mem_store: InMemoryR
 
     res = await client.get("/api/admin/session-pins", headers=ADMIN)
     assert res.status_code == 200
+    assert res.json()["total"] == 3
     items = res.json()["items"]
     assert [(item["user_id"], item["session_id"], item["action"]) for item in items] == [
         ("u_102", "sess_a", "unpin"),
@@ -68,6 +69,7 @@ async def test_list_session_pin_audits(client: AsyncClient, mem_store: InMemoryR
         params={"user_id": "u_102", "action": "pin"},
     )
     assert filtered.status_code == 200
+    assert filtered.json()["total"] == 1
     assert [item["session_id"] for item in filtered.json()["items"]] == ["sess_a"]
     by_session = await client.get(
         "/api/admin/session-pins",
@@ -75,6 +77,7 @@ async def test_list_session_pin_audits(client: AsyncClient, mem_store: InMemoryR
         params={"session_id": "sess_a"},
     )
     assert by_session.status_code == 200
+    assert by_session.json()["total"] == 2
     assert [item["action"] for item in by_session.json()["items"]] == ["unpin", "pin"]
     limited = await client.get(
         "/api/admin/session-pins",
@@ -82,6 +85,7 @@ async def test_list_session_pin_audits(client: AsyncClient, mem_store: InMemoryR
         params={"limit": 1},
     )
     assert limited.status_code == 200
+    assert limited.json()["total"] == 3
     assert len(limited.json()["items"]) == 1
 
 
@@ -102,6 +106,7 @@ async def test_session_pin_audits_paginate(
     assert first.status_code == 200
     first_body = first.json()
     assert len(first_body["items"]) == 2
+    assert first_body["total"] == 3
     assert first_body["next_cursor"]
 
     second = await client.get(
@@ -112,6 +117,7 @@ async def test_session_pin_audits_paginate(
     assert second.status_code == 200
     second_body = second.json()
     assert len(second_body["items"]) == 1
+    assert second_body["total"] is None
     assert second_body["next_cursor"] is None
     first_ids = {item["id"] for item in first_body["items"]}
     assert not first_ids & {item["id"] for item in second_body["items"]}
@@ -130,6 +136,7 @@ async def test_session_pin_audits_paginate(
         params={"user_id": "u_102", "limit": 1},
     )
     assert filtered.status_code == 200
+    assert filtered.json()["total"] == 2
     filtered_cursor = filtered.json()["next_cursor"]
     assert filtered_cursor
     mismatch = await client.get(
@@ -230,6 +237,7 @@ async def test_session_pin_audit_date_range(
         },
     )
     assert by_range.status_code == 200
+    assert by_range.json()["total"] == 2
     assert len(by_range.json()["items"]) == 2
 
     by_tomorrow = await client.get(
@@ -241,6 +249,7 @@ async def test_session_pin_audit_date_range(
         },
     )
     assert by_tomorrow.status_code == 200
+    assert by_tomorrow.json()["total"] == 0
     assert by_tomorrow.json()["items"] == []
 
     across_days = await client.get(
@@ -252,6 +261,7 @@ async def test_session_pin_audit_date_range(
         },
     )
     assert across_days.status_code == 200
+    assert across_days.json()["total"] == 2
     assert len(across_days.json()["items"]) == 2
 
     first = await client.get(
@@ -425,6 +435,12 @@ async def test_session_pin_audits_return_503_on_store_failure(
     client: AsyncClient, mem_store: InMemoryRunStore, monkeypatch
 ) -> None:
     failing = AsyncMock(side_effect=SQLAlchemyError("boom"))
+    original_count = mem_store.count_session_pin_audits
+    monkeypatch.setattr(mem_store, "count_session_pin_audits", failing)
+    count_failed = await client.get("/api/admin/session-pins", headers=ADMIN)
+    assert count_failed.status_code == 503
+    assert count_failed.json()["code"] == "DATABASE_UNAVAILABLE"
+    monkeypatch.setattr(mem_store, "count_session_pin_audits", original_count)
     monkeypatch.setattr(mem_store, "list_session_pin_audits", failing)
     monkeypatch.setattr(mem_store, "session_pin_audit_stats", failing)
     for path in (

@@ -51,6 +51,7 @@ export default function PinAuditPage() {
   const [filterTo, setFilterTo] = useState('');
   const [filterError, setFilterError] = useState<string | null>(null);
   const [items, setItems] = useState<SessionPinAudit[]>([]);
+  const [total, setTotal] = useState<number | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -77,6 +78,7 @@ export default function PinAuditPage() {
     const load = async () => {
       setLoading(true);
       setItems([]);
+      setTotal(null);
       setCursor(null);
       setError(null);
       setLoadingMore(false);
@@ -85,6 +87,7 @@ export default function PinAuditPage() {
         const data = await listSessionPinAudits(filters, null, PAGE_SIZE);
         if (!cancelled && listRequest.current === requestId) {
           setItems(data.items);
+          setTotal(data.total ?? null);
           setCursor(data.next_cursor);
         }
       } catch (exc) {
@@ -181,6 +184,7 @@ export default function PinAuditPage() {
     // 立即清空旧行，避免 setFilters 生效前的一帧仍显示旧过滤结果。
     listRequest.current += 1;
     setItems([]);
+    setTotal(null);
     setCursor(null);
     setLoading(true);
     setLoadingMore(false);
@@ -205,6 +209,7 @@ export default function PinAuditPage() {
     setFilterError(null);
     listRequest.current += 1;
     setItems([]);
+    setTotal(null);
     setCursor(null);
     setLoading(true);
     setLoadingMore(false);
@@ -434,7 +439,10 @@ export default function PinAuditPage() {
         <CardContent className="p-0">
           {!loading && items.length > 0 && (
             <div className="border-b px-3 py-2 text-[11px] text-muted-foreground">
-              已加载 {items.length} 条{hasActiveFilters ? '（当前筛选）' : ''}
+              {total !== null
+                ? `共 ${total} 条 · 已加载 ${items.length} 条`
+                : `已加载 ${items.length} 条`}
+              {hasActiveFilters ? '（当前筛选）' : ''}
             </div>
           )}
           {loading ? (

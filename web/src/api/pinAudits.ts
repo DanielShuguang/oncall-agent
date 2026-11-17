@@ -16,6 +16,8 @@ export interface SessionPinAuditListResponse {
   items: SessionPinAudit[];
   /** 取满 `limit` 时给下一页游标；否则为 null（ADR-0082）。 */
   next_cursor: string | null;
+  /** 第一页返回同过滤总数；后续页为 null（旧后端无字段）。 */
+  total?: number | null;
 }
 
 export interface SessionPinAuditFilters {

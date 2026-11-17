@@ -44,7 +44,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | GET | `/admin/session-restores/stats` | 会话恢复审计统计（窗口内恢复次数/用户数/会话数/UTC 日趋势，可按用户/会话/日期范围过滤） | W6 后补 |
 | GET | `/admin/session-restores/stats/export` | 会话恢复审计统计 CSV 导出（与统计同参数/同窗口，长表） | W6 后补 |
 | GET | `/admin/session-restores/export` | 会话恢复审计 CSV 导出（按用户/会话/日期范围过滤，最多 5000 条） | W6 后补 |
-| GET | `/admin/session-pins` | 会话置顶审计（按用户/会话/动作/日期过滤，`(created_at, id)` 游标分页） | W6 后补 |
+| GET | `/admin/session-pins` | 会话置顶审计（按用户/会话/动作/日期过滤，`(created_at, id)` 游标分页，第一页附总数） | W6 后补 |
 | GET | `/admin/session-pins/stats` | 置顶审计窗口统计（置顶/取消次数、用户/会话数、UTC 稀疏日趋势） | W6 后补 |
 | GET | `/admin/session-pins/export` | 会话置顶审计 CSV 导出（同一组过滤，最多 5000 条） | W6 后补 |
 | GET | `/sessions/{session_id}/runs` | 一页会话详情（正文/引用/运行过程，一次返回） | W6 后补 |
@@ -453,7 +453,7 @@ Authorization: Bearer <token>
 - 库不可用时返回 `503 {"code":"DATABASE_UNAVAILABLE"}`；旧后端没有置顶接口时，
   新前端按 `pinned` 字段缺失隐藏按钮
 
-### 3.3.2 置顶审计（管理员，ADR-0081/0082/0084/0086/0087）
+### 3.3.2 置顶审计（管理员，ADR-0081/0082/0084/0086/0087/0088）
 
 ```http
 GET /api/admin/session-pins?user_id=u_102&session_id=sess_a&action=pin&created_from=2026-11-01&created_to=2026-11-16&limit=50
@@ -471,7 +471,8 @@ Authorization: Bearer <admin-token>
       "created_at": "2026-11-16T12:00:00+00:00"
     }
   ],
-  "next_cursor": null
+  "next_cursor": null,
+  "total": 1
 }
 ```
 
@@ -490,6 +491,9 @@ Authorization: Bearer <admin-token>
   `{u,s,a,d?}` canonical JSON 的 SHA-256 前 16 hex，不包含原始 id 或日期。换
   `user_id`/`session_id`/`action`/日期范围复用旧游标返回 `400 INVALID_CURSOR`；
   `f` 不是签名、不防伪造。取满 `limit` 才给 `next_cursor`
+- 第一页（无 `cursor`）返回同过滤条件的 `total`；带 `cursor` 的后续页为 `null`。
+  `total` 与列表是两次查询，并发写入时可能相差一条，不承诺严格同一快照；
+  计数失败返回 503，不返回缺 `total` 的半成品（ADR-0088）
 - 列表支持分页；管理页见 ADR-0085；审计由 `RetentionSweeper` 按
   `ONCALL_SESSION_PIN_AUDIT_RETENTION_DAYS`（默认 365 天）独立清理（ADR-0083）
 

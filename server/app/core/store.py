@@ -640,6 +640,21 @@ class RunStore(Protocol):
         """
         ...
 
+    async def count_session_pin_audits(
+        self,
+        *,
+        user_id: str | None = None,
+        session_id: str | None = None,
+        action: str | None = None,
+        created_after: datetime | None = None,
+        created_before: datetime | None = None,
+    ) -> int:
+        """返回与列表同过滤条件的置顶审计总数（ADR-0088）。
+
+        不含 keyset 游标；用于列表第一页的 `total`。
+        """
+        ...
+
     async def session_pin_audit_stats(
         self, *, since: datetime, until: datetime
     ) -> SessionPinAuditStats:
@@ -1251,6 +1266,26 @@ class InMemoryRunStore:
             ]
             records.sort(key=lambda record: (record.created_at, record.audit_id), reverse=True)
             return records[:limit]
+
+    async def count_session_pin_audits(
+        self,
+        *,
+        user_id: str | None = None,
+        session_id: str | None = None,
+        action: str | None = None,
+        created_after: datetime | None = None,
+        created_before: datetime | None = None,
+    ) -> int:
+        async with self._lock:
+            return sum(
+                1
+                for record in self._session_pin_audits
+                if (user_id is None or record.user_id == user_id)
+                and (session_id is None or record.session_id == session_id)
+                and (action is None or record.action == action)
+                and (created_after is None or record.created_at >= created_after)
+                and (created_before is None or record.created_at < created_before)
+            )
 
     async def session_pin_audit_stats(
         self, *, since: datetime, until: datetime
@@ -2229,6 +2264,30 @@ class PostgresRunStore:
             )
             for row in rows
         ]
+
+    async def count_session_pin_audits(
+        self,
+        *,
+        user_id: str | None = None,
+        session_id: str | None = None,
+        action: str | None = None,
+        created_after: datetime | None = None,
+        created_before: datetime | None = None,
+    ) -> int:
+        stmt = select(func.count()).select_from(SessionPinAuditRow)
+        if user_id is not None:
+            stmt = stmt.where(SessionPinAuditRow.user_id == user_id)
+        if session_id is not None:
+            stmt = stmt.where(SessionPinAuditRow.session_id == session_id)
+        if action is not None:
+            stmt = stmt.where(SessionPinAuditRow.action == action)
+        if created_after is not None:
+            stmt = stmt.where(SessionPinAuditRow.created_at >= created_after)
+        if created_before is not None:
+            stmt = stmt.where(SessionPinAuditRow.created_at < created_before)
+        async with self._sessionmaker() as session:
+            total = await session.scalar(stmt)
+        return int(total or 0)
 
     async def session_pin_audit_stats(
         self, *, since: datetime, until: datetime

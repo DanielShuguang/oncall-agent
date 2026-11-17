@@ -13,11 +13,14 @@ describe('listSessionPinAudits', () => {
   it('拼过滤/游标/limit，空过滤不拼接', async () => {
     const fetchMock = vi.fn<typeof fetch>();
     fetchMock.mockImplementation(
-      async () => new Response(JSON.stringify({ items: [], next_cursor: null }), { status: 200 }),
+      async () =>
+        new Response(JSON.stringify({ items: [], next_cursor: null, total: 7 }), {
+          status: 200,
+        }),
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    await listSessionPinAudits(
+    const first = await listSessionPinAudits(
       {
         userId: 'u_102',
         sessionId: 'sess a',
@@ -33,6 +36,7 @@ describe('listSessionPinAudits', () => {
       '/api/admin/session-pins?limit=20&cursor=cur-1&user_id=u_102&session_id=sess+a&action=unpin&created_from=2026-11-01&created_to=2026-11-16',
     );
     expect(fetchMock.mock.calls[1]?.[0]).toBe('/api/admin/session-pins?limit=20');
+    expect(first.total).toBe(7);
   });
 });
 

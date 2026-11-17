@@ -34,6 +34,24 @@ export interface SessionPinAuditExport {
   truncated: boolean;
 }
 
+export interface SessionPinAuditDayStats {
+  day: string;
+  pins: number;
+  unpins: number;
+}
+
+export interface SessionPinAuditStats {
+  days: number;
+  since: string;
+  until: string;
+  pins: number;
+  unpins: number;
+  users: number;
+  sessions: number;
+  /** 只含有活动的 UTC 自然日，不补零（ADR-0087）。 */
+  daily: SessionPinAuditDayStats[];
+}
+
 function applyFilters(params: URLSearchParams, filters: SessionPinAuditFilters): void {
   if (filters.userId) params.set('user_id', filters.userId);
   if (filters.sessionId) params.set('session_id', filters.sessionId);
@@ -53,6 +71,10 @@ export function listSessionPinAudits(
   if (cursor) params.set('cursor', cursor);
   applyFilters(params, filters);
   return getJson<SessionPinAuditListResponse>(`/admin/session-pins?${params.toString()}`);
+}
+
+export function getSessionPinAuditStats(days = 30): Promise<SessionPinAuditStats> {
+  return getJson<SessionPinAuditStats>(`/admin/session-pins/stats?days=${days}`);
 }
 
 export async function exportSessionPinAuditsCsv(

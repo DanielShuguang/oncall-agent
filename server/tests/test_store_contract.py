@@ -632,6 +632,25 @@ async def _exercise_pinned_sessions(store: RunStore) -> None:
     assert await store.unpin_session(user_id=user, session_id="sess_mid") is True
     assert len(await store.list_session_pin_audits(user_id=user, limit=10)) == 5
 
+    # 窗口统计（ADR-0087）：汇总与列表逐项对齐（store 里可能还有其他用例的审计）
+    stats_now = datetime.now(UTC)
+    stats = await store.session_pin_audit_stats(
+        since=stats_now - timedelta(minutes=5),
+        until=stats_now + timedelta(minutes=5),
+    )
+    all_pin_audits = await store.list_session_pin_audits(limit=200)
+    assert stats.pins == sum(record.action == "pin" for record in all_pin_audits)
+    assert stats.unpins == sum(record.action == "unpin" for record in all_pin_audits)
+    assert stats.users == len({record.user_id for record in all_pin_audits})
+    assert stats.sessions == len({record.session_id for record in all_pin_audits})
+    assert sum(day.pins for day in stats.daily) == stats.pins
+    assert sum(day.unpins for day in stats.daily) == stats.unpins
+    empty_stats = await store.session_pin_audit_stats(
+        since=datetime(2000, 1, 1, tzinfo=UTC),
+        until=datetime(2000, 1, 2, tzinfo=UTC),
+    )
+    assert (empty_stats.pins, empty_stats.unpins, empty_stats.daily) == (0, 0, ())
+
     # 置顶数量上限（ADR-0073）：已置顶幂等，新增超出上限抛 PinLimitExceeded
     with patch("app.core.store.MAX_PINNED_SESSIONS", 1):
         assert await store.pin_session(user_id=user, session_id="sess_old") is True

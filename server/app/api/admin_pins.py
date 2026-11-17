@@ -1,10 +1,11 @@
-"""会话置顶审计的只读管理接口（ADR-0081/0082）。
+"""会话置顶审计的只读管理接口（ADR-0081/0082/0087）。
 
 - 只读：置顶/取消置顶仍走 `POST/DELETE /sessions/{id}/pin`，审计由 store 在
   状态变化事务内写
 - 默认返回全部用户最近 50 条；`user_id`/`session_id`/`action` 可选过滤
 - `(created_at, id)` 倒序 keyset 分页；游标绑定当前过滤条件，换过滤复用旧游标
   返回 400，避免静默跳到另一组结果
+- `/stats` 给全局窗口汇总与 UTC 稀疏日趋势；不接列表过滤
 - 数据库不可用返回 503，不返回空列表冒充「没有置顶记录」
 """
 
@@ -26,7 +27,12 @@ from app.api.errors import ApiError
 from app.core.csv import csv_document
 from app.core.logging import get_logger
 from app.core.store import RunStore, SessionPinAuditRecord, get_store
-from app.schemas.session import SessionPinAuditListResponse, SessionPinAuditOut
+from app.schemas.session import (
+    SessionPinAuditDayOut,
+    SessionPinAuditListResponse,
+    SessionPinAuditOut,
+    SessionPinAuditStatsOut,
+)
 from app.tools.registry import Identity
 
 router = APIRouter(prefix="/admin/session-pins", tags=["admin-session-pins"])
@@ -151,6 +157,35 @@ def _decode_cursor(
     except (ValueError, TypeError, KeyError, binascii.Error, json.JSONDecodeError) as exc:
         raise _cursor_error() from exc
     return created_at, audit_id
+
+
+@router.get("/stats", response_model=SessionPinAuditStatsOut)
+async def get_session_pin_audit_stats(
+    store: Annotated[RunStore, Depends(get_store)],
+    _admin: Annotated[Identity, Depends(require_admin)],
+    days: Annotated[int, Query(ge=1, le=365)] = 30,
+) -> SessionPinAuditStatsOut:
+    """全局置顶/取消置顶审计的窗口统计（ADR-0087）。"""
+    until = datetime.now(UTC)
+    since = until - timedelta(days=days)
+    try:
+        stats = await store.session_pin_audit_stats(since=since, until=until)
+    except SQLAlchemyError as exc:
+        log.warning("session_pin_audit_stats_failed", error=str(exc))
+        raise ApiError(503, "DATABASE_UNAVAILABLE", "置顶审计统计暂不可用") from exc
+    return SessionPinAuditStatsOut(
+        days=days,
+        since=stats.since,
+        until=stats.until,
+        pins=stats.pins,
+        unpins=stats.unpins,
+        users=stats.users,
+        sessions=stats.sessions,
+        daily=[
+            SessionPinAuditDayOut(day=day.day, pins=day.pins, unpins=day.unpins)
+            for day in stats.daily
+        ],
+    )
 
 
 @router.get("/export")

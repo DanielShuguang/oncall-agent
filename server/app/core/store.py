@@ -141,6 +141,32 @@ class SessionPinAuditRecord:
 
 
 @dataclass(frozen=True)
+class SessionPinAuditDayStats:
+    """一天内的显式置顶活动（ADR-0087）；`day` 是 UTC 自然日。"""
+
+    day: date
+    pins: int
+    unpins: int
+
+
+@dataclass(frozen=True)
+class SessionPinAuditStats:
+    """窗口内的置顶/取消置顶审计汇总（ADR-0087）。
+
+    `pins`/`unpins` 是显式状态变化次数；`users`/`sessions` 是去重后的操作者与
+    会话数；`daily` 只含有活动的 UTC 自然日，不补零。
+    """
+
+    since: datetime
+    until: datetime
+    pins: int
+    unpins: int
+    users: int
+    sessions: int
+    daily: tuple[SessionPinAuditDayStats, ...]
+
+
+@dataclass(frozen=True)
 class SessionRestoreAuditDayStats:
     """一天内的恢复活动（ADR-0065）；`day` 是 UTC 自然日。"""
 
@@ -613,6 +639,15 @@ class RunStore(Protocol):
         `(created_at, audit_id)`，只返回严格更小的记录；保留清理见 ADR-0083。
         """
         ...
+
+    async def session_pin_audit_stats(
+        self, *, since: datetime, until: datetime
+    ) -> SessionPinAuditStats:
+        """按 UTC 自然日统计 `[since, until]` 内的显式置顶/取消置顶（ADR-0087）。
+
+        `since`/`until` 是闭区间；返回稀疏 `daily`，不补零。统计是全局的，
+        不接列表过滤，供管理页展示窗口趋势。
+        """
 
     async def prune_session_pin_audits(
         self, *, created_before: datetime, limit: int = 200, dry_run: bool = False
@@ -1216,6 +1251,35 @@ class InMemoryRunStore:
             ]
             records.sort(key=lambda record: (record.created_at, record.audit_id), reverse=True)
             return records[:limit]
+
+    async def session_pin_audit_stats(
+        self, *, since: datetime, until: datetime
+    ) -> SessionPinAuditStats:
+        async with self._lock:
+            records = [
+                record for record in self._session_pin_audits if since <= record.created_at <= until
+            ]
+        per_day: dict[date, list[int]] = {}
+        for record in records:
+            day = record.created_at.astimezone(UTC).date()
+            counts = per_day.setdefault(day, [0, 0])
+            if record.action == "pin":
+                counts[0] += 1
+            else:
+                counts[1] += 1
+        daily = tuple(
+            SessionPinAuditDayStats(day=day, pins=counts[0], unpins=counts[1])
+            for day, counts in sorted(per_day.items())
+        )
+        return SessionPinAuditStats(
+            since=since,
+            until=until,
+            pins=sum(day.pins for day in daily),
+            unpins=sum(day.unpins for day in daily),
+            users=len({record.user_id for record in records}),
+            sessions=len({record.session_id for record in records}),
+            daily=daily,
+        )
 
     async def prune_session_pin_audits(
         self, *, created_before: datetime, limit: int = 200, dry_run: bool = False
@@ -2165,6 +2229,54 @@ class PostgresRunStore:
             )
             for row in rows
         ]
+
+    async def session_pin_audit_stats(
+        self, *, since: datetime, until: datetime
+    ) -> SessionPinAuditStats:
+        window = [
+            SessionPinAuditRow.created_at >= since,
+            SessionPinAuditRow.created_at <= until,
+        ]
+        day_column = func.date(func.timezone("UTC", SessionPinAuditRow.created_at))
+        async with self._sessionmaker() as session:
+            summary = await session.execute(
+                select(
+                    func.count().filter(SessionPinAuditRow.action == "pin"),
+                    func.count().filter(SessionPinAuditRow.action == "unpin"),
+                    func.count(func.distinct(SessionPinAuditRow.user_id)),
+                    func.count(func.distinct(SessionPinAuditRow.session_id)),
+                )
+                .select_from(SessionPinAuditRow)
+                .where(*window)
+            )
+            pins, unpins, users, sessions = summary.one()
+            daily_rows = await session.execute(
+                select(day_column, SessionPinAuditRow.action, func.count())
+                .where(*window)
+                .group_by(day_column, SessionPinAuditRow.action)
+                .order_by(day_column)
+            )
+        per_day: dict[date, list[int]] = {}
+        for day, action, count in daily_rows:
+            key = day if isinstance(day, date) else date.fromisoformat(str(day))
+            counts = per_day.setdefault(key, [0, 0])
+            if action == "pin":
+                counts[0] += int(count)
+            else:
+                counts[1] += int(count)
+        daily = tuple(
+            SessionPinAuditDayStats(day=day, pins=counts[0], unpins=counts[1])
+            for day, counts in sorted(per_day.items())
+        )
+        return SessionPinAuditStats(
+            since=since,
+            until=until,
+            pins=int(pins or 0),
+            unpins=int(unpins or 0),
+            users=int(users or 0),
+            sessions=int(sessions or 0),
+            daily=daily,
+        )
 
     async def prune_session_pin_audits(
         self, *, created_before: datetime, limit: int = 200, dry_run: bool = False

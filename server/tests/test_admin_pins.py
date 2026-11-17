@@ -34,7 +34,11 @@ async def _pin_once(
 
 
 async def test_session_pin_audits_require_admin(client: AsyncClient) -> None:
-    for path in ("/api/admin/session-pins", "/api/admin/session-pins/export"):
+    for path in (
+        "/api/admin/session-pins",
+        "/api/admin/session-pins/export",
+        "/api/admin/session-pins/stats",
+    ):
         res = await client.get(path)
         assert res.status_code == 403
         assert res.json()["code"] == "FORBIDDEN"
@@ -383,6 +387,30 @@ async def test_export_session_pin_audits_truncates(
     assert len(rows) == 3
 
 
+async def test_session_pin_audit_stats(client: AsyncClient, mem_store: InMemoryRunStore) -> None:
+    await _pin_once(mem_store, user_id="u_102", session_id="sess_a")
+    await asyncio.sleep(0.002)
+    await _pin_once(mem_store, user_id="u_103", session_id="sess_b")
+    assert await mem_store.unpin_session(user_id="u_102", session_id="sess_a") is True
+
+    res = await client.get(
+        "/api/admin/session-pins/stats",
+        headers=ADMIN,
+        params={"days": 7},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["days"] == 7
+    assert body["since"] and body["until"]
+    assert (body["pins"], body["unpins"], body["users"], body["sessions"]) == (2, 1, 2, 2)
+    assert len(body["daily"]) == 1
+    assert body["daily"][0]["pins"] == 2
+    assert body["daily"][0]["unpins"] == 1
+    for params in ({"days": 0}, {"days": 366}):
+        bad = await client.get("/api/admin/session-pins/stats", headers=ADMIN, params=params)
+        assert bad.status_code == 422
+
+
 async def test_session_pin_audits_reject_bad_params(client: AsyncClient) -> None:
     for path in ("/api/admin/session-pins", "/api/admin/session-pins/export"):
         for params in ({"user_id": ""}, {"session_id": ""}, {"action": "delete"}):
@@ -398,7 +426,12 @@ async def test_session_pin_audits_return_503_on_store_failure(
 ) -> None:
     failing = AsyncMock(side_effect=SQLAlchemyError("boom"))
     monkeypatch.setattr(mem_store, "list_session_pin_audits", failing)
-    for path in ("/api/admin/session-pins", "/api/admin/session-pins/export"):
+    monkeypatch.setattr(mem_store, "session_pin_audit_stats", failing)
+    for path in (
+        "/api/admin/session-pins",
+        "/api/admin/session-pins/export",
+        "/api/admin/session-pins/stats",
+    ):
         res = await client.get(path, headers=ADMIN)
         assert res.status_code == 503
         assert res.json()["code"] == "DATABASE_UNAVAILABLE"

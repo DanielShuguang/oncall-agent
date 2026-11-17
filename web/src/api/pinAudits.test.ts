@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { exportSessionPinAuditsCsv, listSessionPinAudits } from './pinAudits';
+import {
+  exportSessionPinAuditsCsv,
+  getSessionPinAuditStats,
+  listSessionPinAudits,
+} from './pinAudits';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -29,6 +33,36 @@ describe('listSessionPinAudits', () => {
       '/api/admin/session-pins?limit=20&cursor=cur-1&user_id=u_102&session_id=sess+a&action=unpin&created_from=2026-11-01&created_to=2026-11-16',
     );
     expect(fetchMock.mock.calls[1]?.[0]).toBe('/api/admin/session-pins?limit=20');
+  });
+});
+
+describe('getSessionPinAuditStats', () => {
+  it('按天数请求全局统计并解析日趋势', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    fetchMock.mockImplementation(
+      async () =>
+        new Response(
+          JSON.stringify({
+            days: 7,
+            since: '2026-11-09T00:00:00Z',
+            until: '2026-11-16T00:00:00Z',
+            pins: 3,
+            unpins: 1,
+            users: 2,
+            sessions: 2,
+            daily: [{ day: '2026-11-16', pins: 3, unpins: 1 }],
+          }),
+          { status: 200 },
+        ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const stats = await getSessionPinAuditStats(7);
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/admin/session-pins/stats?days=7');
+    expect(stats.pins).toBe(3);
+    expect(stats.daily).toHaveLength(1);
+    expect(stats.daily[0]?.unpins).toBe(1);
   });
 });
 

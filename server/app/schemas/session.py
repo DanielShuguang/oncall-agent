@@ -111,6 +111,27 @@ class SessionPinAuditListResponse(BaseModel):
     """取满 `limit` 时给下一页游标（ADR-0082）；否则为 None。"""
 
 
+class SessionPinAuditDayOut(BaseModel):
+    """UTC 自然日内的显式置顶活动（ADR-0087）。"""
+
+    day: date
+    pins: int
+    unpins: int
+
+
+class SessionPinAuditStatsOut(BaseModel):
+    """窗口内的置顶审计汇总（ADR-0087）；`daily` 稀疏、不补零。"""
+
+    days: int
+    since: datetime
+    until: datetime
+    pins: int
+    unpins: int
+    users: int
+    sessions: int
+    daily: list[SessionPinAuditDayOut]
+
+
 class SessionRestoreAuditDayOut(BaseModel):
     """UTC 自然日内的恢复活动（ADR-0065）。"""
 

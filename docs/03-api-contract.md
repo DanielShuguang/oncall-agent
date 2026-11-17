@@ -45,6 +45,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | GET | `/admin/session-restores/stats/export` | 会话恢复审计统计 CSV 导出（与统计同参数/同窗口，长表） | W6 后补 |
 | GET | `/admin/session-restores/export` | 会话恢复审计 CSV 导出（按用户/会话/日期范围过滤，最多 5000 条） | W6 后补 |
 | GET | `/admin/session-pins` | 会话置顶审计（按用户/会话/动作/日期过滤，`(created_at, id)` 游标分页） | W6 后补 |
+| GET | `/admin/session-pins/stats` | 置顶审计窗口统计（置顶/取消次数、用户/会话数、UTC 稀疏日趋势） | W6 后补 |
 | GET | `/admin/session-pins/export` | 会话置顶审计 CSV 导出（同一组过滤，最多 5000 条） | W6 后补 |
 | GET | `/sessions/{session_id}/runs` | 一页会话详情（正文/引用/运行过程，一次返回） | W6 后补 |
 | GET | `/runs/{run_id}` | 单次运行详情（含指标与模型调用明细） | W1 D4 / W4 D19 |
@@ -452,7 +453,7 @@ Authorization: Bearer <token>
 - 库不可用时返回 `503 {"code":"DATABASE_UNAVAILABLE"}`；旧后端没有置顶接口时，
   新前端按 `pinned` 字段缺失隐藏按钮
 
-### 3.3.2 置顶审计（管理员，ADR-0081/0082/0084/0086）
+### 3.3.2 置顶审计（管理员，ADR-0081/0082/0084/0086/0087）
 
 ```http
 GET /api/admin/session-pins?user_id=u_102&session_id=sess_a&action=pin&created_from=2026-11-01&created_to=2026-11-16&limit=50
@@ -491,6 +492,36 @@ Authorization: Bearer <admin-token>
   `f` 不是签名、不防伪造。取满 `limit` 才给 `next_cursor`
 - 列表支持分页；管理页见 ADR-0085；审计由 `RetentionSweeper` 按
   `ONCALL_SESSION_PIN_AUDIT_RETENTION_DAYS`（默认 365 天）独立清理（ADR-0083）
+
+统计全局窗口内的置顶/取消置顶（ADR-0087），不接列表过滤：
+
+```http
+GET /api/admin/session-pins/stats?days=30
+Authorization: Bearer <admin-token>
+```
+
+```json
+{
+  "days": 30,
+  "since": "2026-10-18T12:00:00Z",
+  "until": "2026-11-17T12:00:00Z",
+  "pins": 2,
+  "unpins": 1,
+  "users": 1,
+  "sessions": 1,
+  "daily": [
+    {"day": "2026-11-16", "pins": 2, "unpins": 1}
+  ]
+}
+```
+
+- `days` 1–365，默认 30；窗口是 `[until - days 天, until]`，`until=now(UTC)`
+- `pins`/`unpins` 是显式状态变化次数；`users`/`sessions` 是窗口内去重后的操作者
+  与会话数；`daily` 只含有活动的 UTC 自然日（稀疏、不补零），`pins`/`unpins`
+  之和分别等于汇总
+- 统计是全局口径，不接受 `user_id`/`session_id`/`action`/日期范围；需要过滤后的
+  细目用列表或导出。管理页的统计卡不随下方筛选变化
+- 数据库不可用返回 `503 {"code":"DATABASE_UNAVAILABLE"}`
 
 导出当前过滤下的审计快照（ADR-0084），最多 5000 条：
 

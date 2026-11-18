@@ -24,6 +24,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.deps import require_admin
 from app.api.errors import ApiError
+from app.api.export_audits import record_export
 from app.core.csv import csv_document
 from app.core.logging import get_logger
 from app.core.store import (
@@ -266,8 +267,22 @@ async def export_session_restore_stats(
         log.error("session_restore_audit_stats_export_failed", error=str(exc))
         raise ApiError(503, "DATABASE_UNAVAILABLE", "会话恢复审计暂不可用") from exc
     filename = f"session-restore-stats-{days_out}d-{datetime.now(UTC):%Y%m%d-%H%M%S}.csv"
+    content = _stats_csv(stats, days=days_out, user_id=user_id, session_id=session_id)
+    await record_export(
+        store,
+        user_id=_admin.user_id,
+        resource="session_restore_stats",
+        filters={
+            "days": str(days_out),
+            "user_id": user_id,
+            "session_id": session_id,
+            "restored_from": restored_from.isoformat() if restored_from else None,
+            "restored_to": restored_to.isoformat() if restored_to else None,
+        },
+        row_count=max(0, len(content.splitlines()) - 1),
+    )
     return Response(
-        content=_stats_csv(stats, days=days_out, user_id=user_id, session_id=session_id),
+        content=content,
         media_type="text/csv",
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
@@ -304,6 +319,19 @@ async def export_session_restores(
         raise ApiError(503, "DATABASE_UNAVAILABLE", "会话恢复审计暂不可用") from exc
     truncated = len(records) > MAX_EXPORT_ROWS
     rows = records[:MAX_EXPORT_ROWS]
+    await record_export(
+        store,
+        user_id=_admin.user_id,
+        resource="session_restores",
+        filters={
+            "user_id": user_id,
+            "session_id": session_id,
+            "restored_from": restored_from.isoformat() if restored_from else None,
+            "restored_to": restored_to.isoformat() if restored_to else None,
+        },
+        row_count=len(rows),
+        truncated=truncated,
+    )
     filename = f"session-restores-{datetime.now(UTC):%Y%m%d-%H%M%S}.csv"
     return Response(
         content=_audits_csv(rows),

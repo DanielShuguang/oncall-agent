@@ -25,6 +25,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.deps import require_admin
 from app.api.errors import ApiError
+from app.api.export_audits import record_export
 from app.core.csv import csv_document
 from app.core.logging import get_logger
 from app.core.store import RunStore, SessionPinAuditRecord, SessionPinAuditStats, get_store
@@ -287,14 +288,29 @@ async def export_session_pin_audit_stats(
         log.warning("session_pin_audit_stats_export_failed", error=str(exc))
         raise ApiError(503, "DATABASE_UNAVAILABLE", "置顶审计统计暂不可用") from exc
     filename = f"session-pin-stats-{days_out}d-{datetime.now(UTC):%Y%m%d-%H%M%S}.csv"
+    content = _stats_csv(
+        stats,
+        days=days_out,
+        user_id=user_id,
+        session_id=session_id,
+        action=action,
+    )
+    await record_export(
+        store,
+        user_id=_admin.user_id,
+        resource="session_pin_stats",
+        filters={
+            "days": str(days_out),
+            "user_id": user_id,
+            "session_id": session_id,
+            "action": action,
+            "created_from": created_from.isoformat() if created_from else None,
+            "created_to": created_to.isoformat() if created_to else None,
+        },
+        row_count=max(0, len(content.splitlines()) - 1),
+    )
     return Response(
-        content=_stats_csv(
-            stats,
-            days=days_out,
-            user_id=user_id,
-            session_id=session_id,
-            action=action,
-        ),
+        content=content,
         media_type="text/csv",
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
@@ -334,6 +350,20 @@ async def export_session_pin_audits(
         raise ApiError(503, "DATABASE_UNAVAILABLE", "置顶审计暂不可用") from exc
     truncated = len(records) > MAX_EXPORT_ROWS
     rows = records[:MAX_EXPORT_ROWS]
+    await record_export(
+        store,
+        user_id=_admin.user_id,
+        resource="session_pins",
+        filters={
+            "user_id": user_id,
+            "session_id": session_id,
+            "action": action,
+            "created_from": created_from.isoformat() if created_from else None,
+            "created_to": created_to.isoformat() if created_to else None,
+        },
+        row_count=len(rows),
+        truncated=truncated,
+    )
     filename = f"session-pins-{datetime.now(UTC):%Y%m%d-%H%M%S}.csv"
     return Response(
         content=_audits_csv(rows),

@@ -224,6 +224,36 @@ CREATE INDEX idx_session_pin_audits_time ON session_pin_audits (created_at);
 > `ONCALL_SESSION_PIN_AUDIT_RETENTION_DAYS`（默认 365 天）独立清理
 > （[ADR-0083](decisions/0083-session-pin-audit-retention.md)）。
 
+### 2.1.6 export_audits（CSV 导出下载审计）
+
+```sql
+CREATE TABLE export_audits (
+  id         UUID PRIMARY KEY,
+  user_id    TEXT NOT NULL,
+  resource   TEXT NOT NULL,
+  filters    JSONB NOT NULL DEFAULT '{}'::jsonb,
+  row_count  INTEGER NOT NULL,
+  truncated  BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT ck_export_audits_row_count_non_negative
+    CHECK (row_count >= 0),
+  CONSTRAINT ck_export_audits_resource CHECK (resource IN (
+    'approvals', 'approval_stats', 'session_restores',
+    'session_restore_stats', 'session_pins', 'session_pin_stats'
+  ))
+);
+CREATE INDEX idx_export_audits_time ON export_audits (created_at);
+CREATE INDEX idx_export_audits_user_time
+  ON export_audits (user_id, created_at DESC);
+CREATE INDEX idx_export_audits_resource_time
+  ON export_audits (resource, created_at DESC);
+```
+
+> 记录成功生成并返回的 CSV 导出（[ADR-0094](decisions/0094-export-download-audit.md)，迁移
+> `0023`）：谁、什么资源、过滤条件、行数、是否截断。`filters` 只保存标量条件，
+> 不保存行内容、工具参数或会话正文；无外键。审计写入失败时导出 503（fail closed），
+> 不返回无法留痕的文件。当前不接入 `RetentionSweeper`，保留期待定。
+
 ### 2.2 run_events（事件，只追加）
 
 ```sql
@@ -556,6 +586,7 @@ CREATE TABLE user_budgets (
 | approval_grants | 过期即删 | `expires_at < now` 的行由清理任务删除；过期授权本来就不再生效，删行不改变授权语义（[ADR-0027](decisions/0027-approval-snapshot-retention.md)） |
 | session_restore_audits | 365 天 | `ONCALL_SESSION_RESTORE_AUDIT_RETENTION_DAYS`；恢复审计独立于事件/正文保留期，按 `restored_at` 清理（[ADR-0059](decisions/0059-session-restore-audit.md)） |
 | session_pin_audits | 365 天 | `ONCALL_SESSION_PIN_AUDIT_RETENTION_DAYS`；置顶审计独立清理，按 `created_at` 判断（[ADR-0083](decisions/0083-session-pin-audit-retention.md)） |
+| export_audits | 暂不清理 | CSV 导出下载审计（[ADR-0094](decisions/0094-export-download-audit.md)）；保留期与清理策略待定，当前只增不删 |
 | kb_documents / kb_chunks | 不清理 | 知识库由管理员维护，删除是业务操作，不是保留策略 |
 | 评测报告（文件） | 永久 | 不入库，体量小，是能力证明（§2.8） |
 
@@ -590,7 +621,7 @@ uv run alembic upgrade head --sql    # 无库环境渲染 DDL，评审用
 
 - 迁移文件在 `server/migrations/versions/`；`alembic.ini` 只放占位 DSN，真实 DSN 由 `migrations/env.py` 从环境变量读
 - 必须写 `downgrade`，并在空库上验证一次 `downgrade base && upgrade head`
-- 当前迁移链：`0001` runs/events → `0002` 幂等键按用户作用域 → `0003` kb（pgvector/tsvector）+ assets/tickets → `0004` approvals → `0005` 会话授权按用户隔离 → `0006` model_calls + failure_category → `0007` tool_settings → `0008` 文档可见性 → `0009` 会话索引 → `0010` 事件清理标记/部分索引 → `0011` 回答引用快照 → `0012` 正文清理标记/部分索引 → `0013` 按用户日预算覆盖（`user_budgets`）→ `0014` 回答引用快照（`runs.citations`，ADR-0031）→ `0015` 工具配置变更历史（`tool_setting_changes`，ADR-0037）→ `0016` 会话显示标题（`session_titles`，ADR-0040）→ `0017` 从列表移除的会话（`hidden_sessions`，ADR-0041）→ `0018` 已办审批决议时间索引（`idx_approvals_resolved`，ADR-0053）→ `0019` 会话恢复审计（`session_restore_audits`，ADR-0059）→ `0020` 恢复审计按 session 反查的 GIN 索引（`idx_session_restore_audits_sessions`，ADR-0061）→ `0021` 会话置顶（`pinned_sessions`，ADR-0069）→ `0022` 置顶审计（`session_pin_audits`，ADR-0081）
+- 当前迁移链：`0001` runs/events → `0002` 幂等键按用户作用域 → `0003` kb（pgvector/tsvector）+ assets/tickets → `0004` approvals → `0005` 会话授权按用户隔离 → `0006` model_calls + failure_category → `0007` tool_settings → `0008` 文档可见性 → `0009` 会话索引 → `0010` 事件清理标记/部分索引 → `0011` 回答引用快照 → `0012` 正文清理标记/部分索引 → `0013` 按用户日预算覆盖（`user_budgets`）→ `0014` 回答引用快照（`runs.citations`，ADR-0031）→ `0015` 工具配置变更历史（`tool_setting_changes`，ADR-0037）→ `0016` 会话显示标题（`session_titles`，ADR-0040）→ `0017` 从列表移除的会话（`hidden_sessions`，ADR-0041）→ `0018` 已办审批决议时间索引（`idx_approvals_resolved`，ADR-0053）→ `0019` 会话恢复审计（`session_restore_audits`，ADR-0059）→ `0020` 恢复审计按 session 反查的 GIN 索引（`idx_session_restore_audits_sessions`，ADR-0061）→ `0021` 会话置顶（`pinned_sessions`，ADR-0069）→ `0022` 置顶审计（`session_pin_audits`，ADR-0081）→ `0023` CSV 导出下载审计（`export_audits`，ADR-0094）
 
 > `0003` 先 `CREATE EXTENSION IF NOT EXISTS vector`，否则 vector 类型与 HNSW 索引会失败；
 > 测试库由 fixture 建扩展后再 `create_all`（扩展是库级对象，`drop_all` 不会删）。

@@ -48,6 +48,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | GET | `/admin/session-pins/stats` | 置顶审计窗口统计（置顶/取消次数、用户/会话数、UTC 稀疏日/小时趋势；跟随列表过滤） | W6 后补 |
 | GET | `/admin/session-pins/stats/export` | 置顶审计统计长表 CSV 导出（与统计同参数/同窗口） | W6 后补 |
 | GET | `/admin/session-pins/export` | 会话置顶审计 CSV 导出（同一组过滤，最多 5000 条） | W6 后补 |
+| GET | `/admin/export-audits` | CSV 导出下载审计（按用户/资源/UTC 日期范围过滤，keyset 分页；第一页附总数；只读） | W6 后补 |
 | GET | `/sessions/{session_id}/runs` | 一页会话详情（正文/引用/运行过程，一次返回） | W6 后补 |
 | GET | `/runs/{run_id}` | 单次运行详情（含指标与模型调用明细） | W1 D4 / W4 D19 |
 | GET | `/runs/{run_id}/events?after_seq=` | 补拉事件（断线续传，兼容 `Last-Event-ID`） | W1 D4 |
@@ -561,7 +562,7 @@ Authorization: Bearer <admin-token>
 - 响应头 `X-Export-Days`/`X-Export-Pins`/`X-Export-Unpins`/`X-Export-Users`/
   `X-Export-Sessions`；文件名 `session-pin-stats-{days}d-{UTC}.csv`；
   `Cache-Control: no-store`；BOM/CRLF/公式注入防护与其它导出一致
-- 管理接口；数据库不可用返回 503；不做异步导出/下载审计。旧后端没有该端点时前端
+- 管理接口；数据库不可用返回 503；导出会写下载审计（ADR-0094），不做异步导出。旧后端没有该端点时前端
   显示导出失败提示，不影响统计本身
 
 导出当前过滤下的审计快照（ADR-0084），最多 5000 条：
@@ -578,6 +579,48 @@ Authorization: Bearer <admin-token>
 - 响应头 `X-Export-Count`、`X-Export-Truncated`；`Cache-Control: no-store`，
   文件名带 UTC 时间；超过 5000 条只返回前 5000 条并置 truncated=true
 - 数据库不可用返回 `503 {"code":"DATABASE_UNAVAILABLE"}`，不返回部分 CSV
+
+### 3.3.3 CSV 导出下载审计（管理员，ADR-0094）
+
+六类 CSV 导出（审批列表/统计、恢复审计列表/统计、置顶审计列表/统计）在成功生成文件后写入 `export_audits`。审计只记录「服务端为谁生成了什么范围的文件」，不保存行内容、工具参数或会话正文；写入失败时整个导出返回 503，不返回无法留痕的文件。
+
+```http
+GET /api/admin/export-audits?user_id=admin_1&resource=session_pins&created_from=2026-11-01&created_to=2026-11-16&limit=50
+Authorization: Bearer <admin-token>
+```
+
+```json
+{
+  "items": [
+    {
+      "id": "9b2e...",
+      "user_id": "admin_1",
+      "resource": "session_pins",
+      "filters": {"action": "pin"},
+      "row_count": 12,
+      "truncated": false,
+      "created_at": "2026-11-16T12:00:00+00:00"
+    }
+  ],
+  "next_cursor": null,
+  "total": 1
+}
+```
+
+- 只读，要求 `ONCALL_ADMIN_ROLES`；按 `created_at DESC, id DESC` 倒序
+- `user_id` 1–64；`resource` 只接受 6 种：`approvals`、`approval_stats`、
+  `session_restores`、`session_restore_stats`、`session_pins`、`session_pin_stats`；
+  `created_from`/`created_to` 是 UTC 自然日闭区间，必须同时提供、`from <= to`、
+  最多 365 天，否则 `422 INVALID_RANGE`
+- `filters` 是记录时的标量过滤条件；列表导出为条数，统计导出为长表数据行数
+  （不含表头），`truncated` 只对 5000 行上限的列表导出有意义
+- 游标分页：`(created_at, id)` 倒序 keyset；游标 base64url JSON `{t,i,f}`，
+  `f` 是过滤条件 fingerprint，换过滤复用旧游标返回 `400 INVALID_CURSOR`；
+  取满 `limit` 才给 `next_cursor`
+- 第一页返回 `total`，后续页为 `null`；`total < items.length` 时返回 `total:
+  null`，客户端按未知处理
+- 数据库不可用返回 `503 {"code":"DATABASE_UNAVAILABLE"}`；不做审计记录的
+  CSV 导出/单条详情，也不做异步导出
 
 ### 3.4 一页会话详情（ADR-0036）
 
@@ -1112,7 +1155,7 @@ Authorization: Bearer <admin token>
 - 响应头 `X-Export-Days`/`X-Export-Restores`/`X-Export-Users`/
   `X-Export-Sessions`；文件名 `session-restore-stats-{days}d-{UTC}.csv`；
   `Cache-Control: no-store`；BOM/CRLF/公式注入防护与其它导出一致
-- 管理接口；数据库不可用返回 503；不做异步导出/下载审计。旧后端没有该端点时
+- 管理接口；数据库不可用返回 503；导出会写下载审计（ADR-0094），不做异步导出。旧后端没有该端点时
   前端在统计卡显示错误，不影响统计本身
 
 导出（ADR-0062/0067）：
@@ -1130,8 +1173,7 @@ Authorization: Bearer <admin token>
   `= + - @ \t \r` 开头的单元格前置单引号防公式注入
 - 响应头 `X-Export-Count` 为实际导出条数，`X-Export-Truncated` 为
   `true`/`false`；`Cache-Control: no-store`；超上限截断但不报错
-- 管理接口，要求 `ONCALL_ADMIN_ROLES`；数据库不可用返回 503；不做异步导出/
-  下载审计
+- 管理接口，要求 `ONCALL_ADMIN_ROLES`；数据库不可用返回 503；导出会写下载审计（ADR-0094），不做异步导出
 
 ### 成本汇总
 

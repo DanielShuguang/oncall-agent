@@ -1053,6 +1053,48 @@ async def _exercise_hidden_sessions(store: RunStore) -> None:
     assert (empty.restores, empty.users, empty.sessions, empty.daily) == (0, 0, 0, ())
 
 
+async def _exercise_export_audits(store: RunStore) -> None:
+    await store.record_export_audit(
+        user_id="u_102",
+        resource="approvals",
+        filters={"status": "pending", "tool": "create_ticket"},
+        row_count=3,
+    )
+    await store.record_export_audit(
+        user_id="u_103",
+        resource="session_pin_stats",
+        filters={},
+        row_count=0,
+        truncated=True,
+    )
+
+    rows = await store.list_export_audits(user_id="u_102")
+    assert len(rows) == 1
+    assert rows[0].resource == "approvals"
+    assert rows[0].filters == {"status": "pending", "tool": "create_ticket"}
+    assert rows[0].row_count == 3
+    assert rows[0].truncated is False
+    assert await store.count_export_audits(user_id="u_102") == 1
+
+    pinned = await store.list_export_audits(resource="session_pin_stats")
+    assert len(pinned) == 1
+    assert pinned[0].truncated is True
+    assert await store.count_export_audits(resource="session_pin_stats") == 1
+
+    future = datetime.now(UTC) + timedelta(minutes=1)
+    assert await store.list_export_audits(created_after=future) == []
+    assert await store.count_export_audits(created_after=future) == 0
+
+    first_page = await store.list_export_audits(limit=1)
+    assert len(first_page) == 1
+    rest = await store.list_export_audits(
+        before=(first_page[0].created_at, first_page[0].audit_id),
+        limit=10,
+    )
+    assert len(rest) == 1
+    assert rest[0].audit_id != first_page[0].audit_id
+
+
 async def _exercise_events_for_runs(store: RunStore) -> None:
     """批量取事件（ADR-0036）：按 run 分组、组内 seq 升序、每个 run 独立截断。"""
     user = "u_events_batch"
@@ -1094,6 +1136,7 @@ async def test_memory_store_contract() -> None:
     await _exercise_session_titles(store)
     await _exercise_hidden_sessions(store)
     await _exercise_pinned_sessions(store)
+    await _exercise_export_audits(store)
     await _exercise_events_for_runs(store)
 
 
@@ -1129,4 +1172,5 @@ async def test_postgres_store_contract(pg_store: PostgresRunStore) -> None:
     await _exercise_session_titles(pg_store)
     await _exercise_hidden_sessions(pg_store)
     await _exercise_pinned_sessions(pg_store)
+    await _exercise_export_audits(pg_store)
     await _exercise_events_for_runs(pg_store)

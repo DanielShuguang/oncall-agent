@@ -2131,6 +2131,25 @@ ADR-0073 把单用户置顶上限固定为 50，ADR-0074 已把 `pinned_count`/`
 
 ---
 
+## W6 后补：CSV 导出下载审计（ADR-0094）
+
+6 个 CSV 导出端点此前只返回文件，不记录谁在什么时候导出了什么范围；反向代理日志
+看不到过滤条件、行数与截断。本 ADR 新增统一下载审计，作为管理治理证据。
+
+| 事项 | 落地 |
+|---|---|
+| 表 | 迁移 `0023` 新增 `export_audits`：`id`/`user_id`/`resource`/`filters` JSONB/`row_count`/`truncated`/`created_at`；CHECK 限定 6 种资源与 `row_count >= 0`；三个时间索引；无外键 |
+| 记录 | 6 个导出端点成功生成 CSV 后写入；`filters` 只存标量（状态/工具/用户/会话/日期/动作），不存行内容/工具参数/正文 |
+| 失败语义 | 审计写入失败返回 503 `DATABASE_UNAVAILABLE`（fail closed），不返回无法留痕的文件；CSV 生成失败不写 |
+| 读取 | 管理员 `GET /admin/export-audits`：`user_id`/`resource`/UTC 日期范围过滤，`(created_at,id)` keyset，首屏 total，非法游标 400、范围 422、计数/列表失败 503 |
+| 前端 | ConsolePage「导出审计」只读页：用户/资源/日期过滤、20 条/页加载更多、行数与截断标识；不回放导出文件 |
+| 范围 | 不做异步导出、审计 CSV 导出、单条详情、客户端下载确认；当前不接入 RetentionSweeper |
+| 验证 | 迁移 `0023` 往返通过；默认 525+40、PG 562+3、PG+Redis 565；ruff 205 / mypy 119；前端 27 files/130 tests、lint 130、format 138、build 2937 modules |
+
+详见 [ADR-0094](decisions/0094-export-download-audit.md)。
+
+---
+
 ## 每周固定动作
 
 | 时点 | 动作 |

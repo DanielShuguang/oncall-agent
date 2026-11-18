@@ -22,6 +22,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 
 from app.core.logging import get_logger
+from app.models.export_audit import ExportAudit as ExportAuditRow
 from app.models.run import Run
 from app.models.run import RunEvent as RunEventRow
 from app.models.session_hidden import HiddenSession as HiddenSessionRow
@@ -138,6 +139,23 @@ class SessionPinAuditRecord:
     user_id: str
     session_id: str
     action: str
+    created_at: datetime
+
+
+@dataclass(frozen=True)
+class ExportAuditRecord:
+    """一次成功返回的 CSV 导出（ADR-0094）。
+
+    `filters` 只含标量过滤条件，不含导出行内容；`row_count` 是实际写入的行数，
+    `truncated` 表示列表导出命中了 5000 行上限。
+    """
+
+    audit_id: str
+    user_id: str
+    resource: str
+    filters: dict[str, str]
+    row_count: int
+    truncated: bool
     created_at: datetime
 
 
@@ -672,6 +690,50 @@ class RunStore(Protocol):
         """
         ...
 
+    async def record_export_audit(
+        self,
+        *,
+        user_id: str,
+        resource: str,
+        filters: dict[str, str],
+        row_count: int,
+        truncated: bool = False,
+    ) -> None:
+        """记录一次成功返回的 CSV 导出（ADR-0094）。
+
+        调用方在 CSV 已生成、准备返回时写入；写入失败要向上抛，由 API 翻成
+        503，避免出现没有留痕的下载。
+        """
+        ...
+
+    async def list_export_audits(
+        self,
+        *,
+        user_id: str | None = None,
+        resource: str | None = None,
+        created_after: datetime | None = None,
+        created_before: datetime | None = None,
+        before: tuple[datetime, str] | None = None,
+        limit: int = 50,
+    ) -> list[ExportAuditRecord]:
+        """按 `(created_at, id)` 倒序列出导出审计（ADR-0094）。
+
+        `created_after`/`created_before` 是半开窗口 `[after, before)`；`before`
+        是 keyset 游标，只返回严格更小的记录。
+        """
+        ...
+
+    async def count_export_audits(
+        self,
+        *,
+        user_id: str | None = None,
+        resource: str | None = None,
+        created_after: datetime | None = None,
+        created_before: datetime | None = None,
+    ) -> int:
+        """返回与列表同过滤条件的导出审计总数（ADR-0094）。"""
+        ...
+
     async def session_pin_audit_stats(
         self,
         *,
@@ -888,6 +950,8 @@ class InMemoryRunStore:
         self._session_restore_audits: list[SessionRestoreAuditRecord] = []
         #: 置顶/取消置顶审计（ADR-0081）；只记显式状态变化
         self._session_pin_audits: list[SessionPinAuditRecord] = []
+        #: CSV 导出审计（ADR-0094）；成功生成响应时追加
+        self._export_audits: list[ExportAuditRecord] = []
         self._lock = asyncio.Lock()
         self._started_at: datetime | None = None
 
@@ -1307,6 +1371,69 @@ class InMemoryRunStore:
                 if (user_id is None or record.user_id == user_id)
                 and (session_id is None or record.session_id == session_id)
                 and (action is None or record.action == action)
+                and (created_after is None or record.created_at >= created_after)
+                and (created_before is None or record.created_at < created_before)
+            )
+
+    async def record_export_audit(
+        self,
+        *,
+        user_id: str,
+        resource: str,
+        filters: dict[str, str],
+        row_count: int,
+        truncated: bool = False,
+    ) -> None:
+        async with self._lock:
+            self._export_audits.append(
+                ExportAuditRecord(
+                    audit_id=str(uuid.uuid4()),
+                    user_id=user_id,
+                    resource=resource,
+                    filters=dict(filters),
+                    row_count=row_count,
+                    truncated=truncated,
+                    created_at=datetime.now(UTC),
+                )
+            )
+
+    async def list_export_audits(
+        self,
+        *,
+        user_id: str | None = None,
+        resource: str | None = None,
+        created_after: datetime | None = None,
+        created_before: datetime | None = None,
+        before: tuple[datetime, str] | None = None,
+        limit: int = 50,
+    ) -> list[ExportAuditRecord]:
+        async with self._lock:
+            records = [
+                record
+                for record in self._export_audits
+                if (user_id is None or record.user_id == user_id)
+                and (resource is None or record.resource == resource)
+                and (created_after is None or record.created_at >= created_after)
+                and (created_before is None or record.created_at < created_before)
+                and (before is None or (record.created_at, record.audit_id) < before)
+            ]
+            records.sort(key=lambda record: (record.created_at, record.audit_id), reverse=True)
+            return records[:limit]
+
+    async def count_export_audits(
+        self,
+        *,
+        user_id: str | None = None,
+        resource: str | None = None,
+        created_after: datetime | None = None,
+        created_before: datetime | None = None,
+    ) -> int:
+        async with self._lock:
+            return sum(
+                1
+                for record in self._export_audits
+                if (user_id is None or record.user_id == user_id)
+                and (resource is None or record.resource == resource)
                 and (created_after is None or record.created_at >= created_after)
                 and (created_before is None or record.created_at < created_before)
             )
@@ -2332,6 +2459,96 @@ class PostgresRunStore:
             stmt = stmt.where(SessionPinAuditRow.created_at >= created_after)
         if created_before is not None:
             stmt = stmt.where(SessionPinAuditRow.created_at < created_before)
+        async with self._sessionmaker() as session:
+            total = await session.scalar(stmt)
+        return int(total or 0)
+
+    async def record_export_audit(
+        self,
+        *,
+        user_id: str,
+        resource: str,
+        filters: dict[str, str],
+        row_count: int,
+        truncated: bool = False,
+    ) -> None:
+        async with self._sessionmaker() as session:
+            session.add(
+                ExportAuditRow(
+                    user_id=user_id,
+                    resource=resource,
+                    filters=dict(filters),
+                    row_count=row_count,
+                    truncated=truncated,
+                )
+            )
+            await session.commit()
+
+    async def list_export_audits(
+        self,
+        *,
+        user_id: str | None = None,
+        resource: str | None = None,
+        created_after: datetime | None = None,
+        created_before: datetime | None = None,
+        before: tuple[datetime, str] | None = None,
+        limit: int = 50,
+    ) -> list[ExportAuditRecord]:
+        stmt = select(ExportAuditRow)
+        if user_id is not None:
+            stmt = stmt.where(ExportAuditRow.user_id == user_id)
+        if resource is not None:
+            stmt = stmt.where(ExportAuditRow.resource == resource)
+        if created_after is not None:
+            stmt = stmt.where(ExportAuditRow.created_at >= created_after)
+        if created_before is not None:
+            stmt = stmt.where(ExportAuditRow.created_at < created_before)
+        if before is not None:
+            before_at, before_id = before
+            stmt = stmt.where(
+                or_(
+                    ExportAuditRow.created_at < before_at,
+                    and_(
+                        ExportAuditRow.created_at == before_at,
+                        ExportAuditRow.id < uuid.UUID(before_id),
+                    ),
+                )
+            )
+        stmt = stmt.order_by(ExportAuditRow.created_at.desc(), ExportAuditRow.id.desc()).limit(
+            limit
+        )
+        async with self._sessionmaker() as session:
+            rows = (await session.scalars(stmt)).all()
+        return [
+            ExportAuditRecord(
+                audit_id=str(row.id),
+                user_id=row.user_id,
+                resource=row.resource,
+                filters=dict(row.filters),
+                row_count=row.row_count,
+                truncated=row.truncated,
+                created_at=row.created_at,
+            )
+            for row in rows
+        ]
+
+    async def count_export_audits(
+        self,
+        *,
+        user_id: str | None = None,
+        resource: str | None = None,
+        created_after: datetime | None = None,
+        created_before: datetime | None = None,
+    ) -> int:
+        stmt = select(func.count()).select_from(ExportAuditRow)
+        if user_id is not None:
+            stmt = stmt.where(ExportAuditRow.user_id == user_id)
+        if resource is not None:
+            stmt = stmt.where(ExportAuditRow.resource == resource)
+        if created_after is not None:
+            stmt = stmt.where(ExportAuditRow.created_at >= created_after)
+        if created_before is not None:
+            stmt = stmt.where(ExportAuditRow.created_at < created_before)
         async with self._sessionmaker() as session:
             total = await session.scalar(stmt)
         return int(total or 0)

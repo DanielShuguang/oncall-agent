@@ -168,9 +168,9 @@ oncall/
 
 | 模块 | 状态 | 验证方式 |
 |---|---|---|
-| 文档（12 篇 + 93 篇 ADR + 评测基线） | ✅ 完成 | — |
-| 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡 / 运行回放 / 成本页） | ✅ 可用 | `tsc --noEmit`、`oxlint 0`、`oxfmt --check` 通过；`vitest` 128/128；`pnpm build` 成功 |
-| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **519 passed + 40 skipped**；设 `ONCALL_TEST_DATABASE_URL`（指向一个可清空的库）后 **556 passed + 3 skipped**，再加 `ONCALL_TEST_REDIS_URL` 为 **559 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约与审批快照、引用快照与内容回收、个人预算与账本快照、工单自助查询、工单详情、会话列表/标题搜索/分页/重命名/移除/恢复/置顶、资产查询接表、运行过程回放与载荷上限、批量会话详情、工具配置变更历史、历史引用回填、已移除会话分页与搜索、已移除会话批量恢复、批量恢复逐条结果、会话恢复审计、会话恢复审计分页、恢复审计按 session 反查、恢复审计 CSV 导出、恢复审计列表总数、恢复审计统计、恢复审计统计按过滤、恢复审计按日期范围、审批积压与等待统计、审批统计分组、审批列表分页、已办审批按决议时间排序、已办审批筛选、审批列表导出 CSV、审批列表首屏总数、审批统计按小时分布、审批统计聚合导出、恢复审计统计导出、会话批量移除、会话置顶上限、置顶容量提示、置顶审计与分页、置顶审计日期过滤、置顶审计保留清理、置顶审计 CSV 导出、置顶审计统计、置顶审计统计跟随过滤、置顶审计统计 CSV 导出、置顶审计首屏总数、记住审计过滤与统计窗口、计量一致性） |
+| 文档（12 篇 + 94 篇 ADR + 评测基线） | ✅ 完成 | — |
+| 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡 / 运行回放 / 成本页） | ✅ 可用 | `tsc --noEmit`、`oxlint 0`、`oxfmt --check` 通过；`vitest` 27 files / 130 tests；`pnpm build` 成功 |
+| 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **525 passed + 40 skipped**；设 `ONCALL_TEST_DATABASE_URL`（指向一个可清空的库）后 **562 passed + 3 skipped**，再加 `ONCALL_TEST_REDIS_URL` 为 **565 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约与审批快照、引用快照与内容回收、个人预算与账本快照、工单自助查询、工单详情、会话列表/标题搜索/分页/重命名/移除/恢复/置顶、资产查询接表、运行过程回放与载荷上限、批量会话详情、工具配置变更历史、历史引用回填、已移除会话分页与搜索、已移除会话批量恢复、批量恢复逐条结果、会话恢复审计、会话恢复审计分页、恢复审计按 session 反查、恢复审计 CSV 导出、恢复审计列表总数、恢复审计统计、恢复审计统计按过滤、恢复审计按日期范围、审批积压与等待统计、审批统计分组、审批列表分页、已办审批按决议时间排序、已办审批筛选、审批列表导出 CSV、审批列表首屏总数、审批统计按小时分布、审批统计聚合导出、恢复审计统计导出、会话批量移除、会话置顶上限、置顶容量提示、置顶审计与分页、置顶审计日期过滤、置顶审计保留清理、置顶审计 CSV 导出、置顶审计统计、置顶审计统计跟随过滤、置顶审计统计 CSV 导出、置顶审计首屏总数、记住审计过滤与统计窗口、CSV 导出下载审计、计量一致性） |
 | 本地 JWT（W1 D2） | ✅ 已完成 | `tests/test_auth.py` 20 条：签发/验签、过期、alg=none、401 JSON、OpenAPI Bearer、run 归属隔离 |
 | 事件落库 + 断线续传（D4） | ✅ 已完成 | `alembic upgrade head` + `alembic check` 无漂移；`tests/test_store_contract.py`（内存 + Postgres 契约）、`tests/test_chat_stream.py`（落库、幂等回放、503 语义） |
 | 最小 Agent 运行时（W1 D5） | ✅ 已完成 | `tests/test_agent_runtime.py` 9 条：工具真实执行、检索引用、写操作挂起审批、工具失败降级、步数/时长上限 |
@@ -217,6 +217,7 @@ oncall/
 | 会话置顶数量上限（W6 后补） | ✅ 已完成 | 默认每用户最多 50 个置顶；已置顶幂等，新增第 51 个返回 `409 PIN_LIMIT_REACHED`；内存/Postgres 同口径计数；PG 按用户串行化置顶检查，并发也不会突破上限，既有超限数据不回溯；无迁移；前端沿用置顶按钮与错误提示；[ADR-0073](docs/decisions/0073-session-pin-limit.md) |
 | 置顶容量提示（W6 后补） | ✅ 已完成 | `GET /sessions` 每页返回 `pinned_count`/`pin_limit`，计数覆盖当前用户全部置顶、不受搜索/游标影响；前端达到 `pin_limit` 时禁用未置顶行的置顶按钮并提示，已置顶行仍可取消；旧后端无字段时回退 409；无迁移；[ADR-0074](docs/decisions/0074-session-pin-capacity.md) |
 | 置顶上限可配置（W6 后补） | ✅ 已完成 | `ONCALL_SESSION_PIN_LIMIT`（默认 50）经 `build_store` 传给内存/Postgres；列表返回 store 的实际 `pin_limit`，409 用实际上限；配置 <1 启动即拒绝；改后重启生效；无迁移；`test_config.py`、`test_sessions_api.py`、`test_store_contract.py`；[ADR-0093](docs/decisions/0093-session-pin-limit-config.md) |
+| CSV 导出下载审计（W6 后补） | ✅ 已完成 | 迁移 `0023` 新增 `export_audits`；审批列表/统计、恢复审计列表/统计、置顶审计列表/统计 6 个端点成功生成 CSV 后记录操作人/资源/过滤条件/行数/是否截断；审计写入失败导出 503（fail closed），不返回无法留痕的文件；管理员 `GET /admin/export-audits` 按用户/资源/UTC 日期过滤、keyset 翻页、首屏 total；无编辑/删除/下载文件回放，当前不清理；`tests/test_export_audits.py`、`test_store_contract.py`、`web/src/api/exportAudits.test.ts`；[ADR-0094](docs/decisions/0094-export-download-audit.md) |
 | 审计日期预设记忆（W6 后补） | ✅ 已完成 | 只把快捷预设 ID 存浏览器 `localStorage`（`oncall.audit-date-preset.v1`），打开审计页自动应用；改动手填日期或清除会移除记忆，只改用户/会话过滤则保留；无效值与存储不可用静默回退；不跨设备、不记用户/会话过滤；无后端/迁移；[ADR-0075](docs/decisions/0075-audit-preset-memory.md) |
 | 窄屏会话抽屉（W6 后补） | ✅ 已完成 | `<640px` 标题栏菜单按钮打开复用的 `SessionList` 抽屉；遮罩/Escape/X/选择或新会话关闭；≥640px 恢复常驻侧栏；不复制列表状态、不持久化抽屉开合；焦点与滚动见 ADR-0077；无滑动关闭/动画；无后端/迁移；[ADR-0076](docs/decisions/0076-session-drawer.md) |
 | 窄屏抽屉焦点陷阱（W6 后补） | ✅ 已完成 | 打开聚焦 X、Tab/Shift+Tab 在抽屉内循环、焦点在外时拉回；`overflow:hidden` + 遮罩 `touch-none`/抽屉 `overscroll-contain` 锁定背景滚动；窄屏 `role=dialog`+`aria-modal`；变宽自动关闭并把焦点移回搜索框；`nextFocusTarget` 纯函数 + 4 tests；不引依赖/无迁移；[ADR-0077](docs/decisions/0077-session-drawer-focus-trap.md) |
@@ -225,7 +226,7 @@ oncall/
 | 切换账号清理本地偏好（W6 后补） | ✅ 已完成 | TokenDialog 保存时解析 JWT `sub`（不验签），subject 变化（含从无 token 到有 subject）清空 `oncall.last-session.v1`、`oncall.audit-filters.v1`、`oncall.audit-date-preset.v1`；同 subject 续签保留偏好；token 字符串变化后整页刷新，其它标签页收到 `storage` 的 `oncall.token` 事件也刷新，避免旧账号页面数据残留；清空 token 不主动清，但之后即使同账号重登也会清一次；无后端/迁移；`web/src/api/tokenSubject.test.ts`、`web/src/lib/localPreferences.test.ts`；[ADR-0080](docs/decisions/0080-local-preferences-on-account-switch.md) |
 | 置顶审计与分页（W6 后补） | ✅ 已完成 | 旁挂 `session_pin_audits`（迁移 0022，无外键）：只记显式 `pin`/`unpin`，重复置顶/取消、隐藏导致置顶清理不写；审计与置顶行同事务；管理端 `GET /admin/session-pins` 按 `user_id`/`session_id`/`action` 过滤，`limit` 1–200 默认 50，按 `(created_at, id)` 倒序；keyset 游标 `{t,i,f?}`（`f` 为过滤条件指纹，不存原始 id）绑定过滤条件、取满才给 `next_cursor`、换过滤复用 400；CSV 导出见 ADR-0084，管理页见 ADR-0085，日期范围见 ADR-0086，按日统计见 ADR-0087，统计跟随过滤见 ADR-0089，首屏总数见 ADR-0088，保留清理见 ADR-0083；`tests/test_admin_pins.py`、`test_store_contract.py`；[ADR-0081](docs/decisions/0081-session-pin-audit.md)、[ADR-0082](docs/decisions/0082-session-pin-audit-pagination.md) |
 | 置顶审计保留清理（W6 后补） | ✅ 已完成 | `ONCALL_SESSION_PIN_AUDIT_RETENTION_DAYS`（默认 365 天）独立于事件/正文/恢复审计；`RetentionSweeper` 按 `created_at` 分批删除，`RetentionResult`/`prune` CLI/日志增加计数，dry-run 只计数；无迁移（仍 0022）；`tests/test_retention.py`、`test_config.py`、`test_store_contract.py`；[ADR-0083](docs/decisions/0083-session-pin-audit-retention.md) |
-| 置顶审计 CSV 导出（W6 后补） | ✅ 已完成 | `GET /admin/session-pins/export`，与列表相同的 `user_id`/`session_id`/`action` 过滤；最多 5000 条，`X-Export-Count`/`X-Export-Truncated` 告知截断；CSV 五列元数据，复用 `csv_document` 的 BOM/CRLF/公式防护；同步、无迁移；无异步/下载审计，日期范围见 ADR-0086；`tests/test_admin_pins.py`；[ADR-0084](docs/decisions/0084-session-pin-audit-export.md) |
+| 置顶审计 CSV 导出（W6 后补） | ✅ 已完成 | `GET /admin/session-pins/export`，与列表相同的 `user_id`/`session_id`/`action` 过滤；最多 5000 条，`X-Export-Count`/`X-Export-Truncated` 告知截断；CSV 五列元数据，复用 `csv_document` 的 BOM/CRLF/公式防护；同步、无迁移；下载审计见 ADR-0094，日期范围见 ADR-0086；`tests/test_admin_pins.py`；[ADR-0084](docs/decisions/0084-session-pin-audit-export.md) |
 | 置顶审计管理页（W6 后补） | ✅ 已完成 | ConsolePage「置顶审计」只读页（`/console/pins`）：用户/会话/动作/日期范围过滤、20 条/页 keyset「加载更多」、按已应用过滤导出 CSV；应用/清除过滤立即清旧行并失效在途请求；顶部统计卡跟随已应用过滤（无过滤时 7/30/90 天，ADR-0087/0089）；首屏总数见 ADR-0088，无编辑删除/会话详情跳转；无后端/迁移；日期范围见 ADR-0086；`web/src/api/pinAudits.ts`、`web/src/features/console/PinAuditPage.tsx`；[ADR-0085](docs/decisions/0085-session-pin-audit-console.md) |
 | 置顶审计按日期范围（W6 后补） | ✅ 已完成 | 列表与导出增加 `created_from`/`created_to`（UTC 自然日闭区间，两端同时、最多 365 天，单端/倒置/超长 422 `INVALID_RANGE`）；内部半开窗口 `[from 00:00Z, to 次日 00:00Z)`，复用 `idx_session_pin_audits_time`；游标指纹包含日期范围，换范围复用 400；PinAuditPage 增加日期输入与 365 天校验；无迁移；`tests/test_admin_pins.py`、`test_store_contract.py`；[ADR-0086](docs/decisions/0086-session-pin-audit-date-range.md) |
 | 置顶审计按日统计（W6 后补） | ✅ 已完成 | `GET /admin/session-pins/stats?days=30`：窗口 `[until-days, until]`，`pins`/`unpins`/`users`/`sessions` + UTC 稀疏 `daily`；`days` 1–365 默认 30，统计跟随列表用户/会话/动作/日期过滤见 ADR-0089；无迁移；PinAuditPage 顶部统计卡，最近 7 个有活动日期；`tests/test_admin_pins.py`、`test_store_contract.py`、`web/src/api/pinAudits.test.ts`；[ADR-0087](docs/decisions/0087-session-pin-audit-stats.md) |
@@ -305,7 +306,7 @@ W6 基线（3 轮均值，mock 规则路径，口径见 [baseline-v1](docs/eval/
   `ONCALL_SESSION_PIN_AUDIT_RETENTION_DAYS` 独立保留
   365 天（[ADR-0081](docs/decisions/0081-session-pin-audit.md)、
   [ADR-0082](docs/decisions/0082-session-pin-audit-pagination.md)、
-  [ADR-0083](docs/decisions/0083-session-pin-audit-retention.md)）；导出行为本身没有下载审计
+  [ADR-0083](docs/decisions/0083-session-pin-audit-retention.md)）；导出行为记录到 `export_audits`（[ADR-0094](docs/decisions/0094-export-download-audit.md)）
 - `web/Dockerfile` 的 Node 构建层在本机因 registry 拉取超时未跑完；运行态用本地 `pnpm build`
   + Nginx 镜像验证（SPA、SSE、审批链路均通），正式交付前需在同网络环境重跑 `make stack`
 - 默认 embedding 是确定性哈希，不是语义模型；生产建议切 `ONCALL_EMBEDDING_PROVIDER=http` 接 bge-m3
@@ -392,7 +393,7 @@ W6 基线（3 轮均值，mock 规则路径，口径见 [baseline-v1](docs/eval/
   并可按已应用过滤下钻（[ADR-0066](docs/decisions/0066-session-restore-audit-stats-filters.md)）、
   按 UTC 日期范围查看（[ADR-0067](docs/decisions/0067-session-restore-audit-date-range.md)），
   统计可导出为长表 CSV（[ADR-0070](docs/decisions/0070-session-restore-audit-stats-export.md)），
-  但统计与导出是两次独立查询、CSV 为长表而非多工作表，仍无编辑/删除/下载审计/跳页，
+  但统计与导出是两次独立查询、CSV 为长表而非多工作表，仍无编辑/删除/跳页，导出下载审计见 [ADR-0094](docs/decisions/0094-export-download-audit.md)，
   [ADR-0049](docs/decisions/0049-hidden-session-batch-restore.md)、[ADR-0055](docs/decisions/0055-hidden-restore-results.md)），
   但无管理员视角）；但没有批量移除/改名、
   置顶拖拽排序/虚拟滚动；翻页期间有新 run 时可能重复或跳过一页，刷新即重置

@@ -20,6 +20,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.deps import get_approval_service, get_identity
 from app.api.errors import ApiError
+from app.api.export_audits import record_export
 from app.approvals.service import ApprovalService, approval_payload
 from app.approvals.types import (
     ApprovalForbidden,
@@ -332,6 +333,7 @@ def _stats_csv(stats: ApprovalStats, *, days: int, group_by: ApprovalGroupBy | N
 async def export_approvals(
     service: Annotated[ApprovalService, Depends(get_approval_service)],
     identity: Annotated[Identity, Depends(get_identity)],
+    store: Annotated[RunStore, Depends(get_store)],
     status: Annotated[str, Query(pattern="^(pending|approved|rejected|expired)$")] = "pending",
     tool: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
     resolved_by: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
@@ -358,6 +360,20 @@ async def export_approvals(
         raise ApiError(503, "DATABASE_UNAVAILABLE", "database unavailable") from exc
     truncated = len(records) > MAX_EXPORT_ROWS
     rows = records[:MAX_EXPORT_ROWS]
+    await record_export(
+        store,
+        user_id=identity.user_id,
+        resource="approvals",
+        filters={
+            "status": status,
+            "tool": tool,
+            "resolved_by": resolved_by,
+            "resolved_from": resolved_from.isoformat() if resolved_from else None,
+            "resolved_to": resolved_to.isoformat() if resolved_to else None,
+        },
+        row_count=len(rows),
+        truncated=truncated,
+    )
     filename = f"approvals-{status}-{datetime.now(UTC):%Y%m%d-%H%M%S}.csv"
     return Response(
         content=_approvals_csv(rows),
@@ -468,6 +484,7 @@ async def approval_stats(
 async def export_approval_stats(
     service: Annotated[ApprovalService, Depends(get_approval_service)],
     identity: Annotated[Identity, Depends(get_identity)],
+    store: Annotated[RunStore, Depends(get_store)],
     days: Annotated[int, Query(ge=1, le=90)] = 7,
     group_by: Annotated[ApprovalGroupBy | None, Query()] = None,
 ) -> Response:
@@ -480,9 +497,17 @@ async def export_approval_stats(
         log.error("approval_stats_export_failed", error=str(exc))
         raise ApiError(503, "DATABASE_UNAVAILABLE", "database unavailable") from exc
     group_label = group_by or "none"
+    content = _stats_csv(stats, days=days, group_by=group_by)
+    await record_export(
+        store,
+        user_id=identity.user_id,
+        resource="approval_stats",
+        filters={"days": str(days), "group_by": group_label},
+        row_count=max(0, len(content.splitlines()) - 1),
+    )
     filename = f"approval-stats-{days}d-{group_label}-{datetime.now(UTC):%Y%m%d-%H%M%S}.csv"
     return Response(
-        content=_stats_csv(stats, days=days, group_by=group_by),
+        content=content,
         media_type="text/csv",
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',

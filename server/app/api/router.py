@@ -13,6 +13,7 @@ from app.api import (
     approvals,
     chat,
     cost,
+    export_audits,
     health,
     kb,
     runs,
@@ -29,5 +30,6 @@ api_router.include_router(admin_kb.router)
 api_router.include_router(admin_tools.router)
 api_router.include_router(admin_sessions.router)
 api_router.include_router(admin_pins.router)
+api_router.include_router(export_audits.router)
 api_router.include_router(cost.router)
 api_router.include_router(admin_budgets.router)

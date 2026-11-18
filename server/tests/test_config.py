@@ -100,6 +100,9 @@ def test_retention_params_are_validated() -> None:
         Settings(session_restore_audit_retention_days=0)
     with pytest.raises(ValidationError, match="ONCALL_SESSION_PIN_AUDIT_RETENTION_DAYS"):
         Settings(session_pin_audit_retention_days=0)
+    with pytest.raises(ValidationError, match="ONCALL_SESSION_PIN_LIMIT"):
+        Settings(session_pin_limit=0)
+    assert Settings(session_pin_limit=80).session_pin_limit == 80
 
     # 事件里带着同一段回答正文：正文保留期短于事件保留期时，清了 runs 也白清
     with pytest.raises(ValidationError, match="必须 >= ONCALL_EVENT_RETENTION_DAYS"):

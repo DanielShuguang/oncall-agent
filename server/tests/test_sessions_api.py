@@ -8,7 +8,6 @@ import json
 import uuid
 from unittest.mock import AsyncMock
 
-import pytest
 from httpx import AsyncClient
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -199,14 +198,13 @@ async def test_sessions_pin_and_legacy_cursor(
     assert [item["session_id"] for item in older.json()["items"]] == ["sess_a"]
 
 
-async def test_pin_session_limit(
-    client: AsyncClient, mem_store: InMemoryRunStore, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_pin_session_limit(client: AsyncClient, mem_store: InMemoryRunStore) -> None:
     await _run(mem_store, "sess_a", "会话 A")
     await _run(mem_store, "sess_b", "会话 B")
-    monkeypatch.setattr("app.core.store.MAX_PINNED_SESSIONS", 1)
+    mem_store.pin_limit = 1
 
     assert (await client.post("/api/sessions/sess_a/pin")).status_code == 204
+    assert (await client.get("/api/sessions")).json()["pin_limit"] == 1
     # 已置顶的会话仍幂等，不因达到上限而失败
     assert (await client.post("/api/sessions/sess_a/pin")).status_code == 204
     limited = await client.post("/api/sessions/sess_b/pin")

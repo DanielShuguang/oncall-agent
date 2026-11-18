@@ -10,7 +10,6 @@ import os
 import uuid
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
-from unittest.mock import patch
 
 import pytest
 import pytest_asyncio
@@ -679,11 +678,15 @@ async def _exercise_pinned_sessions(store: RunStore) -> None:
     assert (empty_stats.pins, empty_stats.unpins, empty_stats.daily) == (0, 0, ())
     assert empty_stats.hourly == ()
 
-    # 置顶数量上限（ADR-0073）：已置顶幂等，新增超出上限抛 PinLimitExceeded
-    with patch("app.core.store.MAX_PINNED_SESSIONS", 1):
+    # 置顶数量上限（ADR-0073/0093）：已置顶幂等，新增超出上限抛 PinLimitExceeded
+    original_pin_limit = store.pin_limit
+    store.pin_limit = 1
+    try:
         assert await store.pin_session(user_id=user, session_id="sess_old") is True
         with pytest.raises(PinLimitExceeded):
             await store.pin_session(user_id=user, session_id="sess_new")
+    finally:
+        store.pin_limit = original_pin_limit
 
     # 并发置顶也不能突破上限（PG 用用户级 advisory lock，内存用 store 锁）
     concurrent_user = "u_pin_limit_concurrent"
@@ -694,7 +697,8 @@ async def _exercise_pinned_sessions(store: RunStore) -> None:
             session_id=f"sess_lc{index}",
             message="并发置顶",
         )
-    with patch("app.core.store.MAX_PINNED_SESSIONS", 2):
+    store.pin_limit = 2
+    try:
         results = await asyncio.gather(
             *(
                 store.pin_session(user_id=concurrent_user, session_id=f"sess_lc{index}")
@@ -702,6 +706,8 @@ async def _exercise_pinned_sessions(store: RunStore) -> None:
             ),
             return_exceptions=True,
         )
+    finally:
+        store.pin_limit = original_pin_limit
     assert sum(result is True for result in results) == 2
     assert sum(isinstance(result, PinLimitExceeded) for result in results) == 1
 

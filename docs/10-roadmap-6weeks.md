@@ -2112,6 +2112,25 @@ ADR-0075 只记住日期预设。管理员按用户/会话排查后刷新页面�
 
 ---
 
+## W6 后补：置顶上限可配置（ADR-0093）
+
+ADR-0073 把单用户置顶上限固定为 50，ADR-0074 已把 `pinned_count`/`pin_limit`
+透出给前端。固定值让不同规模的部署只能改代码；本 ADR 增加部署级环境变量，
+不引入租户/用户级策略。
+
+| 事项 | 落地 |
+|---|---|
+| 配置 | `ONCALL_SESSION_PIN_LIMIT`，默认 50；启动期拒绝 `< 1` |
+| 注入 | `build_store` 把 `settings.session_pin_limit` 传给内存/PG store；两者暴露 `pin_limit` 属性 |
+| 契约 | `GET /sessions` 返回实际 `pin_limit`；409 `PIN_LIMIT_REACHED` 带实际上限；不新增接口/迁移 |
+| 语义 | 改配置重启生效；同一部署多副本应一致；调小后既有超限数据不回溯，仍可取消、不能新增 |
+| 并发 | PG 仍按用户 `pg_advisory_xact_lock` 串行化；内存仍在 store 锁内完成，上限只改阈值 |
+| 验证 | 默认 518+40、PG 555+3、PG+Redis 558、ruff 200 / mypy 116；前端未改 26 files/128 tests、build 通过 |
+
+详见 [ADR-0093](decisions/0093-session-pin-limit-config.md)。
+
+---
+
 ## 每周固定动作
 
 | 时点 | 动作 |

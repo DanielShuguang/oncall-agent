@@ -33,7 +33,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | GET | `/runs` | 运行列表（分页、按状态/会话筛选） | W4 D19 / W6 后补 |
 | GET | `/sessions` | 当前用户的会话列表（keyset 游标，置顶优先、组内按活动倒序；可选 `q` 按标题搜索） | W6 后补 |
 | PATCH | `/sessions/{session_id}` | 改会话显示标题；`title: null` 恢复默认 | W6 后补 |
-| POST | `/sessions/{session_id}/pin` | 置顶会话（幂等，204；单用户上限 50，超出 409） | W6 后补 |
+| POST | `/sessions/{session_id}/pin` | 置顶会话（幂等，204；单用户默认上限 50，`ONCALL_SESSION_PIN_LIMIT` 可配，超出 409） | W6 后补 |
 | DELETE | `/sessions/{session_id}/pin` | 取消置顶（幂等，204） | W6 后补 |
 | DELETE | `/sessions/{session_id}` | 从会话列表移除（软移除；不删 run/事件/审批，204；同事务清置顶） | W6 后补 |
 | GET | `/sessions/hidden` | 本人从列表移除的会话（游标分页 + 标题搜索，ADR-0043/0047） | W6 后补 |
@@ -383,6 +383,9 @@ Authorization: Bearer <token>
   "pin_limit": 50
 }
 ```
+
+> `pin_limit` 是当前部署的实际值，不是固定常量：默认 50，可用
+> `ONCALL_SESSION_PIN_LIMIT` 调整（ADR-0093）。前端应以响应为准，不要写死 50。
 
 翻下一页时把上一页的 `next_cursor` 原样带回：
 

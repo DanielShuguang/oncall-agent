@@ -33,7 +33,6 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.api.deps import get_identity, get_viewer
 from app.api.errors import ApiError
 from app.core.store import (
-    MAX_PINNED_SESSIONS,
     PinLimitExceeded,
     RunRecord,
     RunStore,
@@ -312,7 +311,7 @@ async def list_sessions(
         ],
         "next_cursor": next_cursor,
         "pinned_count": pinned_count,
-        "pin_limit": MAX_PINNED_SESSIONS,
+        "pin_limit": store.pin_limit,
     }
 
 

@@ -44,8 +44,9 @@ class RunNotFoundError(LookupError):
     """run_id 不存在。API 层翻译成 404，不要吞掉。"""
 
 
-#: 单个用户最多置顶的会话数（ADR-0073）。置顶是列表偏好，数量无上限时会把侧栏
-#: 第一页压成一条长列表；这个上限是软约束，并发置顶可能短暂超过 1。
+#: 单个用户最多置顶的会话数的默认值（ADR-0073/0093）。置顶是列表偏好，数量无
+#: 上限时会把侧栏第一页压成一条长列表；实际值由 `ONCALL_SESSION_PIN_LIMIT` 传给
+#: store，并发置顶可能短暂超过 1。
 MAX_PINNED_SESSIONS = 50
 
 
@@ -612,12 +613,17 @@ class RunStore(Protocol):
         """
         ...
 
+    @property
+    def pin_limit(self) -> int:
+        """当前 store 的单用户置顶上限（ADR-0093），列表接口原样返回。"""
+        ...
+
     async def pin_session(self, *, user_id: str, session_id: str) -> bool:
         """把会话置顶（ADR-0069/0073）。重复置顶幂等。
 
         返回 False 表示这个用户没有该会话或它已被隐藏——调用方翻成 404，
-        不泄露存在性。置顶不影响其他用户。达到 ``MAX_PINNED_SESSIONS`` 时
-        抛 ``PinLimitExceeded``，由调用方翻成 409。
+        不泄露存在性。置顶不影响其他用户。达到 ``pin_limit`` 时抛
+        ``PinLimitExceeded``，由调用方翻成 409。
         """
         ...
 
@@ -866,7 +872,8 @@ class RunStore(Protocol):
 class InMemoryRunStore:
     """测试与 demo 用。事件只在进程内，重启即丢。"""
 
-    def __init__(self) -> None:
+    def __init__(self, *, pin_limit: int = MAX_PINNED_SESSIONS) -> None:
+        self.pin_limit = pin_limit
         self._runs: dict[str, RunRecord] = {}
         self._events: dict[str, list[RunEvent]] = {}
         self._client_index: dict[tuple[str, str], str] = {}
@@ -1219,8 +1226,8 @@ class InMemoryRunStore:
             if (user_id, session_id) in self._pinned_sessions:
                 return True
             pinned = sum(1 for current_user, _ in self._pinned_sessions if current_user == user_id)
-            if pinned >= MAX_PINNED_SESSIONS:
-                raise PinLimitExceeded(MAX_PINNED_SESSIONS)
+            if pinned >= self.pin_limit:
+                raise PinLimitExceeded(self.pin_limit)
             self._pinned_sessions.add((user_id, session_id))
             self._session_pin_audits.append(
                 SessionPinAuditRecord(
@@ -1732,8 +1739,14 @@ async def append_event_in_session(
 
 
 class PostgresRunStore:
-    def __init__(self, sessionmaker: async_sessionmaker[AsyncSession]) -> None:
+    def __init__(
+        self,
+        sessionmaker: async_sessionmaker[AsyncSession],
+        *,
+        pin_limit: int = MAX_PINNED_SESSIONS,
+    ) -> None:
         self._sessionmaker = sessionmaker
+        self.pin_limit = pin_limit
 
     async def create(
         self,
@@ -2205,8 +2218,8 @@ class PostgresRunStore:
                 .select_from(PinnedSessionRow)
                 .where(PinnedSessionRow.user_id == user_id)
             )
-            if (pinned or 0) >= MAX_PINNED_SESSIONS:
-                raise PinLimitExceeded(MAX_PINNED_SESSIONS)
+            if (pinned or 0) >= self.pin_limit:
+                raise PinLimitExceeded(self.pin_limit)
             await session.execute(
                 pg_insert(PinnedSessionRow)
                 .values(user_id=user_id, session_id=session_id)
@@ -2960,11 +2973,11 @@ _store: RunStore | None = None
 def build_store(settings: Settings) -> RunStore:
     backend = settings.store_backend.strip().lower()
     if backend == "memory":
-        return InMemoryRunStore()
+        return InMemoryRunStore(pin_limit=settings.session_pin_limit)
     if backend == "postgres":
         from app.core.db import get_sessionmaker
 
-        return PostgresRunStore(get_sessionmaker())
+        return PostgresRunStore(get_sessionmaker(), pin_limit=settings.session_pin_limit)
     raise ValueError(f"unknown ONCALL_STORE_BACKEND: {settings.store_backend!r}")
 
 

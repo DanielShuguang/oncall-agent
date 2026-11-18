@@ -115,6 +115,8 @@ ONCALL_RUN_BUDGET_CENTS=50
 ONCALL_DAILY_BUDGET_CNY=5
 ONCALL_USER_DAILY_BUDGET_CNY=0
 ONCALL_RATE_LIMIT_PER_MIN=30
+# 单用户置顶会话上限（默认 50；列表接口返回实际值，改后重启生效）
+ONCALL_SESSION_PIN_LIMIT=50
 ```
 
 > 价格单位是「分 / 百万 token」，不是美元；填错会直接体现在成本看板上。
@@ -194,6 +196,7 @@ make loadtest
 - [ ] 审批快照随正文保留期清空、决议证据永久保留；过期会话授权由清理任务删除（ADR-0027）
 - [ ] 会话恢复审计独立保留 365 天（`ONCALL_SESSION_RESTORE_AUDIT_RETENTION_DAYS`），管理接口只读且要求管理员角色（ADR-0059）
 - [ ] 会话置顶审计独立保留 365 天（`ONCALL_SESSION_PIN_AUDIT_RETENTION_DAYS`），只读管理接口要求管理员角色（ADR-0083）
+- [ ] 置顶上限按部署需要设置（`ONCALL_SESSION_PIN_LIMIT`，默认 50），管理页显示的 `pin_limit` 与实际 store 一致（ADR-0093）
 - [ ] 预算账本读取失败时管理页返回 503，而不是显示成「今天没花钱」；预扣泄漏能在成本页看到笔数与金额（ADR-0028）
 - [ ] `.env` 不入库，密钥不出现在日志
 - [ ] 依赖漏洞扫描（`uv pip audit` / `pnpm audit`）

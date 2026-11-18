@@ -209,7 +209,9 @@ async def test_pin_session_limit(client: AsyncClient, mem_store: InMemoryRunStor
     assert (await client.post("/api/sessions/sess_a/pin")).status_code == 204
     limited = await client.post("/api/sessions/sess_b/pin")
     assert limited.status_code == 409
-    assert limited.json()["code"] == "PIN_LIMIT_REACHED"
+    limited_body = limited.json()
+    assert limited_body["code"] == "PIN_LIMIT_REACHED"
+    assert "（1 个）" in limited_body["message"]
 
     assert (await client.delete("/api/sessions/sess_a/pin")).status_code == 204
     assert (await client.post("/api/sessions/sess_b/pin")).status_code == 204

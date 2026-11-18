@@ -2125,7 +2125,7 @@ ADR-0073 把单用户置顶上限固定为 50，ADR-0074 已把 `pinned_count`/`
 | 契约 | `GET /sessions` 返回实际 `pin_limit`；409 `PIN_LIMIT_REACHED` 带实际上限；不新增接口/迁移 |
 | 语义 | 改配置重启生效；同一部署多副本应一致；调小后既有超限数据不回溯，仍可取消、不能新增 |
 | 并发 | PG 仍按用户 `pg_advisory_xact_lock` 串行化；内存仍在 store 锁内完成，上限只改阈值 |
-| 验证 | 默认 518+40、PG 555+3、PG+Redis 558、ruff 200 / mypy 116；前端未改 26 files/128 tests、build 通过 |
+| 验证 | 默认 519+40、PG 556+3、PG+Redis 559、ruff 200 / mypy 116；前端未改 26 files/128 tests、build 通过 |
 
 详见 [ADR-0093](decisions/0093-session-pin-limit-config.md)。
 

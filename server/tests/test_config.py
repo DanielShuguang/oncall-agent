@@ -13,6 +13,7 @@ from app.core.config import (
     MIN_SESSION_SECRET_LEN,
     Settings,
 )
+from app.core.store import InMemoryRunStore, build_store
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -128,3 +129,11 @@ def test_user_daily_budget_is_validated_and_converted_to_cents() -> None:
     assert Settings(user_daily_budget_cny=1.5).user_daily_budget_cents == 150
     # 小于半分也至少按 1 分算：配了 0.001 元不该等于没配
     assert Settings(user_daily_budget_cny=0.001).user_daily_budget_cents == 1
+
+
+def test_build_store_injects_configured_pin_limit() -> None:
+    """ADR-0093：上限必须真的从 Settings 注入 store，而不是只在配置层校验。"""
+    settings = Settings(_env_file=None, store_backend="memory", session_pin_limit=7)
+    store = build_store(settings)
+    assert isinstance(store, InMemoryRunStore)
+    assert store.pin_limit == 7

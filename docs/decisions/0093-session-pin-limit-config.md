@@ -61,13 +61,15 @@ ADR-0073 的「待定」已经记了「上限是否改为环境变量/租户策�
 
 ## 验证
 
-- `server/tests/test_config.py`：`session_pin_limit=0` 被拒绝；`80` 能正常解析。
+- `server/tests/test_config.py`：`session_pin_limit=0` 被拒绝；`80` 能正常解析；
+  `build_store` 把 `session_pin_limit=7` 注入内存 store，断言 `store.pin_limit == 7`。
 - `server/tests/test_sessions_api.py::test_pin_session_limit`：把 store 上限设为 1，
-  第一个置顶 204、列表返回 `pin_limit: 1`、第二个置顶 409。
+  第一个置顶 204、列表返回 `pin_limit: 1`、第二个置顶 409，错误文案带实际
+  `1 个` 上限。
 - `server/tests/test_store_contract.py`：内存与 PG 契约中临时把 `store.pin_limit`
   设为 1/2，验证超限异常与并发恰好 2 个成功；finally 恢复原值。
-- 实测：默认 **518 passed + 40 skipped**、PG-only **555 passed + 3 skipped**、
-  PG+Redis **558 passed**；`ruff check` / `ruff format --check` 200 files、
+- 实测：默认 **519 passed + 40 skipped**、PG-only **556 passed + 3 skipped**、
+  PG+Redis **559 passed**；`ruff check` / `ruff format --check` 200 files、
   `mypy app` 116 files 通过。
 - 前端未改代码；沿用 26 files / 128 tests、`tsc --noEmit`、oxlint 0/0、
   oxfmt 135 files、`pnpm build` 通过。

@@ -5,7 +5,7 @@ Revises: 0022
 Create Date: 2026-11-18
 
 记录成功返回的 CSV 导出：谁、什么资源、过滤条件、行数、是否截断。
-审计写入失败时导出 503（fail closed）；当前不接入 RetentionSweeper。
+审计写入失败时导出 503（fail closed）；后续由 ADR-0095 接入独立保留清理。
 """
 
 from __future__ import annotations

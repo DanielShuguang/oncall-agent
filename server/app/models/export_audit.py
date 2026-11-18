@@ -6,7 +6,7 @@
 无法留痕的下载。
 
 `filters` 只保存标量过滤条件（用户/会话/日期/动作等），不保存行内容；由
-`RetentionSweeper` 之外的策略按需清理（当前待定）。
+`RetentionSweeper` 按 `ONCALL_EXPORT_AUDIT_RETENTION_DAYS`（默认 365 天）独立清理（ADR-0095）。
 """
 
 from __future__ import annotations

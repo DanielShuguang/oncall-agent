@@ -1,4 +1,4 @@
-/** CSV 导出下载审计接口：契约见 docs/03 §3.3.2（ADR-0094）。 */
+/** CSV 导出下载审计接口：契约见 docs/03 §3.3.3（ADR-0094）。 */
 
 import { getJson } from './client';
 

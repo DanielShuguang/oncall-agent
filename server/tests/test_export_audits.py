@@ -119,6 +119,15 @@ async def test_export_audit_cursor_and_filters(
         headers=ADMIN,
     )
     assert reversed_range.status_code == 422
+    single_end_to = await client.get(
+        "/api/admin/export-audits?created_to=2026-01-02", headers=ADMIN
+    )
+    assert single_end_to.status_code == 422
+    too_long = await client.get(
+        "/api/admin/export-audits?created_from=2025-01-01&created_to=2026-01-02",
+        headers=ADMIN,
+    )
+    assert too_long.status_code == 422
 
 
 async def test_export_audit_write_failure_fails_closed(

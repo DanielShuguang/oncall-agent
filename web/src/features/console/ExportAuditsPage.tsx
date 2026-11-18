@@ -1,6 +1,6 @@
 /** CSV 导出下载审计（ADR-0094）。 */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -31,7 +31,7 @@ const EMPTY_DRAFT = {
 type Draft = typeof EMPTY_DRAFT;
 
 function hasFilters(filters: ExportAuditFilters): boolean {
-  return Boolean(filters.userId || filters.resource || filters.createdFrom);
+  return Boolean(filters.userId || filters.resource || filters.createdFrom || filters.createdTo);
 }
 
 function filterText(filters: Record<string, string>): string {
@@ -49,22 +49,28 @@ export default function ExportAuditsPage() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [filterError, setFilterError] = useState<string | null>(null);
+  const requestRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
+    const request = ++requestRef.current;
     const load = async () => {
       setLoading(true);
+      setLoadingMore(false);
       setError(null);
       try {
         const page = await listExportAudits(filters);
-        if (cancelled) return;
+        if (cancelled || request !== requestRef.current) return;
         setItems(page.items);
         setCursor(page.next_cursor);
         setTotal(page.total ?? null);
       } catch (caught) {
-        if (!cancelled) setError(caught instanceof Error ? caught.message : '加载失败');
+        if (!cancelled && request === requestRef.current) {
+          setError(caught instanceof Error ? caught.message : '加载失败');
+        }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && request === requestRef.current) setLoading(false);
       }
     };
     void load();
@@ -74,6 +80,12 @@ export default function ExportAuditsPage() {
   }, [filters]);
 
   const applyFilters = () => {
+    if (Boolean(draft.createdFrom) !== Boolean(draft.createdTo)) {
+      setFilterError('开始日期与结束日期必须同时选择');
+      return;
+    }
+    setFilterError(null);
+    requestRef.current += 1;
     setItems([]);
     setCursor(null);
     setTotal(null);
@@ -86,6 +98,8 @@ export default function ExportAuditsPage() {
   };
 
   const clearFilters = () => {
+    setFilterError(null);
+    requestRef.current += 1;
     setDraft(EMPTY_DRAFT);
     setItems([]);
     setCursor(null);
@@ -95,16 +109,20 @@ export default function ExportAuditsPage() {
 
   const loadMore = async () => {
     if (!cursor || loadingMore) return;
+    const request = requestRef.current;
     setLoadingMore(true);
     setError(null);
     try {
       const page = await listExportAudits(filters, cursor);
+      if (request !== requestRef.current) return;
       setItems((previous) => [...previous, ...page.items]);
       setCursor(page.next_cursor);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : '加载更多失败');
+      if (request === requestRef.current) {
+        setError(caught instanceof Error ? caught.message : '加载更多失败');
+      }
     } finally {
-      setLoadingMore(false);
+      if (request === requestRef.current) setLoadingMore(false);
     }
   };
 
@@ -177,6 +195,7 @@ export default function ExportAuditsPage() {
           <Button variant="outline" size="sm" className="h-8 text-xs" onClick={clearFilters}>
             清除
           </Button>
+          {filterError && <span className="text-xs text-danger">{filterError}</span>}
         </CardContent>
       </Card>
 

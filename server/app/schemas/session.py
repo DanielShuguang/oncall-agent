@@ -121,8 +121,16 @@ class SessionPinAuditDayOut(BaseModel):
     unpins: int
 
 
+class SessionPinAuditHourOut(BaseModel):
+    """UTC 小时（0–23）内的显式置顶活动（ADR-0092）。"""
+
+    hour: int
+    pins: int
+    unpins: int
+
+
 class SessionPinAuditStatsOut(BaseModel):
-    """窗口内的置顶审计汇总（ADR-0087）；`daily` 稀疏、不补零。"""
+    """窗口内的置顶审计汇总（ADR-0087）；`daily`/`hourly` 稀疏、不补零。"""
 
     days: int
     since: datetime
@@ -132,6 +140,7 @@ class SessionPinAuditStatsOut(BaseModel):
     users: int
     sessions: int
     daily: list[SessionPinAuditDayOut]
+    hourly: list[SessionPinAuditHourOut]
 
 
 class SessionRestoreAuditDayOut(BaseModel):

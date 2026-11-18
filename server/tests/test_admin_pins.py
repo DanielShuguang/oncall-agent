@@ -431,6 +431,9 @@ async def test_session_pin_audit_stats(client: AsyncClient, mem_store: InMemoryR
     assert len(body["daily"]) == 1
     assert body["daily"][0]["pins"] == 2
     assert body["daily"][0]["unpins"] == 1
+    assert sum(item["pins"] for item in body["hourly"]) == 2
+    assert sum(item["unpins"] for item in body["hourly"]) == 1
+    assert all(0 <= item["hour"] <= 23 for item in body["hourly"])
     for params in ({"days": 0}, {"days": 366}):
         bad = await client.get("/api/admin/session-pins/stats", headers=ADMIN, params=params)
         assert bad.status_code == 422
@@ -512,6 +515,10 @@ async def test_session_pin_audit_stats_export(
     today = datetime.now(UTC).date().isoformat()
     assert cells[("daily", "pins", today)] == "0"
     assert cells[("daily", "unpins", today)] == "1"
+    hourly = [row for row in rows[1:] if row[0] == "hourly"]
+    assert sum(int(row[3]) for row in hourly if row[1] == "pins") == 0
+    assert sum(int(row[3]) for row in hourly if row[1] == "unpins") == 1
+    assert all(len(row[2]) == 5 and row[2].endswith(":00") for row in hourly)
 
 
 async def test_session_pin_audits_reject_bad_params(client: AsyncClient) -> None:

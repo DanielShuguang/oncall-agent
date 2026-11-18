@@ -30,6 +30,7 @@ from app.core.logging import get_logger
 from app.core.store import RunStore, SessionPinAuditRecord, SessionPinAuditStats, get_store
 from app.schemas.session import (
     SessionPinAuditDayOut,
+    SessionPinAuditHourOut,
     SessionPinAuditListResponse,
     SessionPinAuditOut,
     SessionPinAuditStatsOut,
@@ -134,6 +135,11 @@ def _stats_csv(
     for day in stats.daily:
         rows.append(("daily", "pins", day.day, day.pins))
         rows.append(("daily", "unpins", day.day, day.unpins))
+    # hourly 的 key 仍是指标，day 列放 UTC 小时标签（HH:00），保持固定四列。
+    for hour in stats.hourly:
+        label = f"{hour.hour:02d}:00"
+        rows.append(("hourly", "pins", label, hour.pins))
+        rows.append(("hourly", "unpins", label, hour.unpins))
     return csv_document(STATS_CSV_HEADERS, rows)
 
 
@@ -248,6 +254,10 @@ async def get_session_pin_audit_stats(
         daily=[
             SessionPinAuditDayOut(day=day.day, pins=day.pins, unpins=day.unpins)
             for day in stats.daily
+        ],
+        hourly=[
+            SessionPinAuditHourOut(hour=hour.hour, pins=hour.pins, unpins=hour.unpins)
+            for hour in stats.hourly
         ],
     )
 

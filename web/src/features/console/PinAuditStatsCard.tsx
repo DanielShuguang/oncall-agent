@@ -46,6 +46,7 @@ export function PinAuditStatsCard({
     filters.createdTo ?? '',
   ]);
   const message = exported?.key === filterKey ? exported : null;
+  const hourly = stats?.hourly ?? [];
 
   const exportStats = async () => {
     if (exporting) return;
@@ -149,6 +150,25 @@ export function PinAuditStatsCard({
               </>
             ) : (
               <p className="text-[11px] text-muted-foreground">窗口内没有置顶/取消置顶记录。</p>
+            )}
+            {hourly.length > 0 && (
+              <div className="space-y-1">
+                <div className="text-[11px] font-medium text-foreground">按小时（UTC）</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {hourly.map((item) => (
+                    <span
+                      key={item.hour}
+                      className="rounded border bg-canvas/40 px-2 py-1 text-[11px] text-muted-foreground"
+                    >
+                      {String(item.hour).padStart(2, '0')}:00 · 置顶 {item.pins} / 取消{' '}
+                      {item.unpins}
+                    </span>
+                  ))}
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  UTC 小时；只列窗口内有活动的时段，不补零。
+                </p>
+              </div>
             )}
           </>
         ) : null}

@@ -648,6 +648,8 @@ async def _exercise_pinned_sessions(store: RunStore) -> None:
     assert stats.sessions == len({record.session_id for record in all_pin_audits})
     assert sum(day.pins for day in stats.daily) == stats.pins
     assert sum(day.unpins for day in stats.daily) == stats.unpins
+    assert sum(hour.pins for hour in stats.hourly) == stats.pins
+    assert sum(hour.unpins for hour in stats.hourly) == stats.unpins
 
     # 统计跟随过滤（ADR-0089）：与列表同口径，用户/动作条件生效
     user_audits = await store.list_session_pin_audits(user_id=user, limit=10)
@@ -668,12 +670,14 @@ async def _exercise_pinned_sessions(store: RunStore) -> None:
     )
     assert (pin_stats.pins, pin_stats.unpins) == (3, 0)
     assert sum(day.pins for day in pin_stats.daily) == 3
+    assert sum(hour.pins for hour in pin_stats.hourly) == 3
 
     empty_stats = await store.session_pin_audit_stats(
         since=datetime(2000, 1, 1, tzinfo=UTC),
         until=datetime(2000, 1, 2, tzinfo=UTC),
     )
     assert (empty_stats.pins, empty_stats.unpins, empty_stats.daily) == (0, 0, ())
+    assert empty_stats.hourly == ()
 
     # 置顶数量上限（ADR-0073）：已置顶幂等，新增超出上限抛 PinLimitExceeded
     with patch("app.core.store.MAX_PINNED_SESSIONS", 1):

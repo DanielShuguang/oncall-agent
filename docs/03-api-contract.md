@@ -45,7 +45,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | GET | `/admin/session-restores/stats/export` | 会话恢复审计统计 CSV 导出（与统计同参数/同窗口，长表） | W6 后补 |
 | GET | `/admin/session-restores/export` | 会话恢复审计 CSV 导出（按用户/会话/日期范围过滤，最多 5000 条） | W6 后补 |
 | GET | `/admin/session-pins` | 会话置顶审计（按用户/会话/动作/日期过滤，`(created_at, id)` 游标分页，第一页附总数） | W6 后补 |
-| GET | `/admin/session-pins/stats` | 置顶审计窗口统计（置顶/取消次数、用户/会话数、UTC 稀疏日趋势；跟随列表过滤） | W6 后补 |
+| GET | `/admin/session-pins/stats` | 置顶审计窗口统计（置顶/取消次数、用户/会话数、UTC 稀疏日/小时趋势；跟随列表过滤） | W6 后补 |
 | GET | `/admin/session-pins/stats/export` | 置顶审计统计长表 CSV 导出（与统计同参数/同窗口） | W6 后补 |
 | GET | `/admin/session-pins/export` | 会话置顶审计 CSV 导出（同一组过滤，最多 5000 条） | W6 后补 |
 | GET | `/sessions/{session_id}/runs` | 一页会话详情（正文/引用/运行过程，一次返回） | W6 后补 |
@@ -517,6 +517,9 @@ Authorization: Bearer <admin-token>
   "sessions": 1,
   "daily": [
     {"day": "2026-11-16", "pins": 2, "unpins": 0}
+  ],
+  "hourly": [
+    {"hour": 9, "pins": 2, "unpins": 0}
   ]
 }
 ```
@@ -528,7 +531,9 @@ Authorization: Bearer <admin-token>
   `days` 为闭区间天数，`until` 为 `to 次日 00:00Z - 1µs`
 - `user_id`/`session_id`/`action` 与列表同义；过滤后 `pins`/`unpins` 只统计命中
   记录，`users`/`sessions` 是命中记录内去重后的操作者与会话数；`daily` 只含命中
-  记录的 UTC 有活动日（稀疏、不补零），`pins`/`unpins` 之和分别等于汇总
+  记录的 UTC 有活动日（稀疏、不补零），`pins`/`unpins` 之和分别等于汇总。
+  `hourly` 是同一批记录按 UTC 小时（0–23）聚合的稀疏列表，同一小时跨多天合并；
+  `pins`/`unpins` 之和同样等于汇总（ADR-0092）
 - 不带过滤参数时是全局口径，等价于旧 `?days=` 行为；管理页统计卡跟随已应用的
   用户/会话/动作/日期过滤，带日期范围时隐藏 7/30/90 天按钮（ADR-0089）
 - 数据库不可用返回 `503 {"code":"DATABASE_UNAVAILABLE"}`
@@ -546,7 +551,8 @@ Authorization: Bearer <admin-token>
 - CSV 为长表 `section,key,day,value`：`meta` 行（`days`/`since`/`until`；带过滤时追加
   `user_id`/`session_id`/`action`）、`summary` 行（`pins`/`unpins`/`users`/`sessions`）、
   `daily` 行（每个有活动的 UTC 日期分别有 `pins` 与 `unpins` 两行，`day` 为
-  `YYYY-MM-DD`）
+  `YYYY-MM-DD`）、`hourly` 行（每个有活动的 UTC 小时分别有 `pins` 与 `unpins`
+  两行，`key` 仍是指标，`day` 为 `HH:00`；ADR-0092）
 - 导出文件必须能自证口径：无过滤时只有 `days`/`since`/`until`，带过滤时额外写入过滤
   字段，下载后即可判断统计范围
 - 响应头 `X-Export-Days`/`X-Export-Pins`/`X-Export-Unpins`/`X-Export-Users`/

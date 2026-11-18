@@ -42,6 +42,13 @@ export interface SessionPinAuditDayStats {
   unpins: number;
 }
 
+export interface SessionPinAuditHourStats {
+  /** UTC 小时，0–23（ADR-0092）。 */
+  hour: number;
+  pins: number;
+  unpins: number;
+}
+
 export interface SessionPinAuditStats {
   days: number;
   since: string;
@@ -52,6 +59,8 @@ export interface SessionPinAuditStats {
   sessions: number;
   /** 只含有活动的 UTC 自然日，不补零（ADR-0087）。 */
   daily: SessionPinAuditDayStats[];
+  /** 只含有活动的 UTC 小时，不补零；旧后端可能没有该字段（ADR-0092）。 */
+  hourly?: SessionPinAuditHourStats[];
 }
 
 export interface SessionPinAuditStatsExport {

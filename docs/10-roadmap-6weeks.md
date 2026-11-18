@@ -2045,7 +2045,7 @@ ADR-0075 只记住日期预设。管理员按用户/会话排查后刷新页面�
 | 汇总 | 过滤后 `pins`/`unpins` 只统计命中记录；`users`/`sessions` 为命中记录内去重数；`daily` 为命中记录的 UTC 稀疏日，求和等于汇总 |
 | 存储 | 内存先过滤；PG 在汇总与日趋势共用的 `window` 子查询追加 `user_id`/`session_id`/`action`；复用 `idx_session_pin_audits_time`，无迁移 |
 | 前端 | 统计卡跟随已应用过滤；无过滤时 7/30/90 天切换，带日期范围显示「按筛选日期（N 天）」；`PinAuditStatsCard.tsx` 独立，`PinAuditSections` 保持 ≤300 行 |
-| 范围 | 不做图表库、缓存/物化；统计 CSV 见 ADR-0090；统计与列表两次查询，可能相差一条 |
+| 范围 | 不做图表库、缓存/物化；统计 CSV 见 ADR-0090；按小时分布见 ADR-0092；统计与列表两次查询，可能相差一条 |
 | 验证 | 默认 516+40、PG 553+3、PG+Redis 556、ruff 200 / mypy 116；前端 26 files/125 tests、oxlint 125 files、oxfmt 133 files、build 2933 modules/324ms |
 
 详见 [ADR-0089](decisions/0089-session-pin-audit-stats-filters.md)。
@@ -2089,6 +2089,26 @@ ADR-0075 只记住日期预设。管理员按用户/会话排查后刷新页面�
 | 验证 | 前端 26 files/128 tests、tsc、oxlint 0/0（127 files）、oxfmt 135 files、build 通过；后端未改，沿用 517+40 / 554+3 / 557 |
 
 详见 [ADR-0091](decisions/0091-pin-audit-date-presets.md)。
+
+---
+
+## W6 后补：置顶审计按小时分布（ADR-0092）
+
+置顶审计统计已有 UTC 稀疏日趋势；管理员排值班时需要看小时级分布，判断活动是否
+集中在交接班时段。复用审批统计（ADR-0058）的口径：按 UTC 小时（0–23）聚合，
+同一小时跨多天合并，只列有活动的桶。
+
+| 事项 | 落地 |
+|---|---|
+| 接口 | `GET /admin/session-pins/stats` 响应增加 `hourly`（最多 24 项）；不新增端点/参数 |
+| 口径 | 与 `daily` 同窗口/同过滤；`hourly` 的 `pins`/`unpins` 之和等于汇总；UTC、稀疏、不补零 |
+| 存储 | `SessionPinAuditStats` 加 `hourly`；内存按 UTC 小时分桶，PG 用 `extract(hour from timezone('UTC', created_at))` 分组；复用 `idx_session_pin_audits_time`，无迁移 |
+| CSV | 统计长表增加 `section=hourly`：`key` 仍为 `pins`/`unpins`，`day` 为 `HH:00`，保持固定四列 |
+| 前端 | 统计卡在日趋势下增加「按小时（UTC）」标签；旧后端无 `hourly` 按空数组降级；不引图表库 |
+| 范围 | 不做「日期 × 小时」热力图、图表库、缓存/物化；不改变窗口/过滤/权限 |
+| 验证 | 默认 517+40、PG 554+3、PG+Redis 557、ruff 200 / mypy 116；前端 26 files/128 tests、oxlint 127 files、oxfmt 135 files、build 通过 |
+
+详见 [ADR-0092](decisions/0092-session-pin-audit-hourly.md)。
 
 ---
 

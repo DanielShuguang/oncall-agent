@@ -150,11 +150,21 @@ class SessionPinAuditDayStats:
 
 
 @dataclass(frozen=True)
+class SessionPinAuditHourStats:
+    """一个 UTC 小时（0–23）内的显式置顶活动（ADR-0092）。"""
+
+    hour: int
+    pins: int
+    unpins: int
+
+
+@dataclass(frozen=True)
 class SessionPinAuditStats:
-    """窗口内的置顶/取消置顶审计汇总（ADR-0087）。
+    """窗口内的置顶/取消置顶审计汇总（ADR-0087/0092）。
 
     `pins`/`unpins` 是显式状态变化次数；`users`/`sessions` 是去重后的操作者与
-    会话数；`daily` 只含有活动的 UTC 自然日，不补零。
+    会话数；`daily` 只含有活动的 UTC 自然日，`hourly` 只含有活动的 UTC 小时，
+    都不补零。
     """
 
     since: datetime
@@ -164,6 +174,7 @@ class SessionPinAuditStats:
     users: int
     sessions: int
     daily: tuple[SessionPinAuditDayStats, ...]
+    hourly: tuple[SessionPinAuditHourStats, ...]
 
 
 @dataclass(frozen=True)
@@ -664,10 +675,10 @@ class RunStore(Protocol):
         session_id: str | None = None,
         action: str | None = None,
     ) -> SessionPinAuditStats:
-        """统计 `[since, until]` 内的显式置顶/取消置顶（ADR-0087/0089）。
+        """统计 `[since, until]` 内的显式置顶/取消置顶（ADR-0087/0089/0092）。
 
-        `since`/`until` 是闭区间；返回稀疏 `daily`，不补零。可选用户/会话/动作
-        过滤与列表同口径（ADR-0089）。
+        `since`/`until` 是闭区间；返回稀疏 `daily` 与稀疏 `hourly`，都不补零。
+        可选用户/会话/动作过滤与列表同口径（ADR-0089）。
         """
 
     async def prune_session_pin_audits(
@@ -1312,16 +1323,21 @@ class InMemoryRunStore:
                 and (action is None or record.action == action)
             ]
         per_day: dict[date, list[int]] = {}
+        per_hour: dict[int, list[int]] = {}
         for record in records:
-            day = record.created_at.astimezone(UTC).date()
-            counts = per_day.setdefault(day, [0, 0])
-            if record.action == "pin":
-                counts[0] += 1
-            else:
-                counts[1] += 1
+            created_at = record.created_at.astimezone(UTC)
+            counts = per_day.setdefault(created_at.date(), [0, 0])
+            hour_counts = per_hour.setdefault(created_at.hour, [0, 0])
+            index = 0 if record.action == "pin" else 1
+            counts[index] += 1
+            hour_counts[index] += 1
         daily = tuple(
             SessionPinAuditDayStats(day=day, pins=counts[0], unpins=counts[1])
             for day, counts in sorted(per_day.items())
+        )
+        hourly = tuple(
+            SessionPinAuditHourStats(hour=hour, pins=counts[0], unpins=counts[1])
+            for hour, counts in sorted(per_hour.items())
         )
         return SessionPinAuditStats(
             since=since,
@@ -1331,6 +1347,7 @@ class InMemoryRunStore:
             users=len({record.user_id for record in records}),
             sessions=len({record.session_id for record in records}),
             daily=daily,
+            hourly=hourly,
         )
 
     async def prune_session_pin_audits(
@@ -2326,6 +2343,7 @@ class PostgresRunStore:
         if action is not None:
             window.append(SessionPinAuditRow.action == action)
         day_column = func.date(func.timezone("UTC", SessionPinAuditRow.created_at))
+        hour_column = func.extract("hour", func.timezone("UTC", SessionPinAuditRow.created_at))
         async with self._sessionmaker() as session:
             # pins/unpins 从 daily 行求和，保证「日趋势之和等于汇总」始终成立；
             # users/sessions 是另一条聚合，只作为窗口内去重数展示。
@@ -2344,6 +2362,12 @@ class PostgresRunStore:
                 .group_by(day_column, SessionPinAuditRow.action)
                 .order_by(day_column)
             )
+            hourly_rows = await session.execute(
+                select(hour_column, SessionPinAuditRow.action, func.count())
+                .where(*window)
+                .group_by(hour_column, SessionPinAuditRow.action)
+                .order_by(hour_column)
+            )
         per_day: dict[date, list[int]] = {}
         for day, action, count in daily_rows:
             key = day if isinstance(day, date) else date.fromisoformat(str(day))
@@ -2352,9 +2376,21 @@ class PostgresRunStore:
                 counts[0] += int(count)
             else:
                 counts[1] += int(count)
+        per_hour: dict[int, list[int]] = {}
+        for hour, action, count in hourly_rows:
+            hour_key = int(hour)
+            counts = per_hour.setdefault(hour_key, [0, 0])
+            if action == "pin":
+                counts[0] += int(count)
+            else:
+                counts[1] += int(count)
         daily = tuple(
             SessionPinAuditDayStats(day=day, pins=counts[0], unpins=counts[1])
             for day, counts in sorted(per_day.items())
+        )
+        hourly = tuple(
+            SessionPinAuditHourStats(hour=hour, pins=counts[0], unpins=counts[1])
+            for hour, counts in sorted(per_hour.items())
         )
         return SessionPinAuditStats(
             since=since,
@@ -2364,6 +2400,7 @@ class PostgresRunStore:
             users=int(users or 0),
             sessions=int(sessions or 0),
             daily=daily,
+            hourly=hourly,
         )
 
     async def prune_session_pin_audits(

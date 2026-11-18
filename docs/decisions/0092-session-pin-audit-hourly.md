@@ -35,6 +35,8 @@
    `hourly: tuple[SessionPinAuditHourStats, ...]`；内存实现按
    `created_at.astimezone(UTC).hour` 分桶，Postgres 用
    `extract(hour from timezone('UTC', created_at))` 分组；两者都只排序、不补零。
+   Postgres 的汇总、日趋势、小时趋势三条聚合在同一个 `REPEATABLE READ`
+   事务快照中执行，避免默认 `READ COMMITTED` 下并发写入让两个切面的和对不上。
 4. **接口新增字段，不新增参数**：`GET /admin/session-pins/stats` 响应增加
    `hourly: [{hour, pins, unpins}]`；旧客户端忽略未知字段。`/stats/export` 的
    CSV 增加 `section=hourly` 行，`key` 仍是 `pins`/`unpins`，`day` 列放
@@ -63,11 +65,14 @@
   分别等于 `pins`/`unpins`；空窗口 `hourly=()`。
 - `server/tests/test_admin_pins.py`：`/stats` 响应含 `hourly`，小时在 0–23，
   `pins`/`unpins` 求和等于汇总；`/stats/export` CSV 含 `section=hourly` 两行，
-  小时标签为 `HH:00`。
+  小时标签为 `HH:00`。另用固定时钟把审计时间钉在 2026-01-02 03:04:05 UTC，
+  断言唯一小时桶为 `hour=3`，避免「求和正确但桶全在 0 点」的假通过。
+- `PostgresRunStore.session_pin_audit_stats` 的三条聚合在 `SET TRANSACTION
+  ISOLATION LEVEL REPEATABLE READ` 后执行；PG 契约测试覆盖该路径。
 - 前端 `web/src/api/pinAudits.ts` 增加 `SessionPinAuditHourStats` 与可选 `hourly`
   类型；统计卡只渲染有活动的桶，旧后端缺失字段按空数组处理。
-- 实测：默认 **517 passed + 40 skipped**、PG-only **554 passed + 3 skipped**、
-  PG+Redis **557 passed**；`ruff check` / `ruff format --check` 200 files、
+- 实测：默认 **518 passed + 40 skipped**、PG-only **555 passed + 3 skipped**、
+  PG+Redis **558 passed**；`ruff check` / `ruff format --check` 200 files、
   `mypy app` 116 files；前端 **26 files / 128 tests**、`tsc --noEmit`、`oxlint`
   0/0（127 files/232 rules）、`oxfmt --check` 135 files、`pnpm build` 通过。
 - 本次无新迁移，未执行迁移往返；`0022` 保持不变。

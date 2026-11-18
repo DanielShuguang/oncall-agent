@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Protocol
 
-from sqlalchemy import and_, delete, func, or_, select, tuple_, update
+from sqlalchemy import and_, delete, func, or_, select, text, tuple_, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 
@@ -2345,6 +2345,10 @@ class PostgresRunStore:
         day_column = func.date(func.timezone("UTC", SessionPinAuditRow.created_at))
         hour_column = func.extract("hour", func.timezone("UTC", SessionPinAuditRow.created_at))
         async with self._sessionmaker() as session:
+            # 三条聚合必须读同一快照：默认 READ COMMITTED 下，daily 与 hourly
+            # 之间若并发写入，两个方向的和会对不上汇总。只读统计用 REPEATABLE READ
+            # 换取一致性，代价只是一次额外事务快照。
+            await session.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ"))
             # pins/unpins 从 daily 行求和，保证「日趋势之和等于汇总」始终成立；
             # users/sessions 是另一条聚合，只作为窗口内去重数展示。
             summary = await session.execute(

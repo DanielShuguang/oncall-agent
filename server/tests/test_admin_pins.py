@@ -484,6 +484,31 @@ async def test_session_pin_audit_stats(client: AsyncClient, mem_store: InMemoryR
     assert half.json()["code"] == "INVALID_RANGE"
 
 
+async def test_session_pin_audit_stats_hourly_bucket(
+    client: AsyncClient, mem_store: InMemoryRunStore, monkeypatch
+) -> None:
+    fixed = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
+
+    class FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed if tz is None else fixed.astimezone(tz)
+
+    monkeypatch.setattr("app.core.store.datetime", FrozenDatetime)
+    await _pin_once(mem_store, user_id="u_102", session_id="sess_fixed")
+    assert await mem_store.unpin_session(user_id="u_102", session_id="sess_fixed") is True
+
+    res = await client.get(
+        "/api/admin/session-pins/stats",
+        headers=ADMIN,
+        params={"created_from": "2026-01-02", "created_to": "2026-01-02"},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["hourly"] == [{"hour": 3, "pins": 1, "unpins": 1}]
+    assert body["daily"] == [{"day": "2026-01-02", "pins": 1, "unpins": 1}]
+
+
 async def test_session_pin_audit_stats_export(
     client: AsyncClient, mem_store: InMemoryRunStore
 ) -> None:

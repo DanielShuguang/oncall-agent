@@ -2102,11 +2102,11 @@ ADR-0075 只记住日期预设。管理员按用户/会话排查后刷新页面�
 |---|---|
 | 接口 | `GET /admin/session-pins/stats` 响应增加 `hourly`（最多 24 项）；不新增端点/参数 |
 | 口径 | 与 `daily` 同窗口/同过滤；`hourly` 的 `pins`/`unpins` 之和等于汇总；UTC、稀疏、不补零 |
-| 存储 | `SessionPinAuditStats` 加 `hourly`；内存按 UTC 小时分桶，PG 用 `extract(hour from timezone('UTC', created_at))` 分组；复用 `idx_session_pin_audits_time`，无迁移 |
+| 存储 | `SessionPinAuditStats` 加 `hourly`；内存按 UTC 小时分桶，PG 用 `extract(hour from timezone('UTC', created_at))` 分组，三条聚合在 `REPEATABLE READ` 快照中读取；复用 `idx_session_pin_audits_time`，无迁移 |
 | CSV | 统计长表增加 `section=hourly`：`key` 仍为 `pins`/`unpins`，`day` 为 `HH:00`，保持固定四列 |
 | 前端 | 统计卡在日趋势下增加「按小时（UTC）」标签；旧后端无 `hourly` 按空数组降级；不引图表库 |
 | 范围 | 不做「日期 × 小时」热力图、图表库、缓存/物化；不改变窗口/过滤/权限 |
-| 验证 | 默认 517+40、PG 554+3、PG+Redis 557、ruff 200 / mypy 116；前端 26 files/128 tests、oxlint 127 files、oxfmt 135 files、build 通过 |
+| 验证 | 默认 518+40、PG 555+3、PG+Redis 558、ruff 200 / mypy 116；前端 26 files/128 tests、oxlint 127 files、oxfmt 135 files、build 通过 |
 
 详见 [ADR-0092](decisions/0092-session-pin-audit-hourly.md)。
 

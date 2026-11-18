@@ -734,6 +734,16 @@ class RunStore(Protocol):
         """返回与列表同过滤条件的导出审计总数（ADR-0094）。"""
         ...
 
+    async def prune_export_audits(
+        self, *, created_before: datetime, limit: int = 200, dry_run: bool = False
+    ) -> int:
+        """删除早于阈值的导出审计（ADR-0095）。
+
+        按 `(created_at, id)` 取一批；dry-run 只返回候选数，不写库。返回实际
+        删除（或预览）的条数。
+        """
+        ...
+
     async def session_pin_audit_stats(
         self,
         *,
@@ -1437,6 +1447,22 @@ class InMemoryRunStore:
                 and (created_after is None or record.created_at >= created_after)
                 and (created_before is None or record.created_at < created_before)
             )
+
+    async def prune_export_audits(
+        self, *, created_before: datetime, limit: int = 200, dry_run: bool = False
+    ) -> int:
+        async with self._lock:
+            candidates = sorted(
+                (record for record in self._export_audits if record.created_at < created_before),
+                key=lambda record: (record.created_at, record.audit_id),
+            )[:limit]
+            if dry_run or not candidates:
+                return len(candidates)
+            expired = {record.audit_id for record in candidates}
+            self._export_audits = [
+                record for record in self._export_audits if record.audit_id not in expired
+            ]
+            return len(candidates)
 
     async def session_pin_audit_stats(
         self,
@@ -2552,6 +2578,22 @@ class PostgresRunStore:
         async with self._sessionmaker() as session:
             total = await session.scalar(stmt)
         return int(total or 0)
+
+    async def prune_export_audits(
+        self, *, created_before: datetime, limit: int = 200, dry_run: bool = False
+    ) -> int:
+        stmt = (
+            select(ExportAuditRow.id)
+            .where(ExportAuditRow.created_at < created_before)
+            .order_by(ExportAuditRow.created_at, ExportAuditRow.id)
+            .limit(limit)
+        )
+        async with self._sessionmaker() as session, session.begin():
+            ids = (await session.scalars(stmt)).all()
+            if dry_run or not ids:
+                return len(ids)
+            await session.execute(delete(ExportAuditRow).where(ExportAuditRow.id.in_(ids)))
+        return len(ids)
 
     async def session_pin_audit_stats(
         self,

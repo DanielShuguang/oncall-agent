@@ -101,6 +101,8 @@ def test_retention_params_are_validated() -> None:
         Settings(session_restore_audit_retention_days=0)
     with pytest.raises(ValidationError, match="ONCALL_SESSION_PIN_AUDIT_RETENTION_DAYS"):
         Settings(session_pin_audit_retention_days=0)
+    with pytest.raises(ValidationError, match="ONCALL_EXPORT_AUDIT_RETENTION_DAYS"):
+        Settings(export_audit_retention_days=0)
     with pytest.raises(ValidationError, match="ONCALL_SESSION_PIN_LIMIT"):
         Settings(session_pin_limit=0)
     assert Settings(session_pin_limit=80).session_pin_limit == 80
@@ -119,6 +121,7 @@ def test_retention_params_are_validated() -> None:
     assert settings.run_content_retention_days == 180
     assert settings.session_restore_audit_retention_days == 365
     assert settings.session_pin_audit_retention_days == 365
+    assert settings.export_audit_retention_days == 365
 
 
 def test_user_daily_budget_is_validated_and_converted_to_cents() -> None:

@@ -252,7 +252,8 @@ CREATE INDEX idx_export_audits_resource_time
 > 记录成功生成并返回的 CSV 导出（[ADR-0094](decisions/0094-export-download-audit.md)，迁移
 > `0023`）：谁、什么资源、过滤条件、行数、是否截断。`filters` 只保存标量条件，
 > 不保存行内容、工具参数或会话正文；无外键。审计写入失败时导出 503（fail closed），
-> 不返回无法留痕的文件。当前不接入 `RetentionSweeper`，保留期待定。
+> 不返回无法留痕的文件。审计由 `RetentionSweeper` 按
+> `ONCALL_EXPORT_AUDIT_RETENTION_DAYS`（默认 365 天）独立清理（[ADR-0095](decisions/0095-export-audit-retention.md)）。
 
 ### 2.2 run_events（事件，只追加）
 
@@ -586,7 +587,7 @@ CREATE TABLE user_budgets (
 | approval_grants | 过期即删 | `expires_at < now` 的行由清理任务删除；过期授权本来就不再生效，删行不改变授权语义（[ADR-0027](decisions/0027-approval-snapshot-retention.md)） |
 | session_restore_audits | 365 天 | `ONCALL_SESSION_RESTORE_AUDIT_RETENTION_DAYS`；恢复审计独立于事件/正文保留期，按 `restored_at` 清理（[ADR-0059](decisions/0059-session-restore-audit.md)） |
 | session_pin_audits | 365 天 | `ONCALL_SESSION_PIN_AUDIT_RETENTION_DAYS`；置顶审计独立清理，按 `created_at` 判断（[ADR-0083](decisions/0083-session-pin-audit-retention.md)） |
-| export_audits | 暂不清理 | CSV 导出下载审计（[ADR-0094](decisions/0094-export-download-audit.md)）；保留期与清理策略待定，当前只增不删 |
+| export_audits | 365 天 | `ONCALL_EXPORT_AUDIT_RETENTION_DAYS`；CSV 导出下载审计按 `created_at` 独立清理（[ADR-0095](decisions/0095-export-audit-retention.md)） |
 | kb_documents / kb_chunks | 不清理 | 知识库由管理员维护，删除是业务操作，不是保留策略 |
 | 评测报告（文件） | 永久 | 不入库，体量小，是能力证明（§2.8） |
 

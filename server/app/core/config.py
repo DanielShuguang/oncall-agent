@@ -109,6 +109,9 @@ class Settings(BaseSettings):
     #: 会话置顶/取消置顶审计的保留天数（ADR-0083）。同样属于治理审计，按
     #: `created_at` 独立清理；默认一年。
     session_pin_audit_retention_days: int = 365
+    #: CSV 导出下载审计的保留天数（ADR-0095）。导出记录同属治理证据，但体量
+    #: 随导出次数增长；默认一年，按 `created_at` 独立清理。
+    export_audit_retention_days: int = 365
     #: 单个用户最多置顶的会话数（ADR-0093）。默认与历史行为一致（50）；
     #: 由 `build_store` 传给内存/Postgres 实现，列表接口同样返回该值。
     session_pin_limit: int = 50
@@ -184,6 +187,8 @@ class Settings(BaseSettings):
             raise ValueError("ONCALL_SESSION_RESTORE_AUDIT_RETENTION_DAYS 必须 >= 1")
         if self.session_pin_audit_retention_days < 1:
             raise ValueError("ONCALL_SESSION_PIN_AUDIT_RETENTION_DAYS 必须 >= 1")
+        if self.export_audit_retention_days < 1:
+            raise ValueError("ONCALL_EXPORT_AUDIT_RETENTION_DAYS 必须 >= 1")
         if self.session_pin_limit < 1:
             raise ValueError("ONCALL_SESSION_PIN_LIMIT 必须 >= 1")
         return self

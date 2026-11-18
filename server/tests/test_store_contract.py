@@ -1094,6 +1094,12 @@ async def _exercise_export_audits(store: RunStore) -> None:
     assert len(rest) == 1
     assert rest[0].audit_id != first_page[0].audit_id
 
+    dry = await store.prune_export_audits(created_before=future, limit=1, dry_run=True)
+    assert dry == 1
+    assert await store.count_export_audits() == 2
+    assert await store.prune_export_audits(created_before=future, limit=10) == 2
+    assert await store.list_export_audits() == []
+
 
 async def _exercise_events_for_runs(store: RunStore) -> None:
     """批量取事件（ADR-0036）：按 run 分组、组内 seq 升序、每个 run 独立截断。"""

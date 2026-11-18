@@ -313,6 +313,7 @@ async def test_sweep_cutoffs_follow_settings() -> None:
     assert result.content_before == now - timedelta(days=60)
     assert result.session_restores_before == now - timedelta(days=365)
     assert result.session_pin_audits_before == now - timedelta(days=365)
+    assert result.export_audits_before == now - timedelta(days=365)
 
 
 async def test_invalid_limit_is_rejected() -> None:
@@ -573,6 +574,31 @@ async def test_prunes_session_pin_audits_by_own_retention() -> None:
     assert await store.list_session_pin_audits() == []
     again = await sweeper.sweep(now=later)
     assert again.session_pin_audits == 0
+
+
+async def test_prunes_export_audits_by_own_retention() -> None:
+    """导出审计按自己的保留期清理（ADR-0095），默认一年。"""
+    store = InMemoryRunStore()
+    await store.record_export_audit(
+        user_id="u_702",
+        resource="approvals",
+        filters={},
+        row_count=1,
+    )
+    assert await store.count_export_audits() == 1
+
+    sweeper = _sweeper(store)
+    now = datetime.now(UTC)
+    later = now + timedelta(days=366)
+    dry = await sweeper.sweep(now=later, dry_run=True)
+    assert dry.export_audits == 1
+    assert await store.count_export_audits() == 1
+
+    result = await sweeper.sweep(now=later)
+    assert result.export_audits == 1
+    assert await store.list_export_audits() == []
+    again = await sweeper.sweep(now=later)
+    assert again.export_audits == 0
 
 
 async def test_prunes_expired_approval_grants_only() -> None:

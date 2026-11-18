@@ -2143,10 +2143,26 @@ ADR-0073 把单用户置顶上限固定为 50，ADR-0074 已把 `pinned_count`/`
 | 失败语义 | 审计写入失败返回 503 `DATABASE_UNAVAILABLE`（fail closed），不返回无法留痕的文件；CSV 生成失败不写 |
 | 读取 | 管理员 `GET /admin/export-audits`：`user_id`/`resource`/UTC 日期范围过滤，`(created_at,id)` keyset，首屏 total，非法游标 400、范围 422、计数/列表失败 503 |
 | 前端 | ConsolePage「导出审计」只读页：用户/资源/日期过滤、20 条/页加载更多、行数与截断标识；不回放导出文件 |
-| 范围 | 不做异步导出、审计 CSV 导出、单条详情、客户端下载确认；当前不接入 RetentionSweeper |
+| 范围 | 不做异步导出、审计 CSV 导出、单条详情、客户端下载确认；保留策略见 ADR-0095 |
 | 验证 | 迁移 `0023` 往返通过；默认 525+40、PG 562+3、PG+Redis 565；ruff 205 / mypy 119；前端 27 files/130 tests、lint 130、format 138、build 2937 modules |
 
 详见 [ADR-0094](decisions/0094-export-download-audit.md)。
+
+---
+
+## W6 后补：导出审计保留清理（ADR-0095）
+
+`export_audits` 只增不删，长期运行后随导出次数增长；本 ADR 按独立保留期接入清理。
+
+| 事项 | 落地 |
+|---|---|
+| 配置 | `ONCALL_EXPORT_AUDIT_RETENTION_DAYS`（默认 365 天），启动期要求 `>= 1`；不新增迁移 |
+| 清理 | `RunStore.prune_export_audits(created_before, limit=200, dry_run)`：内存/PG 按 `(created_at,id)` 取批删除；dry-run 只计数 |
+| 链路 | `RetentionSweeper` 在置顶审计后、计量前执行；`RetentionResult`、`prune` CLI 与后台日志新增 `export_audits_before` / `export_audits` |
+| 范围 | 不按资源类型分别保留，不做冷归档/按用户删除/导出文件回放；删除只发生在保留期之后 |
+| 验证 | 默认 526+40、PG 563+3、PG+Redis 566；`ruff check`、`ruff format --check` 205 files、`mypy app` 119 files；前端未改 27 files/130 tests |
+
+详见 [ADR-0095](decisions/0095-export-audit-retention.md)。
 
 ---
 

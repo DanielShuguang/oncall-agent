@@ -28,6 +28,7 @@ EXPORT_RESOURCES: tuple[str, ...] = (
     "session_restore_stats",
     "session_pins",
     "session_pin_stats",
+    "export_audits",
 )
 
 
@@ -53,7 +54,7 @@ class ExportAudit(Base):
         CheckConstraint(
             "resource IN ("
             "'approvals', 'approval_stats', 'session_restores', "
-            "'session_restore_stats', 'session_pins', 'session_pin_stats'"
+            "'session_restore_stats', 'session_pins', 'session_pin_stats', 'export_audits'"
             ")",
             name="ck_export_audits_resource",
         ),

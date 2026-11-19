@@ -49,6 +49,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | GET | `/admin/session-pins/stats/export` | 置顶审计统计长表 CSV 导出（与统计同参数/同窗口） | W6 后补 |
 | GET | `/admin/session-pins/export` | 会话置顶审计 CSV 导出（同一组过滤，最多 5000 条） | W6 后补 |
 | GET | `/admin/export-audits` | CSV 导出下载审计（按用户/资源/UTC 日期范围过滤，keyset 分页；第一页附总数；只读） | W6 后补 |
+| GET | `/admin/export-audits/export` | 导出审计 CSV 导出（同一组过滤，最多 5000 条；本导出自身也写审计） | W6 后补 |
 | GET | `/sessions/{session_id}/runs` | 一页会话详情（正文/引用/运行过程，一次返回） | W6 后补 |
 | GET | `/runs/{run_id}` | 单次运行详情（含指标与模型调用明细） | W1 D4 / W4 D19 |
 | GET | `/runs/{run_id}/events?after_seq=` | 补拉事件（断线续传，兼容 `Last-Event-ID`） | W1 D4 |
@@ -582,7 +583,7 @@ Authorization: Bearer <admin-token>
 
 ### 3.3.3 CSV 导出下载审计（管理员，ADR-0094）
 
-六类 CSV 导出（审批列表/统计、恢复审计列表/统计、置顶审计列表/统计）在成功生成文件后写入 `export_audits`。审计只记录「服务端为谁生成了什么范围的文件」，不保存行内容、工具参数或会话正文；写入失败时整个导出返回 503，不返回无法留痕的文件。
+六类业务 CSV 导出（审批列表/统计、恢复审计列表/统计、置顶审计列表/统计）在成功生成文件后写入 `export_audits`；导出审计列表自身也可导出为 CSV，并同样写入一条 `resource=export_audits` 记录（ADR-0096）。审计只记录「服务端为谁生成了什么范围的文件」，不保存行内容、工具参数或会话正文；写入失败时整个导出返回 503，不返回无法留痕的文件。
 
 ```http
 GET /api/admin/export-audits?user_id=admin_1&resource=session_pins&created_from=2026-11-01&created_to=2026-11-16&limit=50
@@ -608,8 +609,9 @@ Authorization: Bearer <admin-token>
 ```
 
 - 只读，要求 `ONCALL_ADMIN_ROLES`；按 `created_at DESC, id DESC` 倒序
-- `user_id` 1–64；`resource` 只接受 6 种：`approvals`、`approval_stats`、
-  `session_restores`、`session_restore_stats`、`session_pins`、`session_pin_stats`；
+- `user_id` 1–64；`resource` 只接受 7 种：`approvals`、`approval_stats`、
+  `session_restores`、`session_restore_stats`、`session_pins`、`session_pin_stats`、
+  `export_audits`；
   `created_from`/`created_to` 是 UTC 自然日闭区间，必须同时提供、`from <= to`、
   最多 365 天，否则 `422 INVALID_RANGE`
 - `filters` 是记录时的标量过滤条件；列表导出为条数，统计导出为长表数据行数
@@ -619,8 +621,22 @@ Authorization: Bearer <admin-token>
   取满 `limit` 才给 `next_cursor`
 - 第一页返回 `total`，后续页为 `null`；`total < items.length` 时返回 `total:
   null`，客户端按未知处理
-- 数据库不可用返回 `503 {"code":"DATABASE_UNAVAILABLE"}`；不做审计记录的
-  CSV 导出/单条详情，也不做异步导出
+- 数据库不可用返回 `503 {"code":"DATABASE_UNAVAILABLE"}`；单条详情、异步导出与下载文件回放不做
+
+#### 导出审计列表 CSV（ADR-0096）
+
+```http
+GET /api/admin/export-audits/export?resource=session_pins&created_from=2026-11-01&created_to=2026-11-16
+Authorization: Bearer <admin-token>
+```
+
+- 参数与列表相同（`user_id`/`resource`/`created_from`/`created_to`），不接收 `cursor`/`limit`
+- CSV 列 `created_at,user_id,resource,row_count,truncated,filters`；`filters` 是 JSON 字符串；
+  仍使用 UTF-8 BOM + CRLF 与公式注入防护
+- 最多 5000 行；响应头 `X-Export-Count`、`X-Export-Truncated`、`Cache-Control: no-store`，
+  文件名带 UTC 时间
+- **本导出自身也写一条审计**：`resource=export_audits`，`filters` 为本次过滤，`row_count` 为
+  实际导出行数；写入失败同样 503，不返回文件
 
 ### 3.4 一页会话详情（ADR-0036）
 

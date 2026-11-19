@@ -20,6 +20,7 @@ import {
   type ExportResource,
 } from '@/api/exportAudits';
 import { formatTime } from '@/lib/format';
+import { useExportAuditExport } from './useExportAuditExport';
 
 const EMPTY_DRAFT = {
   userId: '',
@@ -51,6 +52,7 @@ export default function ExportAuditsPage() {
   const [error, setError] = useState<string | null>(null);
   const [filterError, setFilterError] = useState<string | null>(null);
   const requestRef = useRef(0);
+  const exports = useExportAuditExport(filters, () => setFilters({ ...filters }));
 
   useEffect(() => {
     let cancelled = false;
@@ -195,8 +197,18 @@ export default function ExportAuditsPage() {
           <Button variant="outline" size="sm" className="h-8 text-xs" onClick={clearFilters}>
             清除
           </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 text-xs"
+            disabled={exports.exporting}
+            onClick={() => void exports.exportCsv()}
+          >
+            {exports.exporting ? '导出中…' : '导出 CSV'}
+          </Button>
           {filterError && <span className="text-xs text-danger">{filterError}</span>}
         </CardContent>
+        {exports.message && <p className="text-xs text-muted-foreground">{exports.message}</p>}
       </Card>
 
       {error && (

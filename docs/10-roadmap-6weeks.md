@@ -2143,7 +2143,7 @@ ADR-0073 把单用户置顶上限固定为 50，ADR-0074 已把 `pinned_count`/`
 | 失败语义 | 审计写入失败返回 503 `DATABASE_UNAVAILABLE`（fail closed），不返回无法留痕的文件；CSV 生成失败不写 |
 | 读取 | 管理员 `GET /admin/export-audits`：`user_id`/`resource`/UTC 日期范围过滤，`(created_at,id)` keyset，首屏 total，非法游标 400、范围 422、计数/列表失败 503 |
 | 前端 | ConsolePage「导出审计」只读页：用户/资源/日期过滤、20 条/页加载更多、行数与截断标识；不回放导出文件 |
-| 范围 | 不做异步导出、审计 CSV 导出、单条详情、客户端下载确认；保留策略见 ADR-0095 |
+| 范围 | 不做异步导出、单条详情、客户端下载确认；保留策略见 ADR-0095；审计列表导出见 ADR-0096 |
 | 验证 | 迁移 `0023` 往返通过；默认 525+40、PG 562+3、PG+Redis 565；ruff 205 / mypy 119；前端 27 files/130 tests、lint 130、format 138、build 2937 modules |
 
 详见 [ADR-0094](decisions/0094-export-download-audit.md)。
@@ -2163,6 +2163,25 @@ ADR-0073 把单用户置顶上限固定为 50，ADR-0074 已把 `pinned_count`/`
 | 验证 | 默认 526+40、PG 563+3、PG+Redis 566；`ruff check`、`ruff format --check` 205 files、`mypy app` 119 files；前端未改 27 files/130 tests |
 
 详见 [ADR-0095](decisions/0095-export-audit-retention.md)。
+
+---
+
+## W6 后补：导出审计列表 CSV（ADR-0096）
+
+导出审计本身只能在线翻页，缺少可归档的离线快照；本 ADR 增加第 7 种资源
+`export_audits` 与管理员 CSV 导出，且导出自身也写审计。
+
+| 事项 | 落地 |
+|---|---|
+| 接口 | `GET /admin/export-audits/export`：与列表相同的用户/资源/UTC 日期过滤；不接收 cursor/limit；最多 5000 行 |
+| CSV | 列 `created_at,user_id,resource,row_count,truncated,filters`；`filters` 为 JSON 字符串；复用 BOM/CRLF/公式防护 |
+| 自审计 | 导出成功后写 `resource=export_audits` 记录；写失败 503，不返回文件；列表会多一条自身记录 |
+| 迁移 | `0024` 只扩展 `ck_export_audits_resource` 到 7 种资源，不改字段/索引 |
+| 前端 | ExportAuditsPage 增加「导出 CSV」，成功下载并刷新列表；不新增页面 |
+| 范围 | 不做审计文件回放、单条再导出、异步任务、XLSX；保留仍按 ADR-0095 |
+| 验证 | 默认 527+40、PG 564+3、PG+Redis 567；`ruff check`、`ruff format --check` 207 files、`mypy app` 119 files；前端 27 files/131 tests、lint 0/0（131 files）、format 139 files、build 2938 modules；迁移 `0024` 往返通过 |
+
+详见 [ADR-0096](decisions/0096-export-audit-list-export.md)。
 
 ---
 

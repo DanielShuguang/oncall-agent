@@ -1,6 +1,6 @@
 /** CSV 导出下载审计接口：契约见 docs/03 §3.3.3（ADR-0094）。 */
 
-import { getJson } from './client';
+import { getFile, getJson } from './client';
 
 export type ExportResource =
   | 'approvals'
@@ -8,7 +8,8 @@ export type ExportResource =
   | 'session_restores'
   | 'session_restore_stats'
   | 'session_pins'
-  | 'session_pin_stats';
+  | 'session_pin_stats'
+  | 'export_audits';
 
 export const EXPORT_RESOURCE_LABEL: Record<ExportResource, string> = {
   approvals: '审批列表',
@@ -17,6 +18,7 @@ export const EXPORT_RESOURCE_LABEL: Record<ExportResource, string> = {
   session_restore_stats: '恢复审计统计',
   session_pins: '置顶审计列表',
   session_pin_stats: '置顶审计统计',
+  export_audits: '导出审计列表',
 };
 
 export interface ExportAudit {
@@ -58,4 +60,27 @@ export function listExportAudits(
   if (filters.createdFrom) params.set('created_from', filters.createdFrom);
   if (filters.createdTo) params.set('created_to', filters.createdTo);
   return getJson<ExportAuditListResponse>(`/admin/export-audits?${params.toString()}`);
+}
+
+export interface ExportAuditExport {
+  blob: Blob;
+  count: number;
+  truncated: boolean;
+}
+
+export async function exportExportAuditsCsv(
+  filters: ExportAuditFilters = {},
+): Promise<ExportAuditExport> {
+  const params = new URLSearchParams();
+  if (filters.userId) params.set('user_id', filters.userId);
+  if (filters.resource) params.set('resource', filters.resource);
+  if (filters.createdFrom) params.set('created_from', filters.createdFrom);
+  if (filters.createdTo) params.set('created_to', filters.createdTo);
+  const query = params.toString();
+  const { blob, headers } = await getFile(`/admin/export-audits/export${query ? `?${query}` : ''}`);
+  return {
+    blob,
+    count: Number(headers.get('X-Export-Count') ?? 0) || 0,
+    truncated: headers.get('X-Export-Truncated') === 'true',
+  };
 }

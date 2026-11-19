@@ -1,8 +1,9 @@
 """CSV 导出下载审计（ADR-0094）。
 
-六个导出端点（审批列表/统计、恢复审计列表/统计、置顶审计列表/统计）在 CSV
+六个业务导出端点（审批列表/统计、恢复审计列表/统计、置顶审计列表/统计）在 CSV
 生成成功后调用 ``record_export``；审计写入失败时端点返回 503，不返回无法
-留痕的下载。这里同时提供管理员只读列表，过滤按导出人/资源/UTC 日期。
+留痕的下载。这里同时提供管理员只读列表与 CSV 导出，过滤按导出人/资源/UTC 日期；
+导出审计列表自身也写一条 `export_audits` 记录（ADR-0096）。
 """
 
 from __future__ import annotations
@@ -15,11 +16,12 @@ from datetime import UTC, date, datetime, time, timedelta
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.deps import require_admin
 from app.api.errors import ApiError
+from app.core.csv import csv_document
 from app.core.logging import get_logger
 from app.core.store import ExportAuditRecord, RunStore, get_store
 from app.schemas.export_audit import ExportAuditListResponse, ExportAuditOut
@@ -32,7 +34,16 @@ MAX_AUDIT_RANGE_DAYS = 365
 MAX_CURSOR_LEN = 512
 RESOURCE_PATTERN = (
     r"^(approvals|approval_stats|session_restores|session_restore_stats|"
-    r"session_pins|session_pin_stats)$"
+    r"session_pins|session_pin_stats|export_audits)$"
+)
+MAX_EXPORT_ROWS = 5000
+CSV_HEADERS = (
+    "created_at",
+    "user_id",
+    "resource",
+    "row_count",
+    "truncated",
+    "filters",
 )
 
 
@@ -120,6 +131,73 @@ def _decode_cursor(cursor: str, fingerprint: str) -> tuple[datetime, str]:
     if created_at.tzinfo is None:
         raise ApiError(400, "INVALID_CURSOR", "cursor 无效")
     return created_at, audit_id
+
+
+def _export_audits_csv(records: list[ExportAuditRecord]) -> str:
+    return csv_document(
+        CSV_HEADERS,
+        (
+            (
+                record.created_at,
+                record.user_id,
+                record.resource,
+                record.row_count,
+                record.truncated,
+                json.dumps(record.filters, ensure_ascii=False, sort_keys=True),
+            )
+            for record in records
+        ),
+    )
+
+
+@router.get("/export")
+async def export_export_audits(
+    store: Annotated[RunStore, Depends(get_store)],
+    admin: Annotated[Identity, Depends(require_admin)],
+    user_id: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
+    resource: Annotated[str | None, Query(pattern=RESOURCE_PATTERN)] = None,
+    created_from: Annotated[date | None, Query()] = None,
+    created_to: Annotated[date | None, Query()] = None,
+) -> Response:
+    """导出导出审计 CSV；本导出自身也写审计（ADR-0096）。"""
+    since, until = _date_window(created_from, created_to)
+    try:
+        records = await store.list_export_audits(
+            user_id=user_id,
+            resource=resource,
+            created_after=since,
+            created_before=until,
+            limit=MAX_EXPORT_ROWS + 1,
+        )
+    except SQLAlchemyError as exc:
+        log.error("export_audit_export_failed", error=str(exc))
+        raise ApiError(503, "DATABASE_UNAVAILABLE", "导出审计暂不可用") from exc
+    truncated = len(records) > MAX_EXPORT_ROWS
+    rows = records[:MAX_EXPORT_ROWS]
+    await record_export(
+        store,
+        user_id=admin.user_id,
+        resource="export_audits",
+        filters={
+            "user_id": user_id,
+            "resource": resource,
+            "created_from": created_from.isoformat() if created_from else None,
+            "created_to": created_to.isoformat() if created_to else None,
+        },
+        row_count=len(rows),
+        truncated=truncated,
+    )
+    filename = f"export-audits-{datetime.now(UTC):%Y%m%d-%H%M%S}.csv"
+    return Response(
+        content=_export_audits_csv(rows),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+            "X-Export-Count": str(len(rows)),
+            "X-Export-Truncated": "true" if truncated else "false",
+        },
+    )
 
 
 @router.get("", response_model=ExportAuditListResponse)

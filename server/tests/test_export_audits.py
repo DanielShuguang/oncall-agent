@@ -76,6 +76,39 @@ async def test_records_restore_and_approval_exports(
     }
 
 
+async def test_export_audits_csv_records_itself(
+    client: AsyncClient, mem_store: InMemoryRunStore
+) -> None:
+    for index in range(2):
+        await mem_store.record_export_audit(
+            user_id="u_102",
+            resource="approvals",
+            filters={"status": "pending"},
+            row_count=index,
+        )
+
+    res = await client.get("/api/admin/export-audits/export?resource=approvals", headers=ADMIN)
+    assert res.status_code == 200
+    assert res.headers["content-type"].startswith("text/csv")
+    assert res.headers["x-export-count"] == "2"
+    assert res.headers["x-export-truncated"] == "false"
+    body = res.text
+    assert body.startswith("\ufeffcreated_at,user_id,resource,row_count,truncated,filters")
+    assert "approvals" in body
+
+    listed = await client.get("/api/admin/export-audits?limit=10", headers=ADMIN)
+    assert listed.status_code == 200
+    payload = listed.json()
+    assert payload["total"] == 3
+    assert payload["items"][0]["resource"] == "export_audits"
+    assert payload["items"][0]["row_count"] == 2
+    assert payload["items"][0]["filters"] == {"resource": "approvals"}
+
+    self_only = await client.get("/api/admin/export-audits?resource=export_audits", headers=ADMIN)
+    assert self_only.status_code == 200
+    assert self_only.json()["total"] == 1
+
+
 async def test_export_audit_cursor_and_filters(
     client: AsyncClient, mem_store: InMemoryRunStore
 ) -> None:

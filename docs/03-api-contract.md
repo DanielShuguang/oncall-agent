@@ -67,7 +67,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | POST | `/admin/kb/reindex` | 重建索引（用当前 embedder 重算向量） | W2 D8 |
 | GET | `/admin/tools` | 工具注册表（含生效角色/启用状态） | W3 D12 / W5 D22 |
 | PATCH | `/admin/tools/{name}` | 启用/禁用工具（`enabled: null` 恢复默认） | W5 D22 |
-| GET | `/admin/tools/{name}/history` | 工具配置变更历史（谁在何时把启用/角色改成什么） | W6 后补 |
+| GET | `/admin/tools/{name}/history` | 工具配置变更历史（谁在何时把启用/角色改成什么；支持 UTC 日期范围） | W6 后补 |
 | POST | `/admin/tools/{name}/test` | 工具试调用（强制走治理链路） | W5 D22 |
 | GET | `/admin/perm-matrix` | 角色 × 工具矩阵 | W3 D12 / W5 D23 |
 | PUT | `/admin/perm-matrix` | 更新矩阵（按工具部分更新） | W5 D23 |
@@ -1524,6 +1524,7 @@ GET /api/admin/perm-matrix
 
 ```http
 GET /api/admin/tools/create_ticket/history?limit=20
+GET /api/admin/tools/create_ticket/history?limit=20&changed_from=2026-11-01&changed_to=2026-11-07
 Authorization: Bearer <admin token>
 ```
 
@@ -1550,6 +1551,11 @@ Authorization: Bearer <admin token>
 - `source`：`tool` = PATCH 启用开关，`matrix` = 权限矩阵整表保存；同一次矩阵保存
   按工具各一行
 - 默认返回最近 20 条，最多 100；记录按 `changed_at DESC, id DESC` 排序
+- `changed_from` / `changed_to` 是 UTC 自然日（`YYYY-MM-DD`），两端必须同时提供；
+  窗口为 `[from 00:00:00Z, to+1d 00:00:00Z)`，结束日整天包含（ADR-0098）。单端、倒置、
+  或闭区间超过 365 天返回 `422 INVALID_RANGE`；不传时保持「最近 N 条」行为
+- 日期范围只过滤，不改变 `limit` 语义；没有 total/游标，窗口内超过 100 条时只返回最近
+  100 条
 - 不要求工具仍在注册表：按名字查历史，工具下线/改名后仍可查；从未注册过的名字返回空
   列表（`items: []`），不返回 404
 - 库不可用 `503 DATABASE_UNAVAILABLE`，不把故障显示成「没有历史」

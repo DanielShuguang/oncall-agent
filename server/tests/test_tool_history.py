@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import UTC, datetime
 
 from httpx import AsyncClient
 from sqlalchemy.exc import SQLAlchemyError
@@ -21,7 +22,14 @@ EMPLOYEE = auth_headers(user_id="u_102", roles=("employee",))
 
 
 class _FailingHistoryStore:
-    async def history(self, name: str, *, limit: int = 20) -> list[ToolSettingChangeRecord]:
+    async def history(
+        self,
+        name: str,
+        *,
+        limit: int = 20,
+        since: datetime | None = None,
+        until: datetime | None = None,
+    ) -> list[ToolSettingChangeRecord]:
         raise SQLAlchemyError("database down")
 
 
@@ -167,3 +175,98 @@ async def test_replace_records_multiple_changes() -> None:
     assert create_ticket[0].after is None
     # 同一次矩阵提交的多条记录共享时间戳，避免倒序读出来出现伪顺序
     assert create_ticket[0].changed_at == (await store.history("query_cmdb"))[0].changed_at
+
+
+async def test_in_memory_store_filters_history_by_window() -> None:
+    store = InMemoryToolSettingStore()
+    store._history.extend(
+        [
+            ToolSettingChangeRecord(
+                id=1,
+                tool_name="query_cmdb",
+                changed_by="admin_1",
+                changed_at=datetime(2026, 1, 1, 12, tzinfo=UTC),
+                source="tool",
+                before=None,
+                after={"enabled": False, "roles": None},
+            ),
+            ToolSettingChangeRecord(
+                id=2,
+                tool_name="query_cmdb",
+                changed_by="admin_2",
+                changed_at=datetime(2026, 1, 2, 12, tzinfo=UTC),
+                source="tool",
+                before={"enabled": False, "roles": None},
+                after={"enabled": True, "roles": None},
+            ),
+            ToolSettingChangeRecord(
+                id=3,
+                tool_name="query_cmdb",
+                changed_by="admin_3",
+                changed_at=datetime(2026, 1, 3, 12, tzinfo=UTC),
+                source="tool",
+                before={"enabled": True, "roles": None},
+                after={"enabled": False, "roles": None},
+            ),
+        ]
+    )
+
+    rows = await store.history(
+        "query_cmdb",
+        since=datetime(2026, 1, 2, tzinfo=UTC),
+        until=datetime(2026, 1, 3, tzinfo=UTC),
+    )
+    assert [row.id for row in rows] == [2]
+    assert [
+        row.id for row in await store.history("query_cmdb", since=datetime(2026, 1, 2, tzinfo=UTC))
+    ] == [3, 2]
+    assert [
+        row.id for row in await store.history("query_cmdb", until=datetime(2026, 1, 2, tzinfo=UTC))
+    ] == [1]
+
+
+async def test_history_date_range_validation(client: AsyncClient) -> None:
+    for query in (
+        "changed_from=2026-01-01",
+        "changed_to=2026-01-02",
+        "changed_from=2026-01-02&changed_to=2026-01-01",
+        "changed_from=2025-01-01&changed_to=2026-01-02",
+    ):
+        res = await client.get(f"/api/admin/tools/query_cmdb/history?{query}", headers=ADMIN)
+        assert res.status_code == 422, query
+        assert res.json()["code"] == "INVALID_RANGE"
+
+
+async def test_history_filters_by_date(client: AsyncClient, mem_tool_settings: ToolPolicy) -> None:
+    store = mem_tool_settings._store
+    assert isinstance(store, InMemoryToolSettingStore)
+    store._history.extend(
+        [
+            ToolSettingChangeRecord(
+                id=1,
+                tool_name="query_cmdb",
+                changed_by="admin_1",
+                changed_at=datetime(2026, 1, 1, 12, tzinfo=UTC),
+                source="tool",
+                before=None,
+                after={"enabled": False, "roles": None},
+            ),
+            ToolSettingChangeRecord(
+                id=2,
+                tool_name="query_cmdb",
+                changed_by="admin_2",
+                changed_at=datetime(2026, 1, 2, 12, tzinfo=UTC),
+                source="tool",
+                before={"enabled": False, "roles": None},
+                after={"enabled": True, "roles": None},
+            ),
+        ]
+    )
+
+    res = await client.get(
+        "/api/admin/tools/query_cmdb/history?changed_from=2026-01-02&changed_to=2026-01-02",
+        headers=ADMIN,
+    )
+    assert res.status_code == 200
+    items = res.json()["items"]
+    assert [item["changed_by"] for item in items] == ["admin_2"]

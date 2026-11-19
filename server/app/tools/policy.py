@@ -95,7 +95,14 @@ class ToolSettingStore(Protocol):
         changes: Sequence[ToolSettingChange] = (),
     ) -> None: ...
 
-    async def history(self, name: str, *, limit: int = 20) -> list[ToolSettingChangeRecord]: ...
+    async def history(
+        self,
+        name: str,
+        *,
+        limit: int = 20,
+        since: datetime | None = None,
+        until: datetime | None = None,
+    ) -> list[ToolSettingChangeRecord]: ...
 
 
 class InMemoryToolSettingStore:
@@ -138,9 +145,22 @@ class InMemoryToolSettingStore:
         for change in changes:
             self._history.append(self._new_record(change, changed_at=changed_at))
 
-    async def history(self, name: str, *, limit: int = 20) -> list[ToolSettingChangeRecord]:
+    async def history(
+        self,
+        name: str,
+        *,
+        limit: int = 20,
+        since: datetime | None = None,
+        until: datetime | None = None,
+    ) -> list[ToolSettingChangeRecord]:
         rows = sorted(
-            (row for row in self._history if row.tool_name == name),
+            (
+                row
+                for row in self._history
+                if row.tool_name == name
+                and (since is None or row.changed_at >= since)
+                and (until is None or row.changed_at < until)
+            ),
             key=lambda row: (row.changed_at, row.id),
             reverse=True,
         )
@@ -232,17 +252,26 @@ class PostgresToolSettingStore:
             for change in changes:
                 session.add(self._change_row(change))
 
-    async def history(self, name: str, *, limit: int = 20) -> list[ToolSettingChangeRecord]:
+    async def history(
+        self,
+        name: str,
+        *,
+        limit: int = 20,
+        since: datetime | None = None,
+        until: datetime | None = None,
+    ) -> list[ToolSettingChangeRecord]:
+        stmt = select(ToolSettingChangeRow).where(ToolSettingChangeRow.tool_name == name)
+        if since is not None:
+            stmt = stmt.where(ToolSettingChangeRow.changed_at >= since)
+        if until is not None:
+            stmt = stmt.where(ToolSettingChangeRow.changed_at < until)
         async with self._sessionmaker() as session:
             rows = (
                 await session.scalars(
-                    select(ToolSettingChangeRow)
-                    .where(ToolSettingChangeRow.tool_name == name)
-                    .order_by(
+                    stmt.order_by(
                         ToolSettingChangeRow.changed_at.desc(),
                         ToolSettingChangeRow.id.desc(),
-                    )
-                    .limit(limit)
+                    ).limit(limit)
                 )
             ).all()
         return [
@@ -366,8 +395,15 @@ class ToolPolicy:
         await self._store.replace(overrides, updated_by=updated_by, changes=changes)
         self.invalidate()
 
-    async def history(self, name: str, *, limit: int = 20) -> list[ToolSettingChangeRecord]:
-        return await self._store.history(name, limit=limit)
+    async def history(
+        self,
+        name: str,
+        *,
+        limit: int = 20,
+        since: datetime | None = None,
+        until: datetime | None = None,
+    ) -> list[ToolSettingChangeRecord]:
+        return await self._store.history(name, limit=limit, since=since, until=until)
 
     def invalidate(self) -> None:
         self._cached = None

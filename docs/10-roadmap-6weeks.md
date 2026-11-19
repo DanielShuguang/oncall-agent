@@ -2203,6 +2203,25 @@ ADR-0073 把单用户置顶上限固定为 50，ADR-0074 已把 `pinned_count`/`
 
 ---
 
+## W6 后补：工具配置变更历史按 UTC 日期范围筛选（ADR-0098）
+
+ADR-0037 的工具变更历史只按工具查最近 N 条；安全/审计要固定「上周三」这类窗口时，只能
+放大 limit 或去 grep 日志。本 ADR 给历史查询加 UTC 自然日范围，利用现有
+`(tool_name, changed_at DESC)` 索引，无迁移。
+
+| 事项 | 落地 |
+|---|---|
+| 存储 | `ToolSettingStore.history(name, *, limit=20, since=None, until=None)`；内存过滤后倒序截断，PG 追加 `changed_at >= since` / `< until` |
+| 接口 | `GET /admin/tools/{name}/history?changed_from=&changed_to=`（UTC 日期，两端同时提供）；单端/倒置/超 365 天 `422 INVALID_RANGE` |
+| 窗口 | `[from 00:00Z, to+1d 00:00Z)`；结束日整天包含；不改 `limit`（1–100）语义 |
+| 前端 | 历史 Dialog 增加开始/结束日期与应用/清除；只在点击应用后查询；预校验两端与顺序；应用后丢弃旧响应 |
+| 范围 | 不做分页/总数、CSV 导出、读取审计、保留期调整；关闭 Dialog 不持久化日期 |
+| 验证 | 默认 530+41、PG 568+3、PG+Redis 571；ruff 207 / mypy 119；前端 27 files/133 tests、lint 131、format 139、build 2938 modules |
+
+详见 [ADR-0098](decisions/0098-tool-history-date-range.md)。
+
+---
+
 ## 每周固定动作
 
 | 时点 | 动作 |

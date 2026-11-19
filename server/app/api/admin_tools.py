@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Path, Query
@@ -46,6 +47,27 @@ from app.tools.registry import Identity, ToolGuard, ToolSpec
 
 router = APIRouter(prefix="/admin", tags=["admin-tools"])
 log = get_logger(__name__)
+
+#: 历史保留期与事件/审计一致，最多查询 365 天的闭区间。
+MAX_HISTORY_RANGE_DAYS = 365
+
+
+def _history_window(
+    changed_from: date | None, changed_to: date | None
+) -> tuple[datetime | None, datetime | None]:
+    """把 UTC 自然日闭区间换算成左闭右开时间窗口（ADR-0098）。"""
+    if (changed_from is None) != (changed_to is None):
+        raise ApiError(422, "INVALID_RANGE", "changed_from 与 changed_to 必须同时提供")
+    if changed_from is None:
+        return None, None
+    assert changed_to is not None
+    if changed_to < changed_from:
+        raise ApiError(422, "INVALID_RANGE", "changed_from 不能晚于 changed_to")
+    if (changed_to - changed_from).days + 1 > MAX_HISTORY_RANGE_DAYS:
+        raise ApiError(422, "INVALID_RANGE", "日期范围不能超过 365 天")
+    since = datetime.combine(changed_from, time.min, tzinfo=UTC)
+    until = datetime.combine(changed_to + timedelta(days=1), time.min, tzinfo=UTC)
+    return since, until
 
 
 def _tool_out(
@@ -179,11 +201,14 @@ async def tool_setting_history(
     policy: Annotated[ToolPolicy, Depends(get_tool_policy)],
     _admin: Annotated[Identity, Depends(require_admin)],
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    changed_from: Annotated[date | None, Query()] = None,
+    changed_to: Annotated[date | None, Query()] = None,
 ) -> ToolHistoryResponse:
     # 不要求工具仍在注册表里：工具下线/改名后，历史仍要能按旧名字查到，
     # 否则「长期审计」在工具下线那一刻就断了。从未注册过的名字只会得到空列表。
+    since, until = _history_window(changed_from, changed_to)
     try:
-        records = await policy.history(name, limit=limit)
+        records = await policy.history(name, limit=limit, since=since, until=until)
     except SQLAlchemyError as exc:
         log.error("tool_history_read_failed", tool=name, error=str(exc))
         raise ApiError(503, "DATABASE_UNAVAILABLE", "工具变更历史暂不可用") from exc

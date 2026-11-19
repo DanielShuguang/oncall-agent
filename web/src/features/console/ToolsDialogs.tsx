@@ -10,6 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import type { ToolChange, ToolInfo, ToolOverrideSnapshot, ToolTestResponse } from '@/api/tools';
 
@@ -26,6 +27,9 @@ export interface HistoryState {
   loading: boolean;
   items: ToolChange[];
   error: string | null;
+  changedFrom: string;
+  changedTo: string;
+  filterError: string | null;
 }
 
 function formatTime(value: string): string {
@@ -56,6 +60,8 @@ interface ToolsDialogsProps {
   history: HistoryState | null;
   onTesterChange: (state: TestState | null) => void;
   onHistoryChange: (state: HistoryState | null) => void;
+  onReloadHistory: () => void;
+  onClearHistoryFilters: () => void;
   onRunTest: () => void;
 }
 
@@ -64,6 +70,8 @@ export function ToolsDialogs({
   history,
   onTesterChange,
   onHistoryChange,
+  onReloadHistory,
+  onClearHistoryFilters,
   onRunTest,
 }: ToolsDialogsProps) {
   return (
@@ -164,6 +172,46 @@ export function ToolsDialogs({
             </DialogDescription>
           </DialogHeader>
 
+          {history && (
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-end gap-2">
+                <div className="space-y-1">
+                  <div className="text-xs text-muted-foreground">开始日期（UTC）</div>
+                  <Input
+                    aria-label="变更开始日期"
+                    className="w-36"
+                    type="date"
+                    value={history.changedFrom}
+                    onChange={(event) =>
+                      onHistoryChange({ ...history, changedFrom: event.target.value })
+                    }
+                  />
+                </div>
+                <div className="space-y-1">
+                  <div className="text-xs text-muted-foreground">结束日期（UTC）</div>
+                  <Input
+                    aria-label="变更结束日期"
+                    className="w-36"
+                    type="date"
+                    value={history.changedTo}
+                    onChange={(event) =>
+                      onHistoryChange({ ...history, changedTo: event.target.value })
+                    }
+                  />
+                </div>
+                <Button size="sm" variant="outline" onClick={onReloadHistory}>
+                  应用
+                </Button>
+                <Button size="sm" variant="ghost" onClick={onClearHistoryFilters}>
+                  清除
+                </Button>
+              </div>
+              {history.filterError && (
+                <div className="text-xs text-danger">{history.filterError}</div>
+              )}
+            </div>
+          )}
+
           {history?.loading ? (
             <div className="p-6 text-center text-xs text-muted-foreground">加载中…</div>
           ) : history?.error ? (
@@ -172,7 +220,7 @@ export function ToolsDialogs({
             </div>
           ) : history && history.items.length === 0 ? (
             <div className="p-6 text-center text-xs text-muted-foreground">
-              还没有配置变更记录。
+              {history.changedFrom ? '该日期范围内没有配置变更记录。' : '还没有配置变更记录。'}
             </div>
           ) : (
             <div className="max-h-96 space-y-2 overflow-auto">

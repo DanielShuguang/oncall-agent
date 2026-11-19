@@ -1,6 +1,6 @@
 /** 工具注册与试调用（W5 D22）。schema 只读，启用/角色走治理配置。 */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import {
   exampleArgs,
@@ -21,6 +21,7 @@ export default function ToolsPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [tester, setTester] = useState<TestState | null>(null);
   const [history, setHistory] = useState<HistoryState | null>(null);
+  const historyRequest = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -86,17 +87,28 @@ export default function ToolsPage() {
     });
   };
 
-  const openHistory = (tool: ToolInfo) => {
-    setHistory({ tool, loading: true, items: [], error: null });
+  const requestHistory = (tool: ToolInfo, changedFrom: string, changedTo: string) => {
+    const requestId = ++historyRequest.current;
+    setHistory({
+      tool,
+      loading: true,
+      items: [],
+      error: null,
+      changedFrom,
+      changedTo,
+      filterError: null,
+    });
     void (async () => {
       try {
-        const data = await getToolHistory(tool.name);
+        const data = await getToolHistory(tool.name, 20, { changedFrom, changedTo });
+        if (requestId !== historyRequest.current) return;
         setHistory((current) =>
           current?.tool.name === tool.name
-            ? { ...current, loading: false, items: data.items }
+            ? { ...current, loading: false, items: data.items, error: null }
             : current,
         );
       } catch (exc) {
+        if (requestId !== historyRequest.current) return;
         setHistory((current) =>
           current?.tool.name === tool.name
             ? {
@@ -108,6 +120,27 @@ export default function ToolsPage() {
         );
       }
     })();
+  };
+
+  const openHistory = (tool: ToolInfo) => requestHistory(tool, '', '');
+
+  const reloadHistory = () => {
+    if (!history) return;
+    const from = history.changedFrom;
+    const to = history.changedTo;
+    if ((from && !to) || (!from && to)) {
+      setHistory({ ...history, filterError: '开始日期与结束日期必须同时选择' });
+      return;
+    }
+    if (from && to && from > to) {
+      setHistory({ ...history, filterError: '开始日期不能晚于结束日期' });
+      return;
+    }
+    requestHistory(history.tool, from, to);
+  };
+
+  const clearHistoryFilters = () => {
+    if (history) requestHistory(history.tool, '', '');
   };
 
   const runTest = async () => {
@@ -180,6 +213,8 @@ export default function ToolsPage() {
         history={history}
         onTesterChange={setTester}
         onHistoryChange={setHistory}
+        onReloadHistory={reloadHistory}
+        onClearHistoryFilters={clearHistoryFilters}
         onRunTest={() => void runTest()}
       />
     </div>

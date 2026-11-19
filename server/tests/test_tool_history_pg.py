@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime, timedelta
 
 import pytest
 import pytest_asyncio
@@ -121,3 +122,27 @@ async def test_history_is_scoped_per_tool(pg_tool_history: PostgresToolSettingSt
     assert len(await store.history("query_cmdb")) == 1
     assert len(await store.history("create_ticket")) == 1
     assert await store.history("ghost") == []
+
+
+async def test_history_filters_by_utc_window(
+    pg_tool_history: PostgresToolSettingStore,
+) -> None:
+    store = pg_tool_history
+    await store.upsert(
+        "query_cmdb",
+        ToolOverride(enabled=False),
+        updated_by="admin_1",
+        change=ToolSettingChange(
+            tool_name="query_cmdb",
+            changed_by="admin_1",
+            source="tool",
+            before=None,
+            after={"enabled": False, "roles": None},
+        ),
+    )
+
+    now = datetime.now(UTC)
+    assert len(await store.history("query_cmdb", since=now - timedelta(hours=1))) == 1
+    assert len(await store.history("query_cmdb", until=now + timedelta(hours=1))) == 1
+    assert await store.history("query_cmdb", since=now + timedelta(hours=1)) == []
+    assert await store.history("query_cmdb", until=now - timedelta(hours=1)) == []

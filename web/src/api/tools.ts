@@ -49,9 +49,23 @@ export interface ToolHistoryResponse {
   items: ToolChange[];
 }
 
-export function getToolHistory(name: string, limit = 20): Promise<ToolHistoryResponse> {
+export interface ToolHistoryFilters {
+  changedFrom?: string;
+  changedTo?: string;
+}
+
+export function getToolHistory(
+  name: string,
+  limit = 20,
+  filters: ToolHistoryFilters = {},
+): Promise<ToolHistoryResponse> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (filters.changedFrom && filters.changedTo) {
+    params.set('changed_from', filters.changedFrom);
+    params.set('changed_to', filters.changedTo);
+  }
   return getJson<ToolHistoryResponse>(
-    `/admin/tools/${encodeURIComponent(name)}/history?limit=${limit}`,
+    `/admin/tools/${encodeURIComponent(name)}/history?${params.toString()}`,
   );
 }
 

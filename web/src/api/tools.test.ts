@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { exampleArgs, testTool, updateTool } from './tools';
+import { exampleArgs, getToolHistory, testTool, updateTool } from './tools';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -63,5 +63,28 @@ describe('tools api', () => {
       dry_run: false,
       tags: [],
     });
+  });
+});
+
+describe('getToolHistory', () => {
+  it('默认只带 limit', async () => {
+    const fetchMock = stubFetch({ items: [] });
+
+    await getToolHistory('query_cmdb');
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/admin/tools/query_cmdb/history?limit=20');
+  });
+
+  it('日期范围同时存在时追加 changed_from/changed_to', async () => {
+    const fetchMock = stubFetch({ items: [] });
+
+    await getToolHistory('query_cmdb', 30, {
+      changedFrom: '2026-01-01',
+      changedTo: '2026-01-31',
+    });
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      '/api/admin/tools/query_cmdb/history?limit=30&changed_from=2026-01-01&changed_to=2026-01-31',
+    );
   });
 });

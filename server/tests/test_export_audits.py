@@ -42,6 +42,9 @@ async def test_records_pin_exports_and_lists(
     assert items[0]["row_count"] > 0
     assert items[1]["filters"] == {}
     assert items[1]["truncated"] is False
+    bodies = {"session_pins": exported.content, "session_pin_stats": stats.content}
+    for item in items:
+        assert item["content_sha256"] == hashlib.sha256(bodies[item["resource"]]).hexdigest()
 
     filtered = await client.get("/api/admin/export-audits?resource=session_pins", headers=ADMIN)
     assert filtered.status_code == 200
@@ -52,29 +55,29 @@ async def test_records_pin_exports_and_lists(
 async def test_records_restore_and_approval_exports(
     client: AsyncClient, mem_store: InMemoryRunStore
 ) -> None:
-    for url in (
-        "/api/admin/session-restores/export",
-        "/api/admin/session-restores/stats/export?days=7",
+    bodies: dict[str, bytes] = {}
+    for url, resource in (
+        ("/api/admin/session-restores/export", "session_restores"),
+        ("/api/admin/session-restores/stats/export?days=7", "session_restore_stats"),
     ):
         res = await client.get(url, headers=ADMIN)
         assert res.status_code == 200
-    for url in (
-        "/api/approvals/export",
-        "/api/approvals/stats/export?days=7",
+        bodies[resource] = res.content
+    for url, resource in (
+        ("/api/approvals/export", "approvals"),
+        ("/api/approvals/stats/export?days=7", "approval_stats"),
     ):
         res = await client.get(url, headers=APPROVER)
         assert res.status_code == 200
+        bodies[resource] = res.content
 
     res = await client.get("/api/admin/export-audits", headers=ADMIN)
     assert res.status_code == 200
     body = res.json()
     assert body["total"] == 4
-    assert {item["resource"] for item in body["items"]} == {
-        "session_restores",
-        "session_restore_stats",
-        "approvals",
-        "approval_stats",
-    }
+    assert {item["resource"] for item in body["items"]} == set(bodies)
+    for item in body["items"]:
+        assert item["content_sha256"] == hashlib.sha256(bodies[item["resource"]]).hexdigest()
 
 
 async def test_export_audits_csv_records_itself(

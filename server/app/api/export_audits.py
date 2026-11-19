@@ -55,12 +55,12 @@ async def record_export(
     resource: str,
     filters: dict[str, str | None],
     row_count: int,
+    content: str,
     truncated: bool = False,
-    content: str | None = None,
 ) -> None:
     """记录一次成功生成的 CSV 导出；写失败直接 503（fail closed）。"""
     clean = {key: value for key, value in filters.items() if value}
-    digest = hashlib.sha256(content.encode("utf-8")).hexdigest() if content is not None else None
+    digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
     try:
         await store.record_export_audit(
             user_id=user_id,

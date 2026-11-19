@@ -65,6 +65,9 @@ def _history_window(
         raise ApiError(422, "INVALID_RANGE", "changed_from 不能晚于 changed_to")
     if (changed_to - changed_from).days + 1 > MAX_HISTORY_RANGE_DAYS:
         raise ApiError(422, "INVALID_RANGE", "日期范围不能超过 365 天")
+    if changed_to == date.max:
+        # 右开上界需要 changed_to + 1 天；date.max 无法再往后一天，直接拒绝而不是 500。
+        raise ApiError(422, "INVALID_RANGE", "changed_to 超出支持范围")
     since = datetime.combine(changed_from, time.min, tzinfo=UTC)
     until = datetime.combine(changed_to + timedelta(days=1), time.min, tzinfo=UTC)
     return since, until

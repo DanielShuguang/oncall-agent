@@ -231,6 +231,7 @@ async def test_history_date_range_validation(client: AsyncClient) -> None:
         "changed_to=2026-01-02",
         "changed_from=2026-01-02&changed_to=2026-01-01",
         "changed_from=2025-01-01&changed_to=2026-01-02",
+        "changed_from=9999-12-31&changed_to=9999-12-31",
     ):
         res = await client.get(f"/api/admin/tools/query_cmdb/history?{query}", headers=ADMIN)
         assert res.status_code == 422, query

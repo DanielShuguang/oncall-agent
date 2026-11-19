@@ -28,7 +28,8 @@ ADR-0037 的 `GET /admin/tools/{name}/history` 只支持 `limit`（默认 20、�
    `changed_from > changed_to` 或闭区间超过 365 天均返回 422 `INVALID_RANGE`。
 3. **换算边界**：`since = changed_from 00:00:00Z`，
    `until = changed_to + 1 天 00:00:00Z`，即结束日整天包含在内。API 不接受具体时分秒，
-   避免管理员在页面上拼出跨时区的模糊窗口。
+   避免管理员在页面上拼出跨时区的模糊窗口。`changed_to = 9999-12-31`（`date.max`）无法
+   再加一天，直接返回 422 `INVALID_RANGE`，避免 `OverflowError` 变成 500。
 4. **查询顺序不变**：仍按 `changed_at DESC, id DESC` 排序，`limit` 仍是 1–100；日期范围
    只是过滤，不改变「最近 N 条」的含义。没有 total / 游标，避免在低写入量的审计表上
    引入第二套分页协议。

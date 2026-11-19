@@ -2222,6 +2222,25 @@ ADR-0037 的工具变更历史只按工具查最近 N 条；安全/审计要固�
 
 ---
 
+## W6 后补：工具配置变更历史 CSV 导出（ADR-0099）
+
+工具历史此前只能在 Dialog 里看，无法把固定窗口交给审计归档。新增管理员导出端点，
+参数与历史列表一致，最多 5000 行；导出本身写下载审计，失败则 503（fail closed）。
+
+| 事项 | 落地 |
+|---|---|
+| 接口 | `GET /admin/tools/{name}/history/export?changed_from=&changed_to=`；管理员，UTC 日期范围同 `/history` |
+| CSV | `tool_name,changed_at,changed_by,source,before,after`；before/after 为排序 JSON；BOM/CRLF/公式防护复用 `csv_document` |
+| 审计 | `resource=tool_setting_history`；`filters` 为 tool + 日期，`row_count` 为实际行数，`content_sha256` 为返回正文 SHA-256 |
+| 资源 | `export_audits` CHECK 扩为 8 种，迁移 `0026`；降级先删该资源审计行再回 7 种 |
+| 前端 | 历史 Dialog「导出 CSV」使用已应用日期；切筛选/关闭 Dialog 失效在途导出；提示条数与截断 |
+| 范围 | 不提供分页/总数，超 5000 行只返回前 5000 行；不做异步/XLSX/产物下载 |
+| 验证 | 默认 531+41、PG 569+3、PG+Redis 572；ruff / format 208、mypy 119；前端 27 files/135 tests、lint 131、format 139、build 2938 modules；迁移 `0026` 往返 |
+
+详见 [ADR-0099](decisions/0099-tool-history-export.md)。
+
+---
+
 ## 每周固定动作
 
 | 时点 | 动作 |

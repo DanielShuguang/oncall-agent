@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Sequence
 from datetime import UTC, datetime
 
@@ -271,3 +272,43 @@ async def test_history_filters_by_date(client: AsyncClient, mem_tool_settings: T
     assert res.status_code == 200
     items = res.json()["items"]
     assert [item["changed_by"] for item in items] == ["admin_2"]
+
+
+async def test_history_export_records_download(client: AsyncClient) -> None:
+    for enabled in (False, True):
+        res = await client.patch(
+            "/api/admin/tools/query_cmdb", headers=ADMIN, json={"enabled": enabled}
+        )
+        assert res.status_code == 200
+
+    forbidden = await client.get("/api/admin/tools/query_cmdb/history/export", headers=EMPLOYEE)
+    assert forbidden.status_code == 403
+
+    bad_range = await client.get(
+        "/api/admin/tools/query_cmdb/history/export?changed_from=2026-01-02",
+        headers=ADMIN,
+    )
+    assert bad_range.status_code == 422
+    assert bad_range.json()["code"] == "INVALID_RANGE"
+
+    res = await client.get("/api/admin/tools/query_cmdb/history/export", headers=ADMIN)
+    assert res.status_code == 200
+    assert res.headers["content-type"].startswith("text/csv")
+    assert res.headers["x-export-count"] == "2"
+    assert res.headers["x-export-truncated"] == "false"
+    body = res.text
+    assert body.startswith("\ufefftool_name,changed_at,changed_by,source,before,after")
+    assert "query_cmdb" in body
+
+    audited = await client.get(
+        "/api/admin/export-audits?resource=tool_setting_history", headers=ADMIN
+    )
+    assert audited.status_code == 200
+    payload = audited.json()
+    assert payload["total"] == 1
+    item = payload["items"][0]
+    assert item["resource"] == "tool_setting_history"
+    assert item["filters"] == {"tool": "query_cmdb"}
+    assert item["row_count"] == 2
+    assert item["truncated"] is False
+    assert item["content_sha256"] == hashlib.sha256(res.content).hexdigest()

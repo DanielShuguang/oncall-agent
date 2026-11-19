@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { exampleArgs, getToolHistory, testTool, updateTool } from './tools';
+import { exampleArgs, exportToolHistoryCsv, getToolHistory, testTool, updateTool } from './tools';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -63,6 +63,41 @@ describe('tools api', () => {
       dry_run: false,
       tags: [],
     });
+  });
+});
+
+describe('exportToolHistoryCsv', () => {
+  it('导出带已应用日期范围并读取条数头', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    fetchMock.mockImplementation(
+      async () =>
+        new Response('csv', {
+          status: 200,
+          headers: { 'X-Export-Count': '2', 'X-Export-Truncated': 'false' },
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await exportToolHistoryCsv('query_cmdb', {
+      changedFrom: '2026-01-01',
+      changedTo: '2026-01-31',
+    });
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      '/api/admin/tools/query_cmdb/history/export?changed_from=2026-01-01&changed_to=2026-01-31',
+    );
+    expect(result.count).toBe(2);
+    expect(result.truncated).toBe(false);
+  });
+
+  it('没有日期时只请求导出路径', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    fetchMock.mockImplementation(async () => new Response('csv', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await exportToolHistoryCsv('query_cmdb');
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/admin/tools/query_cmdb/history/export');
   });
 });
 

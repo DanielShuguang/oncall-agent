@@ -9,18 +9,23 @@
 
 from __future__ import annotations
 
+import json
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Path, Query
+from fastapi import APIRouter, Depends, Path, Query, Response
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.deps import require_admin
 from app.api.errors import ApiError
+from app.api.export_audits import MAX_EXPORT_ROWS, record_export
 from app.core.config import get_settings
+from app.core.csv import csv_document
 from app.core.logging import get_logger
 from app.core.roles import role_catalog
+from app.core.store import RunStore, get_store
 from app.schemas.tool import (
     PermMatrixResponse,
     PermMatrixTool,
@@ -40,6 +45,7 @@ from app.tools.policy import (
     ToolOverride,
     ToolPolicy,
     ToolSettingChange,
+    ToolSettingChangeRecord,
     get_tool_policy,
     override_snapshot,
 )
@@ -71,6 +77,42 @@ def _history_window(
     since = datetime.combine(changed_from, time.min, tzinfo=UTC)
     until = datetime.combine(changed_to + timedelta(days=1), time.min, tzinfo=UTC)
     return since, until
+
+
+TOOL_HISTORY_CSV_HEADERS = (
+    "tool_name",
+    "changed_at",
+    "changed_by",
+    "source",
+    "before",
+    "after",
+)
+
+
+def _tool_history_csv(records: Sequence[ToolSettingChangeRecord]) -> str:
+    return csv_document(
+        TOOL_HISTORY_CSV_HEADERS,
+        (
+            (
+                record.tool_name,
+                record.changed_at,
+                record.changed_by,
+                record.source,
+                ""
+                if record.before is None
+                else json.dumps(record.before, ensure_ascii=False, sort_keys=True),
+                ""
+                if record.after is None
+                else json.dumps(record.after, ensure_ascii=False, sort_keys=True),
+            )
+            for record in records
+        ),
+    )
+
+
+def _safe_filename_part(value: str) -> str:
+    """避免工具名中的引号/路径字符进入 Content-Disposition。"""
+    return "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in value)[:64] or "tool"
 
 
 def _tool_out(
@@ -228,6 +270,56 @@ async def tool_setting_history(
             )
             for record in records
         ]
+    )
+
+
+@router.get("/tools/{name}/history/export")
+async def export_tool_history(
+    name: Annotated[str, Path(min_length=1, max_length=64)],
+    policy: Annotated[ToolPolicy, Depends(get_tool_policy)],
+    store: Annotated[RunStore, Depends(get_store)],
+    admin: Annotated[Identity, Depends(require_admin)],
+    changed_from: Annotated[date | None, Query()] = None,
+    changed_to: Annotated[date | None, Query()] = None,
+) -> Response:
+    """导出工具配置变更历史 CSV；导出自身写下载审计（ADR-0099）。"""
+    since, until = _history_window(changed_from, changed_to)
+    try:
+        records = await policy.history(
+            name,
+            limit=MAX_EXPORT_ROWS + 1,
+            since=since,
+            until=until,
+        )
+    except SQLAlchemyError as exc:
+        log.error("tool_history_export_failed", tool=name, error=str(exc))
+        raise ApiError(503, "DATABASE_UNAVAILABLE", "工具变更历史暂不可用") from exc
+    truncated = len(records) > MAX_EXPORT_ROWS
+    rows = records[:MAX_EXPORT_ROWS]
+    content = _tool_history_csv(rows)
+    await record_export(
+        store,
+        user_id=admin.user_id,
+        resource="tool_setting_history",
+        filters={
+            "tool": name,
+            "changed_from": changed_from.isoformat() if changed_from else None,
+            "changed_to": changed_to.isoformat() if changed_to else None,
+        },
+        row_count=len(rows),
+        truncated=truncated,
+        content=content,
+    )
+    filename = f"tool-history-{_safe_filename_part(name)}-{datetime.now(UTC):%Y%m%d-%H%M%S}.csv"
+    return Response(
+        content=content,
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+            "X-Export-Count": str(len(rows)),
+            "X-Export-Truncated": "true" if truncated else "false",
+        },
     )
 
 

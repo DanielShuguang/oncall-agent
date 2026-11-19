@@ -34,7 +34,7 @@ MAX_AUDIT_RANGE_DAYS = 365
 MAX_CURSOR_LEN = 512
 RESOURCE_PATTERN = (
     r"^(approvals|approval_stats|session_restores|session_restore_stats|"
-    r"session_pins|session_pin_stats|export_audits)$"
+    r"session_pins|session_pin_stats|export_audits|tool_setting_history)$"
 )
 MAX_EXPORT_ROWS = 5000
 CSV_HEADERS = (

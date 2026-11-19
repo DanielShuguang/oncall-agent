@@ -50,6 +50,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | GET | `/admin/session-pins/export` | 会话置顶审计 CSV 导出（同一组过滤，最多 5000 条） | W6 后补 |
 | GET | `/admin/export-audits` | CSV 导出下载审计（按用户/资源/UTC 日期范围过滤，keyset 分页；第一页附总数；只读） | W6 后补 |
 | GET | `/admin/export-audits/export` | 导出审计 CSV 导出（同一组过滤，最多 5000 条；本导出自身也写审计） | W6 后补 |
+| GET | `/admin/tools/{name}/history/export` | 工具配置变更历史 CSV 导出（UTC 日期范围，最多 5000 条；写下载审计） | W6 后补 |
 | GET | `/sessions/{session_id}/runs` | 一页会话详情（正文/引用/运行过程，一次返回） | W6 后补 |
 | GET | `/runs/{run_id}` | 单次运行详情（含指标与模型调用明细） | W1 D4 / W4 D19 |
 | GET | `/runs/{run_id}/events?after_seq=` | 补拉事件（断线续传，兼容 `Last-Event-ID`） | W1 D4 |
@@ -583,7 +584,7 @@ Authorization: Bearer <admin-token>
 
 ### 3.3.3 CSV 导出下载审计（管理员，ADR-0094）
 
-六类业务 CSV 导出（审批列表/统计、恢复审计列表/统计、置顶审计列表/统计）在成功生成文件后写入 `export_audits`；导出审计列表自身也可导出为 CSV，并同样写入一条 `resource=export_audits` 记录（ADR-0096）。审计只记录「服务端为谁生成了什么范围的文件」，不保存行内容、工具参数或会话正文；写入失败时整个导出返回 503，不返回无法留痕的文件。
+七类业务 CSV 导出（审批列表/统计、恢复审计列表/统计、置顶审计列表/统计、工具变更历史）在成功生成文件后写入 `export_audits`；导出审计列表自身也可导出为 CSV，并同样写入一条 `resource=export_audits` 记录（ADR-0096）。审计只记录「服务端为谁生成了什么范围的文件」，不保存行内容、工具参数或会话正文；写入失败时整个导出返回 503，不返回无法留痕的文件。
 
 ```http
 GET /api/admin/export-audits?user_id=admin_1&resource=session_pins&created_from=2026-11-01&created_to=2026-11-16&limit=50
@@ -610,9 +611,9 @@ Authorization: Bearer <admin-token>
 ```
 
 - 只读，要求 `ONCALL_ADMIN_ROLES`；按 `created_at DESC, id DESC` 倒序
-- `user_id` 1–64；`resource` 只接受 7 种：`approvals`、`approval_stats`、
+- `user_id` 1–64；`resource` 只接受 8 种：`approvals`、`approval_stats`、
   `session_restores`、`session_restore_stats`、`session_pins`、`session_pin_stats`、
-  `export_audits`；
+  `export_audits`、`tool_setting_history`；
   `created_from`/`created_to` 是 UTC 自然日闭区间，必须同时提供、`from <= to`、
   最多 365 天，否则 `422 INVALID_RANGE`
 - `filters` 是记录时的标量过滤条件；列表导出为条数，统计导出为长表数据行数
@@ -640,6 +641,24 @@ Authorization: Bearer <admin-token>
   文件名带 UTC 时间
 - **本导出自身也写一条审计**：`resource=export_audits`，`filters` 为本次过滤，`row_count` 为
   实际导出行数；写入失败同样 503，不返回文件
+
+#### 工具配置变更历史 CSV（ADR-0099）
+
+```http
+GET /api/admin/tools/query_cmdb/history/export?changed_from=2026-11-01&changed_to=2026-11-16
+Authorization: Bearer <admin-token>
+```
+
+- 参数与 `/admin/tools/{name}/history` 相同（`changed_from`/`changed_to`，UTC 自然日，
+  两端同时提供、最多 365 天），不接收 `limit`/`cursor`；管理员角色，普通员工 403
+- CSV 列 `tool_name,changed_at,changed_by,source,before,after`；`before`/`after` 是
+  排序后的 JSON 字符串，空快照为空；UTF-8 BOM + CRLF 与公式注入防护沿用 `csv_document`
+- 最多 5000 行；响应头 `X-Export-Count`、`X-Export-Truncated`、`Cache-Control: no-store`，
+  文件名 `tool-history-{safe_name}-{UTC}.csv`（工具名非字母数字/`-_` 替换为 `_`）
+- **本导出自身也写一条审计**：`resource=tool_setting_history`，`filters` 为 `tool` 与本次日期，
+  `row_count` 为实际导出行数，`content_sha256` 为返回 CSV 的 SHA-256；写入失败 503，不返回文件
+- 单端日期、倒置、超 365 天返回 `422 INVALID_RANGE`；数据库不可用返回
+  `503 {"code":"DATABASE_UNAVAILABLE"}`
 
 ### 3.4 一页会话详情（ADR-0036）
 

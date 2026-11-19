@@ -1,6 +1,6 @@
 /** 工具注册与试调用。契约见 docs/03-api-contract.md §5。 */
 
-import { getJson } from './client';
+import { getFile, getJson } from './client';
 
 export interface JsonSchema {
   type?: string;
@@ -67,6 +67,32 @@ export function getToolHistory(
   return getJson<ToolHistoryResponse>(
     `/admin/tools/${encodeURIComponent(name)}/history?${params.toString()}`,
   );
+}
+
+export interface ToolHistoryExport {
+  blob: Blob;
+  count: number;
+  truncated: boolean;
+}
+
+export async function exportToolHistoryCsv(
+  name: string,
+  filters: ToolHistoryFilters = {},
+): Promise<ToolHistoryExport> {
+  const params = new URLSearchParams();
+  if (filters.changedFrom && filters.changedTo) {
+    params.set('changed_from', filters.changedFrom);
+    params.set('changed_to', filters.changedTo);
+  }
+  const query = params.toString();
+  const { blob, headers } = await getFile(
+    `/admin/tools/${encodeURIComponent(name)}/history/export${query ? `?${query}` : ''}`,
+  );
+  return {
+    blob,
+    count: Number(headers.get('X-Export-Count') ?? 0) || 0,
+    truncated: headers.get('X-Export-Truncated') === 'true',
+  };
 }
 
 export interface ToolTestResponse {

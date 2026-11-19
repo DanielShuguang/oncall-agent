@@ -30,6 +30,9 @@ export interface HistoryState {
   changedFrom: string;
   changedTo: string;
   filterError: string | null;
+  /** 最近一次实际查询使用的窗口；导出必须与列表一致，不能使用未应用的草稿。 */
+  appliedFrom: string;
+  appliedTo: string;
 }
 
 function formatTime(value: string): string {
@@ -62,6 +65,9 @@ interface ToolsDialogsProps {
   onHistoryChange: (state: HistoryState | null) => void;
   onReloadHistory: () => void;
   onClearHistoryFilters: () => void;
+  onExportHistory: () => void;
+  exportingHistory: boolean;
+  historyExportMessage: string | null;
   onRunTest: () => void;
 }
 
@@ -72,6 +78,9 @@ export function ToolsDialogs({
   onHistoryChange,
   onReloadHistory,
   onClearHistoryFilters,
+  onExportHistory,
+  exportingHistory,
+  historyExportMessage,
   onRunTest,
 }: ToolsDialogsProps) {
   return (
@@ -205,9 +214,20 @@ export function ToolsDialogs({
                 <Button size="sm" variant="ghost" onClick={onClearHistoryFilters}>
                   清除
                 </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={exportingHistory || history.loading}
+                  onClick={onExportHistory}
+                >
+                  {exportingHistory ? '导出中…' : '导出 CSV'}
+                </Button>
               </div>
               {history.filterError && (
                 <div className="text-xs text-danger">{history.filterError}</div>
+              )}
+              {historyExportMessage && (
+                <div className="text-xs text-muted-foreground">{historyExportMessage}</div>
               )}
             </div>
           )}
@@ -220,7 +240,7 @@ export function ToolsDialogs({
             </div>
           ) : history && history.items.length === 0 ? (
             <div className="p-6 text-center text-xs text-muted-foreground">
-              {history.changedFrom ? '该日期范围内没有配置变更记录。' : '还没有配置变更记录。'}
+              {history.appliedFrom ? '该日期范围内没有配置变更记录。' : '还没有配置变更记录。'}
             </div>
           ) : (
             <div className="max-h-96 space-y-2 overflow-auto">

@@ -9,7 +9,8 @@ export type ExportResource =
   | 'session_restore_stats'
   | 'session_pins'
   | 'session_pin_stats'
-  | 'export_audits';
+  | 'export_audits'
+  | 'tool_setting_history';
 
 export const EXPORT_RESOURCE_LABEL: Record<ExportResource, string> = {
   approvals: '审批列表',
@@ -19,6 +20,7 @@ export const EXPORT_RESOURCE_LABEL: Record<ExportResource, string> = {
   session_pins: '置顶审计列表',
   session_pin_stats: '置顶审计统计',
   export_audits: '导出审计列表',
+  tool_setting_history: '工具变更历史',
 };
 
 export interface ExportAudit {

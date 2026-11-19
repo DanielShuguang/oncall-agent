@@ -1,6 +1,6 @@
 """CSV 导出下载审计（ADR-0094）。
 
-审批/恢复审计/置顶审计的 CSV 导出是只读操作，但管理场景需要回答「谁在
+审批/恢复审计/置顶审计/工具历史的 CSV 导出是只读操作，但管理场景需要回答「谁在
 什么时候、用什么过滤条件、导出了多少行」。这里只记录成功生成并即将返回的
 导出：CSV 生成失败不写，审计写入失败则整个导出 503（fail closed），避免出现
 无法留痕的下载。
@@ -30,6 +30,7 @@ EXPORT_RESOURCES: tuple[str, ...] = (
     "session_pins",
     "session_pin_stats",
     "export_audits",
+    "tool_setting_history",
 )
 
 
@@ -56,7 +57,8 @@ class ExportAudit(Base):
         CheckConstraint(
             "resource IN ("
             "'approvals', 'approval_stats', 'session_restores', "
-            "'session_restore_stats', 'session_pins', 'session_pin_stats', 'export_audits'"
+            "'session_restore_stats', 'session_pins', 'session_pin_stats', "
+            "'export_audits', 'tool_setting_history'"
             ")",
             name="ck_export_audits_resource",
         ),

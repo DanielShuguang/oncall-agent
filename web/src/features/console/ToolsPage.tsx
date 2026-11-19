@@ -4,12 +4,14 @@ import { useEffect, useRef, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import {
   exampleArgs,
+  exportToolHistoryCsv,
   getToolHistory,
   listTools,
   testTool,
   updateTool,
   type ToolInfo,
 } from '@/api/tools';
+import { downloadBlob } from '@/lib/download';
 import { ToolsDialogs, type HistoryState, type TestState } from './ToolsDialogs';
 import { ToolsTable } from './ToolsTable';
 
@@ -21,7 +23,10 @@ export default function ToolsPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [tester, setTester] = useState<TestState | null>(null);
   const [history, setHistory] = useState<HistoryState | null>(null);
+  const [exportingHistory, setExportingHistory] = useState(false);
+  const [historyExportMessage, setHistoryExportMessage] = useState<string | null>(null);
   const historyRequest = useRef(0);
+  const historyExportRequest = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -89,6 +94,9 @@ export default function ToolsPage() {
 
   const requestHistory = (tool: ToolInfo, changedFrom: string, changedTo: string) => {
     const requestId = ++historyRequest.current;
+    historyExportRequest.current += 1;
+    setExportingHistory(false);
+    setHistoryExportMessage(null);
     setHistory({
       tool,
       loading: true,
@@ -97,6 +105,8 @@ export default function ToolsPage() {
       changedFrom,
       changedTo,
       filterError: null,
+      appliedFrom: changedFrom,
+      appliedTo: changedTo,
     });
     void (async () => {
       try {
@@ -141,6 +151,31 @@ export default function ToolsPage() {
 
   const clearHistoryFilters = () => {
     if (history) requestHistory(history.tool, '', '');
+  };
+
+  const exportHistory = async () => {
+    if (!history) return;
+    const requestId = ++historyExportRequest.current;
+    setExportingHistory(true);
+    setHistoryExportMessage(null);
+    try {
+      const result = await exportToolHistoryCsv(history.tool.name, {
+        changedFrom: history.appliedFrom,
+        changedTo: history.appliedTo,
+      });
+      if (requestId !== historyExportRequest.current) return;
+      downloadBlob(result.blob, `tool-history-${history.tool.name}.csv`);
+      setHistoryExportMessage(
+        result.truncated
+          ? `已导出前 ${result.count} 条（窗口内记录更多，已截断）`
+          : `已导出 ${result.count} 条`,
+      );
+    } catch (exc) {
+      if (requestId !== historyExportRequest.current) return;
+      setHistoryExportMessage(exc instanceof Error ? exc.message : '导出失败');
+    } finally {
+      if (requestId === historyExportRequest.current) setExportingHistory(false);
+    }
   };
 
   const runTest = async () => {
@@ -212,9 +247,19 @@ export default function ToolsPage() {
         tester={tester}
         history={history}
         onTesterChange={setTester}
-        onHistoryChange={setHistory}
+        onHistoryChange={(next) => {
+          if (!next) {
+            historyExportRequest.current += 1;
+            setExportingHistory(false);
+            setHistoryExportMessage(null);
+          }
+          setHistory(next);
+        }}
         onReloadHistory={reloadHistory}
         onClearHistoryFilters={clearHistoryFilters}
+        onExportHistory={() => void exportHistory()}
+        exportingHistory={exportingHistory}
+        historyExportMessage={historyExportMessage}
         onRunTest={() => void runTest()}
       />
     </div>

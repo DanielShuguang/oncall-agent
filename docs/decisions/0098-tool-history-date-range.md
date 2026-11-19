@@ -66,6 +66,6 @@ ADR-0037 的 `GET /admin/tools/{name}/history` 只支持 `limit`（默认 20、�
 ## 6. 待定
 
 - 工具历史分页/总数：窗口内超过 100 条时的完整浏览。
-- 工具历史 CSV/JSON 导出：与导出下载审计（ADR-0094）同一条链路，需新增资源类型与迁移。
+- ~~工具历史 CSV/JSON 导出~~：已由 [ADR-0099](0099-tool-history-export.md) 补上 CSV 导出（`resource=tool_setting_history`，迁移 `0026`），JSON 不做。
 - 查询本身是否要写一条「谁在何时查了哪个窗口」的读取审计；当前只记录配置写入。
 - 历史保留期与冷归档：仍与 ADR-0021/0027 的审计保留一起设计。

@@ -26,7 +26,7 @@ ADR-0098 的「待定」也明确写了导出能力留待后续。现在补一�
 3. CSV 固定六列：`tool_name,changed_at,changed_by,source,before,after`；`before` / `after` 用 `json.dumps(..., ensure_ascii=False, sort_keys=True)` 序列化，空快照写空字符串；复用 `csv_document` 的 BOM/CRLF/公式防护。
 4. 最多导出 5000 行。查询 `MAX_EXPORT_ROWS + 1` 判断截断；超过时只返回前 5000 行，并在 `X-Export-Truncated: true` 与下载审计 `truncated=true` 同时标注。不提供总数/游标。
 5. 导出本身写下载审计：资源 `tool_setting_history`，`filters` 只保留 `tool` 与两端日期，`row_count` 为实际返回行数，`content_sha256` 为返回 CSV 的 SHA-256。审计写入失败返回 503，不返回没有留痕的下载。
-6. 文件名使用 `tool-history-{safe_name}-{UTC}.csv`；工具名中非字母数字/`-_` 的字符替换为 `_`，避免引号/路径字符进入 `Content-Disposition`。
+6. 文件名使用 `tool-history-{safe_name}-{UTC}.csv`；工具名中非 ASCII 字母数字/`-_` 的字符替换为 `_`，避免引号、路径或非 latin-1 字符进入 `Content-Disposition`。
 7. 前端导出使用「已应用」的筛选，而不是输入框草稿；切换筛选或关闭 Dialog 会失效在途导出，避免旧响应覆盖新视图。提示实际导出行数，截断时明确说明只含前 5000 条。
 
 ## 后果
@@ -39,7 +39,7 @@ ADR-0098 的「待定」也明确写了导出能力留待后续。现在补一�
 
 ## 验证
 
-- 后端：`test_tool_history.py` 覆盖导出、403、单端 422、CSV 表头/BOM、审计过滤/行数/哈希；默认 `pytest` **531 passed + 41 skipped**（tests=572），PG-only **569 passed + 3 skipped**，PG+Redis **572 passed**。
+- 后端：`test_tool_history.py` 覆盖导出、403、单端 422、CSV 表头/BOM、审计过滤/行数/哈希，以及非 ASCII 工具名生成可写响应头；默认 `pytest` **531 passed + 41 skipped**（tests=572），PG-only **569 passed + 3 skipped**，PG+Redis **572 passed**。
 - 迁移：`0026` 的 upgrade → `alembic check` → downgrade `0025` → upgrade `0026` 通过，无漂移；降级会丢失 `resource=tool_setting_history` 的审计行。
 - 前端：`pnpm test` **27 files / 135 tests**、`lint 0/0`（131 files）、`format:check` 139 files、`build` 2938 modules 通过；`exportToolHistoryCsv` 的 URL/响应头用例已补。
 - 静态检查：`ruff check`、`ruff format --check` 208 files、`mypy app` 119 files 通过。

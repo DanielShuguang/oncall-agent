@@ -312,3 +312,10 @@ async def test_history_export_records_download(client: AsyncClient) -> None:
     assert item["row_count"] == 2
     assert item["truncated"] is False
     assert item["content_sha256"] == hashlib.sha256(res.content).hexdigest()
+
+    # 工具名来自 URL，可能含非 ASCII；文件名必须能安全写进 latin-1 响应头
+    non_ascii = await client.get(
+        "/api/admin/tools/%E5%B7%A5%E5%85%B7/history/export", headers=ADMIN
+    )
+    assert non_ascii.status_code == 200
+    assert non_ascii.headers["content-disposition"].isascii()

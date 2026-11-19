@@ -2215,7 +2215,7 @@ ADR-0037 的工具变更历史只按工具查最近 N 条；安全/审计要固�
 | 接口 | `GET /admin/tools/{name}/history?changed_from=&changed_to=`（UTC 日期，两端同时提供）；单端/倒置/超 365 天 `422 INVALID_RANGE` |
 | 窗口 | `[from 00:00Z, to+1d 00:00Z)`；结束日整天包含；不改 `limit`（1–100）语义 |
 | 前端 | 历史 Dialog 增加开始/结束日期与应用/清除；只在点击应用后查询；预校验两端与顺序；应用后丢弃旧响应 |
-| 范围 | 不做分页/总数、CSV 导出、读取审计、保留期调整；关闭 Dialog 不持久化日期 |
+| 范围 | 不做分页/总数、读取审计、保留期调整；CSV 导出由 ADR-0099 补上；关闭 Dialog 不持久化日期 |
 | 验证 | 默认 530+41、PG 568+3、PG+Redis 571；ruff 207 / mypy 119；前端 27 files/133 tests、lint 131、format 139、build 2938 modules |
 
 详见 [ADR-0098](decisions/0098-tool-history-date-range.md)。

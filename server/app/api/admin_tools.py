@@ -112,7 +112,10 @@ def _tool_history_csv(records: Sequence[ToolSettingChangeRecord]) -> str:
 
 def _safe_filename_part(value: str) -> str:
     """避免工具名中的引号/路径字符进入 Content-Disposition。"""
-    return "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in value)[:64] or "tool"
+    return (
+        "".join(ch if (ch.isascii() and ch.isalnum()) or ch in "-_" else "_" for ch in value)[:64]
+        or "tool"
+    )
 
 
 def _tool_out(

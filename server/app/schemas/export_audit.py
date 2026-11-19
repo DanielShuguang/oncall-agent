@@ -14,6 +14,7 @@ class ExportAuditOut(BaseModel):
     filters: dict[str, str]
     row_count: int
     truncated: bool
+    content_sha256: str | None
     created_at: datetime
 
 

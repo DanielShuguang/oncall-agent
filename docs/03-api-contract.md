@@ -600,6 +600,7 @@ Authorization: Bearer <admin-token>
       "filters": {"action": "pin"},
       "row_count": 12,
       "truncated": false,
+      "content_sha256": "9f86d0…",
       "created_at": "2026-11-16T12:00:00+00:00"
     }
   ],
@@ -616,6 +617,8 @@ Authorization: Bearer <admin-token>
   最多 365 天，否则 `422 INVALID_RANGE`
 - `filters` 是记录时的标量过滤条件；列表导出为条数，统计导出为长表数据行数
   （不含表头），`truncated` 只对 5000 行上限的列表导出有意义
+- `content_sha256` 是服务端返回 CSV 的 SHA-256（含 BOM/CRLF），旧记录为 `null`；
+  只用于离线核对，不是签名（[ADR-0097](decisions/0097-export-content-hash.md)）
 - 游标分页：`(created_at, id)` 倒序 keyset；游标 base64url JSON `{t,i,f}`，
   `f` 是过滤条件 fingerprint，换过滤复用旧游标返回 `400 INVALID_CURSOR`；
   取满 `limit` 才给 `next_cursor`
@@ -631,8 +634,8 @@ Authorization: Bearer <admin-token>
 ```
 
 - 参数与列表相同（`user_id`/`resource`/`created_from`/`created_to`），不接收 `cursor`/`limit`
-- CSV 列 `created_at,user_id,resource,row_count,truncated,filters`；`filters` 是 JSON 字符串；
-  仍使用 UTF-8 BOM + CRLF 与公式注入防护
+- CSV 列 `created_at,user_id,resource,row_count,truncated,filters,content_sha256`；
+  `filters` 是 JSON 字符串、`content_sha256` 旧记录为空；仍使用 UTF-8 BOM + CRLF 与公式注入防护
 - 最多 5000 行；响应头 `X-Export-Count`、`X-Export-Truncated`、`Cache-Control: no-store`，
   文件名带 UTC 时间
 - **本导出自身也写一条审计**：`resource=export_audits`，`filters` 为本次过滤，`row_count` 为

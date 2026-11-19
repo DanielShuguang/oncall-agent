@@ -29,6 +29,8 @@ export interface ExportAudit {
   filters: Record<string, string>;
   row_count: number;
   truncated: boolean;
+  /** 实际返回 CSV 的 SHA-256；旧记录为 null。 */
+  content_sha256?: string | null;
   created_at: string;
 }
 

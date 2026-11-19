@@ -271,6 +271,14 @@ export default function ExportAuditsPage() {
                       <TableCell className="align-top text-xs whitespace-nowrap">
                         {item.row_count}
                         {item.truncated && <span className="ml-1 text-warn">（截断）</span>}
+                        {item.content_sha256 && (
+                          <div
+                            className="mt-1 font-mono text-[10px] text-muted-foreground"
+                            title={item.content_sha256}
+                          >
+                            {item.content_sha256.slice(0, 12)}…
+                          </div>
+                        )}
                       </TableCell>
                       <TableCell className="max-w-xl align-top font-mono text-[11px] break-all text-muted-foreground">
                         {filterText(item.filters)}

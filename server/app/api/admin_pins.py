@@ -308,6 +308,7 @@ async def export_session_pin_audit_stats(
             "created_to": created_to.isoformat() if created_to else None,
         },
         row_count=max(0, len(content.splitlines()) - 1),
+        content=content,
     )
     return Response(
         content=content,
@@ -350,6 +351,7 @@ async def export_session_pin_audits(
         raise ApiError(503, "DATABASE_UNAVAILABLE", "置顶审计暂不可用") from exc
     truncated = len(records) > MAX_EXPORT_ROWS
     rows = records[:MAX_EXPORT_ROWS]
+    content = _audits_csv(rows)
     await record_export(
         store,
         user_id=_admin.user_id,
@@ -363,10 +365,11 @@ async def export_session_pin_audits(
         },
         row_count=len(rows),
         truncated=truncated,
+        content=content,
     )
     filename = f"session-pins-{datetime.now(UTC):%Y%m%d-%H%M%S}.csv"
     return Response(
-        content=_audits_csv(rows),
+        content=content,
         media_type="text/csv",
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',

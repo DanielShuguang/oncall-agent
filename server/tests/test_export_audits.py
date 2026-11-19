@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 from unittest.mock import AsyncMock
 
 from httpx import AsyncClient
@@ -93,7 +94,9 @@ async def test_export_audits_csv_records_itself(
     assert res.headers["x-export-count"] == "2"
     assert res.headers["x-export-truncated"] == "false"
     body = res.text
-    assert body.startswith("\ufeffcreated_at,user_id,resource,row_count,truncated,filters")
+    assert body.startswith(
+        "\ufeffcreated_at,user_id,resource,row_count,truncated,filters,content_sha256"
+    )
     assert "approvals" in body
 
     listed = await client.get("/api/admin/export-audits?limit=10", headers=ADMIN)
@@ -103,6 +106,7 @@ async def test_export_audits_csv_records_itself(
     assert payload["items"][0]["resource"] == "export_audits"
     assert payload["items"][0]["row_count"] == 2
     assert payload["items"][0]["filters"] == {"resource": "approvals"}
+    assert payload["items"][0]["content_sha256"] == hashlib.sha256(res.content).hexdigest()
 
     self_only = await client.get("/api/admin/export-audits?resource=export_audits", headers=ADMIN)
     assert self_only.status_code == 200

@@ -2143,7 +2143,7 @@ ADR-0073 把单用户置顶上限固定为 50，ADR-0074 已把 `pinned_count`/`
 | 失败语义 | 审计写入失败返回 503 `DATABASE_UNAVAILABLE`（fail closed），不返回无法留痕的文件；CSV 生成失败不写 |
 | 读取 | 管理员 `GET /admin/export-audits`：`user_id`/`resource`/UTC 日期范围过滤，`(created_at,id)` keyset，首屏 total，非法游标 400、范围 422、计数/列表失败 503 |
 | 前端 | ConsolePage「导出审计」只读页：用户/资源/日期过滤、20 条/页加载更多、行数与截断标识；不回放导出文件 |
-| 范围 | 不做异步导出、单条详情、客户端下载确认；保留策略见 ADR-0095；审计列表导出见 ADR-0096 |
+| 范围 | 不做异步导出、单条详情、客户端下载确认；保留策略见 ADR-0095；审计列表导出见 ADR-0096；内容哈希见 ADR-0097 |
 | 验证 | 迁移 `0023` 往返通过；默认 525+40、PG 562+3、PG+Redis 565；ruff 205 / mypy 119；前端 27 files/130 tests、lint 130、format 138、build 2937 modules |
 
 详见 [ADR-0094](decisions/0094-export-download-audit.md)。
@@ -2182,6 +2182,24 @@ ADR-0073 把单用户置顶上限固定为 50，ADR-0074 已把 `pinned_count`/`
 | 验证 | 默认 527+40、PG 564+3、PG+Redis 567；`ruff check`、`ruff format --check` 207 files、`mypy app` 119 files；前端 27 files/131 tests、lint 0/0（131 files）、format 139 files、build 2938 modules；迁移 `0024` 往返通过 |
 
 详见 [ADR-0096](decisions/0096-export-audit-list-export.md)。
+
+---
+
+## W6 后补：导出 CSV 内容哈希（ADR-0097）
+
+导出审计记录了行数与过滤条件，但没有绑定实际返回的 CSV，无法离线核对下载文件
+是否被改动。本 ADR 给 `export_audits` 增加 `content_sha256`，记录服务端当时
+返回内容的 SHA-256。
+
+| 事项 | 落地 |
+|---|---|
+| 字段 | `export_audits.content_sha256 VARCHAR(64) NULL`；迁移 `0025` 只加列，旧记录不回填 |
+| 计算 | `record_export` 接收 CSV 字符串，按 UTF-8（含 BOM/CRLF）计算 SHA-256，与审计同条写入 |
+| 读取 | 管理员列表返回 `content_sha256`；审计 CSV 增加该列；页面显示前 12 位并用 `title` 展示完整值 |
+| 范围 | 不保存 CSV 正文、不做 HMAC/签名、不在响应头返回哈希；旧记录保持空 |
+| 验证 | 默认 527+40、PG 564+3、PG+Redis 567；`ruff check`、`ruff format --check` 207 files、`mypy app` 119 files；前端 27 files/131 tests、lint 131、format 139、build 2938 modules；迁移 `0025` 往返 |
+
+详见 [ADR-0097](decisions/0097-export-content-hash.md)。
 
 ---
 

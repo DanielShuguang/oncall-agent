@@ -44,6 +44,7 @@ CSV_HEADERS = (
     "row_count",
     "truncated",
     "filters",
+    "content_sha256",
 )
 
 
@@ -55,9 +56,11 @@ async def record_export(
     filters: dict[str, str | None],
     row_count: int,
     truncated: bool = False,
+    content: str | None = None,
 ) -> None:
     """记录一次成功生成的 CSV 导出；写失败直接 503（fail closed）。"""
     clean = {key: value for key, value in filters.items() if value}
+    digest = hashlib.sha256(content.encode("utf-8")).hexdigest() if content is not None else None
     try:
         await store.record_export_audit(
             user_id=user_id,
@@ -65,6 +68,7 @@ async def record_export(
             filters=clean,
             row_count=row_count,
             truncated=truncated,
+            content_sha256=digest,
         )
     except SQLAlchemyError as exc:
         log.error("export_audit_write_failed", resource=resource, error=str(exc))
@@ -144,6 +148,7 @@ def _export_audits_csv(records: list[ExportAuditRecord]) -> str:
                 record.row_count,
                 record.truncated,
                 json.dumps(record.filters, ensure_ascii=False, sort_keys=True),
+                record.content_sha256 or "",
             )
             for record in records
         ),
@@ -187,6 +192,7 @@ async def export_export_audits(
         },
         row_count=len(rows),
         truncated=truncated,
+        content=content,
     )
     filename = f"export-audits-{datetime.now(UTC):%Y%m%d-%H%M%S}.csv"
     return Response(
@@ -254,6 +260,7 @@ async def list_export_audits(
                 filters=record.filters,
                 row_count=record.row_count,
                 truncated=record.truncated,
+                content_sha256=record.content_sha256,
                 created_at=record.created_at,
             )
             for record in items

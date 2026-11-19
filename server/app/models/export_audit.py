@@ -5,7 +5,8 @@
 导出：CSV 生成失败不写，审计写入失败则整个导出 503（fail closed），避免出现
 无法留痕的下载。
 
-`filters` 只保存标量过滤条件（用户/会话/日期/动作等），不保存行内容；由
+`filters` 只保存标量过滤条件（用户/会话/日期/动作等），不保存行内容；`content_sha256`
+保存实际返回 CSV 的 SHA-256（ADR-0097），旧记录为空。由
 `RetentionSweeper` 按 `ONCALL_EXPORT_AUDIT_RETENTION_DAYS`（默认 365 天）独立清理（ADR-0095）。
 """
 
@@ -45,6 +46,7 @@ class ExportAudit(Base):
     truncated: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default=text("false"), nullable=False
     )
+    content_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, server_default=text("now()"), nullable=False
     )

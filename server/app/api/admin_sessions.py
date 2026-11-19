@@ -280,6 +280,7 @@ async def export_session_restore_stats(
             "restored_to": restored_to.isoformat() if restored_to else None,
         },
         row_count=max(0, len(content.splitlines()) - 1),
+        content=content,
     )
     return Response(
         content=content,
@@ -319,6 +320,7 @@ async def export_session_restores(
         raise ApiError(503, "DATABASE_UNAVAILABLE", "会话恢复审计暂不可用") from exc
     truncated = len(records) > MAX_EXPORT_ROWS
     rows = records[:MAX_EXPORT_ROWS]
+    content = _audits_csv(rows)
     await record_export(
         store,
         user_id=_admin.user_id,
@@ -331,10 +333,11 @@ async def export_session_restores(
         },
         row_count=len(rows),
         truncated=truncated,
+        content=content,
     )
     filename = f"session-restores-{datetime.now(UTC):%Y%m%d-%H%M%S}.csv"
     return Response(
-        content=_audits_csv(rows),
+        content=content,
         media_type="text/csv",
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',

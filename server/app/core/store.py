@@ -156,6 +156,7 @@ class ExportAuditRecord:
     filters: dict[str, str]
     row_count: int
     truncated: bool
+    content_sha256: str | None
     created_at: datetime
 
 
@@ -698,6 +699,7 @@ class RunStore(Protocol):
         filters: dict[str, str],
         row_count: int,
         truncated: bool = False,
+        content_sha256: str | None = None,
     ) -> None:
         """记录一次成功返回的 CSV 导出（ADR-0094）。
 
@@ -1393,6 +1395,7 @@ class InMemoryRunStore:
         filters: dict[str, str],
         row_count: int,
         truncated: bool = False,
+        content_sha256: str | None = None,
     ) -> None:
         async with self._lock:
             self._export_audits.append(
@@ -1403,6 +1406,7 @@ class InMemoryRunStore:
                     filters=dict(filters),
                     row_count=row_count,
                     truncated=truncated,
+                    content_sha256=content_sha256,
                     created_at=datetime.now(UTC),
                 )
             )
@@ -2497,6 +2501,7 @@ class PostgresRunStore:
         filters: dict[str, str],
         row_count: int,
         truncated: bool = False,
+        content_sha256: str | None = None,
     ) -> None:
         async with self._sessionmaker() as session:
             session.add(
@@ -2506,6 +2511,7 @@ class PostgresRunStore:
                     filters=dict(filters),
                     row_count=row_count,
                     truncated=truncated,
+                    content_sha256=content_sha256,
                 )
             )
             await session.commit()
@@ -2553,6 +2559,7 @@ class PostgresRunStore:
                 filters=dict(row.filters),
                 row_count=row.row_count,
                 truncated=row.truncated,
+                content_sha256=row.content_sha256,
                 created_at=row.created_at,
             )
             for row in rows

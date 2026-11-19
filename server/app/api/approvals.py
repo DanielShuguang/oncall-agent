@@ -360,6 +360,7 @@ async def export_approvals(
         raise ApiError(503, "DATABASE_UNAVAILABLE", "database unavailable") from exc
     truncated = len(records) > MAX_EXPORT_ROWS
     rows = records[:MAX_EXPORT_ROWS]
+    content = _approvals_csv(rows)
     await record_export(
         store,
         user_id=identity.user_id,
@@ -373,10 +374,11 @@ async def export_approvals(
         },
         row_count=len(rows),
         truncated=truncated,
+        content=content,
     )
     filename = f"approvals-{status}-{datetime.now(UTC):%Y%m%d-%H%M%S}.csv"
     return Response(
-        content=_approvals_csv(rows),
+        content=content,
         media_type="text/csv",
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
@@ -504,6 +506,7 @@ async def export_approval_stats(
         resource="approval_stats",
         filters={"days": str(days), "group_by": group_label},
         row_count=max(0, len(content.splitlines()) - 1),
+        content=content,
     )
     filename = f"approval-stats-{days}d-{group_label}-{datetime.now(UTC):%Y%m%d-%H%M%S}.csv"
     return Response(

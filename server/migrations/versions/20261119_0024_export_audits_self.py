@@ -6,6 +6,10 @@ Create Date: 2026-11-19
 
 导出审计列表也可以导出为 CSV；该导出本身同样写一条 `resource=export_audits`
 记录，否则治理证据会缺失。这里只扩展 CHECK，不改字段或索引。
+
+downgrade 先删除 `resource=export_audits` 的审计行：旧 CHECK 只允许 6 种资源，
+保留这些行会让 0023 的约束无法建立；降级即放弃「导出审计自身导出」能力，这些
+行对应的动作在旧版本也不存在。
 """
 
 from __future__ import annotations
@@ -39,5 +43,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.execute("DELETE FROM export_audits WHERE resource = 'export_audits'")
     op.drop_constraint("ck_export_audits_resource", "export_audits", type_="check")
     op.create_check_constraint("ck_export_audits_resource", "export_audits", _RESOURCES_6)

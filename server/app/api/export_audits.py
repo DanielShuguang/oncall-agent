@@ -174,6 +174,7 @@ async def export_export_audits(
         raise ApiError(503, "DATABASE_UNAVAILABLE", "导出审计暂不可用") from exc
     truncated = len(records) > MAX_EXPORT_ROWS
     rows = records[:MAX_EXPORT_ROWS]
+    content = _export_audits_csv(rows)
     await record_export(
         store,
         user_id=admin.user_id,
@@ -189,7 +190,7 @@ async def export_export_audits(
     )
     filename = f"export-audits-{datetime.now(UTC):%Y%m%d-%H%M%S}.csv"
     return Response(
-        content=_export_audits_csv(rows),
+        content=content,
         media_type="text/csv",
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',

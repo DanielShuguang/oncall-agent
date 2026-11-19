@@ -25,7 +25,8 @@ ADR-0094 让 6 个 CSV 端点记录下载审计，并提供只读列表；ADR-00
 ## 决策
 
 1. **新增第 7 种资源** `export_audits`；`export_audits.resource` 的 CHECK 扩展，迁移
-   `0024` 只 drop/create 该 CHECK，不改字段和索引。
+   `0024` 只 drop/create 该 CHECK，不改字段和索引；downgrade 先删除 `export_audits`
+   资源的记录，否则旧 6 值 CHECK 无法建立。
 2. **接口**：`GET /admin/export-audits/export`，与列表相同的 `user_id`、`resource`、
    `created_from/to` 过滤；不接受 `cursor`/`limit`，一次最多 5000 行。
 3. **CSV 列**：`created_at,user_id,resource,row_count,truncated,filters`；`filters` 用
@@ -45,14 +46,15 @@ ADR-0094 让 6 个 CSV 端点记录下载审计，并提供只读列表；ADR-00
   `resource` 过滤可以单独查看。
 - 单次最多 5000 行；需要全量归档时按日期/用户分片导出。
 - 迁移 `0024` 只改 CHECK，旧数据无需回填；降级时如果已经存在 `export_audits` 记录，
-  downgrade 会被 CHECK 拒绝，需先清理该资源的记录（与破坏性降级一致）。
+  downgrade 会删除这些记录再恢复 6 值 CHECK（降级即放弃「导出审计自身导出」能力；
+  这是破坏性降级的明确数据损失，不静默保留旧 CHECK）。
 - 导出是同步读；大表下仍是 5000 行上限，没有游标导出。
 
 ## 验证
 
 - 后端：`server/tests/test_export_audits.py` 新增自身导出用例，断言 CSV 表头、行数、
   响应头与新增的 `export_audits` 审计行；`test_store_contract` 覆盖第 7 种资源的内存/PG
-  写入；迁移 `0024` 往返通过。
+  写入；迁移 `0024` 往返通过（含先插入 `export_audits` 行再 downgrade 的场景）。
 - 前端：`web/src/api/exportAudits.test.ts` 新增导出 URL/响应头用例；页面「导出 CSV」
   成功后刷新列表，能看到自身审计记录。
 - 默认 527+40（tests=567）/ PG-only 564+3 / PG+Redis 567；迁移 `0024` 往返通过；

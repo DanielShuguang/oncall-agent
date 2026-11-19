@@ -52,7 +52,7 @@ export default function ExportAuditsPage() {
   const [error, setError] = useState<string | null>(null);
   const [filterError, setFilterError] = useState<string | null>(null);
   const requestRef = useRef(0);
-  const exports = useExportAuditExport(filters, () => setFilters({ ...filters }));
+  const exports = useExportAuditExport(filters, () => setFilters((current) => ({ ...current })));
 
   useEffect(() => {
     let cancelled = false;
@@ -87,6 +87,7 @@ export default function ExportAuditsPage() {
       return;
     }
     setFilterError(null);
+    exports.invalidate();
     requestRef.current += 1;
     setItems([]);
     setCursor(null);
@@ -101,6 +102,7 @@ export default function ExportAuditsPage() {
 
   const clearFilters = () => {
     setFilterError(null);
+    exports.invalidate();
     requestRef.current += 1;
     setDraft(EMPTY_DRAFT);
     setItems([]);

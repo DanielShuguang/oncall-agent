@@ -90,6 +90,21 @@ describe('exportToolHistoryCsv', () => {
     expect(result.truncated).toBe(false);
   });
 
+  it('导出带变更人与来源过滤', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    fetchMock.mockImplementation(async () => new Response('csv', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await exportToolHistoryCsv('query_cmdb', {
+      changedBy: 'admin_1',
+      source: 'matrix',
+    });
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      '/api/admin/tools/query_cmdb/history/export?changed_by=admin_1&source=matrix',
+    );
+  });
+
   it('没有日期时只请求导出路径', async () => {
     const fetchMock = vi.fn<typeof fetch>();
     fetchMock.mockImplementation(async () => new Response('csv', { status: 200 }));
@@ -120,6 +135,16 @@ describe('getToolHistory', () => {
 
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
       '/api/admin/tools/query_cmdb/history?limit=30&changed_from=2026-01-01&changed_to=2026-01-31',
+    );
+  });
+
+  it('追加变更人与来源过滤', async () => {
+    const fetchMock = stubFetch({ items: [] });
+
+    await getToolHistory('query_cmdb', 20, { changedBy: 'admin_1', source: 'matrix' });
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      '/api/admin/tools/query_cmdb/history?limit=20&changed_by=admin_1&source=matrix',
     );
   });
 

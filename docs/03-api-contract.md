@@ -50,7 +50,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | GET | `/admin/session-pins/export` | 会话置顶审计 CSV 导出（同一组过滤，最多 5000 条） | W6 后补 |
 | GET | `/admin/export-audits` | CSV 导出下载审计（按用户/资源/UTC 日期范围过滤，keyset 分页；第一页附总数；只读） | W6 后补 |
 | GET | `/admin/export-audits/export` | 导出审计 CSV 导出（同一组过滤，最多 5000 条；本导出自身也写审计） | W6 后补 |
-| GET | `/admin/tools/{name}/history/export` | 工具配置变更历史 CSV 导出（UTC 日期范围，最多 5000 条；写下载审计） | W6 后补 |
+| GET | `/admin/tools/{name}/history/export` | 工具配置变更历史 CSV 导出（UTC 日期/变更人/来源过滤，最多 5000 条；写下载审计） | W6 后补 |
 | GET | `/sessions/{session_id}/runs` | 一页会话详情（正文/引用/运行过程，一次返回） | W6 后补 |
 | GET | `/runs/{run_id}` | 单次运行详情（含指标与模型调用明细） | W1 D4 / W4 D19 |
 | GET | `/runs/{run_id}/events?after_seq=` | 补拉事件（断线续传，兼容 `Last-Event-ID`） | W1 D4 |
@@ -68,7 +68,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | POST | `/admin/kb/reindex` | 重建索引（用当前 embedder 重算向量） | W2 D8 |
 | GET | `/admin/tools` | 工具注册表（含生效角色/启用状态） | W3 D12 / W5 D22 |
 | PATCH | `/admin/tools/{name}` | 启用/禁用工具（`enabled: null` 恢复默认） | W5 D22 |
-| GET | `/admin/tools/{name}/history` | 工具配置变更历史（谁在何时把启用/角色改成什么；支持 UTC 日期范围） | W6 后补 |
+| GET | `/admin/tools/{name}/history` | 工具配置变更历史（谁在何时把启用/角色改成什么；支持 UTC 日期/变更人/来源过滤） | W6 后补 |
 | POST | `/admin/tools/{name}/test` | 工具试调用（强制走治理链路） | W5 D22 |
 | GET | `/admin/perm-matrix` | 角色 × 工具矩阵 | W3 D12 / W5 D23 |
 | PUT | `/admin/perm-matrix` | 更新矩阵（按工具部分更新） | W5 D23 |
@@ -650,13 +650,15 @@ Authorization: Bearer <admin-token>
 ```
 
 - 参数与 `/admin/tools/{name}/history` 相同（`changed_from`/`changed_to`，UTC 自然日，
-  两端同时提供、最多 365 天），不接收 `limit`/`cursor`；管理员角色，普通员工 403
+  两端同时提供、最多 365 天；`changed_by` 精确匹配、`source` 为 `tool|matrix`），不接收
+  `limit`/`cursor`；管理员角色，普通员工 403
 - CSV 列 `tool_name,changed_at,changed_by,source,before,after`；`before`/`after` 是
   排序后的 JSON 字符串，空快照为空；UTF-8 BOM + CRLF 与公式注入防护沿用 `csv_document`
 - 最多 5000 行；响应头 `X-Export-Count`、`X-Export-Truncated`、`Cache-Control: no-store`，
   文件名 `tool-history-{safe_name}-{UTC}.csv`（工具名非字母数字/`-_` 替换为 `_`）
-- **本导出自身也写一条审计**：`resource=tool_setting_history`，`filters` 为 `tool` 与本次日期，
-  `row_count` 为实际导出行数，`content_sha256` 为返回 CSV 的 SHA-256；写入失败 503，不返回文件
+- **本导出自身也写一条审计**：`resource=tool_setting_history`，`filters` 为 `tool`、日期与
+  已应用的变更人/来源，`row_count` 为实际导出行数，`content_sha256` 为返回 CSV 的 SHA-256；
+  写入失败 503，不返回文件
 - 单端日期、倒置、超 365 天返回 `422 INVALID_RANGE`；数据库不可用返回
   `503 {"code":"DATABASE_UNAVAILABLE"}`
 
@@ -1544,6 +1546,7 @@ GET /api/admin/perm-matrix
 ```http
 GET /api/admin/tools/create_ticket/history?limit=20
 GET /api/admin/tools/create_ticket/history?limit=20&changed_from=2026-11-01&changed_to=2026-11-07
+GET /api/admin/tools/create_ticket/history?limit=20&changed_by=admin_1&source=matrix
 GET /api/admin/tools/create_ticket/history?limit=20&cursor=eyJ0Ijoi...
 Authorization: Bearer <admin token>
 ```
@@ -1576,8 +1579,10 @@ Authorization: Bearer <admin token>
 - `changed_from` / `changed_to` 是 UTC 自然日（`YYYY-MM-DD`），两端必须同时提供；
   窗口为 `[from 00:00:00Z, to+1d 00:00:00Z)`，结束日整天包含（ADR-0098）。单端、倒置、
   或闭区间超过 365 天返回 `422 INVALID_RANGE`；不传时保持「最近 N 条」行为
-- 分页是 keyset：`cursor` 由上一页最后一条的 `(changed_at, id)` 生成，并与工具名、已应用日期窗口
-  绑定；改筛选后复用旧 `cursor` 返回 `400 INVALID_CURSOR`。第一页返回 `total`，后续页
+- `changed_by` 是精确匹配（1–64 字符）；`source` 只接受 `tool`/`matrix`，其他值 422。
+  两个过滤都不传时不收窄；`total` 与 `items` 都按过滤后的集合计算（ADR-0101）
+- 分页是 keyset：`cursor` 由上一页最后一条的 `(changed_at, id)` 生成，并与工具名、已应用日期窗口、
+  变更人、来源绑定；改任一筛选后复用旧 `cursor` 返回 `400 INVALID_CURSOR`。第一页返回 `total`，后续页
   `total` 为 `null`；只有当前页取满且还有更多时才给 `next_cursor`（ADR-0100）
 - `total < len(items)` 时（计数与列表非同一快照）`total` 降级为 `null`，不显示矛盾总数
 - 不要求工具仍在注册表：按名字查历史，工具下线/改名后仍可查；从未注册过的名字返回空

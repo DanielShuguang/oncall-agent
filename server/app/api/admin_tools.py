@@ -86,9 +86,23 @@ def _history_window(
 TOOL_HISTORY_CURSOR_MAX = 512
 
 
-def _history_fingerprint(name: str, since: datetime | None, until: datetime | None) -> str:
-    # 只存指纹，不把工具名/日期原值塞进游标；与非 ASCII 工具名解耦。
-    raw = f"{name}\0{since.isoformat() if since else ''}\0{until.isoformat() if until else ''}"
+def _history_fingerprint(
+    name: str,
+    since: datetime | None,
+    until: datetime | None,
+    changed_by: str | None,
+    source: str | None,
+) -> str:
+    # 只存指纹，不把工具名/过滤原值塞进游标；与非 ASCII 值解耦。
+    raw = "\0".join(
+        (
+            name,
+            since.isoformat() if since else "",
+            until.isoformat() if until else "",
+            changed_by or "",
+            source or "",
+        )
+    )
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
 
@@ -288,19 +302,35 @@ async def tool_setting_history(
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     changed_from: Annotated[date | None, Query()] = None,
     changed_to: Annotated[date | None, Query()] = None,
+    changed_by: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
+    source: Annotated[str | None, Query(pattern="^(tool|matrix)$")] = None,
     # 长度交给 _decode 统一判 400；Query max_length 会让超长游标变成 422。
     cursor: Annotated[str | None, Query()] = None,
 ) -> ToolHistoryResponse:
     # 不要求工具仍在注册表里：工具下线/改名后，历史仍要能按旧名字查到，
     # 否则「长期审计」在工具下线那一刻就断了。从未注册过的名字只会得到空列表。
     since, until = _history_window(changed_from, changed_to)
-    fingerprint = _history_fingerprint(name, since, until)
+    fingerprint = _history_fingerprint(name, since, until, changed_by, source)
     before = _decode_tool_history_cursor(cursor, fingerprint) if cursor is not None else None
     total: int | None = None
     try:
         if before is None:
-            total = await policy.count_history(name, since=since, until=until)
-        records = await policy.history(name, limit=limit, since=since, until=until, before=before)
+            total = await policy.count_history(
+                name,
+                since=since,
+                until=until,
+                changed_by=changed_by,
+                source=source,
+            )
+        records = await policy.history(
+            name,
+            limit=limit,
+            since=since,
+            until=until,
+            changed_by=changed_by,
+            source=source,
+            before=before,
+        )
     except SQLAlchemyError as exc:
         log.error("tool_history_read_failed", tool=name, error=str(exc))
         raise ApiError(503, "DATABASE_UNAVAILABLE", "工具变更历史暂不可用") from exc
@@ -336,6 +366,8 @@ async def export_tool_history(
     admin: Annotated[Identity, Depends(require_admin)],
     changed_from: Annotated[date | None, Query()] = None,
     changed_to: Annotated[date | None, Query()] = None,
+    changed_by: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
+    source: Annotated[str | None, Query(pattern="^(tool|matrix)$")] = None,
 ) -> Response:
     """导出工具配置变更历史 CSV；导出自身写下载审计（ADR-0099）。"""
     since, until = _history_window(changed_from, changed_to)
@@ -345,6 +377,8 @@ async def export_tool_history(
             limit=MAX_EXPORT_ROWS + 1,
             since=since,
             until=until,
+            changed_by=changed_by,
+            source=source,
         )
     except SQLAlchemyError as exc:
         log.error("tool_history_export_failed", tool=name, error=str(exc))
@@ -360,6 +394,8 @@ async def export_tool_history(
             "tool": name,
             "changed_from": changed_from.isoformat() if changed_from else None,
             "changed_to": changed_to.isoformat() if changed_to else None,
+            "changed_by": changed_by,
+            "source": source,
         },
         row_count=len(rows),
         truncated=truncated,

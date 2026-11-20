@@ -12,7 +12,13 @@ export function useToolHistory() {
   const historyRequest = useRef(0);
   const historyExportRequest = useRef(0);
 
-  const requestHistory = (tool: ToolInfo, changedFrom: string, changedTo: string) => {
+  const requestHistory = (
+    tool: ToolInfo,
+    changedFrom: string,
+    changedTo: string,
+    changedBy: string,
+    source: '' | 'tool' | 'matrix',
+  ) => {
     const requestId = ++historyRequest.current;
     historyExportRequest.current += 1;
     setExportingHistory(false);
@@ -24,9 +30,13 @@ export function useToolHistory() {
       error: null,
       changedFrom,
       changedTo,
+      changedBy,
+      source,
       filterError: null,
       appliedFrom: changedFrom,
       appliedTo: changedTo,
+      appliedBy: changedBy,
+      appliedSource: source,
       total: null,
       nextCursor: null,
       loadingMore: false,
@@ -34,7 +44,12 @@ export function useToolHistory() {
     });
     void (async () => {
       try {
-        const data = await getToolHistory(tool.name, 20, { changedFrom, changedTo });
+        const data = await getToolHistory(tool.name, 20, {
+          changedFrom,
+          changedTo,
+          changedBy,
+          source,
+        });
         if (requestId !== historyRequest.current) return;
         setHistory((current) =>
           current?.tool.name === tool.name
@@ -63,7 +78,7 @@ export function useToolHistory() {
     })();
   };
 
-  const openHistory = (tool: ToolInfo) => requestHistory(tool, '', '');
+  const openHistory = (tool: ToolInfo) => requestHistory(tool, '', '', '', '');
 
   const loadMoreHistory = () => {
     if (!history || !history.nextCursor || history.loadingMore) return;
@@ -72,6 +87,8 @@ export function useToolHistory() {
     const cursor = history.nextCursor;
     const from = history.appliedFrom;
     const to = history.appliedTo;
+    const by = history.appliedBy;
+    const source = history.appliedSource;
     setHistory((current) =>
       current?.tool.name === tool.name
         ? { ...current, loadingMore: true, filterError: null, loadMoreError: null }
@@ -82,7 +99,7 @@ export function useToolHistory() {
         const data = await getToolHistory(
           tool.name,
           20,
-          { changedFrom: from, changedTo: to },
+          { changedFrom: from, changedTo: to, changedBy: by, source },
           cursor,
         );
         if (requestId !== historyRequest.current) return;
@@ -124,11 +141,11 @@ export function useToolHistory() {
       setHistory({ ...history, filterError: '开始日期不能晚于结束日期' });
       return;
     }
-    requestHistory(history.tool, from, to);
+    requestHistory(history.tool, from, to, history.changedBy, history.source);
   };
 
   const clearHistoryFilters = () => {
-    if (history) requestHistory(history.tool, '', '');
+    if (history) requestHistory(history.tool, '', '', '', '');
   };
 
   const closeHistory = () => {
@@ -147,6 +164,8 @@ export function useToolHistory() {
       const result = await exportToolHistoryCsv(history.tool.name, {
         changedFrom: history.appliedFrom,
         changedTo: history.appliedTo,
+        changedBy: history.appliedBy,
+        source: history.appliedSource,
       });
       if (requestId !== historyExportRequest.current) return;
       downloadBlob(result.blob, `tool-history-${history.tool.name}.csv`);

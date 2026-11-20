@@ -55,6 +55,8 @@ export interface ToolHistoryResponse {
 export interface ToolHistoryFilters {
   changedFrom?: string;
   changedTo?: string;
+  changedBy?: string;
+  source?: string;
 }
 
 export function getToolHistory(
@@ -68,6 +70,8 @@ export function getToolHistory(
     params.set('changed_from', filters.changedFrom);
     params.set('changed_to', filters.changedTo);
   }
+  if (filters.changedBy) params.set('changed_by', filters.changedBy);
+  if (filters.source) params.set('source', filters.source);
   if (cursor) params.set('cursor', cursor);
   return getJson<ToolHistoryResponse>(
     `/admin/tools/${encodeURIComponent(name)}/history?${params.toString()}`,
@@ -89,6 +93,8 @@ export async function exportToolHistoryCsv(
     params.set('changed_from', filters.changedFrom);
     params.set('changed_to', filters.changedTo);
   }
+  if (filters.changedBy) params.set('changed_by', filters.changedBy);
+  if (filters.source) params.set('source', filters.source);
   const query = params.toString();
   const { blob, headers } = await getFile(
     `/admin/tools/${encodeURIComponent(name)}/history/export${query ? `?${query}` : ''}`,

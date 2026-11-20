@@ -11,8 +11,16 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import type { ToolChange, ToolInfo, ToolOverrideSnapshot, ToolTestResponse } from '@/api/tools';
+import type { ToolInfo, ToolTestResponse } from '@/api/tools';
+import { describeSnapshot, formatTime, sourceLabel, type HistoryState } from './toolHistoryFormat';
 
 export interface TestState {
   tool: ToolInfo;
@@ -22,47 +30,7 @@ export interface TestState {
   error: string | null;
 }
 
-export interface HistoryState {
-  tool: ToolInfo;
-  loading: boolean;
-  items: ToolChange[];
-  error: string | null;
-  changedFrom: string;
-  changedTo: string;
-  filterError: string | null;
-  /** 最近一次实际查询使用的窗口；导出必须与列表一致，不能使用未应用的草稿。 */
-  appliedFrom: string;
-  appliedTo: string;
-  /** 首屏总数；后续页为 null。 */
-  total: number | null;
-  nextCursor: string | null;
-  loadingMore: boolean;
-  /** 加载更多失败时保留已加载列表，只在底部提示。 */
-  loadMoreError: string | null;
-}
-
-function formatTime(value: string): string {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN', { hour12: false });
-}
-
-function describeSnapshot(snapshot: ToolOverrideSnapshot | null): string {
-  if (snapshot === null) return '代码默认';
-  const enabled = snapshot.enabled === null ? '启用继承' : snapshot.enabled ? '启用' : '禁用';
-  const roles =
-    snapshot.roles === null
-      ? '角色继承'
-      : snapshot.roles.length === 0
-        ? '所有登录用户'
-        : snapshot.roles.join('、');
-  return `${enabled} · ${roles}`;
-}
-
-function sourceLabel(source: string): string {
-  if (source === 'matrix') return '权限矩阵';
-  if (source === 'tool') return '工具开关';
-  return source;
-}
+export type { HistoryState } from './toolHistoryFormat';
 
 interface ToolsDialogsProps {
   tester: TestState | null;
@@ -216,6 +184,39 @@ export function ToolsDialogs({
                     }
                   />
                 </div>
+                <div className="space-y-1">
+                  <div className="text-xs text-muted-foreground">变更人</div>
+                  <Input
+                    aria-label="变更人"
+                    className="w-36"
+                    placeholder="精确匹配"
+                    value={history.changedBy}
+                    onChange={(event) =>
+                      onHistoryChange({ ...history, changedBy: event.target.value })
+                    }
+                  />
+                </div>
+                <div className="space-y-1">
+                  <div className="text-xs text-muted-foreground">来源</div>
+                  <Select
+                    value={history.source || 'all'}
+                    onValueChange={(value) =>
+                      onHistoryChange({
+                        ...history,
+                        source: value === 'all' ? '' : (value as 'tool' | 'matrix'),
+                      })
+                    }
+                  >
+                    <SelectTrigger aria-label="变更来源" className="w-32">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">全部来源</SelectItem>
+                      <SelectItem value="tool">管理页</SelectItem>
+                      <SelectItem value="matrix">权限矩阵</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
                 <Button size="sm" variant="outline" onClick={onReloadHistory}>
                   应用
                 </Button>
@@ -248,7 +249,9 @@ export function ToolsDialogs({
             </div>
           ) : history && history.items.length === 0 ? (
             <div className="p-6 text-center text-xs text-muted-foreground">
-              {history.appliedFrom ? '该日期范围内没有配置变更记录。' : '还没有配置变更记录。'}
+              {history.appliedFrom || history.appliedBy || history.appliedSource
+                ? '当前过滤条件下没有配置变更记录。'
+                : '还没有配置变更记录。'}
             </div>
           ) : (
             <div className="max-h-96 space-y-2 overflow-auto">

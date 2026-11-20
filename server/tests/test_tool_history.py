@@ -30,6 +30,8 @@ class _FailingHistoryStore:
         limit: int = 20,
         since: datetime | None = None,
         until: datetime | None = None,
+        changed_by: str | None = None,
+        source: str | None = None,
         before: tuple[datetime, int] | None = None,
     ) -> list[ToolSettingChangeRecord]:
         raise SQLAlchemyError("database down")
@@ -40,6 +42,8 @@ class _FailingHistoryStore:
         *,
         since: datetime | None = None,
         until: datetime | None = None,
+        changed_by: str | None = None,
+        source: str | None = None,
     ) -> int:
         raise SQLAlchemyError("database down")
 
@@ -206,7 +210,7 @@ async def test_in_memory_store_filters_history_by_window() -> None:
                 tool_name="query_cmdb",
                 changed_by="admin_2",
                 changed_at=datetime(2026, 1, 2, 12, tzinfo=UTC),
-                source="tool",
+                source="matrix",
                 before={"enabled": False, "roles": None},
                 after={"enabled": True, "roles": None},
             ),
@@ -234,6 +238,9 @@ async def test_in_memory_store_filters_history_by_window() -> None:
     assert [
         row.id for row in await store.history("query_cmdb", until=datetime(2026, 1, 2, tzinfo=UTC))
     ] == [1]
+    assert [row.id for row in await store.history("query_cmdb", changed_by="admin_2")] == [2]
+    assert await store.count_history("query_cmdb", changed_by="admin_2") == 1
+    assert await store.count_history("query_cmdb", changed_by="admin_2", source="tool") == 0
 
 
 async def test_history_date_range_validation(client: AsyncClient) -> None:
@@ -282,6 +289,96 @@ async def test_history_filters_by_date(client: AsyncClient, mem_tool_settings: T
     assert res.status_code == 200
     items = res.json()["items"]
     assert [item["changed_by"] for item in items] == ["admin_2"]
+
+
+async def test_history_filters_by_changed_by_and_source(
+    client: AsyncClient, mem_tool_settings: ToolPolicy
+) -> None:
+    store = mem_tool_settings._store
+    assert isinstance(store, InMemoryToolSettingStore)
+    store._history.extend(
+        [
+            ToolSettingChangeRecord(
+                id=1,
+                tool_name="query_cmdb",
+                changed_by="admin_2",
+                changed_at=datetime(2026, 1, 1, 12, tzinfo=UTC),
+                source="tool",
+                before=None,
+                after={"enabled": False, "roles": None},
+            ),
+            ToolSettingChangeRecord(
+                id=2,
+                tool_name="query_cmdb",
+                changed_by="admin_1",
+                changed_at=datetime(2026, 1, 2, 12, tzinfo=UTC),
+                source="tool",
+                before={"enabled": False, "roles": None},
+                after={"enabled": True, "roles": None},
+            ),
+            ToolSettingChangeRecord(
+                id=3,
+                tool_name="query_cmdb",
+                changed_by="admin_1",
+                changed_at=datetime(2026, 1, 3, 12, tzinfo=UTC),
+                source="matrix",
+                before={"enabled": True, "roles": None},
+                after={"enabled": None, "roles": ["admin"]},
+            ),
+        ]
+    )
+
+    by_admin = await client.get(
+        "/api/admin/tools/query_cmdb/history?changed_by=admin_1",
+        headers=ADMIN,
+    )
+    assert by_admin.status_code == 200
+    body = by_admin.json()
+    assert body["total"] == 2
+    assert [item["id"] for item in body["items"]] == [3, 2]
+
+    matrix = await client.get(
+        "/api/admin/tools/query_cmdb/history?changed_by=admin_1&source=matrix",
+        headers=ADMIN,
+    )
+    assert matrix.status_code == 200
+    assert [item["id"] for item in matrix.json()["items"]] == [3]
+
+    empty = await client.get(
+        "/api/admin/tools/query_cmdb/history?changed_by=admin_2&source=matrix",
+        headers=ADMIN,
+    )
+    assert empty.status_code == 200
+    assert empty.json()["items"] == []
+    assert empty.json()["total"] == 0
+
+    bad_source = await client.get(
+        "/api/admin/tools/query_cmdb/history?source=api",
+        headers=ADMIN,
+    )
+    assert bad_source.status_code == 422
+
+    first = await client.get(
+        "/api/admin/tools/query_cmdb/history?changed_by=admin_1&limit=1",
+        headers=ADMIN,
+    )
+    cursor = first.json()["next_cursor"]
+    assert cursor
+    stale = await client.get(
+        "/api/admin/tools/query_cmdb/history",
+        headers=ADMIN,
+        params={"changed_by": "admin_2", "limit": 1, "cursor": cursor},
+    )
+    assert stale.status_code == 400
+    assert stale.json()["code"] == "INVALID_CURSOR"
+
+    exported = await client.get(
+        "/api/admin/tools/query_cmdb/history/export?changed_by=admin_1&source=matrix",
+        headers=ADMIN,
+    )
+    assert exported.status_code == 200
+    assert exported.headers["X-Export-Count"] == "1"
+    assert "matrix" in exported.text
 
 
 async def test_history_paginates_and_binds_cursor_to_filters(

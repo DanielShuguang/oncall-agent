@@ -89,6 +89,11 @@ async def test_upsert_and_replace_persist_history(
     rows = await store.history("query_cmdb")
     assert [row.changed_by for row in rows] == ["admin_2", "admin_1"]
     assert len(await store.history("query_cmdb", limit=1)) == 1
+    assert [row.changed_by for row in await store.history("query_cmdb", source="matrix")] == [
+        "admin_2"
+    ]
+    assert await store.count_history("query_cmdb", changed_by="admin_1") == 1
+    assert await store.count_history("query_cmdb", changed_by="admin_1", source="matrix") == 0
     # 同一事务的 now() 让同一次矩阵提交共享时间戳
     assert (await store.history("create_ticket"))[0].changed_at == rows[0].changed_at
 

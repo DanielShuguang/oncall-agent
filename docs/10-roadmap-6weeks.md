@@ -2253,10 +2253,29 @@ ADR-0037 的工具变更历史只按工具查最近 N 条；安全/审计要固�
 | 接口 | `GET /admin/tools/{name}/history?limit=&cursor=&changed_from=&changed_to=`；首屏 `total`，后续 `null`；取满且还有更多才给 `next_cursor` |
 | 并发 | 计数/列表非同一快照，`total < len(items)` 时 total 降级 `null` |
 | 前端 | 历史 Dialog 显示「共 N 条 · 已加载 M 条」，有 `next_cursor` 时「加载更多」；切日期/关闭取消在途请求 |
-| 范围 | 不做页码/跳页、变更人/来源过滤、读取审计、游标过期；导出仍是一次最多 5000 行 |
+| 范围 | 不做页码/跳页、读取审计、游标过期；变更人/来源过滤由 ADR-0101 补上；导出仍是一次最多 5000 行 |
 | 验证 | 默认 532+42、PG 571+3、PG+Redis 574；ruff 208 / format 208 / mypy 119；前端 27 files/136 tests、lint 132、format 140、build 2939 modules |
 
 详见 [ADR-0100](decisions/0100-tool-history-pagination.md)。
+
+---
+
+## W6 后补：工具配置变更历史按变更人/来源过滤（ADR-0101）
+
+ADR-0100 的分页只能按工具名/日期窗口收窄；管理员复核一次矩阵调整或某人的操作时仍要翻页
+肉眼筛，导出也无法直接按「谁改的/从哪改的」交付。本 ADR 增加精确等值过滤，列表、total、
+游标与导出共用同一口径；无迁移。
+
+| 事项 | 落地 |
+|---|---|
+| 存储 | `history`/`count_history` 增加 `changed_by`/`source`；内存/PG 同口径；`total` 为过滤后数量 |
+| 游标 | 指纹纳入工具名、日期、`changed_by`、`source`；改任一筛选复用旧游标 `400 INVALID_CURSOR` |
+| 接口 | `/history` 与 `/history/export` 增加 `changed_by`（1–64）与 `source`（`tool|matrix`）；非法 source 422 |
+| 前端 | Dialog 增加变更人输入/来源下拉；应用/清除同时作用于列表与导出；空态按已应用过滤提示 |
+| 范围 | 不做模糊/多选变更人、不新增索引/迁移；导出审计记录本次过滤与哈希 |
+| 验证 | 默认 533+42、PG 572+3、PG+Redis 575；ruff 208 / format 208 / mypy 119；前端 27 files/138 tests、lint 133、format 141、build 2940 modules |
+
+详见 [ADR-0101](decisions/0101-tool-history-filters.md)。
 
 ---
 

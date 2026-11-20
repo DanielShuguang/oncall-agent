@@ -102,6 +102,8 @@ class ToolSettingStore(Protocol):
         limit: int = 20,
         since: datetime | None = None,
         until: datetime | None = None,
+        changed_by: str | None = None,
+        source: str | None = None,
         before: tuple[datetime, int] | None = None,
     ) -> list[ToolSettingChangeRecord]: ...
 
@@ -111,6 +113,8 @@ class ToolSettingStore(Protocol):
         *,
         since: datetime | None = None,
         until: datetime | None = None,
+        changed_by: str | None = None,
+        source: str | None = None,
     ) -> int: ...
 
 
@@ -161,6 +165,8 @@ class InMemoryToolSettingStore:
         limit: int = 20,
         since: datetime | None = None,
         until: datetime | None = None,
+        changed_by: str | None = None,
+        source: str | None = None,
         before: tuple[datetime, int] | None = None,
     ) -> list[ToolSettingChangeRecord]:
         rows = sorted(
@@ -170,6 +176,8 @@ class InMemoryToolSettingStore:
                 if row.tool_name == name
                 and (since is None or row.changed_at >= since)
                 and (until is None or row.changed_at < until)
+                and (changed_by is None or row.changed_by == changed_by)
+                and (source is None or row.source == source)
                 and (
                     before is None
                     or row.changed_at < before[0]
@@ -187,6 +195,8 @@ class InMemoryToolSettingStore:
         *,
         since: datetime | None = None,
         until: datetime | None = None,
+        changed_by: str | None = None,
+        source: str | None = None,
     ) -> int:
         return sum(
             1
@@ -194,6 +204,8 @@ class InMemoryToolSettingStore:
             if row.tool_name == name
             and (since is None or row.changed_at >= since)
             and (until is None or row.changed_at < until)
+            and (changed_by is None or row.changed_by == changed_by)
+            and (source is None or row.source == source)
         )
 
     def _new_record(
@@ -289,6 +301,8 @@ class PostgresToolSettingStore:
         limit: int = 20,
         since: datetime | None = None,
         until: datetime | None = None,
+        changed_by: str | None = None,
+        source: str | None = None,
         before: tuple[datetime, int] | None = None,
     ) -> list[ToolSettingChangeRecord]:
         stmt = select(ToolSettingChangeRow).where(ToolSettingChangeRow.tool_name == name)
@@ -296,6 +310,10 @@ class PostgresToolSettingStore:
             stmt = stmt.where(ToolSettingChangeRow.changed_at >= since)
         if until is not None:
             stmt = stmt.where(ToolSettingChangeRow.changed_at < until)
+        if changed_by is not None:
+            stmt = stmt.where(ToolSettingChangeRow.changed_by == changed_by)
+        if source is not None:
+            stmt = stmt.where(ToolSettingChangeRow.source == source)
         if before is not None:
             stmt = stmt.where(
                 or_(
@@ -334,6 +352,8 @@ class PostgresToolSettingStore:
         *,
         since: datetime | None = None,
         until: datetime | None = None,
+        changed_by: str | None = None,
+        source: str | None = None,
     ) -> int:
         stmt = (
             select(func.count())
@@ -344,6 +364,10 @@ class PostgresToolSettingStore:
             stmt = stmt.where(ToolSettingChangeRow.changed_at >= since)
         if until is not None:
             stmt = stmt.where(ToolSettingChangeRow.changed_at < until)
+        if changed_by is not None:
+            stmt = stmt.where(ToolSettingChangeRow.changed_by == changed_by)
+        if source is not None:
+            stmt = stmt.where(ToolSettingChangeRow.source == source)
         async with self._sessionmaker() as session:
             return int((await session.scalar(stmt)) or 0)
 
@@ -462,9 +486,19 @@ class ToolPolicy:
         limit: int = 20,
         since: datetime | None = None,
         until: datetime | None = None,
+        changed_by: str | None = None,
+        source: str | None = None,
         before: tuple[datetime, int] | None = None,
     ) -> list[ToolSettingChangeRecord]:
-        return await self._store.history(name, limit=limit, since=since, until=until, before=before)
+        return await self._store.history(
+            name,
+            limit=limit,
+            since=since,
+            until=until,
+            changed_by=changed_by,
+            source=source,
+            before=before,
+        )
 
     async def count_history(
         self,
@@ -472,8 +506,16 @@ class ToolPolicy:
         *,
         since: datetime | None = None,
         until: datetime | None = None,
+        changed_by: str | None = None,
+        source: str | None = None,
     ) -> int:
-        return await self._store.count_history(name, since=since, until=until)
+        return await self._store.count_history(
+            name,
+            since=since,
+            until=until,
+            changed_by=changed_by,
+            source=source,
+        )
 
     def invalidate(self) -> None:
         self._cached = None

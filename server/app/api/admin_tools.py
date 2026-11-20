@@ -288,7 +288,8 @@ async def tool_setting_history(
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     changed_from: Annotated[date | None, Query()] = None,
     changed_to: Annotated[date | None, Query()] = None,
-    cursor: Annotated[str | None, Query(max_length=TOOL_HISTORY_CURSOR_MAX)] = None,
+    # 长度交给 _decode 统一判 400；Query max_length 会让超长游标变成 422。
+    cursor: Annotated[str | None, Query()] = None,
 ) -> ToolHistoryResponse:
     # 不要求工具仍在注册表里：工具下线/改名后，历史仍要能按旧名字查到，
     # 否则「长期审计」在工具下线那一刻就断了。从未注册过的名字只会得到空列表。

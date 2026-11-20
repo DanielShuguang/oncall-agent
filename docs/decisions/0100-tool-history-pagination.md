@@ -42,6 +42,7 @@ ADR-0037 的工具配置变更历史只有 `limit`（默认 20，最多 100）�
 - **好处**：窗口内超过 100 条可继续看；管理员能看到「共 N 条」；游标不会跨工具/日期误用。
 - **代价**：首屏多一次 count 查询；计数与列表非同一快照时 total 可能为 null；不提供跳页，
   只能顺序「加载更多」；客户端要保存 `next_cursor`，刷新后从头开始。
+- 加载更多失败时保留已加载列表，只在底部提示；不会因一次分页失败清空已看记录。
 - **不做**：页码/跳页、按变更人/来源过滤、读取审计、游标签名/过期（令牌只由服务端生成，
   伪造游标最多读到同一工具/窗口的公开历史，仍受管理员鉴权保护）。
 
@@ -49,7 +50,8 @@ ADR-0037 的工具配置变更历史只有 `limit`（默认 20，最多 100）�
 
 - `test_history_paginates_and_binds_cursor_to_filters`：3 条记录，limit=2 首屏 total=3、
   ids `[3,2]` 且有 `next_cursor`；下一页 total=null、ids `[1]`、无 `next_cursor`；
-  改日期窗口复用旧游标 400；`not-a-cursor` 400。
+  改日期窗口复用旧游标 400；`not-a-cursor` 400；超过 512 字节的游标也走 400
+  `INVALID_CURSOR`，不是框架的 422。
 - `test_history_counts_and_pages_by_changed_at`（PG）：`count_history` 正确，`before`
   按 `(changed_at, id)` 取到更早一条。
 - 默认 532 passed + 42 skipped；PG-only 571 passed + 3 skipped；PG+Redis 574 passed。

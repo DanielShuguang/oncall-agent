@@ -37,6 +37,8 @@ export interface HistoryState {
   total: number | null;
   nextCursor: string | null;
   loadingMore: boolean;
+  /** 加载更多失败时保留已加载列表，只在底部提示。 */
+  loadMoreError: string | null;
 }
 
 function formatTime(value: string): string {
@@ -262,6 +264,9 @@ export function ToolsDialogs({
                   </div>
                 </div>
               ))}
+              {history?.loadMoreError && (
+                <div className="text-xs text-danger">{history.loadMoreError}</div>
+              )}
               <div className="flex items-center justify-between gap-2 pt-1 text-xs text-muted-foreground">
                 <span>
                   {history?.total === null || history?.total === undefined

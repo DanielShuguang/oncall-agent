@@ -30,6 +30,7 @@ export function useToolHistory() {
       total: null,
       nextCursor: null,
       loadingMore: false,
+      loadMoreError: null,
     });
     void (async () => {
       try {
@@ -73,7 +74,7 @@ export function useToolHistory() {
     const to = history.appliedTo;
     setHistory((current) =>
       current?.tool.name === tool.name
-        ? { ...current, loadingMore: true, filterError: null }
+        ? { ...current, loadingMore: true, filterError: null, loadMoreError: null }
         : current,
     );
     void (async () => {
@@ -90,6 +91,7 @@ export function useToolHistory() {
             ? {
                 ...current,
                 loadingMore: false,
+                loadMoreError: null,
                 items: [...current.items, ...data.items],
                 nextCursor: data.next_cursor ?? null,
               }
@@ -102,7 +104,7 @@ export function useToolHistory() {
             ? {
                 ...current,
                 loadingMore: false,
-                error: exc instanceof Error ? exc.message : '加载更多失败',
+                loadMoreError: exc instanceof Error ? exc.message : '加载更多失败',
               }
             : current,
         );

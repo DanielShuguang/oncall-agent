@@ -363,6 +363,15 @@ async def test_history_paginates_and_binds_cursor_to_filters(
     assert malformed.status_code == 400
     assert malformed.json()["code"] == "INVALID_CURSOR"
 
+    # 超长游标也应走 400，而不是 FastAPI 的 Query(max_length) 422。
+    oversized = await client.get(
+        "/api/admin/tools/query_cmdb/history",
+        headers=ADMIN,
+        params={"limit": 2, "cursor": "x" * 600},
+    )
+    assert oversized.status_code == 400
+    assert oversized.json()["code"] == "INVALID_CURSOR"
+
 
 async def test_history_export_records_download(client: AsyncClient) -> None:
     for enabled in (False, True):

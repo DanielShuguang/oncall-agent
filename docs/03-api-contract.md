@@ -1544,6 +1544,7 @@ GET /api/admin/perm-matrix
 ```http
 GET /api/admin/tools/create_ticket/history?limit=20
 GET /api/admin/tools/create_ticket/history?limit=20&changed_from=2026-11-01&changed_to=2026-11-07
+GET /api/admin/tools/create_ticket/history?limit=20&cursor=eyJ0Ijoi...
 Authorization: Bearer <admin token>
 ```
 
@@ -1559,7 +1560,9 @@ Authorization: Bearer <admin token>
       "before": { "enabled": null, "roles": [] },
       "after": { "enabled": false, "roles": null }
     }
-  ]
+  ],
+  "total": 1,
+  "next_cursor": null
 }
 ```
 
@@ -1569,12 +1572,14 @@ Authorization: Bearer <admin token>
   「恢复默认」的记录
 - `source`：`tool` = PATCH 启用开关，`matrix` = 权限矩阵整表保存；同一次矩阵保存
   按工具各一行
-- 默认返回最近 20 条，最多 100；记录按 `changed_at DESC, id DESC` 排序
+- 默认返回最近 20 条，最多 100；记录按 `changed_at DESC, id DESC` 排序（ADR-0100）
 - `changed_from` / `changed_to` 是 UTC 自然日（`YYYY-MM-DD`），两端必须同时提供；
   窗口为 `[from 00:00:00Z, to+1d 00:00:00Z)`，结束日整天包含（ADR-0098）。单端、倒置、
   或闭区间超过 365 天返回 `422 INVALID_RANGE`；不传时保持「最近 N 条」行为
-- 日期范围只过滤，不改变 `limit` 语义；没有 total/游标，窗口内超过 100 条时只返回最近
-  100 条
+- 分页是 keyset：`cursor` 由上一页最后一条的 `(changed_at, id)` 生成，并与工具名、已应用日期窗口
+  绑定；改筛选后复用旧 `cursor` 返回 `400 INVALID_CURSOR`。第一页返回 `total`，后续页
+  `total` 为 `null`；只有当前页取满且还有更多时才给 `next_cursor`（ADR-0100）
+- `total < len(items)` 时（计数与列表非同一快照）`total` 降级为 `null`，不显示矛盾总数
 - 不要求工具仍在注册表：按名字查历史，工具下线/改名后仍可查；从未注册过的名字返回空
   列表（`items: []`），不返回 404
 - 库不可用 `503 DATABASE_UNAVAILABLE`，不把故障显示成「没有历史」

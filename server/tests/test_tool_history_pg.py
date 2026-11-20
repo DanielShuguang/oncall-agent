@@ -93,6 +93,44 @@ async def test_upsert_and_replace_persist_history(
     assert (await store.history("create_ticket"))[0].changed_at == rows[0].changed_at
 
 
+async def test_history_counts_and_pages_by_changed_at(
+    pg_tool_history: PostgresToolSettingStore,
+) -> None:
+    store = pg_tool_history
+    await store.upsert(
+        "query_cmdb",
+        ToolOverride(enabled=False),
+        updated_by="admin_1",
+        change=ToolSettingChange(
+            tool_name="query_cmdb",
+            changed_by="admin_1",
+            source="tool",
+            before=None,
+            after={"enabled": False, "roles": None},
+        ),
+    )
+    await store.upsert(
+        "query_cmdb",
+        ToolOverride(enabled=True, roles=("admin",)),
+        updated_by="admin_2",
+        change=ToolSettingChange(
+            tool_name="query_cmdb",
+            changed_by="admin_2",
+            source="tool",
+            before={"enabled": False, "roles": None},
+            after={"enabled": True, "roles": ["admin"]},
+        ),
+    )
+
+    assert await store.count_history("query_cmdb") == 2
+    assert await store.count_history("ghost") == 0
+
+    first = await store.history("query_cmdb", limit=1)
+    assert first[0].changed_by == "admin_2"
+    older = await store.history("query_cmdb", limit=1, before=(first[0].changed_at, first[0].id))
+    assert older[0].changed_by == "admin_1"
+
+
 async def test_history_is_scoped_per_tool(pg_tool_history: PostgresToolSettingStore) -> None:
     store = pg_tool_history
     await store.upsert(

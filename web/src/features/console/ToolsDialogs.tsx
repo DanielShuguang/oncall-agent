@@ -33,6 +33,10 @@ export interface HistoryState {
   /** 最近一次实际查询使用的窗口；导出必须与列表一致，不能使用未应用的草稿。 */
   appliedFrom: string;
   appliedTo: string;
+  /** 首屏总数；后续页为 null。 */
+  total: number | null;
+  nextCursor: string | null;
+  loadingMore: boolean;
 }
 
 function formatTime(value: string): string {
@@ -65,6 +69,7 @@ interface ToolsDialogsProps {
   onHistoryChange: (state: HistoryState | null) => void;
   onReloadHistory: () => void;
   onClearHistoryFilters: () => void;
+  onLoadMoreHistory: () => void;
   onExportHistory: () => void;
   exportingHistory: boolean;
   historyExportMessage: string | null;
@@ -78,6 +83,7 @@ export function ToolsDialogs({
   onHistoryChange,
   onReloadHistory,
   onClearHistoryFilters,
+  onLoadMoreHistory,
   onExportHistory,
   exportingHistory,
   historyExportMessage,
@@ -256,6 +262,23 @@ export function ToolsDialogs({
                   </div>
                 </div>
               ))}
+              <div className="flex items-center justify-between gap-2 pt-1 text-xs text-muted-foreground">
+                <span>
+                  {history?.total === null || history?.total === undefined
+                    ? `已加载 ${history?.items.length ?? 0} 条`
+                    : `共 ${history.total} 条 · 已加载 ${history.items.length} 条`}
+                </span>
+                {history?.nextCursor && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={history.loadingMore}
+                    onClick={onLoadMoreHistory}
+                  >
+                    {history.loadingMore ? '加载中…' : '加载更多'}
+                  </Button>
+                )}
+              </div>
             </div>
           )}
 

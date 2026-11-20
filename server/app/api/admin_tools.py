@@ -9,6 +9,9 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
+import hashlib
 import json
 import uuid
 from collections.abc import Sequence
@@ -77,6 +80,40 @@ def _history_window(
     since = datetime.combine(changed_from, time.min, tzinfo=UTC)
     until = datetime.combine(changed_to + timedelta(days=1), time.min, tzinfo=UTC)
     return since, until
+
+
+#: 工具历史游标：绑定工具名与已应用日期窗口，换筛选后旧游标必须 400。
+TOOL_HISTORY_CURSOR_MAX = 512
+
+
+def _history_fingerprint(name: str, since: datetime | None, until: datetime | None) -> str:
+    # 只存指纹，不把工具名/日期原值塞进游标；与非 ASCII 工具名解耦。
+    raw = f"{name}\0{since.isoformat() if since else ''}\0{until.isoformat() if until else ''}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def _encode_tool_history_cursor(record: ToolSettingChangeRecord, fingerprint: str) -> str:
+    raw = json.dumps(
+        {"t": record.changed_at.isoformat(), "i": record.id, "f": fingerprint},
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii")
+
+
+def _decode_tool_history_cursor(cursor: str, fingerprint: str) -> tuple[datetime, int]:
+    if len(cursor) > TOOL_HISTORY_CURSOR_MAX:
+        raise ApiError(400, "INVALID_CURSOR", "游标无效或已过期")
+    try:
+        raw = base64.urlsafe_b64decode(cursor.encode("ascii"))
+        payload = json.loads(raw)
+        changed_at = datetime.fromisoformat(payload["t"])
+        audit_id = int(payload["i"])
+        cursor_fingerprint = payload["f"]
+    except (ValueError, KeyError, TypeError, UnicodeError, binascii.Error) as exc:
+        raise ApiError(400, "INVALID_CURSOR", "游标无效或已过期") from exc
+    if changed_at.tzinfo is None or cursor_fingerprint != fingerprint or audit_id < 1:
+        raise ApiError(400, "INVALID_CURSOR", "游标无效或已过期")
+    return changed_at, audit_id
 
 
 TOOL_HISTORY_CSV_HEADERS = (
@@ -251,15 +288,25 @@ async def tool_setting_history(
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     changed_from: Annotated[date | None, Query()] = None,
     changed_to: Annotated[date | None, Query()] = None,
+    cursor: Annotated[str | None, Query(max_length=TOOL_HISTORY_CURSOR_MAX)] = None,
 ) -> ToolHistoryResponse:
     # 不要求工具仍在注册表里：工具下线/改名后，历史仍要能按旧名字查到，
     # 否则「长期审计」在工具下线那一刻就断了。从未注册过的名字只会得到空列表。
     since, until = _history_window(changed_from, changed_to)
+    fingerprint = _history_fingerprint(name, since, until)
+    before = _decode_tool_history_cursor(cursor, fingerprint) if cursor is not None else None
+    total: int | None = None
     try:
-        records = await policy.history(name, limit=limit, since=since, until=until)
+        if before is None:
+            total = await policy.count_history(name, since=since, until=until)
+        records = await policy.history(name, limit=limit, since=since, until=until, before=before)
     except SQLAlchemyError as exc:
         log.error("tool_history_read_failed", tool=name, error=str(exc))
         raise ApiError(503, "DATABASE_UNAVAILABLE", "工具变更历史暂不可用") from exc
+    # 计数和列表非同一快照；列表比计数多时不能给出矛盾的总数。
+    if total is not None and total < len(records):
+        total = None
+    has_more = len(records) == limit and (total is None or total > len(records))
     return ToolHistoryResponse(
         items=[
             ToolChangeOut(
@@ -272,7 +319,11 @@ async def tool_setting_history(
                 after=None if record.after is None else ToolOverrideSnapshot(**record.after),
             )
             for record in records
-        ]
+        ],
+        total=total,
+        next_cursor=(
+            _encode_tool_history_cursor(records[-1], fingerprint) if has_more and records else None
+        ),
     )
 
 

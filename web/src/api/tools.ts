@@ -47,6 +47,9 @@ export interface ToolChange {
 
 export interface ToolHistoryResponse {
   items: ToolChange[];
+  /** 首屏总数；后续页为 null（服务端两次查询非同一快照时也会降级）。 */
+  total?: number | null;
+  next_cursor?: string | null;
 }
 
 export interface ToolHistoryFilters {
@@ -58,12 +61,14 @@ export function getToolHistory(
   name: string,
   limit = 20,
   filters: ToolHistoryFilters = {},
+  cursor?: string,
 ): Promise<ToolHistoryResponse> {
   const params = new URLSearchParams({ limit: String(limit) });
   if (filters.changedFrom && filters.changedTo) {
     params.set('changed_from', filters.changedFrom);
     params.set('changed_to', filters.changedTo);
   }
+  if (cursor) params.set('cursor', cursor);
   return getJson<ToolHistoryResponse>(
     `/admin/tools/${encodeURIComponent(name)}/history?${params.toString()}`,
   );

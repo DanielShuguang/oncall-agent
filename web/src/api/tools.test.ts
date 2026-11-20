@@ -122,4 +122,14 @@ describe('getToolHistory', () => {
       '/api/admin/tools/query_cmdb/history?limit=30&changed_from=2026-01-01&changed_to=2026-01-31',
     );
   });
+
+  it('翻页时追加 cursor', async () => {
+    const fetchMock = stubFetch({ items: [], total: null, next_cursor: null });
+
+    await getToolHistory('query_cmdb', 20, {}, 'next-page');
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      '/api/admin/tools/query_cmdb/history?limit=20&cursor=next-page',
+    );
+  });
 });

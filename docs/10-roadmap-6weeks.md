@@ -2215,7 +2215,7 @@ ADR-0037 的工具变更历史只按工具查最近 N 条；安全/审计要固�
 | 接口 | `GET /admin/tools/{name}/history?changed_from=&changed_to=`（UTC 日期，两端同时提供）；单端/倒置/超 365 天 `422 INVALID_RANGE` |
 | 窗口 | `[from 00:00Z, to+1d 00:00Z)`；结束日整天包含；不改 `limit`（1–100）语义 |
 | 前端 | 历史 Dialog 增加开始/结束日期与应用/清除；只在点击应用后查询；预校验两端与顺序；应用后丢弃旧响应 |
-| 范围 | 不做分页/总数、读取审计、保留期调整；CSV 导出由 ADR-0099 补上；关闭 Dialog 不持久化日期 |
+| 范围 | 不做读取审计、保留期调整；CSV 导出由 ADR-0099 补上，分页/总数由 ADR-0100 补上；关闭 Dialog 不持久化日期 |
 | 验证 | 默认 530+41、PG 568+3、PG+Redis 571；ruff 207 / mypy 119；前端 27 files/133 tests、lint 131、format 139、build 2938 modules |
 
 详见 [ADR-0098](decisions/0098-tool-history-date-range.md)。
@@ -2238,6 +2238,25 @@ ADR-0037 的工具变更历史只按工具查最近 N 条；安全/审计要固�
 | 验证 | 默认 531+41、PG 569+3、PG+Redis 572；ruff / format 208、mypy 119；前端 27 files/135 tests、lint 131、format 139、build 2938 modules；迁移 `0026` 往返 |
 
 详见 [ADR-0099](decisions/0099-tool-history-export.md)。
+
+---
+
+## W6 后补：工具配置变更历史分页与总数（ADR-0100）
+
+历史查询只有 `limit`，窗口内超过 100 条无法继续看，也没有总数。本 ADR 增加 keyset 分页
+`(changed_at, id)` 与首屏 total；无迁移，沿用现有索引。
+
+| 事项 | 落地 |
+|---|---|
+| 存储 | `ToolSettingStore.history(..., before=(changed_at, id))`；`count_history(name, *, since, until)`；内存/PG 同口径 |
+| 游标 | base64url JSON `{t,i,f}`；`f` 为工具名+日期窗口 SHA-256 前 16 hex；换筛选 `400 INVALID_CURSOR` |
+| 接口 | `GET /admin/tools/{name}/history?limit=&cursor=&changed_from=&changed_to=`；首屏 `total`，后续 `null`；取满且还有更多才给 `next_cursor` |
+| 并发 | 计数/列表非同一快照，`total < len(items)` 时 total 降级 `null` |
+| 前端 | 历史 Dialog 显示「共 N 条 · 已加载 M 条」，有 `next_cursor` 时「加载更多」；切日期/关闭取消在途请求 |
+| 范围 | 不做页码/跳页、变更人/来源过滤、读取审计、游标过期；导出仍是一次最多 5000 行 |
+| 验证 | 默认 532+42、PG 571+3、PG+Redis 574；ruff 208 / format 208 / mypy 119；前端 27 files/136 tests、lint 132、format 140、build 2939 modules |
+
+详见 [ADR-0100](decisions/0100-tool-history-pagination.md)。
 
 ---
 

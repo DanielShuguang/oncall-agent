@@ -30,7 +30,17 @@ class _FailingHistoryStore:
         limit: int = 20,
         since: datetime | None = None,
         until: datetime | None = None,
+        before: tuple[datetime, int] | None = None,
     ) -> list[ToolSettingChangeRecord]:
+        raise SQLAlchemyError("database down")
+
+    async def count_history(
+        self,
+        name: str,
+        *,
+        since: datetime | None = None,
+        until: datetime | None = None,
+    ) -> int:
         raise SQLAlchemyError("database down")
 
 
@@ -101,7 +111,7 @@ async def test_history_unknown_tool_is_empty_and_bad_limit(client: AsyncClient) 
     # 工具下线/改名后历史仍可查；未知名字只是没有记录，不返回 404
     missing = await client.get("/api/admin/tools/ghost/history", headers=ADMIN)
     assert missing.status_code == 200
-    assert missing.json() == {"items": []}
+    assert missing.json() == {"items": [], "total": 0, "next_cursor": None}
 
     for limit in (0, 101):
         res = await client.get(f"/api/admin/tools/query_cmdb/history?limit={limit}", headers=ADMIN)
@@ -272,6 +282,86 @@ async def test_history_filters_by_date(client: AsyncClient, mem_tool_settings: T
     assert res.status_code == 200
     items = res.json()["items"]
     assert [item["changed_by"] for item in items] == ["admin_2"]
+
+
+async def test_history_paginates_and_binds_cursor_to_filters(
+    client: AsyncClient, mem_tool_settings: ToolPolicy
+) -> None:
+    store = mem_tool_settings._store
+    assert isinstance(store, InMemoryToolSettingStore)
+    store._history.extend(
+        [
+            ToolSettingChangeRecord(
+                id=1,
+                tool_name="query_cmdb",
+                changed_by="admin_1",
+                changed_at=datetime(2026, 1, 1, 12, tzinfo=UTC),
+                source="tool",
+                before=None,
+                after={"enabled": False, "roles": None},
+            ),
+            ToolSettingChangeRecord(
+                id=2,
+                tool_name="query_cmdb",
+                changed_by="admin_2",
+                changed_at=datetime(2026, 1, 2, 12, tzinfo=UTC),
+                source="tool",
+                before={"enabled": False, "roles": None},
+                after={"enabled": True, "roles": None},
+            ),
+            ToolSettingChangeRecord(
+                id=3,
+                tool_name="query_cmdb",
+                changed_by="admin_3",
+                changed_at=datetime(2026, 1, 3, 12, tzinfo=UTC),
+                source="tool",
+                before={"enabled": True, "roles": None},
+                after={"enabled": False, "roles": None},
+            ),
+        ]
+    )
+
+    first = await client.get(
+        "/api/admin/tools/query_cmdb/history", headers=ADMIN, params={"limit": 2}
+    )
+    assert first.status_code == 200
+    page = first.json()
+    assert page["total"] == 3
+    assert [item["id"] for item in page["items"]] == [3, 2]
+    cursor = page["next_cursor"]
+    assert isinstance(cursor, str) and cursor
+
+    second = await client.get(
+        "/api/admin/tools/query_cmdb/history",
+        headers=ADMIN,
+        params={"limit": 2, "cursor": cursor},
+    )
+    assert second.status_code == 200
+    page2 = second.json()
+    assert page2["total"] is None
+    assert [item["id"] for item in page2["items"]] == [1]
+    assert page2["next_cursor"] is None
+
+    mismatch = await client.get(
+        "/api/admin/tools/query_cmdb/history",
+        headers=ADMIN,
+        params={
+            "limit": 2,
+            "cursor": cursor,
+            "changed_from": "2026-01-01",
+            "changed_to": "2026-01-03",
+        },
+    )
+    assert mismatch.status_code == 400
+    assert mismatch.json()["code"] == "INVALID_CURSOR"
+
+    malformed = await client.get(
+        "/api/admin/tools/query_cmdb/history",
+        headers=ADMIN,
+        params={"limit": 2, "cursor": "not-a-cursor"},
+    )
+    assert malformed.status_code == 400
+    assert malformed.json()["code"] == "INVALID_CURSOR"
 
 
 async def test_history_export_records_download(client: AsyncClient) -> None:

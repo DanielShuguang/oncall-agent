@@ -1,19 +1,11 @@
 /** 工具注册与试调用（W5 D22）。schema 只读，启用/角色走治理配置。 */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
-import {
-  exampleArgs,
-  exportToolHistoryCsv,
-  getToolHistory,
-  listTools,
-  testTool,
-  updateTool,
-  type ToolInfo,
-} from '@/api/tools';
-import { downloadBlob } from '@/lib/download';
-import { ToolsDialogs, type HistoryState, type TestState } from './ToolsDialogs';
+import { exampleArgs, listTools, testTool, updateTool, type ToolInfo } from '@/api/tools';
+import { ToolsDialogs, type TestState } from './ToolsDialogs';
 import { ToolsTable } from './ToolsTable';
+import { useToolHistory } from './useToolHistory';
 
 export default function ToolsPage() {
   const [tools, setTools] = useState<ToolInfo[]>([]);
@@ -22,12 +14,18 @@ export default function ToolsPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [tester, setTester] = useState<TestState | null>(null);
-  const [history, setHistory] = useState<HistoryState | null>(null);
-  const [exportingHistory, setExportingHistory] = useState(false);
-  const [historyExportMessage, setHistoryExportMessage] = useState<string | null>(null);
-  const historyRequest = useRef(0);
-  const historyExportRequest = useRef(0);
-
+  const {
+    history,
+    setHistory,
+    exportingHistory,
+    historyExportMessage,
+    openHistory,
+    reloadHistory,
+    clearHistoryFilters,
+    loadMoreHistory,
+    closeHistory,
+    exportHistory,
+  } = useToolHistory();
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
@@ -90,92 +88,6 @@ export default function ToolsPage() {
       result: null,
       error: null,
     });
-  };
-
-  const requestHistory = (tool: ToolInfo, changedFrom: string, changedTo: string) => {
-    const requestId = ++historyRequest.current;
-    historyExportRequest.current += 1;
-    setExportingHistory(false);
-    setHistoryExportMessage(null);
-    setHistory({
-      tool,
-      loading: true,
-      items: [],
-      error: null,
-      changedFrom,
-      changedTo,
-      filterError: null,
-      appliedFrom: changedFrom,
-      appliedTo: changedTo,
-    });
-    void (async () => {
-      try {
-        const data = await getToolHistory(tool.name, 20, { changedFrom, changedTo });
-        if (requestId !== historyRequest.current) return;
-        setHistory((current) =>
-          current?.tool.name === tool.name
-            ? { ...current, loading: false, items: data.items, error: null }
-            : current,
-        );
-      } catch (exc) {
-        if (requestId !== historyRequest.current) return;
-        setHistory((current) =>
-          current?.tool.name === tool.name
-            ? {
-                ...current,
-                loading: false,
-                error: exc instanceof Error ? exc.message : '变更历史加载失败',
-              }
-            : current,
-        );
-      }
-    })();
-  };
-
-  const openHistory = (tool: ToolInfo) => requestHistory(tool, '', '');
-
-  const reloadHistory = () => {
-    if (!history) return;
-    const from = history.changedFrom;
-    const to = history.changedTo;
-    if ((from && !to) || (!from && to)) {
-      setHistory({ ...history, filterError: '开始日期与结束日期必须同时选择' });
-      return;
-    }
-    if (from && to && from > to) {
-      setHistory({ ...history, filterError: '开始日期不能晚于结束日期' });
-      return;
-    }
-    requestHistory(history.tool, from, to);
-  };
-
-  const clearHistoryFilters = () => {
-    if (history) requestHistory(history.tool, '', '');
-  };
-
-  const exportHistory = async () => {
-    if (!history) return;
-    const requestId = ++historyExportRequest.current;
-    setExportingHistory(true);
-    setHistoryExportMessage(null);
-    try {
-      const result = await exportToolHistoryCsv(history.tool.name, {
-        changedFrom: history.appliedFrom,
-        changedTo: history.appliedTo,
-      });
-      if (requestId !== historyExportRequest.current) return;
-      downloadBlob(result.blob, `tool-history-${history.tool.name}.csv`);
-      setHistoryExportMessage(
-        result.truncated
-          ? `已导出前 ${result.count} 条（窗口内记录更多，已截断）`
-          : `已导出 ${result.count} 条`,
-      );
-    } catch (exc) {
-      if (requestId !== historyExportRequest.current) return;
-      setHistoryExportMessage(exc instanceof Error ? exc.message : '导出失败');
-    } finally {
-      if (requestId === historyExportRequest.current) setExportingHistory(false);
-    }
   };
 
   const runTest = async () => {
@@ -247,16 +159,10 @@ export default function ToolsPage() {
         tester={tester}
         history={history}
         onTesterChange={setTester}
-        onHistoryChange={(next) => {
-          if (!next) {
-            historyExportRequest.current += 1;
-            setExportingHistory(false);
-            setHistoryExportMessage(null);
-          }
-          setHistory(next);
-        }}
+        onHistoryChange={(next) => (next ? setHistory(next) : closeHistory())}
         onReloadHistory={reloadHistory}
         onClearHistoryFilters={clearHistoryFilters}
+        onLoadMoreHistory={loadMoreHistory}
         onExportHistory={() => void exportHistory()}
         exportingHistory={exportingHistory}
         historyExportMessage={historyExportMessage}

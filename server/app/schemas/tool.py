@@ -49,6 +49,9 @@ class ToolChangeOut(BaseModel):
 
 class ToolHistoryResponse(BaseModel):
     items: list[ToolChangeOut]
+    #: 首屏总数；后续页为 null（ADR-0100）
+    total: int | None = None
+    next_cursor: str | None = None
 
 
 class ToolUpdateRequest(BaseModel):

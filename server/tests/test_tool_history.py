@@ -358,6 +358,14 @@ async def test_history_filters_by_changed_by_and_source(
     )
     assert bad_source.status_code == 422
 
+    # 空串不是「未提供」：Query min_length=1 直接 422，避免把 "" 当成某个用户去查。
+    empty_changed_by = await client.get(
+        "/api/admin/tools/query_cmdb/history",
+        headers=ADMIN,
+        params={"changed_by": ""},
+    )
+    assert empty_changed_by.status_code == 422
+
     first = await client.get(
         "/api/admin/tools/query_cmdb/history?changed_by=admin_1&limit=1",
         headers=ADMIN,

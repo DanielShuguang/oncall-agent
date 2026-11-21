@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
+import json
 from collections.abc import Sequence
 from datetime import UTC, datetime
 
 from httpx import AsyncClient
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.api.admin_tools import _history_fingerprint
 from app.tools.policy import (
     InMemoryToolSettingStore,
     ToolOverride,
@@ -476,6 +479,26 @@ async def test_history_paginates_and_binds_cursor_to_filters(
     )
     assert oversized.status_code == 400
     assert oversized.json()["code"] == "INVALID_CURSOR"
+
+    # 过期游标单独返回 CURSOR_EXPIRED；客户端应提示重新加载，而不是从头开始。
+    fingerprint = _history_fingerprint("query_cmdb", None, None, None, None)
+    expired_raw = json.dumps(
+        {
+            "t": "2026-01-02T12:00:00+00:00",
+            "i": 2,
+            "f": fingerprint,
+            "e": 1,
+        },
+        separators=(",", ":"),
+    ).encode("utf-8")
+    expired_cursor = base64.urlsafe_b64encode(expired_raw).decode("ascii")
+    expired = await client.get(
+        "/api/admin/tools/query_cmdb/history",
+        headers=ADMIN,
+        params={"limit": 2, "cursor": expired_cursor},
+    )
+    assert expired.status_code == 400
+    assert expired.json()["code"] == "CURSOR_EXPIRED"
 
 
 async def test_history_export_records_download(client: AsyncClient) -> None:

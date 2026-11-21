@@ -82,8 +82,10 @@ def _history_window(
     return since, until
 
 
-#: 工具历史游标：绑定工具名与已应用日期窗口，换筛选后旧游标必须 400。
+#: 工具历史游标：绑定工具名与已应用筛选，换筛选后旧游标必须 400；
+#: 同时限制 1 小时有效期，避免长期保留旧分页位置（ADR-0102）。
 TOOL_HISTORY_CURSOR_MAX = 512
+TOOL_HISTORY_CURSOR_TTL_S = 60 * 60
 
 
 def _history_fingerprint(
@@ -106,15 +108,31 @@ def _history_fingerprint(
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
 
-def _encode_tool_history_cursor(record: ToolSettingChangeRecord, fingerprint: str) -> str:
+def _encode_tool_history_cursor(
+    record: ToolSettingChangeRecord,
+    fingerprint: str,
+    *,
+    now: datetime | None = None,
+) -> str:
+    issued_at = now or datetime.now(UTC)
     raw = json.dumps(
-        {"t": record.changed_at.isoformat(), "i": record.id, "f": fingerprint},
+        {
+            "t": record.changed_at.isoformat(),
+            "i": record.id,
+            "f": fingerprint,
+            "e": int(issued_at.timestamp()) + TOOL_HISTORY_CURSOR_TTL_S,
+        },
         separators=(",", ":"),
     ).encode("utf-8")
     return base64.urlsafe_b64encode(raw).decode("ascii")
 
 
-def _decode_tool_history_cursor(cursor: str, fingerprint: str) -> tuple[datetime, int]:
+def _decode_tool_history_cursor(
+    cursor: str,
+    fingerprint: str,
+    *,
+    now: datetime | None = None,
+) -> tuple[datetime, int]:
     if len(cursor) > TOOL_HISTORY_CURSOR_MAX:
         raise ApiError(400, "INVALID_CURSOR", "游标无效或已过期")
     try:
@@ -123,10 +141,14 @@ def _decode_tool_history_cursor(cursor: str, fingerprint: str) -> tuple[datetime
         changed_at = datetime.fromisoformat(payload["t"])
         audit_id = int(payload["i"])
         cursor_fingerprint = payload["f"]
+        expires_at = int(payload["e"])
     except (ValueError, KeyError, TypeError, UnicodeError, binascii.Error) as exc:
         raise ApiError(400, "INVALID_CURSOR", "游标无效或已过期") from exc
     if changed_at.tzinfo is None or cursor_fingerprint != fingerprint or audit_id < 1:
         raise ApiError(400, "INVALID_CURSOR", "游标无效或已过期")
+    current_timestamp = int((now or datetime.now(UTC)).timestamp())
+    if expires_at < current_timestamp:
+        raise ApiError(400, "CURSOR_EXPIRED", "游标已过期，请重新加载")
     return changed_at, audit_id
 
 

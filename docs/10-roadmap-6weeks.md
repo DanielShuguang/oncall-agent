@@ -2253,7 +2253,7 @@ ADR-0037 的工具变更历史只按工具查最近 N 条；安全/审计要固�
 | 接口 | `GET /admin/tools/{name}/history?limit=&cursor=&changed_from=&changed_to=`；首屏 `total`，后续 `null`；取满且还有更多才给 `next_cursor` |
 | 并发 | 计数/列表非同一快照，`total < len(items)` 时 total 降级 `null` |
 | 前端 | 历史 Dialog 显示「共 N 条 · 已加载 M 条」，有 `next_cursor` 时「加载更多」；切日期/关闭取消在途请求 |
-| 范围 | 不做页码/跳页、读取审计、游标过期；变更人/来源过滤由 ADR-0101 补上；导出仍是一次最多 5000 行 |
+| 范围 | 不做页码/跳页、读取审计；变更人/来源过滤由 ADR-0101 补上，游标过期由 ADR-0102 补上；导出仍是一次最多 5000 行 |
 | 验证 | 默认 532+42、PG 571+3、PG+Redis 574；ruff 208 / format 208 / mypy 119；前端 27 files/136 tests、lint 132、format 140、build 2939 modules |
 
 详见 [ADR-0100](decisions/0100-tool-history-pagination.md)。
@@ -2279,6 +2279,22 @@ ADR-0100 的分页只能按工具名/日期窗口收窄；管理员复核一次�
 
 ---
 
+## W6 后补：工具配置变更历史游标过期（ADR-0102）
+
+ADR-0100 的游标只要筛选不变就一直可用，历史 Dialog 放很久后再翻页仍会从旧位置继续。
+本 ADR 给游标加 1 小时有效期，过期后明确 `400 CURSOR_EXPIRED`，前端提示重新加载；无迁移。
+
+| 事项 | 落地 |
+|---|---|
+| 游标 | base64url JSON 增加 `e`（Unix 秒，签发 + 3600）；缺 `e`/格式错仍 `INVALID_CURSOR` |
+| 过期 | `e < now` 返回 `400 {"code":"CURSOR_EXPIRED"}`；接口仍先做管理员鉴权 |
+| 范围 | 不做签名/HMAC/加密；TTL 是代码常量，不提供环境变量；导出不用游标 |
+| 前端 | 「加载更多」失败保留已加载列表，显示错误；重新打开/应用筛选从第一页开始 |
+| 验证 | 默认 533+42、PG 572+3、PG+Redis 575；ruff 208 / format 208 / mypy 119；前端未改 27 files/138 tests |
+
+详见 [ADR-0102](decisions/0102-tool-history-cursor-expiry.md)。
+
+---
 ## 每周固定动作
 
 | 时点 | 动作 |

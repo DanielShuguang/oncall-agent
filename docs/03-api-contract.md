@@ -1582,7 +1582,9 @@ Authorization: Bearer <admin token>
 - `changed_by` 是精确匹配（1–64 字符）；`source` 只接受 `tool`/`matrix`，其他值 422。
   两个过滤都不传时不收窄；`total` 与 `items` 都按过滤后的集合计算（ADR-0101）
 - 分页是 keyset：`cursor` 由上一页最后一条的 `(changed_at, id)` 生成，并与工具名、已应用日期窗口、
-  变更人、来源绑定；改任一筛选后复用旧 `cursor` 返回 `400 INVALID_CURSOR`。第一页返回 `total`，后续页
+  变更人、来源绑定；改任一筛选后复用旧 `cursor` 返回 `400 INVALID_CURSOR`。游标还带 `e`
+  （Unix 秒，签发后 1 小时），过期返回 `400 CURSOR_EXPIRED`；缺 `e`/格式错误仍是
+  `INVALID_CURSOR`（ADR-0102）。第一页返回 `total`，后续页
   `total` 为 `null`；只有当前页取满且还有更多时才给 `next_cursor`（ADR-0100）
 - `total < len(items)` 时（计数与列表非同一快照）`total` 降级为 `null`，不显示矛盾总数
 - 不要求工具仍在注册表：按名字查历史，工具下线/改名后仍可查；从未注册过的名字返回空

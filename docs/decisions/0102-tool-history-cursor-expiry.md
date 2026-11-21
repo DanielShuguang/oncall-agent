@@ -23,8 +23,8 @@ ADR-0100 给工具配置变更历史加了 keyset 游标：base64url JSON `{t,i,
 1. 游标 JSON 增加 `e`：Unix 秒，写入时间为签发时刻 + `TOOL_HISTORY_CURSOR_TTL_S`（1 小时）。
 2. `_decode_tool_history_cursor` 校验 `e` 为整数；`e < now` 返回
    `400 {"code":"CURSOR_EXPIRED","message":"游标已过期，请重新加载"}`。
-3. 缺 `e`、非整数、时区缺失、指纹不匹配、ID 非法仍统一 `400 INVALID_CURSOR`；旧版本
-   签发的游标在部署后直接失效，不尝试兼容。
+3. 缺 `e`、非整数（含 `1.5`、布尔值、过大指数解析出的 `inf`）、时区缺失、指纹不匹配、
+   ID 非法仍统一 `400 INVALID_CURSOR`；旧版本签发的游标在部署后直接失效，不尝试兼容。
 4. TTL 是代码常量，不提供环境变量；先观察真实使用，再决定是否可配。
 5. 不做游标签名/HMAC/加密；过期不等于权限校验，接口仍先要求管理员。
 6. 前端不自动重放请求：`useToolHistory` 的「加载更多」失败继续把错误放在
@@ -43,7 +43,8 @@ ADR-0100 给工具配置变更历史加了 keyset 游标：base64url JSON `{t,i,
 ## 验证
 
 - `server/tests/test_tool_history.py` 的过期游标用例：手工构造 `e=1` 的游标，断言
-  `400 CURSOR_EXPIRED`；既有分页/改筛选/非法游标用例继续覆盖 `INVALID_CURSOR`。
+  `400 CURSOR_EXPIRED`；同一用例还覆盖缺 `e`、`e=1e309`（解析为 `inf`）与 `e=1.5`，
+  断言 `INVALID_CURSOR`；既有分页/改筛选/非法游标用例继续覆盖 `INVALID_CURSOR`。
 - 默认 533+42、PG 572+3、PG+Redis 575；ruff 208 / format 208 / mypy 119；前端未改
   27 files / 138 tests。
 - 详见 [ADR-0100](0100-tool-history-pagination.md)、[ADR-0101](0101-tool-history-filters.md)。

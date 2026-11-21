@@ -141,8 +141,10 @@ def _decode_tool_history_cursor(
         changed_at = datetime.fromisoformat(payload["t"])
         audit_id = int(payload["i"])
         cursor_fingerprint = payload["f"]
-        expires_at = int(payload["e"])
-    except (ValueError, KeyError, TypeError, UnicodeError, binascii.Error) as exc:
+        expires_at = payload["e"]
+        if type(expires_at) is not int:
+            raise ValueError("cursor expiry must be an integer")
+    except (ValueError, KeyError, TypeError, UnicodeError, OverflowError, binascii.Error) as exc:
         raise ApiError(400, "INVALID_CURSOR", "游标无效或已过期") from exc
     if changed_at.tzinfo is None or cursor_fingerprint != fingerprint or audit_id < 1:
         raise ApiError(400, "INVALID_CURSOR", "游标无效或已过期")

@@ -500,6 +500,58 @@ async def test_history_paginates_and_binds_cursor_to_filters(
     assert expired.status_code == 400
     assert expired.json()["code"] == "CURSOR_EXPIRED"
 
+    # 旧版本游标没有 e，不能猜一个 TTL；必须明确失效。
+    legacy_raw = json.dumps(
+        {"t": "2026-01-02T12:00:00+00:00", "i": 2, "f": fingerprint},
+        separators=(",", ":"),
+    ).encode("utf-8")
+    legacy_cursor = base64.urlsafe_b64encode(legacy_raw).decode("ascii")
+    legacy = await client.get(
+        "/api/admin/tools/query_cmdb/history",
+        headers=ADMIN,
+        params={"limit": 2, "cursor": legacy_cursor},
+    )
+    assert legacy.status_code == 400
+    assert legacy.json()["code"] == "INVALID_CURSOR"
+
+    # 过大指数会解析成 inf，int(inf) 抛 OverflowError，也应走 400 而不是 500。
+    infinite_raw = json.dumps(
+        {
+            "t": "2026-01-02T12:00:00+00:00",
+            "i": 2,
+            "f": fingerprint,
+            "e": 1e309,
+        },
+        separators=(",", ":"),
+    ).encode("utf-8")
+    infinite_cursor = base64.urlsafe_b64encode(infinite_raw).decode("ascii")
+    infinite = await client.get(
+        "/api/admin/tools/query_cmdb/history",
+        headers=ADMIN,
+        params={"limit": 2, "cursor": infinite_cursor},
+    )
+    assert infinite.status_code == 400
+    assert infinite.json()["code"] == "INVALID_CURSOR"
+
+    # e 必须是整数秒；1.5 不能靠 int() 截断成 1 秒后被放过。
+    fractional_raw = json.dumps(
+        {
+            "t": "2026-01-02T12:00:00+00:00",
+            "i": 2,
+            "f": fingerprint,
+            "e": 1.5,
+        },
+        separators=(",", ":"),
+    ).encode("utf-8")
+    fractional_cursor = base64.urlsafe_b64encode(fractional_raw).decode("ascii")
+    fractional = await client.get(
+        "/api/admin/tools/query_cmdb/history",
+        headers=ADMIN,
+        params={"limit": 2, "cursor": fractional_cursor},
+    )
+    assert fractional.status_code == 400
+    assert fractional.json()["code"] == "INVALID_CURSOR"
+
 
 async def test_history_export_records_download(client: AsyncClient) -> None:
     for enabled in (False, True):

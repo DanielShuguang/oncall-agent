@@ -256,7 +256,7 @@ oncall/
 | 工具配置变更历史（W6 后补） | ✅ 已完成 | 新增追加式 `tool_setting_changes`（迁移 0015）：每个真正变化的工具一行，`before`/`after` 存完整覆盖快照，与 `tool_settings` 写入同事务；`GET /admin/tools/{name}/history?limit=&cursor=&changed_from=&changed_to=&changed_by=&source=`（admin-only、倒序、keyset 分页、首屏 total；日期范围 ADR-0098、分页 ADR-0100、按人/来源 ADR-0101、游标 1 小时过期 ADR-0102）；ToolsPage 每行「历史」Dialog 展示时间/操作人/来源/`before → after`，可应用/清除日期与来源过滤；历史长期保留、不提供回滚；`tests/test_tool_history.py`、`test_tool_history_pg.py`；[ADR-0037](docs/decisions/0037-tool-setting-history.md) |
 | 工具历史游标过期（W6 后补） | ✅ 已完成 | 工具历史 keyset 游标增加 `e`（Unix 秒，签发后 1 小时）；过期返回 `400 CURSOR_EXPIRED`，缺 `e`/格式错仍 `INVALID_CURSOR`；不签名/不加密、无迁移；前端「加载更多」失败保留已加载列表；`tests/test_tool_history.py`；[ADR-0102](docs/decisions/0102-tool-history-cursor-expiry.md) |
 | 工具历史游标过期后的重新加载（W6 后补） | ✅ 已完成 | `ApiError` 增加可选 `code`；`HistoryState` 记录 `loadMoreErrorCode`；仅 `CURSOR_EXPIRED` 显示「重新加载」，按已应用筛选重新取第一页；不自动重放、无后端/迁移；`client.test.ts` 覆盖错误码透传；[ADR-0103](docs/decisions/0103-tool-history-cursor-reload.md) |
-| 窄屏会话抽屉左滑关闭（W6 后补） | ✅ 已完成 | `drawerSwipe.ts` 的 `isDrawerSwipeClose(dx,dy)`：左滑 ≥80px 且水平位移 ≥垂直 1.5 倍才关闭；仅在 `mobileOpen` 下单指触摸记录起点，`touchend` 判定，`touchcancel` 清空；不做跟手动画、无依赖/后端/迁移；`drawerSwipe.test.ts` 4 tests；[ADR-0104](docs/decisions/0104-session-drawer-swipe-close.md) |
+| 窄屏会话抽屉左滑关闭（W6 后补） | ✅ 已完成 | `drawerSwipe.ts` 的 `isDrawerSwipeClose(dx,dy)`：左滑 ≥80px 且水平位移 ≥垂直 1.5 倍才关闭；仅在 `mobileOpen` 下单指触摸记录起点，`touchend` 判定，`touchcancel` 清空；起手在输入/下拉/可编辑元素时不启动；不做跟手动画、无依赖/后端/迁移；`drawerSwipe.test.ts` 4 tests；[ADR-0104](docs/decisions/0104-session-drawer-swipe-close.md) |
 
 ### 评测与压测
 

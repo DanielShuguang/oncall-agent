@@ -2319,7 +2319,7 @@ ADR-0102 过期后只显示错误，用户必须关闭 Dialog 再重新打开。
 | 事项 | 落地 |
 |---|---|
 | 阈值 | `DRAWER_SWIPE_CLOSE_PX=80`；左滑至少 80px 且水平位移 ≥ 垂直位移 1.5 倍 |
-| 触发 | 仅 `mobileOpen` 且单指触摸；`touchstart` 记起点，`touchend` 用 `changedTouches[0]` 计算，`touchcancel` 清空 |
+| 触发 | 仅 `mobileOpen` 且单指触摸；`touchstart` 记起点，`touchend` 用 `changedTouches[0]` 计算，`touchcancel` 清空；起手在输入/下拉/可编辑元素时不启动 |
 | 行为 | 命中阈值调用 `onCloseMobile()`；不改变抽屉宽度、不做 transform、不阻止内部按钮/输入 |
 | 范围 | 不支持右滑打开；不新增持久化、后端接口或迁移 |
 | 验证 | 前端 28 files/144 tests、oxlint 0/0（135 files）、oxfmt 143 files、build 2941 modules；后端沿用 533+42 / 572+3 / 575 |

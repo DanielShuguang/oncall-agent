@@ -134,6 +134,15 @@ export function SessionList({
       drawerTouchStart.current = null;
       return;
     }
+    // 从输入/下拉/可编辑元素起手时，横向拖动通常是选词或控件手势，不应当关闭抽屉。
+    const target = event.target;
+    if (
+      target instanceof Element &&
+      target.closest('input, textarea, select, [contenteditable="true"]')
+    ) {
+      drawerTouchStart.current = null;
+      return;
+    }
     const touch = event.touches[0];
     if (!touch) return;
     drawerTouchStart.current = { x: touch.clientX, y: touch.clientY };

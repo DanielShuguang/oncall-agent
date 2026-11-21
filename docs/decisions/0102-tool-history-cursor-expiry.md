@@ -25,7 +25,7 @@ ADR-0100 给工具配置变更历史加了 keyset 游标：base64url JSON `{t,i,
    `400 {"code":"CURSOR_EXPIRED","message":"游标已过期，请重新加载"}`。
 3. 缺 `e`、非整数（含 `1.5`、布尔值、过大指数解析出的 `inf`）、时区缺失、指纹不匹配、
    ID 非法仍统一 `400 INVALID_CURSOR`；旧版本签发的游标在部署后直接失效，不尝试兼容。
-4. TTL 是代码常量，不提供环境变量；先观察真实使用，再决定是否可配。
+4. 首版 TTL 是代码常量；后由 [ADR-0105](0105-tool-history-cursor-ttl-config.md) 改为 `ONCALL_TOOL_HISTORY_CURSOR_TTL_MINUTES`（默认 60，范围 1–1440），默认行为不变。
 5. 不做游标签名/HMAC/加密；过期不等于权限校验，接口仍先要求管理员。
 6. 前端不自动重放请求：`useToolHistory` 的「加载更多」失败继续把错误放在
    `loadMoreError`，已加载列表保留；`CURSOR_EXPIRED` 时显示「重新加载」按钮，按已应用
@@ -52,7 +52,7 @@ ADR-0100 给工具配置变更历史加了 keyset 游标：base64url JSON `{t,i,
 
 ## 待定
 
-- TTL 是否改为可配置（例如 15 分钟 / 24 小时）；
+- ~~TTL 是否改为可配置（例如 15 分钟 / 24 小时）~~：已由 [ADR-0105](0105-tool-history-cursor-ttl-config.md) 补上；
 - 过期后是否在 Dialog 内提供「重新加载」快捷按钮，而不是要求关闭重开：已由
   [ADR-0103](0103-tool-history-cursor-reload.md) 补上；
 - 是否把游标签名与过期一起做（当前明确不做）。

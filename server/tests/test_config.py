@@ -106,6 +106,11 @@ def test_retention_params_are_validated() -> None:
     with pytest.raises(ValidationError, match="ONCALL_SESSION_PIN_LIMIT"):
         Settings(session_pin_limit=0)
     assert Settings(session_pin_limit=80).session_pin_limit == 80
+    with pytest.raises(ValidationError, match="ONCALL_TOOL_HISTORY_CURSOR_TTL_MINUTES"):
+        Settings(tool_history_cursor_ttl_minutes=0)
+    with pytest.raises(ValidationError, match="ONCALL_TOOL_HISTORY_CURSOR_TTL_MINUTES"):
+        Settings(tool_history_cursor_ttl_minutes=1441)
+    assert Settings(tool_history_cursor_ttl_minutes=15).tool_history_cursor_ttl_s == 900
 
     # 事件里带着同一段回答正文：正文保留期短于事件保留期时，清了 runs 也白清
     with pytest.raises(ValidationError, match="必须 >= ONCALL_EVENT_RETENTION_DAYS"):
@@ -122,6 +127,7 @@ def test_retention_params_are_validated() -> None:
     assert settings.session_restore_audit_retention_days == 365
     assert settings.session_pin_audit_retention_days == 365
     assert settings.export_audit_retention_days == 365
+    assert settings.tool_history_cursor_ttl_minutes == 60
 
 
 def test_user_daily_budget_is_validated_and_converted_to_cents() -> None:

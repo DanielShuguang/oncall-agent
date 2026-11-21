@@ -117,6 +117,8 @@ ONCALL_USER_DAILY_BUDGET_CNY=0
 ONCALL_RATE_LIMIT_PER_MIN=30
 # 单用户置顶会话上限（默认 50；列表接口返回实际值，改后重启生效）
 ONCALL_SESSION_PIN_LIMIT=50
+# 工具历史游标有效期（分钟，默认 60，范围 1–1440；ADR-0105）
+ONCALL_TOOL_HISTORY_CURSOR_TTL_MINUTES=60
 ```
 
 > 价格单位是「分 / 百万 token」，不是美元；填错会直接体现在成本看板上。

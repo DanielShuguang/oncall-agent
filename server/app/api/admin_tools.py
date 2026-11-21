@@ -83,7 +83,7 @@ def _history_window(
 
 
 #: 工具历史游标：绑定工具名与已应用筛选，换筛选后旧游标必须 400；
-#: 同时限制 1 小时有效期，避免长期保留旧分页位置（ADR-0102）。
+#: 有效期默认 1 小时（ADR-0102），可由 ONCALL_TOOL_HISTORY_CURSOR_TTL_MINUTES 调整（ADR-0105）。
 TOOL_HISTORY_CURSOR_MAX = 512
 TOOL_HISTORY_CURSOR_TTL_S = 60 * 60
 
@@ -113,6 +113,7 @@ def _encode_tool_history_cursor(
     fingerprint: str,
     *,
     now: datetime | None = None,
+    ttl_s: int = TOOL_HISTORY_CURSOR_TTL_S,
 ) -> str:
     issued_at = now or datetime.now(UTC)
     raw = json.dumps(
@@ -120,7 +121,7 @@ def _encode_tool_history_cursor(
             "t": record.changed_at.isoformat(),
             "i": record.id,
             "f": fingerprint,
-            "e": int(issued_at.timestamp()) + TOOL_HISTORY_CURSOR_TTL_S,
+            "e": int(issued_at.timestamp()) + ttl_s,
         },
         separators=(",", ":"),
     ).encode("utf-8")
@@ -377,7 +378,13 @@ async def tool_setting_history(
         ],
         total=total,
         next_cursor=(
-            _encode_tool_history_cursor(records[-1], fingerprint) if has_more and records else None
+            _encode_tool_history_cursor(
+                records[-1],
+                fingerprint,
+                ttl_s=get_settings().tool_history_cursor_ttl_s,
+            )
+            if has_more and records
+            else None
         ),
     )
 

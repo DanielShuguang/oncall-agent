@@ -2288,7 +2288,7 @@ ADR-0100 的游标只要筛选不变就一直可用，历史 Dialog 放很久后
 |---|---|
 | 游标 | base64url JSON 增加 `e`（Unix 秒，签发 + 3600）；缺 `e`/格式错仍 `INVALID_CURSOR` |
 | 过期 | `e < now` 返回 `400 {"code":"CURSOR_EXPIRED"}`；接口仍先做管理员鉴权 |
-| 范围 | 不做签名/HMAC/加密；TTL 是代码常量，不提供环境变量；导出不用游标 |
+| 范围 | 不做签名/HMAC/加密；TTL 默认 60 分钟、可由 `ONCALL_TOOL_HISTORY_CURSOR_TTL_MINUTES` 调整（ADR-0105）；导出不用游标 |
 | 前端 | 「加载更多」失败保留已加载列表，显示错误；`CURSOR_EXPIRED` 时提供「重新加载」按钮（ADR-0103），按已应用筛选取第一页 |
 | 验证 | 默认 533+42、PG 572+3、PG+Redis 575；ruff 208 / format 208 / mypy 119；前端 27 files/140 tests（ADR-0103 补 2 个错误码用例） |
 
@@ -2308,6 +2308,21 @@ ADR-0102 过期后只显示错误，用户必须关闭 Dialog 再重新打开。
 | 验证 | 前端 27 files/140 tests、oxlint 133 files、oxfmt 141 files、build 通过；后端沿用 533+42 / 572+3 / 575 |
 
 详见 [ADR-0103](decisions/0103-tool-history-cursor-reload.md)。
+
+## W6 后补：工具历史游标 TTL 可配置（ADR-0105）
+
+ADR-0102 把游标有效期写成 1 小时常量。现场审计节奏不同：有的部署需要更短窗口减少陈旧翻页，
+有的需要更长窗口跨天复核。本 ADR 把 TTL 改为部署配置，默认仍 60 分钟；无迁移。
+
+| 事项 | 落地 |
+|---|---|
+| 配置 | `ONCALL_TOOL_HISTORY_CURSOR_TTL_MINUTES`，默认 60，允许 1–1440；启动时校验，越界拒绝启动 |
+| 游标 | `e = 签发 Unix 秒 + TTL 秒`；解码仍比较绝对值，改配置不追溯已签发游标 |
+| 边界 | 第 119/120 秒有效、第 121 秒 `CURSOR_EXPIRED`；缺 `e`/类型错仍 `INVALID_CURSOR` |
+| 范围 | 不做按用户/按筛选的不同 TTL；不做滑动续期/签名；导出不用游标 |
+| 验证 | 默认 534+42、PG 573+3、PG+Redis 576；ruff 208 / format 208 / mypy 119；前端未改 28 files/144 tests |
+
+详见 [ADR-0105](decisions/0105-tool-history-cursor-ttl-config.md)。
 
 ---
 

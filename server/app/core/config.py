@@ -115,6 +115,9 @@ class Settings(BaseSettings):
     #: 单个用户最多置顶的会话数（ADR-0093）。默认与历史行为一致（50）；
     #: 由 `build_store` 传给内存/Postgres 实现，列表接口同样返回该值。
     session_pin_limit: int = 50
+    #: 工具历史游标有效期（分钟，ADR-0105）。默认 60；只影响分页游标，
+    #: 不改变历史查询的过滤窗口。
+    tool_history_cursor_ttl_minutes: int = 60
     #: 超过该时长没有任何事件的 running run 判定为进程中断（ADR-0017）。
     #: 必须明显大于单 run 时长上限（agent.state.RUN_TIMEOUT_S=120s），否则会误杀活着的 run。
     stale_run_min: int = 10
@@ -191,6 +194,8 @@ class Settings(BaseSettings):
             raise ValueError("ONCALL_EXPORT_AUDIT_RETENTION_DAYS 必须 >= 1")
         if self.session_pin_limit < 1:
             raise ValueError("ONCALL_SESSION_PIN_LIMIT 必须 >= 1")
+        if not 1 <= self.tool_history_cursor_ttl_minutes <= 1440:
+            raise ValueError("ONCALL_TOOL_HISTORY_CURSOR_TTL_MINUTES 必须在 [1, 1440] 内")
         return self
 
     @model_validator(mode="after")
@@ -232,6 +237,10 @@ class Settings(BaseSettings):
         if len(self.session_secret) < MIN_SESSION_SECRET_LEN:
             raise ValueError(f"ONCALL_SESSION_SECRET 至少 {MIN_SESSION_SECRET_LEN} 个字符")
         return self
+
+    @property
+    def tool_history_cursor_ttl_s(self) -> int:
+        return self.tool_history_cursor_ttl_minutes * 60
 
     @property
     def cors_origin_list(self) -> list[str]:

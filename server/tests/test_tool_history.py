@@ -6,12 +6,18 @@ import base64
 import hashlib
 import json
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
+import pytest
 from httpx import AsyncClient
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.api.admin_tools import _history_fingerprint
+from app.api.admin_tools import (
+    _decode_tool_history_cursor,
+    _encode_tool_history_cursor,
+    _history_fingerprint,
+)
+from app.api.errors import ApiError
 from app.tools.policy import (
     InMemoryToolSettingStore,
     ToolOverride,
@@ -598,3 +604,30 @@ async def test_history_export_records_download(client: AsyncClient) -> None:
     )
     assert non_ascii.status_code == 200
     assert non_ascii.headers["content-disposition"].isascii()
+
+
+def test_cursor_ttl_is_adjustable() -> None:
+    """TTL 由配置传入，默认 60 分钟；边界秒仍有效，超过才过期（ADR-0105）。"""
+    record = ToolSettingChangeRecord(
+        id=7,
+        tool_name="query_cmdb",
+        changed_by="admin_1",
+        changed_at=datetime(2026, 1, 2, 12, tzinfo=UTC),
+        source="tool",
+        before=None,
+        after={"enabled": True, "roles": None},
+    )
+    fingerprint = _history_fingerprint("query_cmdb", None, None, None, None)
+    issued_at = datetime(2026, 1, 2, 12, tzinfo=UTC)
+    cursor = _encode_tool_history_cursor(record, fingerprint, now=issued_at, ttl_s=120)
+
+    assert _decode_tool_history_cursor(cursor, fingerprint, now=issued_at) == (
+        record.changed_at,
+        record.id,
+    )
+    assert _decode_tool_history_cursor(
+        cursor, fingerprint, now=issued_at + timedelta(seconds=120)
+    ) == (record.changed_at, record.id)
+    with pytest.raises(ApiError) as exc:
+        _decode_tool_history_cursor(cursor, fingerprint, now=issued_at + timedelta(seconds=121))
+    assert exc.value.code == "CURSOR_EXPIRED"

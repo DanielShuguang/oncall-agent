@@ -144,11 +144,23 @@ export function useToolHistory() {
     const from = history.changedFrom;
     const to = history.changedTo;
     if ((from && !to) || (!from && to)) {
-      setHistory({ ...history, filterError: '开始日期与结束日期必须同时选择' });
+      // 过滤校验失败时同时清掉上一次「加载更多」的错误，避免旧游标过期提示
+      // 和新的日期错误同时挂在 Dialog 里。
+      setHistory({
+        ...history,
+        filterError: '开始日期与结束日期必须同时选择',
+        loadMoreError: null,
+        loadMoreErrorCode: null,
+      });
       return;
     }
     if (from && to && from > to) {
-      setHistory({ ...history, filterError: '开始日期不能晚于结束日期' });
+      setHistory({
+        ...history,
+        filterError: '开始日期不能晚于结束日期',
+        loadMoreError: null,
+        loadMoreErrorCode: null,
+      });
       return;
     }
     requestHistory(history.tool, from, to, history.changedBy, history.source);

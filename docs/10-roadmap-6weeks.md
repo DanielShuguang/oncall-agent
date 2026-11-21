@@ -2304,7 +2304,7 @@ ADR-0102 过期后只显示错误，用户必须关闭 Dialog 再重新打开。
 | 错误码 | `ApiError` 增加可选 `code`；`toApiError` 解析统一错误体，无 code 的旧错误保持 `null` |
 | 状态 | `HistoryState.loadMoreErrorCode` 记录加载更多失败的错误码；成功/新请求清空 |
 | 按钮 | 仅 `CURSOR_EXPIRED` 显示「重新加载」；其他错误只显示消息，不提供误导性重试 |
-| 范围 | 用 `appliedFrom/appliedTo/appliedBy/appliedSource` 取第一页，不自动重放；草稿会重置为已应用值 |
+| 范围 | 用 `appliedFrom/appliedTo/appliedBy/appliedSource` 取第一页，不自动重放；草稿会重置为已应用值；日期校验失败同时清旧游标错误 |
 | 验证 | 前端 27 files/140 tests、oxlint 133 files、oxfmt 141 files、build 通过；后端沿用 533+42 / 572+3 / 575 |
 
 详见 [ADR-0103](decisions/0103-tool-history-cursor-reload.md)。

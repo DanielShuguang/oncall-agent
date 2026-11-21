@@ -1811,7 +1811,7 @@ ADR-0071 的快捷预设每次打开都要重新点。现在把**预设 ID**存�
 | 验证 | 前端 96/19、tsc/oxlint/oxfmt/build 通过（2893 modules，1.16s）；后端未改，沿用 506+40 / 543+3 / 546 |
 
 已知边界：焦点陷阱与背景滚动锁定已由 [ADR-0077](decisions/0077-session-drawer-focus-trap.md)
-补上；仍没有滑动关闭与过渡动画；不是独立路由，深链仍需应用内状态。详见
+补上；滑动关闭已由 [ADR-0104](decisions/0104-session-drawer-swipe-close.md) 补上，仍无过渡动画；不是独立路由，深链仍需应用内状态。详见
 [ADR-0076](decisions/0076-session-drawer.md)。
 
 ---
@@ -1828,10 +1828,10 @@ ADR-0076 的抽屉只做了打开聚焦 X、关闭回菜单，没有焦点陷阱
 | 滚动 | `mobileOpen` 时 `document.body.style.overflow='hidden'`，遮罩 `touch-none`、抽屉 `overscroll-contain`，关闭/卸载恢复 |
 | 语义 | 窄屏抽屉 `role="dialog"` + `aria-modal="true"`；遮罩 `tabIndex={-1}` |
 | 响应式 | `matchMedia('(max-width:639px)')` 变宽时自动关闭，焦点移到桌面搜索框，避免残留锁定/遮罩 |
-| 范围 | 不引依赖；不做滑动关闭/动画；不锁主内容区 `inert` |
+| 范围 | 不引依赖；滑动关闭由 ADR-0104 补上；不做抽屉动画；不锁主内容区 `inert` |
 | 验证 | 前端 100/20、tsc/oxlint/oxfmt/build 通过（2894 modules，297ms）；后端未改，沿用 506+40 / 543+3 / 546 |
 
-已知边界：焦点陷阱只覆盖键盘 Tab，不隔离屏幕阅读器虚拟光标；仍无滑动关闭/动画；DOM 查询、
+已知边界：焦点陷阱只覆盖键盘 Tab，不隔离屏幕阅读器虚拟光标；滑动关闭见 ADR-0104，仍无动画；DOM 查询、
 滚动锁定与 resize 关闭无组件级自动化测试，需要真机验收。详见
 [ADR-0077](decisions/0077-session-drawer-focus-trap.md)。
 
@@ -2308,6 +2308,23 @@ ADR-0102 过期后只显示错误，用户必须关闭 Dialog 再重新打开。
 | 验证 | 前端 27 files/140 tests、oxlint 133 files、oxfmt 141 files、build 通过；后端沿用 533+42 / 572+3 / 575 |
 
 详见 [ADR-0103](decisions/0103-tool-history-cursor-reload.md)。
+
+---
+
+## W6 后补：窄屏会话抽屉左滑关闭（ADR-0104）
+
+抽屉已有遮罩、Escape、X 等关闭路径，但移动端单手操作时右上角 X 较远；左滑是常见手势。
+本 ADR 在松手时按总位移判定关闭，不做实时跟手动画，也不引入手势库。
+
+| 事项 | 落地 |
+|---|---|
+| 阈值 | `DRAWER_SWIPE_CLOSE_PX=80`；左滑至少 80px 且水平位移 ≥ 垂直位移 1.5 倍 |
+| 触发 | 仅 `mobileOpen` 且单指触摸；`touchstart` 记起点，`touchend` 用 `changedTouches[0]` 计算，`touchcancel` 清空 |
+| 行为 | 命中阈值调用 `onCloseMobile()`；不改变抽屉宽度、不做 transform、不阻止内部按钮/输入 |
+| 范围 | 不支持右滑打开；不新增持久化、后端接口或迁移 |
+| 验证 | 前端 28 files/144 tests、oxlint 0/0（135 files）、oxfmt 143 files、build 2941 modules；后端沿用 533+42 / 572+3 / 575 |
+
+详见 [ADR-0104](decisions/0104-session-drawer-swipe-close.md)。
 
 ---
 

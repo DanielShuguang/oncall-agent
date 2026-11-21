@@ -1,8 +1,9 @@
 /** 会话侧栏（ADR-0030）：只展示服务端投影，不在浏览器本地缓存会话。 */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type TouchEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { cn } from 'cn';
+import { isDrawerSwipeClose } from './drawerSwipe';
 import { nextFocusTarget } from './focusTrap';
 import type { SessionListProps } from './SessionList.types';
 import { HiddenSessionsPanel } from './HiddenSessionsPanel';
@@ -77,6 +78,8 @@ export function SessionList({
   const mobileAside = useRef<HTMLElement>(null);
   const mobileCloseButton = useRef<HTMLButtonElement>(null);
   const mobileSearchInput = useRef<HTMLInputElement>(null);
+  // 左滑关闭只在松手时判定总位移，不做跟手动画（ADR-0104）。
+  const drawerTouchStart = useRef<{ x: number; y: number } | null>(null);
   useEffect(() => {
     if (!mobileOpen) return;
     const media = window.matchMedia('(max-width: 639px)');
@@ -126,6 +129,28 @@ export function SessionList({
       window.removeEventListener('keydown', onKeyDown);
     };
   }, [mobileOpen, onCloseMobile]);
+  const onDrawerTouchStart = (event: TouchEvent<HTMLElement>) => {
+    if (!mobileOpen || event.touches.length !== 1) {
+      drawerTouchStart.current = null;
+      return;
+    }
+    const touch = event.touches[0];
+    if (!touch) return;
+    drawerTouchStart.current = { x: touch.clientX, y: touch.clientY };
+  };
+  const onDrawerTouchEnd = (event: TouchEvent<HTMLElement>) => {
+    const start = drawerTouchStart.current;
+    drawerTouchStart.current = null;
+    if (!start || !mobileOpen) return;
+    const touch = event.changedTouches[0];
+    if (!touch) return;
+    if (isDrawerSwipeClose(touch.clientX - start.x, touch.clientY - start.y)) {
+      onCloseMobile();
+    }
+  };
+  const onDrawerTouchCancel = () => {
+    drawerTouchStart.current = null;
+  };
   const allBatchSelected =
     sessions.length > 0 && sessions.every((item) => batchSelected.has(item.session_id));
   const pinLimitReached = pinnedCount !== null && pinLimit !== null && pinnedCount >= pinLimit;
@@ -140,6 +165,9 @@ export function SessionList({
       role={mobileOpen ? 'dialog' : undefined}
       aria-label="会话列表"
       aria-modal={mobileOpen || undefined}
+      onTouchStart={onDrawerTouchStart}
+      onTouchEnd={onDrawerTouchEnd}
+      onTouchCancel={onDrawerTouchCancel}
       className={cn(
         'w-72 shrink-0 flex-col gap-3 border-r bg-panel p-3 overscroll-contain',
         mobileOpen

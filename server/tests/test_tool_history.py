@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import types
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 
@@ -12,6 +13,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.api import admin_tools
 from app.api.admin_tools import (
     _decode_tool_history_cursor,
     _encode_tool_history_cursor,
@@ -399,8 +401,15 @@ async def test_history_filters_by_changed_by_and_source(
 
 
 async def test_history_paginates_and_binds_cursor_to_filters(
-    client: AsyncClient, mem_tool_settings: ToolPolicy
+    client: AsyncClient,
+    mem_tool_settings: ToolPolicy,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(
+        admin_tools,
+        "get_settings",
+        lambda: types.SimpleNamespace(tool_history_cursor_ttl_s=120),
+    )
     store = mem_tool_settings._store
     assert isinstance(store, InMemoryToolSettingStore)
     store._history.extend(
@@ -444,6 +453,9 @@ async def test_history_paginates_and_binds_cursor_to_filters(
     assert [item["id"] for item in page["items"]] == [3, 2]
     cursor = page["next_cursor"]
     assert isinstance(cursor, str) and cursor
+    cursor_payload = json.loads(base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)))
+    remaining = cursor_payload["e"] - int(datetime.now(UTC).timestamp())
+    assert 60 < remaining <= 120
 
     second = await client.get(
         "/api/admin/tools/query_cmdb/history",

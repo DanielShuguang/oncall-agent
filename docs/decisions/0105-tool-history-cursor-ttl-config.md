@@ -42,9 +42,10 @@ ADR-0102 给工具配置变更历史的 keyset 游标加了固定 1 小时有效
 
 - `server/tests/test_config.py`：拒绝 0 与 1441，接受 15 并换算为 900 秒，默认 60。
 - `server/tests/test_tool_history.py`：直接调用编码/解码，`ttl_s=120` 时第 120 秒仍有效、
-  第 121 秒返回 `CURSOR_EXPIRED`；既有 1 小时/非法游标用例不变。
+  第 121 秒返回 `CURSOR_EXPIRED`；分页用例通过 monkeypatch `get_settings()` 返回 TTL=120，
+  断言路由签发的 `e` 距当前不超过 120 秒，覆盖「路由真的读取配置」这一接线。
 - 默认 534+42、PG 573+3、PG+Redis 576；ruff 208 / format 208 / mypy 119；前端无改动
-  27 files / 140 tests。
+  28 files / 144 tests。
 - 详见 [ADR-0102](0102-tool-history-cursor-expiry.md)、[ADR-0103](0103-tool-history-cursor-reload.md)。
 
 ## 待定

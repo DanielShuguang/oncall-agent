@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { del, getJson, getToken, setToken } from './client';
+import { ApiError, del, getJson, getToken, setToken } from './client';
 
 function stubStorage() {
   const data = new Map<string, string>();
@@ -68,6 +68,31 @@ describe('token', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     await expect(getJson('/admin/kb/documents')).rejects.toThrow('扫描件没有文本层');
+  });
+
+  it('透传后端 code，供游标过期等分支使用', async () => {
+    stubStorage();
+    const fetchMock = vi.fn<typeof fetch>();
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ code: 'CURSOR_EXPIRED', message: '游标已过期，请重新加载' }), {
+        status: 400,
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(getJson('/admin/tools/query_cmdb/history')).rejects.toMatchObject({
+      status: 400,
+      code: 'CURSOR_EXPIRED',
+    });
+  });
+
+  it('没有 code 的旧错误仍可用，code 为 null', async () => {
+    stubStorage();
+    stubFetch(403);
+
+    const error = await del('/admin/budgets/u_102').catch((exc: unknown) => exc);
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({ status: 403, code: null });
   });
 });
 

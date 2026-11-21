@@ -23,6 +23,7 @@ export default function ToolsPage() {
     reloadHistory,
     clearHistoryFilters,
     loadMoreHistory,
+    reloadExpiredHistory,
     closeHistory,
     exportHistory,
   } = useToolHistory();
@@ -163,6 +164,7 @@ export default function ToolsPage() {
         onReloadHistory={reloadHistory}
         onClearHistoryFilters={clearHistoryFilters}
         onLoadMoreHistory={loadMoreHistory}
+        onReloadExpiredHistory={reloadExpiredHistory}
         onExportHistory={() => void exportHistory()}
         exportingHistory={exportingHistory}
         historyExportMessage={historyExportMessage}

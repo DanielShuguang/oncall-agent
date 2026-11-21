@@ -1,6 +1,7 @@
 /** 工具变更历史的加载、分页与导出；列表/导出共用同一「已应用」日期窗口。 */
 
 import { useRef, useState } from 'react';
+import { ApiError } from '@/api/client';
 import { exportToolHistoryCsv, getToolHistory, type ToolInfo } from '@/api/tools';
 import { downloadBlob } from '@/lib/download';
 import type { HistoryState } from './ToolsDialogs';
@@ -41,6 +42,7 @@ export function useToolHistory() {
       nextCursor: null,
       loadingMore: false,
       loadMoreError: null,
+      loadMoreErrorCode: null,
     });
     void (async () => {
       try {
@@ -91,7 +93,13 @@ export function useToolHistory() {
     const source = history.appliedSource;
     setHistory((current) =>
       current?.tool.name === tool.name
-        ? { ...current, loadingMore: true, filterError: null, loadMoreError: null }
+        ? {
+            ...current,
+            loadingMore: true,
+            filterError: null,
+            loadMoreError: null,
+            loadMoreErrorCode: null,
+          }
         : current,
     );
     void (async () => {
@@ -109,6 +117,7 @@ export function useToolHistory() {
                 ...current,
                 loadingMore: false,
                 loadMoreError: null,
+                loadMoreErrorCode: null,
                 items: [...current.items, ...data.items],
                 nextCursor: data.next_cursor ?? null,
               }
@@ -122,6 +131,7 @@ export function useToolHistory() {
                 ...current,
                 loadingMore: false,
                 loadMoreError: exc instanceof Error ? exc.message : '加载更多失败',
+                loadMoreErrorCode: exc instanceof ApiError ? exc.code : null,
               }
             : current,
         );
@@ -142,6 +152,18 @@ export function useToolHistory() {
       return;
     }
     requestHistory(history.tool, from, to, history.changedBy, history.source);
+  };
+
+  const reloadExpiredHistory = () => {
+    if (!history) return;
+    // 过期后重新取第一页，必须用「已应用」筛选；草稿可能尚未应用。
+    requestHistory(
+      history.tool,
+      history.appliedFrom,
+      history.appliedTo,
+      history.appliedBy,
+      history.appliedSource,
+    );
   };
 
   const clearHistoryFilters = () => {
@@ -191,6 +213,7 @@ export function useToolHistory() {
     reloadHistory,
     clearHistoryFilters,
     loadMoreHistory,
+    reloadExpiredHistory,
     closeHistory,
     exportHistory,
   };

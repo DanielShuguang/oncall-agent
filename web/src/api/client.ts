@@ -7,6 +7,8 @@ export class ApiError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    /** 后端 {code,message} 的稳定错误码；没有时为 null（ADR-0103）。 */
+    readonly code: string | null = null,
   ) {
     super(message);
   }
@@ -41,13 +43,15 @@ export async function toApiError(res: Response, path: string): Promise<ApiError>
   }
   // 后端错误统一 {code, message}；管理页要把「文件过大 / 解析失败」原样告诉用户
   let message = `请求失败: ${path}`;
+  let code: string | null = null;
   try {
-    const body = (await res.json()) as { message?: unknown };
+    const body = (await res.json()) as { code?: unknown; message?: unknown };
     if (typeof body.message === 'string' && body.message.trim()) message = body.message;
+    if (typeof body.code === 'string' && body.code.trim()) code = body.code;
   } catch {
     // 非 JSON（网关 502、HTML 错误页）时保留通用文案
   }
-  return new ApiError(res.status, message);
+  return new ApiError(res.status, message, code);
 }
 
 export async function getJson<T>(path: string, init?: RequestInit): Promise<T> {

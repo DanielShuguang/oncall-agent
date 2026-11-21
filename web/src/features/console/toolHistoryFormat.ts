@@ -23,6 +23,8 @@ export interface HistoryState {
   loadingMore: boolean;
   /** 加载更多失败时保留已加载列表，只在底部提示。 */
   loadMoreError: string | null;
+  /** 失败的后端错误码；CURSOR_EXPIRED 时提供「重新加载」（ADR-0103）。 */
+  loadMoreErrorCode: string | null;
 }
 
 export function formatTime(value: string): string {

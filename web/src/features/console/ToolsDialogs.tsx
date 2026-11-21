@@ -40,6 +40,7 @@ interface ToolsDialogsProps {
   onReloadHistory: () => void;
   onClearHistoryFilters: () => void;
   onLoadMoreHistory: () => void;
+  onReloadExpiredHistory: () => void;
   onExportHistory: () => void;
   exportingHistory: boolean;
   historyExportMessage: string | null;
@@ -54,6 +55,7 @@ export function ToolsDialogs({
   onReloadHistory,
   onClearHistoryFilters,
   onLoadMoreHistory,
+  onReloadExpiredHistory,
   onExportHistory,
   exportingHistory,
   historyExportMessage,
@@ -268,7 +270,14 @@ export function ToolsDialogs({
                 </div>
               ))}
               {history?.loadMoreError && (
-                <div className="text-xs text-danger">{history.loadMoreError}</div>
+                <div className="flex flex-wrap items-center gap-2 text-xs text-danger">
+                  <span>{history.loadMoreError}</span>
+                  {history.loadMoreErrorCode === 'CURSOR_EXPIRED' && (
+                    <Button size="sm" variant="outline" onClick={onReloadExpiredHistory}>
+                      重新加载
+                    </Button>
+                  )}
+                </div>
               )}
               <div className="flex items-center justify-between gap-2 pt-1 text-xs text-muted-foreground">
                 <span>

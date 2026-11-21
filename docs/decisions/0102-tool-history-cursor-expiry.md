@@ -28,7 +28,8 @@ ADR-0100 给工具配置变更历史加了 keyset 游标：base64url JSON `{t,i,
 4. TTL 是代码常量，不提供环境变量；先观察真实使用，再决定是否可配。
 5. 不做游标签名/HMAC/加密；过期不等于权限校验，接口仍先要求管理员。
 6. 前端不自动重放请求：`useToolHistory` 的「加载更多」失败继续把错误放在
-   `loadMoreError`，已加载列表保留；用户重新打开/应用筛选即可从第一页开始。
+   `loadMoreError`，已加载列表保留；`CURSOR_EXPIRED` 时显示「重新加载」按钮，按已应用
+   筛选重新取第一页（[ADR-0103](0103-tool-history-cursor-reload.md)），不自动重放。
 7. 无表、无索引、无迁移；导出不使用游标，因此不受影响。
 
 ## 后果
@@ -45,12 +46,13 @@ ADR-0100 给工具配置变更历史加了 keyset 游标：base64url JSON `{t,i,
 - `server/tests/test_tool_history.py` 的过期游标用例：手工构造 `e=1` 的游标，断言
   `400 CURSOR_EXPIRED`；同一用例还覆盖缺 `e`、`e=1e309`（解析为 `inf`）与 `e=1.5`，
   断言 `INVALID_CURSOR`；既有分页/改筛选/非法游标用例继续覆盖 `INVALID_CURSOR`。
-- 默认 533+42、PG 572+3、PG+Redis 575；ruff 208 / format 208 / mypy 119；前端未改
-  27 files / 138 tests。
+- 默认 533+42、PG 572+3、PG+Redis 575；ruff 208 / format 208 / mypy 119；前端 27 files /
+  140 tests（ADR-0103 补 2 个错误码用例）。
 - 详见 [ADR-0100](0100-tool-history-pagination.md)、[ADR-0101](0101-tool-history-filters.md)。
 
 ## 待定
 
 - TTL 是否改为可配置（例如 15 分钟 / 24 小时）；
-- 过期后是否在 Dialog 内提供「重新加载」快捷按钮，而不是要求关闭重开；
+- 过期后是否在 Dialog 内提供「重新加载」快捷按钮，而不是要求关闭重开：已由
+  [ADR-0103](0103-tool-history-cursor-reload.md) 补上；
 - 是否把游标签名与过期一起做（当前明确不做）。

@@ -614,7 +614,7 @@ async def _exercise_pinned_sessions(store: RunStore) -> None:
     )
     assert [item.session_id for item in plain_second] == ["sess_old"]
 
-    # 重复置顶/取消幂等；置顶后隐藏会清掉置顶，恢复后不恢复
+    # 重复置顶/取消幂等；置顶后隐藏会清掉置顶，恢复时恢复（ADR-0108）
     assert await store.pin_session(user_id=user, session_id="sess_mid") is True
     assert await store.pin_session(user_id=user, session_id="sess_mid") is True
     assert await store.hide_session(user_id=user, session_id="sess_mid") is True
@@ -626,11 +626,11 @@ async def _exercise_pinned_sessions(store: RunStore) -> None:
     restored_sessions = {
         item.session_id: item for item in await store.list_sessions(user_id=user, limit=10)
     }
-    assert restored_sessions["sess_mid"].pinned is False
+    assert restored_sessions["sess_mid"].pinned is True
     assert await store.unpin_session(user_id=user, session_id="sess_mid") is True
     assert await store.unpin_session(user_id=user, session_id="sess_mid") is True
-    assert len(await store.list_session_pin_audits(user_id=user, limit=10)) == 5
-    assert await store.count_session_pin_audits(user_id=user) == 5
+    assert len(await store.list_session_pin_audits(user_id=user, limit=10)) == 6
+    assert await store.count_session_pin_audits(user_id=user) == 6
     assert await store.count_session_pin_audits(user_id=user, action="pin") == 3
     assert await store.count_session_pin_audits(user_id=other) == 0
 
@@ -658,7 +658,7 @@ async def _exercise_pinned_sessions(store: RunStore) -> None:
         user_id=user,
     )
     assert user_stats.pins == 3
-    assert user_stats.unpins == 2
+    assert user_stats.unpins == 3
     assert user_stats.users == 1
     assert user_stats.sessions == len({record.session_id for record in user_audits})
     pin_stats = await store.session_pin_audit_stats(
@@ -751,6 +751,34 @@ async def _exercise_pinned_sessions(store: RunStore) -> None:
     pruned = await store.prune_session_pin_audits(created_before=future, limit=3)
     assert pruned == 3
     assert len(await store.list_session_pin_audits(limit=200)) == len(total_audits) - 3
+
+
+async def _exercise_restore_pin(store: RunStore) -> None:
+    """移除时置顶，恢复时尽力恢复；容量不足则恢复为未置顶（ADR-0108）。"""
+    user = "u_restore_pin"
+    await store.create(run_id=str(uuid.uuid4()), user_id=user, session_id="sess_rp_a", message="A")
+    await store.create(run_id=str(uuid.uuid4()), user_id=user, session_id="sess_rp_b", message="B")
+
+    assert await store.pin_session(user_id=user, session_id="sess_rp_a") is True
+    assert await store.hide_session(user_id=user, session_id="sess_rp_a") is True
+    assert await store.unhide_session(user_id=user, session_id="sess_rp_a") is True
+    restored = {item.session_id: item for item in await store.list_sessions(user_id=user, limit=10)}
+    assert restored["sess_rp_a"].pinned is True
+
+    # 容量不足：恢复成功但不置顶，已有置顶不受影响。
+    original_pin_limit = store.pin_limit
+    store.pin_limit = 1
+    try:
+        assert await store.hide_session(user_id=user, session_id="sess_rp_a") is True
+        assert await store.pin_session(user_id=user, session_id="sess_rp_b") is True
+        assert await store.unhide_session(user_id=user, session_id="sess_rp_a") is True
+        capacity = {
+            item.session_id: item for item in await store.list_sessions(user_id=user, limit=10)
+        }
+        assert capacity["sess_rp_a"].pinned is False
+        assert capacity["sess_rp_b"].pinned is True
+    finally:
+        store.pin_limit = original_pin_limit
 
 
 async def _exercise_session_titles(store: RunStore) -> None:
@@ -1141,6 +1169,7 @@ async def test_memory_store_contract() -> None:
     await _exercise_sessions(store)
     await _exercise_session_titles(store)
     await _exercise_hidden_sessions(store)
+    await _exercise_restore_pin(store)
     await _exercise_pinned_sessions(store)
     await _exercise_export_audits(store)
     await _exercise_events_for_runs(store)

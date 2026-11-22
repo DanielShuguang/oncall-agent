@@ -617,8 +617,8 @@ class RunStore(Protocol):
         只写一行 `hidden_sessions`；`runs`、事件、审批与标题行都保留，保留清理
         仍按时间执行。返回 False 表示这个用户没有该会话（没有任何 run），
         调用方翻成 404。重复移除是幂等的，仍返回 True。隐藏时同事务删除
-        该用户的置顶行（ADR-0069）：已隐藏的会话不保留置顶，恢复后也不会
-        自动回到顶部。
+        该用户的置顶行（ADR-0069），并记录当时是否置顶；恢复时按容量尽力
+        恢复（ADR-0108），容量不足则恢复为未置顶。
         """
         ...
 
@@ -807,7 +807,9 @@ class RunStore(Protocol):
         限制长度；返回集合用于逐条结果，不保证顺序。
 
         有会话真正恢复时，同一事务内写一条 `session_restore_audits`（ADR-0059）：
-        审计与删除必须原子，不能恢复成功而审计丢失。
+        审计与删除必须原子，不能恢复成功而审计丢失。移除时置顶的会话按请求
+        顺序恢复置顶，直到当前容量上限（ADR-0108）；容量不足的会话仍恢复，
+        只是不带置顶。恢复触发的置顶不写显式置顶审计。
         """
         ...
 
@@ -956,6 +958,8 @@ class InMemoryRunStore:
         #: 用户从列表移除的会话（ADR-0041）；run/事件仍保留
         #: 从列表移除的会话 → 移除时间（ADR-0041/0043）；行仍在 runs 里
         self._hidden_sessions: dict[tuple[str, str], datetime] = {}
+        #: 隐藏时曾置顶的会话（ADR-0108）；恢复时尽力恢复
+        self._hidden_session_pins: set[tuple[str, str]] = set()
         #: 用户置顶的会话（ADR-0069）；隐藏会话时同步删除
         self._pinned_sessions: set[tuple[str, str]] = set()
         #: 恢复审计，按发生顺序追加（ADR-0059）；列表时反向读出
@@ -1286,7 +1290,9 @@ class InMemoryRunStore:
             hidden_at = datetime.now(UTC)
             for session_id in owned:
                 self._hidden_sessions.setdefault((user_id, session_id), hidden_at)
-                # 隐藏会话不保留置顶（ADR-0069）
+                if (user_id, session_id) in self._pinned_sessions:
+                    self._hidden_session_pins.add((user_id, session_id))
+                # 隐藏会话不保留置顶（ADR-0069），但记住恢复时要恢复
                 self._pinned_sessions.discard((user_id, session_id))
             return owned
 
@@ -1595,16 +1601,26 @@ class InMemoryRunStore:
         if not unique_ids:
             return set()
         async with self._lock:
-            restored = {
-                session_id
-                for session_id in unique_ids
-                if self._hidden_sessions.pop((user_id, session_id), None) is not None
-            }
-            # 并发隐藏/置顶可能留下已隐藏会话的置顶行；恢复时清掉，
-            # 保证「恢复后不恢复置顶」的对外口径（ADR-0069）。
+            restored: set[str] = set()
+            was_pinned: set[str] = set()
+            for session_id in unique_ids:
+                if self._hidden_sessions.pop((user_id, session_id), None) is not None:
+                    restored.add(session_id)
+                    if (user_id, session_id) in self._hidden_session_pins:
+                        was_pinned.add(session_id)
+                        self._hidden_session_pins.discard((user_id, session_id))
+            # 并发隐藏/置顶可能留下已隐藏会话的置顶行；恢复时先清掉。
             self._pinned_sessions.difference_update(
                 (user_id, session_id) for session_id in restored
             )
+            # 按请求顺序恢复置顶；容量不足时恢复为未置顶（ADR-0108）。
+            available = self.pin_limit - sum(
+                1 for current_user, _ in self._pinned_sessions if current_user == user_id
+            )
+            for session_id in unique_ids:
+                if session_id in restored and session_id in was_pinned and available > 0:
+                    self._pinned_sessions.add((user_id, session_id))
+                    available -= 1
             if restored:
                 # 按请求顺序记录真正恢复的 id，和 API 逐条结果口径一致
                 ordered = [session_id for session_id in unique_ids if session_id in restored]
@@ -2336,14 +2352,33 @@ class PostgresRunStore:
             owned = set(owned_rows.all())
             if not owned:
                 return set()
+            pinned = set(
+                (
+                    await session.scalars(
+                        select(PinnedSessionRow.session_id).where(
+                            PinnedSessionRow.user_id == user_id,
+                            PinnedSessionRow.session_id.in_(owned),
+                        )
+                    )
+                ).all()
+            )
             await session.execute(
                 pg_insert(HiddenSessionRow)
-                .values([{"user_id": user_id, "session_id": item} for item in owned])
+                .values(
+                    [
+                        {
+                            "user_id": user_id,
+                            "session_id": item,
+                            "was_pinned": item in pinned,
+                        }
+                        for item in owned
+                    ]
+                )
                 .on_conflict_do_nothing(
                     index_elements=[HiddenSessionRow.user_id, HiddenSessionRow.session_id]
                 )
             )
-            # 隐藏会话不保留置顶（ADR-0069）
+            # 隐藏会话不保留置顶（ADR-0069），但 was_pinned 记住恢复时要恢复（ADR-0108）
             await session.execute(
                 delete(PinnedSessionRow).where(
                     PinnedSessionRow.user_id == user_id,
@@ -2828,19 +2863,22 @@ class PostgresRunStore:
         if not unique_ids:
             return set()
         async with self._sessionmaker() as session, session.begin():
+            # ADR-0108：恢复置顶与置顶容量检查必须和 pin/hide 串行。
+            await session.execute(select(func.pg_advisory_xact_lock(func.hashtext(user_id))))
             result = await session.execute(
                 delete(HiddenSessionRow)
                 .where(
                     HiddenSessionRow.user_id == user_id,
                     HiddenSessionRow.session_id.in_(unique_ids),
                 )
-                .returning(HiddenSessionRow.session_id)
+                .returning(HiddenSessionRow.session_id, HiddenSessionRow.was_pinned)
             )
-            restored = set(result.scalars().all())
+            rows = result.all()
+            restored = {row.session_id for row in rows}
             if not restored:
                 return set()
-            # 并发隐藏/置顶可能留下已隐藏会话的置顶行；恢复时同事务清掉，
-            # 保证「恢复后不恢复置顶」的对外口径（ADR-0069）。
+            was_pinned = {row.session_id for row in rows if row.was_pinned}
+            # 并发隐藏/置顶可能留下已隐藏会话的置顶行；恢复时同事务清掉。
             await session.execute(
                 delete(PinnedSessionRow).where(
                     PinnedSessionRow.user_id == user_id,
@@ -2848,6 +2886,24 @@ class PostgresRunStore:
                 )
             )
             ordered = [session_id for session_id in unique_ids if session_id in restored]
+            # 按请求顺序恢复置顶；容量不足时恢复为未置顶（ADR-0108）。
+            pinned_count = await session.scalar(
+                select(func.count())
+                .select_from(PinnedSessionRow)
+                .where(PinnedSessionRow.user_id == user_id)
+            )
+            available = self.pin_limit - int(pinned_count or 0)
+            repin = [session_id for session_id in ordered if session_id in was_pinned][
+                : max(0, available)
+            ]
+            if repin:
+                await session.execute(
+                    pg_insert(PinnedSessionRow)
+                    .values([{"user_id": user_id, "session_id": item} for item in repin])
+                    .on_conflict_do_nothing(
+                        index_elements=[PinnedSessionRow.user_id, PinnedSessionRow.session_id]
+                    )
+                )
             # 删除与审计同一事务：不能恢复成功而审计丢失；插入失败会回滚删除
             session.add(
                 SessionRestoreAuditRow(

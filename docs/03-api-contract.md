@@ -455,8 +455,11 @@ Authorization: Bearer <token>
   计数覆盖该用户全部置顶，不受 `q`/游标影响。前端在 `pinned_count >= pin_limit` 时
   禁用未置顶行的置顶按钮；旧后端没有这两个字段时不提前禁用，仍以 409 为准
 - 置顶组内不按 `pinned_at` 排序（最近置顶的旧会话不一定排第一）
-- 移除会话（`DELETE /sessions/{session_id}`）会在同一事务里清掉置顶行；恢复时也会
-  同事务兜底清掉该会话的置顶行。因此恢复后一定不置顶，需要用户重新点击
+- 移除会话（`DELETE /sessions/{session_id}`）会在同一事务里清掉置顶行并记录当时是否
+  置顶；恢复时按请求顺序、当前 `pin_limit` 容量尽力恢复置顶（ADR-0108）。容量不足的
+  会话仍恢复，只是保持未置顶；恢复触发的置顶不写显式置顶审计（`session_pin_audits`
+  仍只记用户主动 pin/unpin）。旧 `hidden_sessions` 行默认 `was_pinned=false`，升级后
+  恢复旧会话不会自动置顶
 - 库不可用时返回 `503 {"code":"DATABASE_UNAVAILABLE"}`；旧后端没有置顶接口时，
   新前端按 `pinned` 字段缺失隐藏按钮
 

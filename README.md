@@ -168,7 +168,7 @@ oncall/
 
 | 模块 | 状态 | 验证方式 |
 |---|---|---|
-| 文档（12 篇 + 107 篇 ADR + 评测基线） | ✅ 完成 | — |
+| 文档（12 篇 + 108 篇 ADR + 评测基线） | ✅ 完成 | — |
 | 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡 / 运行回放 / 成本页） | ✅ 可用 | `tsc --noEmit`、`oxlint 0`、`oxfmt --check` 通过；`vitest` 29 files / 149 tests；`pnpm build` 成功（2944 modules） |
 | 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **534 passed + 42 skipped**；设 `ONCALL_TEST_DATABASE_URL`（指向一个可清空的库）后 **573 passed + 3 skipped**，再加 `ONCALL_TEST_REDIS_URL` 为 **576 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约与审批快照、引用快照与内容回收、个人预算与账本快照、工单自助查询、工单详情、会话列表/标题搜索/分页/重命名/移除/恢复/置顶、资产查询接表、运行过程回放与载荷上限、批量会话详情、工具配置变更历史、历史引用回填、已移除会话分页与搜索、已移除会话批量恢复、批量恢复逐条结果、会话恢复审计、会话恢复审计分页、恢复审计按 session 反查、恢复审计 CSV 导出、恢复审计列表总数、恢复审计统计、恢复审计统计按过滤、恢复审计按日期范围、审批积压与等待统计、审批统计分组、审批列表分页、已办审批按决议时间排序、已办审批筛选、审批列表导出 CSV、审批列表首屏总数、审批统计按小时分布、审批统计聚合导出、恢复审计统计导出、会话批量移除、会话置顶上限、置顶容量提示、置顶审计与分页、置顶审计日期过滤、置顶审计保留清理、置顶审计 CSV 导出、置顶审计统计、置顶审计统计跟随过滤、置顶审计统计 CSV 导出、置顶审计首屏总数、记住审计过滤与统计窗口、CSV 导出下载审计、计量一致性） |
 | 本地 JWT（W1 D2） | ✅ 已完成 | `tests/test_auth.py` 20 条：签发/验签、过期、alg=none、401 JSON、OpenAPI Bearer、run 归属隔离 |
@@ -210,7 +210,7 @@ oncall/
 | 恢复审计统计按过滤（W6 后补） | ✅ 已完成 | `GET /admin/session-restores/stats` 增加可选 `user_id`/`session_id`（1–64），汇总与 `daily` 同列表口径，`users` 为过滤后去重；无过滤保持全局；无迁移；前端统计卡跟随下方已应用过滤，无过滤显示「全部用户」；`tests/test_admin_sessions.py`、`test_store_contract.py`、`web/src/api/sessionAudits.test.ts`；[ADR-0066](docs/decisions/0066-session-restore-audit-stats-filters.md) |
 | 恢复审计按日期范围（W6 后补） | ✅ 已完成 | 列表/导出/统计共用 `restored_from`/`restored_to`（UTC 自然日闭区间，两端同时提供，最多 365 天，越界 422 `INVALID_RANGE`）；统计 `days` 与日期范围二选一，返回闭区间天数；列表游标按需加 `d` 并绑定范围，旧形状兼容；无迁移、复用时间索引；管理页日期输入与统计跟随已应用过滤；`tests/test_admin_sessions.py`、`test_store_contract.py`、`web/src/api/sessionAudits.test.ts`；[ADR-0067](docs/decisions/0067-session-restore-audit-date-range.md) |
 | 审批统计聚合导出 CSV（W6 后补） | ✅ 已完成 | `GET /approvals/stats/export?days=&group_by=` 输出长表（`section,key,day,hour,count,avg_wait_ms,max_wait_ms,value`），含 `meta`/`summary`/`daily`/`hour`/`group`；与统计接口同窗口、同分组、仅审批人；分组最多 20 组，截断在内容与响应头显式告知；复用 `csv_document`（BOM/CRLF/公式防护）；无迁移；审批页「导出统计」跟随当前 7/30/90 天窗口与分组；`tests/test_approval_stats.py`、`web/src/api/approvals.test.ts`；[ADR-0068](docs/decisions/0068-approval-stats-export.md) |
-| 会话置顶（W6 后补） | ✅ 已完成 | 旁挂 `pinned_sessions`（迁移 0021，`(user_id, session_id)` 主键、无外键/额外索引）：`POST/DELETE /sessions/{id}/pin` 204 幂等，别人/不存在/已移除 404；`GET /sessions` 先置顶、组内按 `(updated_at, session_id)` 倒序，搜索同样适用；游标 `{t,s,p}`，旧 `{t,s}` 缺 `p` 按 false；隐藏会话同事务清置顶，恢复后不恢复；前端行内 Pin 按钮，旧后端无 `pinned` 字段时隐藏；`tests/test_sessions_api.py`、`test_store_contract.py`、`web/src/api/sessions.test.ts`；[ADR-0069](docs/decisions/0069-session-pin.md) |
+| 会话置顶（W6 后补） | ✅ 已完成 | 旁挂 `pinned_sessions`（迁移 0021，`(user_id, session_id)` 主键、无外键/额外索引）：`POST/DELETE /sessions/{id}/pin` 204 幂等，别人/不存在/已移除 404；`GET /sessions` 先置顶、组内按 `(updated_at, session_id)` 倒序，搜索同样适用；游标 `{t,s,p}`，旧 `{t,s}` 缺 `p` 按 false；隐藏会话同事务清置顶并记 `was_pinned`，恢复时按容量尽力恢复（ADR-0108）；前端行内 Pin 按钮，旧后端无 `pinned` 字段时隐藏；`tests/test_sessions_api.py`、`test_store_contract.py`、`web/src/api/sessions.test.ts`；[ADR-0069](docs/decisions/0069-session-pin.md) |
 | 恢复审计统计导出（W6 后补） | ✅ 已完成 | `GET /admin/session-restores/stats/export` 与 `/stats` 同窗口/同过滤，同步导出 `section,key,day,value` 长表（`meta`/`summary`/`daily`）；`X-Export-Days/Restores/Users/Sessions` 告知口径；复用 `csv_document`（BOM/CRLF/公式防护）；无迁移；管理页统计卡「导出统计」跟随当前窗口/过滤；`tests/test_admin_sessions.py`、`web/src/api/sessionAudits.test.ts`；[ADR-0070](docs/decisions/0070-session-restore-audit-stats-export.md) |
 | 审计日期范围快捷预设（W6 后补） | ✅ 已完成 | 审计页筛选卡新增「快捷日期」：近 7/30/90 天（含今天）、本月（月初至今天）、上月（完整上一 UTC 月，处理闰年）；点击即按 UTC 自然日闭区间应用，保留用户/会话草稿过滤；纯前端纯函数（`now` 可注入）+ 单测，不改后端/契约、无迁移；`tests/auditDatePresets.test.ts`；[ADR-0071](docs/decisions/0071-audit-date-presets.md) |
 | 会话批量移除（W6 后补） | ✅ 已完成 | `POST /sessions/hide` 接收 1–50 个会话 id，去重保序、逐条返回 `hidden`；只处理本人会话，不存在/别人的 `hidden:false`（不区分），重复移除幂等；同事务写 `hidden_sessions` 并清置顶；无迁移/审计；前端会话列表「管理」模式勾选当前已加载页，全选仅当前已加载页，二次确认后一次请求；`tests/test_sessions_api.py`、`test_store_contract.py`、`web/src/api/sessions.test.ts`；[ADR-0072](docs/decisions/0072-session-batch-hide.md) |
@@ -221,6 +221,7 @@ oncall/
 | 导出审计保留清理（W6 后补） | ✅ 已完成 | `ONCALL_EXPORT_AUDIT_RETENTION_DAYS`（默认 365 天）独立于事件/正文/恢复/置顶审计；`RetentionSweeper` 按 `created_at` 分批删除，`RetentionResult`/`prune` CLI/日志增加计数，dry-run 只计数；无迁移（仍 0023）；`tests/test_retention.py`、`test_config.py`、`test_store_contract.py`；[ADR-0095](docs/decisions/0095-export-audit-retention.md) |
 | 导出审计列表 CSV（W6 后补） | ✅ 已完成 | 新增第 7 种资源 `export_audits`；`GET /admin/export-audits/export` 与列表同过滤、最多 5000 行，CSV 列为时间/操作人/资源/行数/截断/过滤条件/内容哈希；导出自身也写一条审计，写失败 503；迁移 `0024` 只扩展 CHECK；[ADR-0096](docs/decisions/0096-export-audit-list-export.md) |
 | 导出审计日期快捷预设（W6 后补） | ✅ 已完成 | 导出审计页复用 ADR-0071 的五个 UTC 日期预设，点击即按当前草稿（用户/资源/日期）提交；高亮只由已应用过滤反推，手填日期未筛选不提前高亮；刷新不记忆、无后端/迁移；筛选卡抽到 `ExportAuditFilterBar`，页面回到 300 行内；`web/src/features/console/exportAuditDraft.ts`、`ExportAuditFilterBar.tsx`；[ADR-0107](docs/decisions/0107-export-audit-date-presets.md) |
+| 恢复已移除会话时恢复置顶（W6 后补） | ✅ 已完成 | `hidden_sessions.was_pinned` 记录移除时是否置顶（迁移 `0027`）；恢复在用户 advisory lock 内先删隐藏行并 `RETURNING was_pinned`，再按请求顺序、当前 `pin_limit` 容量尽力恢复；容量不足仍恢复但不置顶；恢复触发的置顶不写显式置顶审计；旧隐藏行默认 `false`，升级后不自动置顶；`tests/test_store_contract.py`、`test_sessions_api.py`；[ADR-0108](docs/decisions/0108-hidden-restore-pin.md) |
 | 导出 CSV 内容哈希（W6 后补） | ✅ 已完成 | `export_audits.content_sha256` 记录服务端返回 CSV 的 SHA-256（含 BOM/CRLF），迁移 `0025` 只加可空列；管理员列表、审计 CSV 与页面短值展示；旧记录为空；不做 HMAC/签名、不在响应头返回哈希；[ADR-0097](docs/decisions/0097-export-content-hash.md) |
 | 工具变更历史日期范围（W6 后补） | ✅ 已完成 | `GET /admin/tools/{name}/history` 支持 `changed_from`/`changed_to`（UTC 自然日，两端同时、最多 365 天）；`[from 00:00Z, to+1d 00:00Z)` 窗口；内存/PG 同口径，无迁移；ToolsPage 历史 Dialog 增加应用/清除日期；[ADR-0098](docs/decisions/0098-tool-history-date-range.md) |
 | 工具变更历史 CSV 导出（W6 后补） | ✅ 已完成 | `GET /admin/tools/{name}/history/export` 与历史同日期窗口、最多 5000 行；CSV 六列、BOM/CRLF/公式防护；导出自身写 `resource=tool_setting_history` 下载审计（`row_count`/`content_sha256`），失败 503；`export_audits` CHECK 扩为 8 种（迁移 `0026`）；前端使用已应用日期并丢弃过期响应；[ADR-0099](docs/decisions/0099-tool-history-export.md) |
@@ -435,7 +436,8 @@ W6 基线（3 轮均值，mock 规则路径，口径见 [baseline-v1](docs/eval/
   置顶审计页有同样的五个快捷预设，但点击即应用、不持久化，手填日期不保存
   （[ADR-0071](docs/decisions/0071-audit-date-presets.md)、[ADR-0075](docs/decisions/0075-audit-preset-memory.md)、[ADR-0078](docs/decisions/0078-audit-filter-memory.md)、[ADR-0091](docs/decisions/0091-pin-audit-date-presets.md)）
 - 会话批量移除只覆盖当前已加载页（默认 20 条），不做跨页选择、按搜索条件批量或移除审计；
-  恢复后仍不恢复置顶（[ADR-0072](docs/decisions/0072-session-batch-hide.md)）
+  恢复时按容量尽力恢复置顶（[ADR-0108](docs/decisions/0108-hidden-restore-pin.md)），批量移除仍不写审计
+  （[ADR-0072](docs/decisions/0072-session-batch-hide.md)）
 - 置顶数量上限默认 50，部署可用 `ONCALL_SESSION_PIN_LIMIT` 调整（重启生效）；`GET /sessions`
   返回实际 `pinned_count`/`pin_limit`，前端据此提前禁用置顶按钮
   （[ADR-0074](docs/decisions/0074-session-pin-capacity.md)）；PG 按用户串行化置顶检查，

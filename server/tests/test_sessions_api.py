@@ -168,7 +168,7 @@ async def test_sessions_pin_and_legacy_cursor(
     assert [item["session_id"] for item in unpinned] == ["sess_a", "sess_c", "sess_b"]
     assert unpinned_body["pinned_count"] == 1
 
-    # 重复置顶幂等；置顶后隐藏会清掉置顶，恢复后也不带置顶
+    # 重复置顶幂等；置顶后隐藏会清掉置顶，恢复时恢复（ADR-0108）
     assert (await client.post("/api/sessions/sess_c/pin")).status_code == 204
     assert (await client.post("/api/sessions/sess_c/pin")).status_code == 204
     pinned = (await client.get("/api/sessions")).json()["items"]
@@ -177,7 +177,7 @@ async def test_sessions_pin_and_legacy_cursor(
     assert (await client.post("/api/sessions/sess_c/pin")).status_code == 404
     assert (await client.delete("/api/sessions/sess_c/hidden")).status_code == 204
     restored = (await client.get("/api/sessions")).json()["items"]
-    assert {item["session_id"]: item["pinned"] for item in restored}["sess_c"] is False
+    assert {item["session_id"]: item["pinned"] for item in restored}["sess_c"] is True
     # 重复取消置顶也幂等
     assert (await client.delete("/api/sessions/sess_c/pin")).status_code == 204
     assert (await client.delete("/api/sessions/sess_c/pin")).status_code == 204

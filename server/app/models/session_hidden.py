@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, text
+from sqlalchemy import Boolean, DateTime, String, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, utcnow
@@ -22,4 +22,8 @@ class HiddenSession(Base):
     session_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     hidden_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, server_default=text("now()"), nullable=False
+    )
+    #: 移除时是否处于置顶状态（ADR-0108）；恢复时按容量尽力恢复置顶
+    was_pinned: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=text("false"), nullable=False
     )

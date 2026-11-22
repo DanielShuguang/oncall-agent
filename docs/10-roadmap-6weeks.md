@@ -1669,7 +1669,7 @@ Excel 里按 `section` 筛选；分组超过 20 组时只导出前 20 组；不�
 | 排序 | `GET /sessions` 先置顶、组内按 `(updated_at, session_id)` 倒序；搜索 `q` 同样适用 |
 | 游标 | `{t,s,p}`；旧 `{t,s}` 缺 `p` 按 `false`；取满编码最后一条 `pinned` |
 | 接口 | `POST/DELETE /sessions/{session_id}/pin`，204、幂等；别人/不存在/已移除一律 404 |
-| 隐藏联动 | `DELETE /sessions/{session_id}` 同一事务删置顶；恢复后不恢复置顶 |
+| 隐藏联动 | `DELETE /sessions/{session_id}` 同一事务删置顶并记 `was_pinned`；恢复时按容量尽力恢复（ADR-0108） |
 | 前端 | 行内 Pin 按钮（`aria-pressed`、在途禁用）；旧后端无 `pinned` 字段时隐藏按钮 |
 | 范围 | 不做拖拽排序、置顶数量上限、批量置顶、置顶审计 |
 
@@ -1679,8 +1679,9 @@ Postgres + Redis **543 passed**；`ruff check` / `ruff format --check`（196 fil
 `oxlint` 0/0（73 files）、`oxfmt --check` 81 files、`pnpm build` 通过。
 迁移 `0021` 往返通过。无前端手工验收。
 
-已知边界：置顶组内按最近活动而不是置顶时间；置顶数量不设上限；已隐藏会话不保留置顶；
-滚动升级期间新前端在旧后端上隐藏按钮、旧前端忽略 `pinned` 字段。详见
+已知边界：置顶组内按最近活动而不是置顶时间；置顶数量默认 50、可配；已隐藏会话恢复时
+按容量尽力恢复置顶（ADR-0108，旧记录默认不恢复）；滚动升级期间新前端在旧后端上隐藏按钮、
+旧前端忽略 `pinned` 字段。详见
 [ADR-0069](decisions/0069-session-pin.md)。
 
 ---
@@ -2356,6 +2357,28 @@ ADR-0100 只支持从新到旧加载，并留下「是否需要跳到最早/最�
 | 验证 | 前端 29 files/149 tests、lint 139、format 147、build 2944；后端未改 534+42 / 573+3 / 576 |
 
 详见 [ADR-0107](decisions/0107-export-audit-date-presets.md)。
+
+---
+
+## W6 后补：恢复已移除会话时恢复置顶（ADR-0108）
+
+ADR-0069/0072 选择隐藏即清置顶、恢复后不恢复；实际使用中用户把常用会话从侧栏移除，
+恢复后还要逐个重新置顶。ADR-0108 在隐藏行记录 `was_pinned`，恢复时按容量尽力恢复。
+
+| 事项 | 落地 |
+|---|---|
+| 表 | `hidden_sessions.was_pinned BOOLEAN NOT NULL DEFAULT false`；迁移 `0027` 只加列，旧行默认 false |
+| 隐藏 | 同一事务记录移除时是否置顶，再删 `pinned_sessions`；重复移除保留首次 `was_pinned` |
+| 恢复 | 用户 advisory lock 内先 `DELETE ... RETURNING session_id, was_pinned`，清 restored 的置顶行，再按请求顺序与 `pin_limit - 当前置顶数` 尽力 `INSERT ... ON CONFLICT DO NOTHING` |
+| 容量 | 容量不足的会话仍恢复，但保持未置顶；已有置顶不被挤掉 |
+| 审计 | 恢复触发的置顶不写 `session_pin_audits`；显式审计仍只记用户 pin/unpin |
+| 兼容 | 旧隐藏行 `was_pinned=false`，升级后首次恢复不自动置顶 |
+| 范围 | 不做置顶时间恢复、不跨用户、不做批量置顶；无新表/索引 |
+
+验证：默认 534+42、PG 573+3、PG+Redis 576；ruff 208 / format 208 / mypy 119；
+前端未改 29 files/149 tests。迁移 `0027` 往返通过。
+
+详见 [ADR-0108](decisions/0108-hidden-restore-pin.md)。
 
 ---
 

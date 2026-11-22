@@ -159,9 +159,12 @@ CREATE TABLE session_restore_audits (
   session_ids      JSONB NOT NULL DEFAULT '[]'::jsonb,
   requested_count  INTEGER NOT NULL,
   restored_count   INTEGER NOT NULL,
+  repinned_count   INTEGER NOT NULL DEFAULT 0,
   restored_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT ck_session_restore_audits_restored_count_matches_session_ids
-    CHECK (restored_count = jsonb_array_length(session_ids))
+    CHECK (restored_count = jsonb_array_length(session_ids)),
+  CONSTRAINT ck_session_restore_audits_repinned_count
+    CHECK (repinned_count >= 0 AND repinned_count <= restored_count)
 );
 CREATE INDEX idx_session_restore_audits_user_time
   ON session_restore_audits (user_id, restored_at DESC);
@@ -632,7 +635,7 @@ uv run alembic upgrade head --sql    # 无库环境渲染 DDL，评审用
 
 - 迁移文件在 `server/migrations/versions/`；`alembic.ini` 只放占位 DSN，真实 DSN 由 `migrations/env.py` 从环境变量读
 - 必须写 `downgrade`，并在空库上验证一次 `downgrade base && upgrade head`
-- 当前迁移链：`0001` runs/events → `0002` 幂等键按用户作用域 → `0003` kb（pgvector/tsvector）+ assets/tickets → `0004` approvals → `0005` 会话授权按用户隔离 → `0006` model_calls + failure_category → `0007` tool_settings → `0008` 文档可见性 → `0009` 会话索引 → `0010` 事件清理标记/部分索引 → `0011` 回答引用快照 → `0012` 正文清理标记/部分索引 → `0013` 按用户日预算覆盖（`user_budgets`）→ `0014` 回答引用快照（`runs.citations`，ADR-0031）→ `0015` 工具配置变更历史（`tool_setting_changes`，ADR-0037）→ `0016` 会话显示标题（`session_titles`，ADR-0040）→ `0017` 从列表移除的会话（`hidden_sessions`，ADR-0041）→ `0018` 已办审批决议时间索引（`idx_approvals_resolved`，ADR-0053）→ `0019` 会话恢复审计（`session_restore_audits`，ADR-0059）→ `0020` 恢复审计按 session 反查的 GIN 索引（`idx_session_restore_audits_sessions`，ADR-0061）→ `0021` 会话置顶（`pinned_sessions`，ADR-0069）→ `0022` 置顶审计（`session_pin_audits`，ADR-0081）→ `0023` CSV 导出下载审计（`export_audits`，ADR-0094）→ `0024` 导出审计资源扩展（`export_audits` CHECK，ADR-0096）→ `0025` 导出内容哈希（`export_audits.content_sha256`，ADR-0097）→ `0026` 导出资源扩展（`export_audits` CHECK，ADR-0099）→ `0027` 恢复置顶（`hidden_sessions.was_pinned`，ADR-0108）
+- 当前迁移链：`0001` runs/events → `0002` 幂等键按用户作用域 → `0003` kb（pgvector/tsvector）+ assets/tickets → `0004` approvals → `0005` 会话授权按用户隔离 → `0006` model_calls + failure_category → `0007` tool_settings → `0008` 文档可见性 → `0009` 会话索引 → `0010` 事件清理标记/部分索引 → `0011` 回答引用快照 → `0012` 正文清理标记/部分索引 → `0013` 按用户日预算覆盖（`user_budgets`）→ `0014` 回答引用快照（`runs.citations`，ADR-0031）→ `0015` 工具配置变更历史（`tool_setting_changes`，ADR-0037）→ `0016` 会话显示标题（`session_titles`，ADR-0040）→ `0017` 从列表移除的会话（`hidden_sessions`，ADR-0041）→ `0018` 已办审批决议时间索引（`idx_approvals_resolved`，ADR-0053）→ `0019` 会话恢复审计（`session_restore_audits`，ADR-0059）→ `0020` 恢复审计按 session 反查的 GIN 索引（`idx_session_restore_audits_sessions`，ADR-0061）→ `0021` 会话置顶（`pinned_sessions`，ADR-0069）→ `0022` 置顶审计（`session_pin_audits`，ADR-0081）→ `0023` CSV 导出下载审计（`export_audits`，ADR-0094）→ `0024` 导出审计资源扩展（`export_audits` CHECK，ADR-0096）→ `0025` 导出内容哈希（`export_audits.content_sha256`，ADR-0097）→ `0026` 导出资源扩展（`export_audits` CHECK，ADR-0099）→ `0027` 恢复置顶（`hidden_sessions.was_pinned`，ADR-0108）→ `0028` 恢复审计记录恢复置顶数（`session_restore_audits.repinned_count`，ADR-0109）
 
 > `0003` 先 `CREATE EXTENSION IF NOT EXISTS vector`，否则 vector 类型与 HNSW 索引会失败；
 > 测试库由 fixture 建扩展后再 `create_all`（扩展是库级对象，`drop_all` 不会删）。

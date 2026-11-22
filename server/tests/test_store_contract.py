@@ -807,6 +807,15 @@ async def _exercise_restore_pin(store: RunStore) -> None:
         assert ordered["sess_rp_f"].pinned is True
         # 恢复触发的置顶不写显式审计：A/B/C/E/F 共 5 次用户 pin。
         assert len(await store.list_session_pin_audits(user_id=user, limit=20)) == 5
+        # 恢复审计记录真正恢复的置顶数（ADR-0109）：批量 e 占位后 c 未置顶。
+        audits = await store.list_session_restore_audits(user_id=user, limit=10)
+        batch_repinned = [
+            item.repinned_count for item in audits if item.session_ids == ("sess_rp_e", "sess_rp_c")
+        ]
+        assert batch_repinned == [1]
+        assert sorted(
+            item.repinned_count for item in audits if item.session_ids == ("sess_rp_a",)
+        ) == [0, 1]
     finally:
         store.pin_limit = original_pin_limit
 

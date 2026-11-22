@@ -2399,6 +2399,27 @@ ADR-0069/0072 选择隐藏即清置顶、恢复后不恢复；实际使用中用
 
 ---
 
+## W6 后补：恢复审计记录恢复置顶数（ADR-0109）
+
+ADR-0108 让恢复时按容量尽力恢复置顶，但审计只记恢复会话数，管理员看不出「恢复成功但
+容量不足未置顶」与「当时未置顶」的差异。
+
+| 事项 | 落地 |
+|---|---|
+| 列 | `session_restore_audits.repinned_count INTEGER NOT NULL DEFAULT 0`（迁移 `0028`） |
+| 值 | 恢复路径容量分配后实际插入的置顶数，`0 <= repinned_count <= restored_count`；不是 `was_pinned` 的数量 |
+| 审计 | 恢复触发的置顶仍不写 `session_pin_audits`；`repinned_count` 只在本行记录 |
+| 接口 | 管理员列表 JSON 与 CSV 增加 `repinned_count`；CSV 插在 `restored_count` 之后 |
+| 前端 | 恢复审计表增加「恢复置顶」列；0 显示 `—` |
+| 兼容 | 旧审计行无法回填，统一为 0；无新端点、无保留期变化 |
+
+验证：默认 534+42、PG 573+3、PG+Redis 576；ruff 210 / format 210 / mypy 119；
+前端 29 files/149 tests。迁移 `0028` 往返通过。
+
+详见 [ADR-0109](decisions/0109-restore-repinned-count.md)。
+
+---
+
 ## 每周固定动作
 
 | 时点 | 动作 |

@@ -8,6 +8,8 @@ export interface SessionRestoreAudit {
   session_ids: string[];
   requested_count: number;
   restored_count: number;
+  /** 本次恢复中按恢复置顶的会话数（ADR-0109）。 */
+  repinned_count: number;
   restored_at: string;
 }
 

@@ -74,6 +74,7 @@ export function AuditTableCard({
                     <TableHead>恢复时间</TableHead>
                     <TableHead>用户</TableHead>
                     <TableHead>请求 / 实际</TableHead>
+                    <TableHead>恢复置顶</TableHead>
                     <TableHead>恢复的会话</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -86,6 +87,9 @@ export function AuditTableCard({
                       <TableCell className="align-top font-mono text-xs">{item.user_id}</TableCell>
                       <TableCell className="align-top text-xs whitespace-nowrap">
                         {item.requested_count} / {item.restored_count}
+                      </TableCell>
+                      <TableCell className="align-top text-xs whitespace-nowrap">
+                        {item.repinned_count > 0 ? item.repinned_count : '—'}
                       </TableCell>
                       <TableCell className="align-top">
                         <div className="flex max-h-28 max-w-lg flex-wrap gap-1 overflow-auto">

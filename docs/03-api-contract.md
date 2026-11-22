@@ -1101,6 +1101,7 @@ Authorization: Bearer <admin token>
       "session_ids": ["sess_a", "sess_b"],
       "requested_count": 3,
       "restored_count": 2,
+      "repinned_count": 1,
       "restored_at": "2026-11-14T03:20:00Z"
     }
   ],
@@ -1129,7 +1130,8 @@ Authorization: Bearer <admin token>
   「已加载 N 条」
 - 一次恢复操作一行（单条 `DELETE /sessions/{id}/hidden` 或批量恢复各写一行）；
   `session_ids` 只含真正恢复的 id，`requested_count` 是去重后的请求数，
-  `requested_count - restored_count` 是本次未恢复的数量。没有真正恢复任何会话
+  `requested_count - restored_count` 是本次未恢复的数量；`repinned_count` 是本次按
+  `was_pinned` 真正恢复的置顶数（`0..restored_count`，旧行/旧后端为 0）。没有真正恢复任何会话
   （全是不存在/别人的/重复的 id）时不会产生审计行；空请求在请求模型层已 422
 - 审计与删除 `hidden_sessions` 在同一事务内完成；写入失败会回滚恢复
 - 审计独立保留 365 天（`ONCALL_SESSION_RESTORE_AUDIT_RETENTION_DAYS`），不随事件/
@@ -1213,7 +1215,7 @@ Authorization: Bearer <admin token>
 - 与列表相同的 `user_id`/`session_id`/`restored_from`/`restored_to` 过滤，不接收
   `cursor`/`limit`；按 `(restored_at, id)` 倒序导出，最多 5000 条
 - CSV 列为 `audit_id, user_id, restored_at, requested_count, restored_count,
-  session_ids`；`session_ids` 是 JSON 数组；不导出会话正文/消息等敏感内容
+  repinned_count, session_ids`；`session_ids` 是 JSON 数组；不导出会话正文/消息等敏感内容
 - `Content-Type: text/csv`；UTF-8 BOM + CRLF；时间为 ISO 8601 UTC；以
   `= + - @ \t \r` 开头的单元格前置单引号防公式注入
 - 响应头 `X-Export-Count` 为实际导出条数，`X-Export-Truncated` 为

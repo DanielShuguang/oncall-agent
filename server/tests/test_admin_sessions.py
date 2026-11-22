@@ -66,6 +66,7 @@ async def test_list_session_restore_audits(
     assert items[0]["session_ids"] == ["sess_b"]
     assert items[0]["requested_count"] == 1
     assert items[0]["restored_count"] == 1
+    assert items[0]["repinned_count"] == 0
     assert items[0]["restored_at"]
 
     filtered = await client.get(
@@ -308,13 +309,15 @@ async def test_export_session_restores_csv(
         "restored_at",
         "requested_count",
         "restored_count",
+        "repinned_count",
         "session_ids",
     ]
     assert len(rows) == 4
     by_user = {row[1]: row for row in rows[1:]}
-    assert json.loads(by_user["u_102"][5]) in (["sess_a"], ["sess_c"])
+    assert json.loads(by_user["u_102"][6]) in (["sess_a"], ["sess_c"])
     assert by_user["u_200"][3] == "1"
     assert by_user["u_200"][4] == "1"
+    assert by_user["u_200"][5] == "0"
 
     filtered_user = await client.get(
         "/api/admin/session-restores/export", headers=ADMIN, params={"user_id": "u_102"}
@@ -329,7 +332,7 @@ async def test_export_session_restores_csv(
     assert filtered_session.headers["x-export-count"] == "1"
     filtered_rows = list(csv.reader(io.StringIO(filtered_session.text.lstrip("\ufeff"))))
     assert len(filtered_rows) == 2
-    assert json.loads(filtered_rows[1][5]) == ["sess_b"]
+    assert json.loads(filtered_rows[1][6]) == ["sess_b"]
 
     empty = await client.get(
         "/api/admin/session-restores/export", headers=ADMIN, params={"user_id": "u_missing"}

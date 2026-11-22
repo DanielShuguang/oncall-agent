@@ -34,6 +34,11 @@ class SessionRestoreAudit(Base):
     requested_count: Mapped[int] = mapped_column(Integer, nullable=False)
     #: `len(session_ids)`，用 CHECK 保证冗余计数与数组一致
     restored_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    #: 本次恢复中按 `was_pinned` 真正恢复的置顶数；容量不足时小于 `restored_count`
+    #: （ADR-0109）。旧行默认 0。
+    repinned_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
+    )
     restored_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, server_default=text("now()"), nullable=False
     )
@@ -42,6 +47,10 @@ class SessionRestoreAudit(Base):
         CheckConstraint(
             "restored_count = jsonb_array_length(session_ids)",
             name="restored_count_matches_session_ids",
+        ),
+        CheckConstraint(
+            "repinned_count >= 0 AND repinned_count <= restored_count",
+            name="ck_session_restore_audits_repinned_count",
         ),
         # 管理页按用户查最近恢复；清理按时间删，两个方向各一条索引
         Index("idx_session_restore_audits_user_time", "user_id", text("restored_at DESC")),

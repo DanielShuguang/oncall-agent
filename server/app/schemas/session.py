@@ -84,6 +84,7 @@ class SessionRestoreAuditOut(BaseModel):
     session_ids: list[str]
     requested_count: int
     restored_count: int
+    repinned_count: int = 0
     restored_at: datetime
 
 

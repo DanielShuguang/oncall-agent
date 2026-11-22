@@ -52,6 +52,7 @@ CSV_HEADERS = (
     "restored_at",
     "requested_count",
     "restored_count",
+    "repinned_count",
     "session_ids",
 )
 #: 统计导出是长表：summary 行放总汇总，daily 行按 UTC 自然日拆恢复次数/会话数。
@@ -89,6 +90,7 @@ def _out(record: SessionRestoreAuditRecord) -> SessionRestoreAuditOut:
         session_ids=list(record.session_ids),
         requested_count=record.requested_count,
         restored_count=record.restored_count,
+        repinned_count=record.repinned_count,
         restored_at=record.restored_at,
     )
 
@@ -104,6 +106,7 @@ def _audits_csv(records: list[SessionRestoreAuditRecord]) -> str:
                 record.restored_at,
                 record.requested_count,
                 record.restored_count,
+                record.repinned_count,
                 json.dumps(list(record.session_ids), ensure_ascii=False, separators=(",", ":")),
             )
             for record in records

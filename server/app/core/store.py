@@ -126,6 +126,7 @@ class SessionRestoreAuditRecord:
     requested_count: int
     restored_count: int
     restored_at: datetime
+    repinned_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -1617,10 +1618,12 @@ class InMemoryRunStore:
             available = self.pin_limit - sum(
                 1 for current_user, _ in self._pinned_sessions if current_user == user_id
             )
+            repinned_count = 0
             for session_id in unique_ids:
                 if session_id in restored and session_id in was_pinned and available > 0:
                     self._pinned_sessions.add((user_id, session_id))
                     available -= 1
+                    repinned_count += 1
             if restored:
                 # 按请求顺序记录真正恢复的 id，和 API 逐条结果口径一致
                 ordered = [session_id for session_id in unique_ids if session_id in restored]
@@ -1631,6 +1634,7 @@ class InMemoryRunStore:
                         session_ids=tuple(ordered),
                         requested_count=len(unique_ids),
                         restored_count=len(ordered),
+                        repinned_count=repinned_count,
                         restored_at=datetime.now(UTC),
                     )
                 )
@@ -2912,6 +2916,7 @@ class PostgresRunStore:
                     session_ids=ordered,
                     requested_count=len(unique_ids),
                     restored_count=len(ordered),
+                    repinned_count=len(repin),
                     restored_at=datetime.now(UTC),
                 )
             )
@@ -2960,6 +2965,7 @@ class PostgresRunStore:
                 session_ids=tuple(row.session_ids),
                 requested_count=row.requested_count,
                 restored_count=row.restored_count,
+                repinned_count=row.repinned_count,
                 restored_at=row.restored_at,
             )
             for row in rows

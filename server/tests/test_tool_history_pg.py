@@ -62,6 +62,9 @@ async def test_upsert_and_replace_persist_history(
     assert rows[0].source == "tool"
     assert rows[0].before is None
     assert rows[0].after == {"enabled": False, "roles": None}
+    fetched = await store.get_history("query_cmdb", rows[0].id)
+    assert fetched is not None and fetched.changed_by == "admin_1"
+    assert await store.get_history("query_cmdb", 9999) is None
 
     await store.replace(
         {

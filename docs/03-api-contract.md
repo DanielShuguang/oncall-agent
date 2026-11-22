@@ -69,6 +69,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | GET | `/admin/tools` | 工具注册表（含生效角色/启用状态） | W3 D12 / W5 D22 |
 | PATCH | `/admin/tools/{name}` | 启用/禁用工具（`enabled: null` 恢复默认） | W5 D22 |
 | GET | `/admin/tools/{name}/history` | 工具配置变更历史（谁在何时把启用/角色改成什么；支持 UTC 日期/变更人/来源过滤与最新/最早排序） | W6 后补 |
+| POST | `/admin/tools/{name}/history/{change_id}/rollback` | 回滚到该条变更发生前的配置；追加一条新历史，不改旧记录 | W6 后补 |
 | POST | `/admin/tools/{name}/test` | 工具试调用（强制走治理链路） | W5 D22 |
 | GET | `/admin/perm-matrix` | 角色 × 工具矩阵 | W3 D12 / W5 D23 |
 | PUT | `/admin/perm-matrix` | 更新矩阵（按工具部分更新） | W5 D23 |
@@ -1601,8 +1602,24 @@ Authorization: Bearer <admin token>
 - 不要求工具仍在注册表：按名字查历史，工具下线/改名后仍可查；从未注册过的名字返回空
   列表（`items: []`），不返回 404
 - 库不可用 `503 DATABASE_UNAVAILABLE`，不把故障显示成「没有历史」
-- 历史长期保留，不随 run 事件或审批快照清理；只读，不提供回滚按钮（回滚应是一次
-  新的显式保存）
+- 历史长期保留，不随 run 事件或审批快照清理；只读追加，可通过回滚生成新记录（ADR-0112）
+
+### 回滚配置
+
+```http
+POST /api/admin/tools/query_cmdb/history/42/rollback
+Authorization: Bearer <admin>
+```
+
+- `change_id` 必须属于路径中的工具；工具未注册 `404 TOOL_NOT_FOUND`，历史不存在
+  `404 HISTORY_NOT_FOUND`
+- 目标为该条历史的 `before` 快照：`null` 删除覆盖并恢复代码默认；
+  `{enabled, roles}` 重建覆盖，`roles: []` 表示所有登录用户
+- 代码中已禁用的工具不能被回滚开启，返回 `422 TOOL_LOCKED`
+- 当前配置已等于目标时直接返回当前配置，不追加历史；真正变化时追加一条
+  `source="tool"` 的新记录（`before` = 回滚前，`after` = 目标快照），不修改旧记录
+- 矩阵保存产生的历史只恢复该行的单个工具快照，不重放整次矩阵提交
+- 返回当前生效的 `ToolInfo`；库不可用 `503`
 
 ## 6. 版本与兼容
 

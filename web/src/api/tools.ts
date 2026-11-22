@@ -1,6 +1,6 @@
 /** 工具注册与试调用。契约见 docs/03-api-contract.md §5。 */
 
-import { getFile, getJson } from './client';
+import { getFile, getJson, postJson } from './client';
 
 export interface JsonSchema {
   type?: string;
@@ -111,6 +111,12 @@ export async function exportToolHistoryCsv(
   };
 }
 
+export function rollbackToolChange(name: string, changeId: number): Promise<ToolInfo> {
+  return postJson<ToolInfo>(
+    `/admin/tools/${encodeURIComponent(name)}/history/${changeId}/rollback`,
+    {},
+  );
+}
 export interface ToolTestResponse {
   tool: string;
   decision: 'executed' | 'requires_approval' | 'denied' | string;

@@ -118,6 +118,44 @@ async def test_matrix_noop_does_not_record(client: AsyncClient) -> None:
     assert await _history(client) == []
 
 
+async def test_rollback_restores_before_snapshot(client: AsyncClient) -> None:
+    first = await client.patch(
+        "/api/admin/tools/query_cmdb", headers=ADMIN, json={"enabled": False}
+    )
+    assert first.status_code == 200
+    change_id = (await _history(client))[0]["id"]
+    assert isinstance(change_id, int)
+
+    res = await client.post(
+        f"/api/admin/tools/query_cmdb/history/{change_id}/rollback", headers=ADMIN
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["overridden"] is False
+    assert body["enabled"] is True
+
+    items = await _history(client)
+    assert len(items) == 2
+    assert items[0]["before"] == {"enabled": False, "roles": None}
+    assert items[0]["after"] is None
+
+    # 回滚到同一状态不重复写历史
+    res = await client.post(
+        f"/api/admin/tools/query_cmdb/history/{change_id}/rollback", headers=ADMIN
+    )
+    assert res.status_code == 200
+    assert len(await _history(client)) == 2
+
+
+async def test_rollback_rejects_unknown_history_and_employee(client: AsyncClient) -> None:
+    res = await client.post("/api/admin/tools/query_cmdb/history/9999/rollback", headers=ADMIN)
+    assert res.status_code == 404
+    assert res.json()["code"] == "HISTORY_NOT_FOUND"
+
+    res = await client.post("/api/admin/tools/query_cmdb/history/1/rollback", headers=EMPLOYEE)
+    assert res.status_code == 403
+
+
 async def test_history_requires_admin(client: AsyncClient) -> None:
     res = await client.get("/api/admin/tools/query_cmdb/history", headers=EMPLOYEE)
     assert res.status_code == 403

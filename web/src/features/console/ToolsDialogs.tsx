@@ -35,6 +35,9 @@ interface ToolsDialogsProps {
   onLoadMoreHistory: () => void;
   onReloadExpiredHistory: () => void;
   onExportHistory: () => void;
+  onRollbackHistory: (changeId: number) => void;
+  rollingBackId: number | null;
+  rollbackMessage: string | null;
   exportingHistory: boolean;
   historyExportMessage: string | null;
   onRunTest: () => void;
@@ -50,6 +53,9 @@ export function ToolsDialogs({
   onLoadMoreHistory,
   onReloadExpiredHistory,
   onExportHistory,
+  onRollbackHistory,
+  rollingBackId,
+  rollbackMessage,
   exportingHistory,
   historyExportMessage,
   onRunTest,
@@ -185,11 +191,26 @@ export function ToolsDialogs({
                     <span className="text-muted-foreground">{formatTime(item.changed_at)}</span>
                     <span className="font-mono">{item.changed_by}</span>
                   </div>
-                  <div className="mt-1 text-muted-foreground">
-                    {describeSnapshot(item.before)} → {describeSnapshot(item.after)}
+                  <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-muted-foreground">
+                      {describeSnapshot(item.before)} → {describeSnapshot(item.after)}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={rollingBackId === item.id}
+                      onClick={() => onRollbackHistory(item.id)}
+                    >
+                      {rollingBackId === item.id ? '回滚中…' : '回滚'}
+                    </Button>
                   </div>
                 </div>
               ))}
+              {rollbackMessage && (
+                <div className="rounded-md border border-success/30 bg-success/5 p-2 text-xs text-success">
+                  {rollbackMessage}
+                </div>
+              )}
               {history?.loadMoreError && (
                 <div className="flex flex-wrap items-center gap-2 text-xs text-danger">
                   <span>{history.loadMoreError}</span>

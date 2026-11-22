@@ -394,6 +394,61 @@ async def tool_setting_history(
     )
 
 
+def _override_from_snapshot(snapshot: ToolOverrideSnapshot | None) -> ToolOverride | None:
+    """把历史快照还原成覆盖；None 表示删除覆盖、回到代码默认。"""
+    if snapshot is None:
+        return None
+    roles = None if snapshot.roles is None else tuple(snapshot.roles)
+    return ToolOverride(enabled=snapshot.enabled, roles=roles)
+
+
+@router.post("/tools/{name}/history/{change_id}/rollback")
+async def rollback_tool_setting(
+    name: Annotated[str, Path(min_length=1, max_length=64)],
+    change_id: Annotated[int, Path(ge=1)],
+    policy: Annotated[ToolPolicy, Depends(get_tool_policy)],
+    admin: Annotated[Identity, Depends(require_admin)],
+) -> ToolOut:
+    """把工具配置回滚到某条变更发生前的状态（ADR-0112）。"""
+    spec = default_registry().try_get(name)
+    if spec is None:
+        raise ApiError(404, "TOOL_NOT_FOUND", "工具未注册")
+    try:
+        record = await policy.get_history(name, change_id)
+        if record is None:
+            raise ApiError(404, "HISTORY_NOT_FOUND", "变更记录不存在")
+        target = _override_from_snapshot(
+            None if record.before is None else ToolOverrideSnapshot(**record.before)
+        )
+        if target is not None and target.enabled is True and not spec.enabled:
+            raise ApiError(422, "TOOL_LOCKED", "该工具在代码中已禁用，不能通过回滚开启")
+        current = (await policy.overrides(force=True, allow_stale=False)).get(name)
+        if current != target:
+            change = ToolSettingChange(
+                tool_name=name,
+                changed_by=admin.user_id,
+                source="tool",
+                before=override_snapshot(current),
+                after=override_snapshot(target),
+            )
+            await policy.set_override(name, target, updated_by=admin.user_id, change=change)
+        override = await policy.override_for(name)
+    except SQLAlchemyError as exc:
+        log.error("tool_setting_rollback_failed", tool=name, change_id=change_id, error=str(exc))
+        raise ApiError(503, "DATABASE_UNAVAILABLE", "工具配置回滚失败，请稍后重试") from exc
+    log.info(
+        "tool_setting_rolled_back",
+        tool=name,
+        change_id=change_id,
+        by=admin.user_id,
+    )
+    return _tool_out(
+        spec,
+        policy.effective_spec(spec, override),
+        overridden=override is not None,
+    )
+
+
 @router.get("/tools/{name}/history/export")
 async def export_tool_history(
     name: Annotated[str, Path(min_length=1, max_length=64)],

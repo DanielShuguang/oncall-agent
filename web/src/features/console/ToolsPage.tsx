@@ -2,7 +2,14 @@
 
 import { useEffect, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
-import { exampleArgs, listTools, testTool, updateTool, type ToolInfo } from '@/api/tools';
+import {
+  exampleArgs,
+  listTools,
+  rollbackToolChange,
+  testTool,
+  updateTool,
+  type ToolInfo,
+} from '@/api/tools';
 import { ToolsDialogs, type TestState } from './ToolsDialogs';
 import { ToolsTable } from './ToolsTable';
 import { useToolHistory } from './useToolHistory';
@@ -13,6 +20,8 @@ export default function ToolsPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [rollingBackId, setRollingBackId] = useState<number | null>(null);
+  const [rollbackMessage, setRollbackMessage] = useState<string | null>(null);
   const [tester, setTester] = useState<TestState | null>(null);
   const {
     history,
@@ -65,6 +74,23 @@ export default function ToolsPage() {
     }
   };
 
+  const onRollback = async (changeId: number) => {
+    if (!history) return;
+    if (!window.confirm('将工具配置回滚到该变更发生前的状态？')) return;
+    setRollingBackId(changeId);
+    setRollbackMessage(null);
+    try {
+      const updated = await rollbackToolChange(history.tool.name, changeId);
+      setTools((current) => current.map((item) => (item.name === updated.name ? updated : item)));
+      setNotice(`${updated.name} 已回滚；下一次工具调用立即生效。`);
+      setRollbackMessage('已回滚，历史中新增一条回滚记录。');
+      await reloadHistory();
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : '回滚失败');
+    } finally {
+      setRollingBackId(null);
+    }
+  };
   const onReset = async (tool: ToolInfo) => {
     setBusy(tool.name);
     setError(null);
@@ -165,6 +191,9 @@ export default function ToolsPage() {
         onClearHistoryFilters={clearHistoryFilters}
         onLoadMoreHistory={loadMoreHistory}
         onReloadExpiredHistory={reloadExpiredHistory}
+        onRollbackHistory={onRollback}
+        rollingBackId={rollingBackId}
+        rollbackMessage={rollbackMessage}
         onExportHistory={() => void exportHistory()}
         exportingHistory={exportingHistory}
         historyExportMessage={historyExportMessage}

@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { exampleArgs, exportToolHistoryCsv, getToolHistory, testTool, updateTool } from './tools';
+import {
+  exampleArgs,
+  exportToolHistoryCsv,
+  getToolHistory,
+  rollbackToolChange,
+  testTool,
+  updateTool,
+} from './tools';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -45,6 +52,15 @@ describe('tools api', () => {
     expect(JSON.parse(String(init?.body))).toEqual({ enabled: null });
   });
 
+  it('回滚 POST 到历史记录路径', async () => {
+    const fetchMock = stubFetch({ name: 'query_cmdb', enabled: true, overridden: false });
+
+    await rollbackToolChange('query_cmdb', 7);
+
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(url).toBe('/api/admin/tools/query_cmdb/history/7/rollback');
+    expect(init?.method).toBe('POST');
+  });
   it('按 schema 生成可编辑的示例参数', () => {
     const args = exampleArgs({
       properties: {

@@ -2459,6 +2459,32 @@ ADR-0109 让每条恢复审计记录实际恢复的置顶数，但统计卡只�
 
 ---
 
+## W6 后补：工具配置变更历史回滚（ADR-0112）
+
+历史页只能看，误禁用/矩阵改错只能手工重建。新增
+`POST /admin/tools/{name}/history/{change_id}/rollback`：读取该条历史的 `before`
+快照写回；`before=null` 删除覆盖，代码已禁用的工具不能被回滚开启；真实变化追加一条
+`source="tool"` 的新记录，不修改旧记录、不加迁移。
+
+| 事项 | 落地 |
+|---|---|
+| 存储 | `get_history(name, change_id)` 按 id+tool 查单条；内存/PG 一致 |
+| 权限 | 管理员；工具未注册 `404 TOOL_NOT_FOUND`；历史不属于该工具 `404 HISTORY_NOT_FOUND` |
+| 目标 | `before=null` 删除覆盖；`{enabled, roles}` 重建覆盖，`roles=[]` 为所有登录用户 |
+| 硬边界 | 代码禁用工具回滚开启返回 `422 TOOL_LOCKED`；与 PATCH 一致 |
+| 历史 | 有变化才追加 `source="tool"` 记录；无变化/重复回滚不新增 |
+| 前端 | 历史行「回滚」按钮 + `window.confirm`；成功后刷新工具列表与历史，提示结果 |
+| 范围 | 不做批量回滚、差异预览、矩阵整批撤销；不新增 `rollback` source |
+
+验证：默认 **537 passed + 42 skipped**、PG-only **576 passed + 3 skipped**、
+PG+Redis **579 passed**；`ruff check` / `ruff format --check` 210 files /
+`mypy app` 119 files；前端 30 files / 153 tests、`oxlint`、`oxfmt --check`、
+`pnpm build` 通过。
+
+详见 [ADR-0112](decisions/0112-tool-setting-rollback.md)。
+
+---
+
 ## 每周固定动作
 
 | 时点 | 动作 |

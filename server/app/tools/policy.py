@@ -119,6 +119,12 @@ class ToolSettingStore(Protocol):
         source: str | None = None,
     ) -> int: ...
 
+    async def get_history(
+        self,
+        name: str,
+        change_id: int,
+    ) -> ToolSettingChangeRecord | None: ...
+
 
 class InMemoryToolSettingStore:
     """测试与无库演示；进程重启即丢失，和内存 RunStore 的定位一致。"""
@@ -216,6 +222,16 @@ class InMemoryToolSettingStore:
             and (changed_by is None or row.changed_by == changed_by)
             and (source is None or row.source == source)
         )
+
+    async def get_history(
+        self,
+        name: str,
+        change_id: int,
+    ) -> ToolSettingChangeRecord | None:
+        for row in self._history:
+            if row.id == change_id and row.tool_name == name:
+                return row
+        return None
 
     def _new_record(
         self, change: ToolSettingChange, *, changed_at: datetime | None = None
@@ -393,6 +409,29 @@ class PostgresToolSettingStore:
         async with self._sessionmaker() as session:
             return int((await session.scalar(stmt)) or 0)
 
+    async def get_history(
+        self,
+        name: str,
+        change_id: int,
+    ) -> ToolSettingChangeRecord | None:
+        stmt = select(ToolSettingChangeRow).where(
+            ToolSettingChangeRow.id == change_id,
+            ToolSettingChangeRow.tool_name == name,
+        )
+        async with self._sessionmaker() as session:
+            row = await session.scalar(stmt)
+        if row is None:
+            return None
+        return ToolSettingChangeRecord(
+            id=row.id,
+            tool_name=row.tool_name,
+            changed_by=row.changed_by,
+            changed_at=row.changed_at,
+            source=row.source,
+            before=row.before,
+            after=row.after,
+        )
+
     @staticmethod
     def _change_row(change: ToolSettingChange) -> ToolSettingChangeRow:
         return ToolSettingChangeRow(
@@ -542,6 +581,13 @@ class ToolPolicy:
             changed_by=changed_by,
             source=source,
         )
+
+    async def get_history(
+        self,
+        name: str,
+        change_id: int,
+    ) -> ToolSettingChangeRecord | None:
+        return await self._store.get_history(name, change_id)
 
     def invalidate(self) -> None:
         self._cached = None

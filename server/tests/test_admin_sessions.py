@@ -621,8 +621,8 @@ async def test_session_restore_audit_stats(
         SessionRestoreAuditRecord(
             audit_id=str(uuid.uuid4()),
             user_id="u_104",
-            session_ids=("sess_old",),
-            requested_count=1,
+            session_ids=("sess_old_a", "sess_old_b", "sess_old_c", "sess_old_d"),
+            requested_count=4,
             restored_count=4,
             repinned_count=3,
             restored_at=datetime.now(UTC) - timedelta(days=10),

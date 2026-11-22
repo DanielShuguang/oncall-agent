@@ -34,6 +34,7 @@ ADR-0109 已为每条恢复审计记录 `repinned_count`，但审计页顶部统
 - `ruff check` / `ruff format --check` 210 files / `mypy app` 119 files。
 - 前端 29 files / 149 tests、lint 0/0、format 147、build 2944 modules。
 - 用例：`test_admin_sessions.py::test_session_restore_audit_stats` 断言 7 天窗口旧记录 `repinned=0`、30 天窗口为 3；统计 CSV 断言 `repinned` summary 与 `X-Export-Repinned`。
+- 存储契约：`_exercise_restore_pin` 按 `session_id` 过滤后断言 `repinned=1`，覆盖内存与 PG 的汇总路径；历史审计 fixture 的 `session_ids` 长度与 `restored_count` 对齐，不构造只在内存里成立的非法行。
 
 ## 待定
 

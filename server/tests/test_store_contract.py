@@ -816,6 +816,14 @@ async def _exercise_restore_pin(store: RunStore) -> None:
         assert sorted(
             item.repinned_count for item in audits if item.session_ids == ("sess_rp_a",)
         ) == [0, 1]
+        # 统计汇总与明细同口径：只统计命中的审计行（内存/PG 共用契约）。
+        repinned_stats = await store.session_restore_audit_stats(
+            since=datetime(2020, 1, 1, tzinfo=UTC),
+            until=datetime(2100, 1, 1, tzinfo=UTC),
+            user_id=user,
+            session_id="sess_rp_e",
+        )
+        assert repinned_stats.repinned == 1
     finally:
         store.pin_limit = original_pin_limit
 

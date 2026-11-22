@@ -2375,7 +2375,7 @@ ADR-0069/0072 选择隐藏即清置顶、恢复后不恢复；实际使用中用
 | 兼容 | 旧隐藏行 `was_pinned=false`，升级后首次恢复不自动置顶 |
 | 范围 | 不做置顶时间恢复、不跨用户、不做批量置顶；无新表/索引 |
 
-验证：默认 534+42、PG 573+3、PG+Redis 576；ruff 208 / format 208 / mypy 119；
+验证：默认 534+42、PG 573+3、PG+Redis 576；ruff 209 / format 209 / mypy 119；
 前端未改 29 files/149 tests。迁移 `0027` 往返通过。
 
 详见 [ADR-0108](decisions/0108-hidden-restore-pin.md)。

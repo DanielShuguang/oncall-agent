@@ -57,11 +57,11 @@ ADR-0069 规定「从侧栏移除」与置顶互斥：移除会话时同一事�
 
 - 默认：`534 passed + 42 skipped`；PG-only：`573 passed + 3 skipped`；
   PG+Redis：`576 passed`。
-- `ruff check` / `ruff format --check` 208 files / `mypy app` 119 files 通过。
+- `ruff check` / `ruff format --check` 209 files / `mypy app` 119 files 通过。
 - 前端未改：29 files / 149 tests。
 - 迁移 `0027` 往返：`upgrade head → alembic check → downgrade 0026 → upgrade head`。
 - 用例：`tests/test_store_contract.py::_exercise_restore_pin`（含 `pin_limit=1` 的容量
-  不足分支）、`test_sessions_api.py::test_sessions_pin_and_legacy_cursor` 断言恢复后
+  不足分支、批量恢复按请求顺序分配容量、恢复不写显式置顶审计）、`test_sessions_api.py::test_sessions_pin_and_legacy_cursor` 断言恢复后
   仍置顶；PG 契约覆盖同逻辑。
 
 ## 待定

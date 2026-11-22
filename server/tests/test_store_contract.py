@@ -777,6 +777,36 @@ async def _exercise_restore_pin(store: RunStore) -> None:
         }
         assert capacity["sess_rp_a"].pinned is False
         assert capacity["sess_rp_b"].pinned is True
+
+        # 批量恢复按请求顺序分配容量：e 在前先占位，c 恢复但不置顶。
+        await store.create(
+            run_id=str(uuid.uuid4()), user_id=user, session_id="sess_rp_c", message="C"
+        )
+        await store.create(
+            run_id=str(uuid.uuid4()), user_id=user, session_id="sess_rp_e", message="E"
+        )
+        await store.create(
+            run_id=str(uuid.uuid4()), user_id=user, session_id="sess_rp_f", message="F"
+        )
+        store.pin_limit = 3
+        assert await store.pin_session(user_id=user, session_id="sess_rp_c") is True
+        assert await store.pin_session(user_id=user, session_id="sess_rp_e") is True
+        assert await store.hide_sessions(user_id=user, session_ids=["sess_rp_c", "sess_rp_e"]) == {
+            "sess_rp_c",
+            "sess_rp_e",
+        }
+        assert await store.pin_session(user_id=user, session_id="sess_rp_f") is True
+        assert await store.unhide_sessions(
+            user_id=user, session_ids=["sess_rp_e", "sess_rp_c"]
+        ) == {"sess_rp_e", "sess_rp_c"}
+        ordered = {
+            item.session_id: item for item in await store.list_sessions(user_id=user, limit=10)
+        }
+        assert ordered["sess_rp_e"].pinned is True
+        assert ordered["sess_rp_c"].pinned is False
+        assert ordered["sess_rp_f"].pinned is True
+        # 恢复触发的置顶不写显式审计：A/B/C/E/F 共 5 次用户 pin。
+        assert len(await store.list_session_pin_audits(user_id=user, limit=20)) == 5
     finally:
         store.pin_limit = original_pin_limit
 

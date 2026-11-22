@@ -2,7 +2,12 @@
 
 import { useRef, useState } from 'react';
 import { ApiError } from '@/api/client';
-import { exportToolHistoryCsv, getToolHistory, type ToolInfo } from '@/api/tools';
+import {
+  exportToolHistoryCsv,
+  getToolHistory,
+  type ToolHistoryOrder,
+  type ToolInfo,
+} from '@/api/tools';
 import { downloadBlob } from '@/lib/download';
 import type { HistoryState } from './ToolsDialogs';
 
@@ -19,6 +24,7 @@ export function useToolHistory() {
     changedTo: string,
     changedBy: string,
     source: '' | 'tool' | 'matrix',
+    order: ToolHistoryOrder = 'latest',
   ) => {
     const requestId = ++historyRequest.current;
     historyExportRequest.current += 1;
@@ -33,11 +39,13 @@ export function useToolHistory() {
       changedTo,
       changedBy,
       source,
+      order,
       filterError: null,
       appliedFrom: changedFrom,
       appliedTo: changedTo,
       appliedBy: changedBy,
       appliedSource: source,
+      appliedOrder: order,
       total: null,
       nextCursor: null,
       loadingMore: false,
@@ -51,6 +59,7 @@ export function useToolHistory() {
           changedTo,
           changedBy,
           source,
+          order,
         });
         if (requestId !== historyRequest.current) return;
         setHistory((current) =>
@@ -80,7 +89,7 @@ export function useToolHistory() {
     })();
   };
 
-  const openHistory = (tool: ToolInfo) => requestHistory(tool, '', '', '', '');
+  const openHistory = (tool: ToolInfo) => requestHistory(tool, '', '', '', '', 'latest');
 
   const loadMoreHistory = () => {
     if (!history || !history.nextCursor || history.loadingMore) return;
@@ -91,6 +100,7 @@ export function useToolHistory() {
     const to = history.appliedTo;
     const by = history.appliedBy;
     const source = history.appliedSource;
+    const order = history.appliedOrder;
     setHistory((current) =>
       current?.tool.name === tool.name
         ? {
@@ -107,7 +117,7 @@ export function useToolHistory() {
         const data = await getToolHistory(
           tool.name,
           20,
-          { changedFrom: from, changedTo: to, changedBy: by, source },
+          { changedFrom: from, changedTo: to, changedBy: by, source, order },
           cursor,
         );
         if (requestId !== historyRequest.current) return;
@@ -163,7 +173,7 @@ export function useToolHistory() {
       });
       return;
     }
-    requestHistory(history.tool, from, to, history.changedBy, history.source);
+    requestHistory(history.tool, from, to, history.changedBy, history.source, history.order);
   };
 
   const reloadExpiredHistory = () => {
@@ -175,11 +185,12 @@ export function useToolHistory() {
       history.appliedTo,
       history.appliedBy,
       history.appliedSource,
+      history.appliedOrder,
     );
   };
 
   const clearHistoryFilters = () => {
-    if (history) requestHistory(history.tool, '', '', '', '');
+    if (history) requestHistory(history.tool, '', '', '', '', 'latest');
   };
 
   const closeHistory = () => {
@@ -200,6 +211,7 @@ export function useToolHistory() {
         changedTo: history.appliedTo,
         changedBy: history.appliedBy,
         source: history.appliedSource,
+        order: history.appliedOrder,
       });
       if (requestId !== historyExportRequest.current) return;
       downloadBlob(result.blob, `tool-history-${history.tool.name}.csv`);

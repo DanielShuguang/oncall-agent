@@ -114,6 +114,18 @@ describe('exportToolHistoryCsv', () => {
 
     expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/admin/tools/query_cmdb/history/export');
   });
+
+  it('最早在前时导出也带 order=earliest', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    fetchMock.mockImplementation(async () => new Response('csv', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await exportToolHistoryCsv('query_cmdb', { order: 'earliest' });
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      '/api/admin/tools/query_cmdb/history/export?order=earliest',
+    );
+  });
 });
 
 describe('getToolHistory', () => {
@@ -155,6 +167,16 @@ describe('getToolHistory', () => {
 
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
       '/api/admin/tools/query_cmdb/history?limit=20&cursor=next-page',
+    );
+  });
+
+  it('最早在前时追加 order=earliest', async () => {
+    const fetchMock = stubFetch({ items: [] });
+
+    await getToolHistory('query_cmdb', 20, { order: 'earliest' });
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      '/api/admin/tools/query_cmdb/history?limit=20&order=earliest',
     );
   });
 });

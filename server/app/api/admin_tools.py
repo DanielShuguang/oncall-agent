@@ -16,7 +16,7 @@ import json
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, date, datetime, time, timedelta
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Path, Query, Response
 from sqlalchemy.exc import SQLAlchemyError
@@ -94,6 +94,7 @@ def _history_fingerprint(
     until: datetime | None,
     changed_by: str | None,
     source: str | None,
+    order: str,
 ) -> str:
     # 只存指纹，不把工具名/过滤原值塞进游标；与非 ASCII 值解耦。
     raw = "\0".join(
@@ -103,6 +104,7 @@ def _history_fingerprint(
             until.isoformat() if until else "",
             changed_by or "",
             source or "",
+            order,
         )
     )
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
@@ -329,17 +331,18 @@ async def tool_setting_history(
     changed_to: Annotated[date | None, Query()] = None,
     changed_by: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
     source: Annotated[str | None, Query(pattern="^(tool|matrix)$")] = None,
+    order: Annotated[Literal["latest", "earliest"], Query()] = "latest",
     # 长度交给 _decode 统一判 400；Query max_length 会让超长游标变成 422。
     cursor: Annotated[str | None, Query()] = None,
 ) -> ToolHistoryResponse:
     # 不要求工具仍在注册表里：工具下线/改名后，历史仍要能按旧名字查到，
     # 否则「长期审计」在工具下线那一刻就断了。从未注册过的名字只会得到空列表。
     since, until = _history_window(changed_from, changed_to)
-    fingerprint = _history_fingerprint(name, since, until, changed_by, source)
-    before = _decode_tool_history_cursor(cursor, fingerprint) if cursor is not None else None
+    fingerprint = _history_fingerprint(name, since, until, changed_by, source, order)
+    cursor_key = _decode_tool_history_cursor(cursor, fingerprint) if cursor is not None else None
     total: int | None = None
     try:
-        if before is None:
+        if cursor_key is None:
             total = await policy.count_history(
                 name,
                 since=since,
@@ -354,7 +357,9 @@ async def tool_setting_history(
             until=until,
             changed_by=changed_by,
             source=source,
-            before=before,
+            before=cursor_key if order == "latest" else None,
+            after=cursor_key if order == "earliest" else None,
+            order="desc" if order == "latest" else "asc",
         )
     except SQLAlchemyError as exc:
         log.error("tool_history_read_failed", tool=name, error=str(exc))
@@ -399,6 +404,7 @@ async def export_tool_history(
     changed_to: Annotated[date | None, Query()] = None,
     changed_by: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
     source: Annotated[str | None, Query(pattern="^(tool|matrix)$")] = None,
+    order: Annotated[Literal["latest", "earliest"], Query()] = "latest",
 ) -> Response:
     """导出工具配置变更历史 CSV；导出自身写下载审计（ADR-0099）。"""
     since, until = _history_window(changed_from, changed_to)
@@ -410,6 +416,7 @@ async def export_tool_history(
             until=until,
             changed_by=changed_by,
             source=source,
+            order="desc" if order == "latest" else "asc",
         )
     except SQLAlchemyError as exc:
         log.error("tool_history_export_failed", tool=name, error=str(exc))
@@ -427,6 +434,7 @@ async def export_tool_history(
             "changed_to": changed_to.isoformat() if changed_to else None,
             "changed_by": changed_by,
             "source": source,
+            **({"order": order} if order != "latest" else {}),
         },
         row_count=len(rows),
         truncated=truncated,

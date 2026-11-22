@@ -168,8 +168,8 @@ oncall/
 
 | 模块 | 状态 | 验证方式 |
 |---|---|---|
-| 文档（12 篇 + 105 篇 ADR + 评测基线） | ✅ 完成 | — |
-| 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡 / 运行回放 / 成本页） | ✅ 可用 | `tsc --noEmit`、`oxlint 0`、`oxfmt --check` 通过；`vitest` 28 files / 144 tests；`pnpm build` 成功（2941 modules） |
+| 文档（12 篇 + 106 篇 ADR + 评测基线） | ✅ 完成 | — |
+| 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡 / 运行回放 / 成本页） | ✅ 可用 | `tsc --noEmit`、`oxlint 0`、`oxfmt --check` 通过；`vitest` 28 files / 146 tests；`pnpm build` 成功（2942 modules） |
 | 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **534 passed + 42 skipped**；设 `ONCALL_TEST_DATABASE_URL`（指向一个可清空的库）后 **573 passed + 3 skipped**，再加 `ONCALL_TEST_REDIS_URL` 为 **576 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约与审批快照、引用快照与内容回收、个人预算与账本快照、工单自助查询、工单详情、会话列表/标题搜索/分页/重命名/移除/恢复/置顶、资产查询接表、运行过程回放与载荷上限、批量会话详情、工具配置变更历史、历史引用回填、已移除会话分页与搜索、已移除会话批量恢复、批量恢复逐条结果、会话恢复审计、会话恢复审计分页、恢复审计按 session 反查、恢复审计 CSV 导出、恢复审计列表总数、恢复审计统计、恢复审计统计按过滤、恢复审计按日期范围、审批积压与等待统计、审批统计分组、审批列表分页、已办审批按决议时间排序、已办审批筛选、审批列表导出 CSV、审批列表首屏总数、审批统计按小时分布、审批统计聚合导出、恢复审计统计导出、会话批量移除、会话置顶上限、置顶容量提示、置顶审计与分页、置顶审计日期过滤、置顶审计保留清理、置顶审计 CSV 导出、置顶审计统计、置顶审计统计跟随过滤、置顶审计统计 CSV 导出、置顶审计首屏总数、记住审计过滤与统计窗口、CSV 导出下载审计、计量一致性） |
 | 本地 JWT（W1 D2） | ✅ 已完成 | `tests/test_auth.py` 20 条：签发/验签、过期、alg=none、401 JSON、OpenAPI Bearer、run 归属隔离 |
 | 事件落库 + 断线续传（D4） | ✅ 已完成 | `alembic upgrade head` + `alembic check` 无漂移；`tests/test_store_contract.py`（内存 + Postgres 契约）、`tests/test_chat_stream.py`（落库、幂等回放、503 语义） |
@@ -253,11 +253,12 @@ oncall/
 | 资产查询接表（W6 后补） | ✅ 已完成 | `query_cmdb` 改读 `assets` 表（内存/PG 双实现），`owner_id` 从 schema 删除、由 `ToolGuard` 注入，模型传身份字段会被 `validate_args` 拒绝；返回 `{"assets": [...], "count": N}`，空列表是合法结果，`finalize` 支持单台/多台/空/失败；换真实 CMDB 只替换 repository；无迁移；`tests/test_assets.py`、`test_assets_pg.py`；[ADR-0034](docs/decisions/0034-cmdb-assets-table.md) |
 | 历史运行过程回放（W6 后补） | ✅ 已完成 | `GET /runs/{id}` 从 `tool.call/result`、`approval.required/resolved` 投影只读 `timeline`，按 `call_id` / `approval_id` 合并，步骤与 `message.delta` 不进入；最多 20 项、超出 `timeline_truncated=true`；单条工具参数/结果的紧凑 JSON 或错误信息超过 4096 字符时只保留前 1024 字符预览并标 `truncated`（[ADR-0044](docs/decisions/0044-timeline-payload-cap.md)）；历史回答下方折叠展示，可按类型/异常/工具名筛选并汇总工具耗时与最慢调用（[ADR-0045](docs/decisions/0045-timeline-filter-summary.md)）；审批卡片显示发起、决议时间与等待时长（[ADR-0046](docs/decisions/0046-approval-wait.md)）；跟随回答可见性，正文回收/过期/事件清理时 `timeline_available=false`；不返回审批人 `resolved_by`/`scope`；只读；无新表/迁移；`tests/test_run_timeline.py`、`test_runs_api.py`；[ADR-0035](docs/decisions/0035-run-timeline-replay.md) |
 | 批量会话详情（W6 后补） | ✅ 已完成 | 新增 `GET /sessions/{id}/runs`：一页 run 的正文/引用/运行过程一次返回，打开会话与加载更早各只发 1 次请求（原来 21 次前端请求，且每条详情服务端还要另查事件与可见性）；整页引用合并成一次可见性查询，事件按 run 批量取（Postgres 窗口函数）；不含 `model_calls`，无新表/迁移；无游标且查不到会话返回 404，游标越界返回 200 空页；`tests/test_sessions_api.py`、`test_store_contract.py`（`_exercise_events_for_runs`）；[ADR-0036](docs/decisions/0036-session-detail-batch.md) |
-| 工具配置变更历史（W6 后补） | ✅ 已完成 | 新增追加式 `tool_setting_changes`（迁移 0015）：每个真正变化的工具一行，`before`/`after` 存完整覆盖快照，与 `tool_settings` 写入同事务；`GET /admin/tools/{name}/history?limit=&cursor=&changed_from=&changed_to=&changed_by=&source=`（admin-only、倒序、keyset 分页、首屏 total；日期范围 ADR-0098、分页 ADR-0100、按人/来源 ADR-0101、游标 1 小时过期 ADR-0102）；ToolsPage 每行「历史」Dialog 展示时间/操作人/来源/`before → after`，可应用/清除日期与来源过滤；历史长期保留、不提供回滚；`tests/test_tool_history.py`、`test_tool_history_pg.py`；[ADR-0037](docs/decisions/0037-tool-setting-history.md) |
+| 工具配置变更历史（W6 后补） | ✅ 已完成 | 新增追加式 `tool_setting_changes`（迁移 0015）：每个真正变化的工具一行，`before`/`after` 存完整覆盖快照，与 `tool_settings` 写入同事务；`GET /admin/tools/{name}/history?limit=&cursor=&changed_from=&changed_to=&changed_by=&source=&order=`（admin-only、keyset 分页、首屏 total；日期范围 ADR-0098、分页 ADR-0100、按人/来源 ADR-0101、游标过期 ADR-0102、最新/最早排序 ADR-0106）；ToolsPage 每行「历史」Dialog 展示时间/操作人/来源/`before → after`，可应用/清除日期与来源过滤；历史长期保留、不提供回滚；`tests/test_tool_history.py`、`test_tool_history_pg.py`；[ADR-0037](docs/decisions/0037-tool-setting-history.md) |
 | 工具历史游标过期（W6 后补） | ✅ 已完成 | 工具历史 keyset 游标增加 `e`（Unix 秒，默认签发后 1 小时；`ONCALL_TOOL_HISTORY_CURSOR_TTL_MINUTES` 可调，ADR-0105）；过期返回 `400 CURSOR_EXPIRED`，缺 `e`/格式错仍 `INVALID_CURSOR`；不签名/不加密、无迁移；前端「加载更多」失败保留已加载列表；`tests/test_tool_history.py`；[ADR-0102](docs/decisions/0102-tool-history-cursor-expiry.md) |
 | 工具历史游标过期后的重新加载（W6 后补） | ✅ 已完成 | `ApiError` 增加可选 `code`；`HistoryState` 记录 `loadMoreErrorCode`；仅 `CURSOR_EXPIRED` 显示「重新加载」，按已应用筛选重新取第一页；不自动重放、无后端/迁移；`client.test.ts` 覆盖错误码透传；[ADR-0103](docs/decisions/0103-tool-history-cursor-reload.md) |
 | 窄屏会话抽屉左滑关闭（W6 后补） | ✅ 已完成 | `drawerSwipe.ts` 的 `isDrawerSwipeClose(dx,dy)`：左滑 ≥80px 且水平位移 ≥垂直 1.5 倍才关闭；仅在 `mobileOpen` 下单指触摸记录起点，`touchend` 判定，`touchcancel` 清空；起手在输入/下拉/可编辑元素时不启动；不做跟手动画、无依赖/后端/迁移；`drawerSwipe.test.ts` 4 tests；[ADR-0104](docs/decisions/0104-session-drawer-swipe-close.md) |
 | 工具历史游标 TTL 可配置（W6 后补） | ✅ 已完成 | `ONCALL_TOOL_HISTORY_CURSOR_TTL_MINUTES`（默认 60，范围 1–1440）经 `Settings.tool_history_cursor_ttl_s` 传给签发；解码仍比较绝对 `e`，默认行为不变、无迁移；`test_config.py`、`test_tool_history.py`；[ADR-0105](docs/decisions/0105-tool-history-cursor-ttl-config.md) |
+| 工具配置变更历史双向排序（W6 后补） | ✅ 已完成 | `/history` 与 `/history/export` 增加 `order=latest|earliest`；latest 用 `(changed_at,id) < before` 倒序、earliest 用 `(changed_at,id) > after` 升序；游标指纹绑定 order，换排序旧游标 400；前端历史 Dialog 增加排序下拉，加载更多/导出沿用已应用 order；无迁移；[ADR-0106](docs/decisions/0106-tool-history-order.md) |
 
 ### 评测与压测
 
@@ -336,7 +337,7 @@ W6 基线（3 轮均值，mock 规则路径，口径见 [baseline-v1](docs/eval/
   `RUN_INTERRUPTED`（[ADR-0017](docs/decisions/0017-stale-run-recovery.md)），只收敛状态、
   不自动重试写工具；工单是否已创建仍需人工按 run_id 对账
 - 工具 schema 在管理页只读；配置覆盖只到「启用/角色」，且多副本部署最长 2s 生效（[ADR-0014](docs/decisions/0014-tool-policy-overrides.md)）
-- 工具配置变更历史只记管理 API：`changed_by` 是 JWT `sub`（没有姓名/部门目录），权限矩阵一次保存没有 batch id、只能按工具逐条看；没有保留期/冷归档、回滚按钮（导出见 ADR-0099，时间范围见 ADR-0098，分页见 ADR-0100，按人/来源过滤见 ADR-0101），直接改数据库也不会留下应用层记录；并发管理写入是 last-write-wins，`before` 不保证接上前一条 `after`；工具下线后只能通过 API 按旧名字查历史，管理页不再有入口（[ADR-0037](docs/decisions/0037-tool-setting-history.md)）
+- 工具配置变更历史只记管理 API：`changed_by` 是 JWT `sub`（没有姓名/部门目录），权限矩阵一次保存没有 batch id、只能按工具逐条看；没有保留期/冷归档、回滚按钮（导出见 ADR-0099，时间范围见 ADR-0098，分页见 ADR-0100，按人/来源过滤见 ADR-0101，最新/最早排序见 ADR-0106），直接改数据库也不会留下应用层记录；并发管理写入是 last-write-wins，`before` 不保证接上前一条 `after`；工具下线后只能通过 API 按旧名字查历史，管理页不再有入口（[ADR-0037](docs/decisions/0037-tool-setting-history.md)）
 - 引用全文预览是按切片重组的正文，不是原始文件渲染（PDF 排版/表格样式会丢）；没有列表接口、只能凭已知
   `document_id` 打开（[ADR-0018](docs/decisions/0018-citation-fulltext-preview.md)）
 - 多轮上下文只有 3 轮 / 1200 字，追问判定是关键词启发式；连续追问的检索词按链累积（最多 80 字），

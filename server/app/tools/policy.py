@@ -105,6 +105,8 @@ class ToolSettingStore(Protocol):
         changed_by: str | None = None,
         source: str | None = None,
         before: tuple[datetime, int] | None = None,
+        after: tuple[datetime, int] | None = None,
+        order: str = "desc",
     ) -> list[ToolSettingChangeRecord]: ...
 
     async def count_history(
@@ -168,6 +170,8 @@ class InMemoryToolSettingStore:
         changed_by: str | None = None,
         source: str | None = None,
         before: tuple[datetime, int] | None = None,
+        after: tuple[datetime, int] | None = None,
+        order: str = "desc",
     ) -> list[ToolSettingChangeRecord]:
         rows = sorted(
             (
@@ -183,9 +187,14 @@ class InMemoryToolSettingStore:
                     or row.changed_at < before[0]
                     or (row.changed_at == before[0] and row.id < before[1])
                 )
+                and (
+                    after is None
+                    or row.changed_at > after[0]
+                    or (row.changed_at == after[0] and row.id > after[1])
+                )
             ),
             key=lambda row: (row.changed_at, row.id),
-            reverse=True,
+            reverse=(order == "desc"),
         )
         return rows[:limit]
 
@@ -304,6 +313,8 @@ class PostgresToolSettingStore:
         changed_by: str | None = None,
         source: str | None = None,
         before: tuple[datetime, int] | None = None,
+        after: tuple[datetime, int] | None = None,
+        order: str = "desc",
     ) -> list[ToolSettingChangeRecord]:
         stmt = select(ToolSettingChangeRow).where(ToolSettingChangeRow.tool_name == name)
         if since is not None:
@@ -324,15 +335,26 @@ class PostgresToolSettingStore:
                     ),
                 )
             )
-        async with self._sessionmaker() as session:
-            rows = (
-                await session.scalars(
-                    stmt.order_by(
-                        ToolSettingChangeRow.changed_at.desc(),
-                        ToolSettingChangeRow.id.desc(),
-                    ).limit(limit)
+        if after is not None:
+            stmt = stmt.where(
+                or_(
+                    ToolSettingChangeRow.changed_at > after[0],
+                    and_(
+                        ToolSettingChangeRow.changed_at == after[0],
+                        ToolSettingChangeRow.id > after[1],
+                    ),
                 )
-            ).all()
+            )
+        if order == "desc":
+            stmt = stmt.order_by(
+                ToolSettingChangeRow.changed_at.desc(), ToolSettingChangeRow.id.desc()
+            )
+        else:
+            stmt = stmt.order_by(
+                ToolSettingChangeRow.changed_at.asc(), ToolSettingChangeRow.id.asc()
+            )
+        async with self._sessionmaker() as session:
+            rows = (await session.scalars(stmt.limit(limit))).all()
         return [
             ToolSettingChangeRecord(
                 id=row.id,
@@ -489,6 +511,8 @@ class ToolPolicy:
         changed_by: str | None = None,
         source: str | None = None,
         before: tuple[datetime, int] | None = None,
+        after: tuple[datetime, int] | None = None,
+        order: str = "desc",
     ) -> list[ToolSettingChangeRecord]:
         return await self._store.history(
             name,
@@ -498,6 +522,8 @@ class ToolPolicy:
             changed_by=changed_by,
             source=source,
             before=before,
+            after=after,
+            order=order,
         )
 
     async def count_history(

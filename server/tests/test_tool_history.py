@@ -44,6 +44,8 @@ class _FailingHistoryStore:
         changed_by: str | None = None,
         source: str | None = None,
         before: tuple[datetime, int] | None = None,
+        after: tuple[datetime, int] | None = None,
+        order: str = "desc",
     ) -> list[ToolSettingChangeRecord]:
         raise SQLAlchemyError("database down")
 
@@ -468,6 +470,37 @@ async def test_history_paginates_and_binds_cursor_to_filters(
     assert [item["id"] for item in page2["items"]] == [1]
     assert page2["next_cursor"] is None
 
+    earliest = await client.get(
+        "/api/admin/tools/query_cmdb/history",
+        headers=ADMIN,
+        params={"limit": 2, "order": "earliest"},
+    )
+    assert earliest.status_code == 200
+    asc_page = earliest.json()
+    assert asc_page["total"] == 3
+    assert [item["id"] for item in asc_page["items"]] == [1, 2]
+    asc_cursor = asc_page["next_cursor"]
+    assert isinstance(asc_cursor, str) and asc_cursor
+
+    asc_next = await client.get(
+        "/api/admin/tools/query_cmdb/history",
+        headers=ADMIN,
+        params={"limit": 2, "order": "earliest", "cursor": asc_cursor},
+    )
+    assert asc_next.status_code == 200
+    asc_page2 = asc_next.json()
+    assert asc_page2["total"] is None
+    assert [item["id"] for item in asc_page2["items"]] == [3]
+    assert asc_page2["next_cursor"] is None
+
+    order_mismatch = await client.get(
+        "/api/admin/tools/query_cmdb/history",
+        headers=ADMIN,
+        params={"limit": 2, "cursor": asc_cursor},
+    )
+    assert order_mismatch.status_code == 400
+    assert order_mismatch.json()["code"] == "INVALID_CURSOR"
+
     mismatch = await client.get(
         "/api/admin/tools/query_cmdb/history",
         headers=ADMIN,
@@ -499,7 +532,7 @@ async def test_history_paginates_and_binds_cursor_to_filters(
     assert oversized.json()["code"] == "INVALID_CURSOR"
 
     # 过期游标单独返回 CURSOR_EXPIRED；客户端应提示重新加载，而不是从头开始。
-    fingerprint = _history_fingerprint("query_cmdb", None, None, None, None)
+    fingerprint = _history_fingerprint("query_cmdb", None, None, None, None, "latest")
     expired_raw = json.dumps(
         {
             "t": "2026-01-02T12:00:00+00:00",
@@ -629,7 +662,7 @@ def test_cursor_ttl_is_adjustable() -> None:
         before=None,
         after={"enabled": True, "roles": None},
     )
-    fingerprint = _history_fingerprint("query_cmdb", None, None, None, None)
+    fingerprint = _history_fingerprint("query_cmdb", None, None, None, None, "latest")
     issued_at = datetime(2026, 1, 2, 12, tzinfo=UTC)
     cursor = _encode_tool_history_cursor(record, fingerprint, now=issued_at, ttl_s=120)
 

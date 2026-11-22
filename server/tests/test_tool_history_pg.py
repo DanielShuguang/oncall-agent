@@ -135,6 +135,16 @@ async def test_history_counts_and_pages_by_changed_at(
     older = await store.history("query_cmdb", limit=1, before=(first[0].changed_at, first[0].id))
     assert older[0].changed_by == "admin_1"
 
+    earliest = await store.history("query_cmdb", limit=1, order="asc")
+    assert earliest[0].changed_by == "admin_1"
+    newer = await store.history(
+        "query_cmdb",
+        limit=1,
+        after=(earliest[0].changed_at, earliest[0].id),
+        order="asc",
+    )
+    assert newer[0].changed_by == "admin_2"
+
 
 async def test_history_is_scoped_per_tool(pg_tool_history: PostgresToolSettingStore) -> None:
     store = pg_tool_history

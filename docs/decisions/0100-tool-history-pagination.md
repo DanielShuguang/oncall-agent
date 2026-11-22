@@ -61,5 +61,5 @@ ADR-0037 的工具配置变更历史只有 `limit`（默认 20，最多 100）�
 ## 待定
 
 - ~~变更人/来源过滤~~：已由 [ADR-0101](0101-tool-history-filters.md) 补上。
-- 是否需要「跳到最早/最新」；当前只支持顺序加载。
+- ~~是否需要「跳到最早/最新」~~：已由 [ADR-0106](0106-tool-history-order.md) 补上（`order=latest|earliest`）。
 - ~~游标是否需要过期时间~~：已由 [ADR-0102](0102-tool-history-cursor-expiry.md) 补上（1 小时）。

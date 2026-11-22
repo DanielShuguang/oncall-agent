@@ -1,6 +1,6 @@
 /** 工具变更历史的展示类型与格式化；与弹窗组件分开，避免单文件超行数限制。 */
 
-import type { ToolChange, ToolInfo, ToolOverrideSnapshot } from '@/api/tools';
+import type { ToolChange, ToolHistoryOrder, ToolInfo, ToolOverrideSnapshot } from '@/api/tools';
 
 export interface HistoryState {
   tool: ToolInfo;
@@ -11,12 +11,14 @@ export interface HistoryState {
   changedTo: string;
   changedBy: string;
   source: '' | 'tool' | 'matrix';
+  order: ToolHistoryOrder;
   filterError: string | null;
   /** 最近一次实际查询使用的过滤；导出必须与列表一致，不能使用未应用的草稿。 */
   appliedFrom: string;
   appliedTo: string;
   appliedBy: string;
   appliedSource: '' | 'tool' | 'matrix';
+  appliedOrder: ToolHistoryOrder;
   /** 首屏总数；后续页为 null。 */
   total: number | null;
   nextCursor: string | null;

@@ -52,11 +52,14 @@ export interface ToolHistoryResponse {
   next_cursor?: string | null;
 }
 
+export type ToolHistoryOrder = 'latest' | 'earliest';
+
 export interface ToolHistoryFilters {
   changedFrom?: string;
   changedTo?: string;
   changedBy?: string;
   source?: string;
+  order?: ToolHistoryOrder;
 }
 
 export function getToolHistory(
@@ -72,6 +75,7 @@ export function getToolHistory(
   }
   if (filters.changedBy) params.set('changed_by', filters.changedBy);
   if (filters.source) params.set('source', filters.source);
+  if (filters.order === 'earliest') params.set('order', 'earliest');
   if (cursor) params.set('cursor', cursor);
   return getJson<ToolHistoryResponse>(
     `/admin/tools/${encodeURIComponent(name)}/history?${params.toString()}`,
@@ -95,6 +99,7 @@ export async function exportToolHistoryCsv(
   }
   if (filters.changedBy) params.set('changed_by', filters.changedBy);
   if (filters.source) params.set('source', filters.source);
+  if (filters.order === 'earliest') params.set('order', 'earliest');
   const query = params.toString();
   const { blob, headers } = await getFile(
     `/admin/tools/${encodeURIComponent(name)}/history/export${query ? `?${query}` : ''}`,

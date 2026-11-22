@@ -50,7 +50,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | GET | `/admin/session-pins/export` | 会话置顶审计 CSV 导出（同一组过滤，最多 5000 条） | W6 后补 |
 | GET | `/admin/export-audits` | CSV 导出下载审计（按用户/资源/UTC 日期范围过滤，keyset 分页；第一页附总数；只读） | W6 后补 |
 | GET | `/admin/export-audits/export` | 导出审计 CSV 导出（同一组过滤，最多 5000 条；本导出自身也写审计） | W6 后补 |
-| GET | `/admin/tools/{name}/history/export` | 工具配置变更历史 CSV 导出（UTC 日期/变更人/来源过滤，最多 5000 条；写下载审计） | W6 后补 |
+| GET | `/admin/tools/{name}/history/export` | 工具配置变更历史 CSV 导出（UTC 日期/变更人/来源/排序过滤，最多 5000 条；写下载审计） | W6 后补 |
 | GET | `/sessions/{session_id}/runs` | 一页会话详情（正文/引用/运行过程，一次返回） | W6 后补 |
 | GET | `/runs/{run_id}` | 单次运行详情（含指标与模型调用明细） | W1 D4 / W4 D19 |
 | GET | `/runs/{run_id}/events?after_seq=` | 补拉事件（断线续传，兼容 `Last-Event-ID`） | W1 D4 |
@@ -645,7 +645,7 @@ Authorization: Bearer <admin-token>
 #### 工具配置变更历史 CSV（ADR-0099）
 
 ```http
-GET /api/admin/tools/query_cmdb/history/export?changed_from=2026-11-01&changed_to=2026-11-16
+GET /api/admin/tools/query_cmdb/history/export?changed_from=2026-11-01&changed_to=2026-11-16&order=earliest
 Authorization: Bearer <admin-token>
 ```
 
@@ -654,6 +654,8 @@ Authorization: Bearer <admin-token>
   `limit`/`cursor`；管理员角色，普通员工 403
 - CSV 列 `tool_name,changed_at,changed_by,source,before,after`；`before`/`after` 是
   排序后的 JSON 字符串，空快照为空；UTF-8 BOM + CRLF 与公式注入防护沿用 `csv_document`
+- `order=earliest` 时按 `changed_at ASC, id ASC` 导出，默认 `latest` 为倒序；导出审计的
+  `filters` 只在 `earliest` 时附加 `order=earliest`（ADR-0106）
 - 最多 5000 行；响应头 `X-Export-Count`、`X-Export-Truncated`、`Cache-Control: no-store`，
   文件名 `tool-history-{safe_name}-{UTC}.csv`（工具名非字母数字/`-_` 替换为 `_`）
 - **本导出自身也写一条审计**：`resource=tool_setting_history`，`filters` 为 `tool`、日期与
@@ -1547,6 +1549,7 @@ GET /api/admin/perm-matrix
 GET /api/admin/tools/create_ticket/history?limit=20
 GET /api/admin/tools/create_ticket/history?limit=20&changed_from=2026-11-01&changed_to=2026-11-07
 GET /api/admin/tools/create_ticket/history?limit=20&changed_by=admin_1&source=matrix
+GET /api/admin/tools/create_ticket/history?limit=20&order=earliest
 GET /api/admin/tools/create_ticket/history?limit=20&cursor=eyJ0Ijoi...
 Authorization: Bearer <admin token>
 ```
@@ -1575,14 +1578,16 @@ Authorization: Bearer <admin token>
   「恢复默认」的记录
 - `source`：`tool` = PATCH 启用开关，`matrix` = 权限矩阵整表保存；同一次矩阵保存
   按工具各一行
-- 默认返回最近 20 条，最多 100；记录按 `changed_at DESC, id DESC` 排序（ADR-0100）
+- 默认返回最近 20 条，最多 100；默认按 `changed_at DESC, id DESC` 排序（ADR-0100）。
+  `order=earliest` 时改为 `changed_at ASC, id ASC`，用于直接查看窗口内最早变更；
+  其他取值为 422（ADR-0106）
 - `changed_from` / `changed_to` 是 UTC 自然日（`YYYY-MM-DD`），两端必须同时提供；
   窗口为 `[from 00:00:00Z, to+1d 00:00:00Z)`，结束日整天包含（ADR-0098）。单端、倒置、
   或闭区间超过 365 天返回 `422 INVALID_RANGE`；不传时保持「最近 N 条」行为
 - `changed_by` 是精确匹配（1–64 字符）；`source` 只接受 `tool`/`matrix`，其他值 422。
   两个过滤都不传时不收窄；`total` 与 `items` 都按过滤后的集合计算（ADR-0101）
 - 分页是 keyset：`cursor` 由上一页最后一条的 `(changed_at, id)` 生成，并与工具名、已应用日期窗口、
-  变更人、来源绑定；改任一筛选后复用旧 `cursor` 返回 `400 INVALID_CURSOR`。游标还带 `e`
+  变更人、来源、排序方向绑定；改任一筛选或 `order` 后复用旧 `cursor` 返回 `400 INVALID_CURSOR`。游标还带 `e`
   （Unix 秒，签发后默认 1 小时，可用 `ONCALL_TOOL_HISTORY_CURSOR_TTL_MINUTES` 调整），过期返回 `400 CURSOR_EXPIRED`；缺 `e`/格式错误仍是
   `INVALID_CURSOR`（ADR-0102）。第一页返回 `total`，后续页
   `total` 为 `null`；只有当前页取满且还有更多时才给 `next_cursor`（ADR-0100）

@@ -2324,6 +2324,23 @@ ADR-0102 把游标有效期写成 1 小时常量。现场审计节奏不同：�
 
 详见 [ADR-0105](decisions/0105-tool-history-cursor-ttl-config.md)。
 
+## W6 后补：工具配置变更历史双向排序（ADR-0106）
+
+ADR-0100 只支持从新到旧加载，并留下「是否需要跳到最早/最新」的待定。审计时经常要先看
+窗口内最早的一次变更；本 ADR 在同一个端点加 `order`，复用同一窗口/过滤/总数与游标指纹。
+
+| 事项 | 落地 |
+|---|---|
+| 参数 | `/history` 与 `/history/export` 增加 `order=latest|earliest`，默认 `latest` |
+| 存储 | `latest` 用 `(changed_at,id) < before` 倒序；`earliest` 用 `(changed_at,id) > after` 升序；不新增索引/迁移 |
+| 游标 | 指纹纳入 `order`，换排序复用旧游标 400 `INVALID_CURSOR`；`total`/`has_more` 语义不变 |
+| 前端 | 历史 Dialog 增加「最新在前/最早在前」，应用后才改变列表；加载更多与导出都用已应用 order |
+| 导出 | CSV 行序随 `order`；审计 filters 只在 `earliest` 时附加 `order=earliest` |
+| 范围 | 不做页码/跳页、行号增量、游标签名；不持久化排序 |
+| 验证 | 默认 534+42、PG 573+3、PG+Redis 576；ruff 208 / format 208 / mypy 119；前端 28 files/146 tests、build 2942 |
+
+详见 [ADR-0106](decisions/0106-tool-history-order.md)。
+
 ---
 
 ## W6 后补：窄屏会话抽屉左滑关闭（ADR-0104）

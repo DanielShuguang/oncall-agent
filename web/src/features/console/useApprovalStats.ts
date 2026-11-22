@@ -9,6 +9,8 @@ export function useApprovalStats(statsDays: number, statsGroup: StatsGroup) {
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const statsRequest = useRef(0);
+  // 手动刷新单独用令牌管理按钮状态：后台刷新不应把手动刷新卡在「刷新中」。
+  const manualRequest = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -23,7 +25,10 @@ export function useApprovalStats(statsDays: number, statsGroup: StatsGroup) {
         return data;
       })
       .catch(() => {
-        if (!cancelled && statsRequest.current === requestId) setStats(null);
+        if (!cancelled && statsRequest.current === requestId) {
+          setStats(null);
+          setLastUpdatedAt(null);
+        }
       });
     return () => {
       cancelled = true;
@@ -34,6 +39,7 @@ export function useApprovalStats(statsDays: number, statsGroup: StatsGroup) {
   const refresh = useCallback(
     async (silent = false) => {
       const requestId = ++statsRequest.current;
+      const manualId = silent ? 0 : ++manualRequest.current;
       if (!silent) setRefreshing(true);
       try {
         const data = await getApprovalStats(statsDays, statsGroup === 'none' ? null : statsGroup);
@@ -49,7 +55,7 @@ export function useApprovalStats(statsDays: number, statsGroup: StatsGroup) {
           setLastUpdatedAt(null);
         }
       } finally {
-        if (statsRequest.current === requestId && !silent) setRefreshing(false);
+        if (!silent && manualRequest.current === manualId) setRefreshing(false);
       }
     },
     [statsDays, statsGroup],

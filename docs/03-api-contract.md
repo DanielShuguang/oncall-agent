@@ -1595,7 +1595,7 @@ Authorization: Bearer <admin token>
 - `changed_by` 是精确匹配（1–64 字符）；`source` 只接受 `tool`/`matrix`/`rollback`，其他值 422。
   两个过滤都不传时不收窄；`total` 与 `items` 都按过滤后的集合计算（ADR-0101）
 - 分页是 keyset：`cursor` 由上一页最后一条的 `(changed_at, id)` 生成，并与工具名、已应用日期窗口、
-  变更人、来源、排序方向绑定；改任一筛选或 `order` 后复用旧 `cursor` 返回 `400 INVALID_CURSOR`。升级到包含 `order` 的版本后，部署前签发的在途游标会因指纹多一个字段失效一次，刷新/重开历史即恢复。游标还带 `e`
+  变更人、来源、排序方向绑定；改任一筛选或 `order` 后复用旧 `cursor` 返回 `400 INVALID_CURSOR`。升级到包含 `order`/`source` 的版本后，部署前签发的在途游标会因指纹新增字段失效一次（即使未传 `source`），刷新/重开历史即恢复；不影响 session/approval 等其他游标。游标还带 `e`
   （Unix 秒，签发后默认 1 小时，可用 `ONCALL_TOOL_HISTORY_CURSOR_TTL_MINUTES` 调整），过期返回 `400 CURSOR_EXPIRED`；缺 `e`/格式错误仍是
   `INVALID_CURSOR`（ADR-0102）。第一页返回 `total`，后续页
   `total` 为 `null`；只有当前页取满且还有更多时才给 `next_cursor`（ADR-0100）

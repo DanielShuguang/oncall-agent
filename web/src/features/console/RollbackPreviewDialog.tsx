@@ -40,7 +40,7 @@ export function RollbackPreviewDialog({ change, onClose, onConfirm }: RollbackPr
           </div>
           <p className="text-xs text-muted-foreground">
             回滚会新增一条变更记录，不删除原记录。实际写入的 before 是执行瞬间读到的当前配置，
-            可能与此处展示的记录快照不同；保存后下一次工具调用立即生效。
+            可能与此处展示的记录快照不同；当前实例立即生效，多副本部署下最多 2 秒生效。
           </p>
         </div>
         <DialogFooter>

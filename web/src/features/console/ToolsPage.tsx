@@ -70,7 +70,9 @@ export default function ToolsPage() {
     try {
       const updated = await updateTool(tool.name, { enabled: !tool.enabled });
       setTools((current) => current.map((item) => (item.name === updated.name ? updated : item)));
-      setNotice(`${updated.name} 已${updated.enabled ? '启用' : '禁用'}；下一次工具调用立即生效。`);
+      setNotice(
+        `${updated.name} 已${updated.enabled ? '启用' : '禁用'}；当前实例立即生效，多副本部署下最多 2 秒生效。`,
+      );
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : '保存失败');
     } finally {
@@ -99,7 +101,7 @@ export default function ToolsPage() {
     try {
       const updated = await rollbackToolChange(history.tool.name, changeId);
       setTools((current) => current.map((item) => (item.name === updated.name ? updated : item)));
-      setNotice(`${updated.name} 已回滚；下一次工具调用立即生效。`);
+      setNotice(`${updated.name} 已回滚；当前实例立即生效，多副本部署下最多 2 秒生效。`);
       setRollbackMessage('已回滚，历史中新增一条回滚记录。');
       await reloadHistory();
     } catch (exc) {

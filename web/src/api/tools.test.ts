@@ -174,6 +174,11 @@ describe('getToolHistory', () => {
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
       '/api/admin/tools/query_cmdb/history?limit=20&changed_by=admin_1&source=matrix',
     );
+
+    await getToolHistory('query_cmdb', 20, { source: 'rollback' });
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      '/api/admin/tools/query_cmdb/history?limit=20&source=rollback',
+    );
   });
 
   it('翻页时追加 cursor', async () => {

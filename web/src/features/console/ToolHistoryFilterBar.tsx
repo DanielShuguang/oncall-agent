@@ -69,7 +69,7 @@ export function ToolHistoryFilterBar({
             onValueChange={(value) =>
               onChange({
                 ...history,
-                source: value === 'all' ? '' : (value as 'tool' | 'matrix'),
+                source: value === 'all' ? '' : (value as 'tool' | 'matrix' | 'rollback'),
               })
             }
           >
@@ -80,6 +80,7 @@ export function ToolHistoryFilterBar({
               <SelectItem value="all">全部来源</SelectItem>
               <SelectItem value="tool">管理页</SelectItem>
               <SelectItem value="matrix">权限矩阵</SelectItem>
+              <SelectItem value="rollback">回滚</SelectItem>
             </SelectContent>
           </Select>
         </div>

@@ -23,7 +23,7 @@ export function useToolHistory() {
     changedFrom: string,
     changedTo: string,
     changedBy: string,
-    source: '' | 'tool' | 'matrix',
+    source: '' | 'tool' | 'matrix' | 'rollback',
     order: ToolHistoryOrder = 'latest',
   ) => {
     const requestId = ++historyRequest.current;

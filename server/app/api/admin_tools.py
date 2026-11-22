@@ -330,7 +330,7 @@ async def tool_setting_history(
     changed_from: Annotated[date | None, Query()] = None,
     changed_to: Annotated[date | None, Query()] = None,
     changed_by: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
-    source: Annotated[str | None, Query(pattern="^(tool|matrix)$")] = None,
+    source: Annotated[str | None, Query(pattern="^(tool|matrix|rollback)$")] = None,
     order: Annotated[Literal["latest", "earliest"], Query()] = "latest",
     # 长度交给 _decode 统一判 400；Query max_length 会让超长游标变成 422。
     cursor: Annotated[str | None, Query()] = None,
@@ -427,7 +427,7 @@ async def rollback_tool_setting(
             change = ToolSettingChange(
                 tool_name=name,
                 changed_by=admin.user_id,
-                source="tool",
+                source="rollback",
                 before=override_snapshot(current),
                 after=override_snapshot(target),
             )
@@ -458,7 +458,7 @@ async def export_tool_history(
     changed_from: Annotated[date | None, Query()] = None,
     changed_to: Annotated[date | None, Query()] = None,
     changed_by: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
-    source: Annotated[str | None, Query(pattern="^(tool|matrix)$")] = None,
+    source: Annotated[str | None, Query(pattern="^(tool|matrix|rollback)$")] = None,
     order: Annotated[Literal["latest", "earliest"], Query()] = "latest",
 ) -> Response:
     """导出工具配置变更历史 CSV；导出自身写下载审计（ADR-0099）。"""

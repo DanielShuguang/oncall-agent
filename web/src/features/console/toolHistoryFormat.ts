@@ -10,14 +10,14 @@ export interface HistoryState {
   changedFrom: string;
   changedTo: string;
   changedBy: string;
-  source: '' | 'tool' | 'matrix';
+  source: '' | 'tool' | 'matrix' | 'rollback';
   order: ToolHistoryOrder;
   filterError: string | null;
   /** 最近一次实际查询使用的过滤；导出必须与列表一致，不能使用未应用的草稿。 */
   appliedFrom: string;
   appliedTo: string;
   appliedBy: string;
-  appliedSource: '' | 'tool' | 'matrix';
+  appliedSource: '' | 'tool' | 'matrix' | 'rollback';
   appliedOrder: ToolHistoryOrder;
   /** 首屏总数；后续页为 null。 */
   total: number | null;
@@ -49,5 +49,6 @@ export function describeSnapshot(snapshot: ToolOverrideSnapshot | null): string 
 export function sourceLabel(source: string): string {
   if (source === 'matrix') return '权限矩阵';
   if (source === 'tool') return '工具开关';
+  if (source === 'rollback') return '回滚';
   return source;
 }

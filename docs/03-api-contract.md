@@ -1556,6 +1556,7 @@ GET /api/admin/perm-matrix
 GET /api/admin/tools/create_ticket/history?limit=20
 GET /api/admin/tools/create_ticket/history?limit=20&changed_from=2026-11-01&changed_to=2026-11-07
 GET /api/admin/tools/create_ticket/history?limit=20&changed_by=admin_1&source=matrix
+GET /api/admin/tools/create_ticket/history?limit=20&source=rollback
 GET /api/admin/tools/create_ticket/history?limit=20&order=earliest
 GET /api/admin/tools/create_ticket/history?limit=20&cursor=eyJ0Ijoi...
 Authorization: Bearer <admin token>
@@ -1583,7 +1584,7 @@ Authorization: Bearer <admin token>
 - `before` / `after` 是完整覆盖快照：`null` 表示没有覆盖（继承代码默认），
   `enabled: null` 表示启用继承，`roles: []` 表示所有登录用户；删除覆盖也会留下
   「恢复默认」的记录
-- `source`：`tool` = PATCH 启用开关，`matrix` = 权限矩阵整表保存；同一次矩阵保存
+- `source`：`tool` = PATCH 启用开关，`matrix` = 权限矩阵整表保存，`rollback` = 通过回滚接口生成的新记录；同一次矩阵保存
   按工具各一行
 - 默认返回最近 20 条，最多 100；默认按 `changed_at DESC, id DESC` 排序（ADR-0100）。
   `order=earliest` 时改为 `changed_at ASC, id ASC`，用于直接查看窗口内最早变更；
@@ -1591,7 +1592,7 @@ Authorization: Bearer <admin token>
 - `changed_from` / `changed_to` 是 UTC 自然日（`YYYY-MM-DD`），两端必须同时提供；
   窗口为 `[from 00:00:00Z, to+1d 00:00:00Z)`，结束日整天包含（ADR-0098）。单端、倒置、
   或闭区间超过 365 天返回 `422 INVALID_RANGE`；不传时保持「最近 N 条」行为
-- `changed_by` 是精确匹配（1–64 字符）；`source` 只接受 `tool`/`matrix`，其他值 422。
+- `changed_by` 是精确匹配（1–64 字符）；`source` 只接受 `tool`/`matrix`/`rollback`，其他值 422。
   两个过滤都不传时不收窄；`total` 与 `items` 都按过滤后的集合计算（ADR-0101）
 - 分页是 keyset：`cursor` 由上一页最后一条的 `(changed_at, id)` 生成，并与工具名、已应用日期窗口、
   变更人、来源、排序方向绑定；改任一筛选或 `order` 后复用旧 `cursor` 返回 `400 INVALID_CURSOR`。升级到包含 `order` 的版本后，部署前签发的在途游标会因指纹多一个字段失效一次，刷新/重开历史即恢复。游标还带 `e`
@@ -1617,7 +1618,8 @@ Authorization: Bearer <admin>
   `{enabled, roles}` 重建覆盖，`roles: []` 表示所有登录用户
 - 代码中已禁用的工具不能被回滚开启，返回 `422 TOOL_LOCKED`
 - 当前配置已等于目标时直接返回当前配置，不追加历史；真正变化时追加一条
-  `source="tool"` 的新记录（`before` = 回滚前，`after` = 目标快照），不修改旧记录
+  `source="rollback"` 的新记录（`before` = 回滚前，`after` = 目标快照），不修改旧记录；
+  旧回滚记录仍保持 `source="tool"`（ADR-0114）
 - 矩阵保存产生的历史只恢复该行的单个工具快照，不重放整次矩阵提交
 - 返回当前生效的 `ToolInfo`；库不可用 `503`
 

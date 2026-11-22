@@ -2505,6 +2505,28 @@ ADR-0112 的 `window.confirm` 看不到 `before → after`；改为独立确认 
 
 ---
 
+## W6 后补：工具回滚使用独立来源（ADR-0114）
+
+ADR-0112 的回滚记录沿用 `source="tool"`，与普通启用开关混在一起；ADR-0113 的
+待定项也提到是否给回滚独立来源。`tool_setting_changes.source` 已是 `String(16)`，
+无需迁移，直接新增 `"rollback"`。
+
+| 事项 | 落地 |
+|---|---|
+| 写入 | 回滚追加的新记录 `source="rollback"`；普通 PATCH 仍 `tool`，矩阵仍 `matrix` |
+| 查询 | `/tools/{name}/history` 与 `/history/export` 的 `source` 枚举扩为 `tool|matrix|rollback`；游标指纹随筛选变化 |
+| 旧数据 | 已有回滚记录保持 `source="tool"`，不回填；无法可靠推断 |
+| 前端 | 来源 Select 增加「回滚」，历史行来源显示「回滚」；导出沿用同一筛选 |
+| 范围 | 不做来源图标、旧记录人工标记、批量回滚；无迁移 |
+
+验证：后端 `test_tool_history.py` 18 passed；默认 **537+42**、PG-only **576+3**、
+PG+Redis **579**；前端 **31 files / 157 tests**、`tsc`、`oxlint`、`oxfmt --check`、
+`pnpm build`（2946 modules）通过。
+
+详见 [ADR-0114](decisions/0114-tool-rollback-source.md)。
+
+---
+
 ## 每周固定动作
 
 | 时点 | 动作 |

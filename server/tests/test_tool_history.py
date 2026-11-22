@@ -136,8 +136,22 @@ async def test_rollback_restores_before_snapshot(client: AsyncClient) -> None:
 
     items = await _history(client)
     assert len(items) == 2
+    assert items[0]["source"] == "rollback"
     assert items[0]["before"] == {"enabled": False, "roles": None}
     assert items[0]["after"] is None
+
+    rollbacks = await client.get(
+        "/api/admin/tools/query_cmdb/history?source=rollback", headers=ADMIN
+    )
+    assert rollbacks.status_code == 200
+    assert rollbacks.json()["total"] == 1
+    assert [item["source"] for item in rollbacks.json()["items"]] == ["rollback"]
+
+    exported = await client.get(
+        "/api/admin/tools/query_cmdb/history/export?source=rollback", headers=ADMIN
+    )
+    assert exported.status_code == 200
+    assert exported.headers["X-Export-Count"] == "1"
 
     # 回滚到同一状态不重复写历史
     res = await client.post(

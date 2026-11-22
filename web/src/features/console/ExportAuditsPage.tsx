@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import {
   Table,
   TableBody,
@@ -17,19 +16,20 @@ import {
   listExportAudits,
   type ExportAudit,
   type ExportAuditFilters,
-  type ExportResource,
 } from '@/api/exportAudits';
 import { formatTime } from '@/lib/format';
+import {
+  activeAuditDatePreset,
+  auditDatePresetRange,
+  type AuditDatePreset,
+} from './auditDatePresets';
+import { ExportAuditFilterBar } from './ExportAuditFilterBar';
+import {
+  EMPTY_EXPORT_AUDIT_DRAFT,
+  toExportAuditFilters,
+  type ExportAuditDraft,
+} from './exportAuditDraft';
 import { useExportAuditExport } from './useExportAuditExport';
-
-const EMPTY_DRAFT = {
-  userId: '',
-  resource: '' as '' | ExportResource,
-  createdFrom: '',
-  createdTo: '',
-};
-
-type Draft = typeof EMPTY_DRAFT;
 
 function hasFilters(filters: ExportAuditFilters): boolean {
   return Boolean(filters.userId || filters.resource || filters.createdFrom || filters.createdTo);
@@ -42,7 +42,7 @@ function filterText(filters: Record<string, string>): string {
 }
 
 export default function ExportAuditsPage() {
-  const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
+  const [draft, setDraft] = useState<ExportAuditDraft>(EMPTY_EXPORT_AUDIT_DRAFT);
   const [filters, setFilters] = useState<ExportAuditFilters>({});
   const [items, setItems] = useState<ExportAudit[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -81,8 +81,8 @@ export default function ExportAuditsPage() {
     };
   }, [filters]);
 
-  const applyFilters = () => {
-    if (Boolean(draft.createdFrom) !== Boolean(draft.createdTo)) {
+  const commitFilters = (next: ExportAuditDraft) => {
+    if (Boolean(next.createdFrom) !== Boolean(next.createdTo)) {
       setFilterError('开始日期与结束日期必须同时选择');
       return;
     }
@@ -92,19 +92,22 @@ export default function ExportAuditsPage() {
     setItems([]);
     setCursor(null);
     setTotal(null);
-    setFilters({
-      userId: draft.userId.trim() || undefined,
-      resource: draft.resource || undefined,
-      createdFrom: draft.createdFrom || undefined,
-      createdTo: draft.createdTo || undefined,
-    });
+    setFilters(toExportAuditFilters(next));
+  };
+
+  const applyFilters = () => commitFilters(draft);
+
+  const applyPreset = (preset: AuditDatePreset) => {
+    const next = { ...draft, ...auditDatePresetRange(preset) };
+    setDraft(next);
+    commitFilters(next);
   };
 
   const clearFilters = () => {
     setFilterError(null);
     exports.invalidate();
     requestRef.current += 1;
-    setDraft(EMPTY_DRAFT);
+    setDraft(EMPTY_EXPORT_AUDIT_DRAFT);
     setItems([]);
     setCursor(null);
     setTotal(null);
@@ -130,88 +133,22 @@ export default function ExportAuditsPage() {
     }
   };
 
+  const activePreset = activeAuditDatePreset(filters.createdFrom ?? '', filters.createdTo ?? '');
+
   return (
     <div className="space-y-3">
-      <Card className="gap-0 py-0">
-        <CardContent className="flex flex-wrap items-end gap-2 p-3">
-          <div className="min-w-40 flex-1">
-            <label className="mb-1 block text-[11px] text-muted-foreground" htmlFor="export-user">
-              用户
-            </label>
-            <Input
-              id="export-user"
-              className="h-8 text-xs"
-              placeholder="如 u_102"
-              value={draft.userId}
-              onChange={(event) => setDraft({ ...draft, userId: event.target.value })}
-            />
-          </div>
-          <div className="min-w-40">
-            <label
-              className="mb-1 block text-[11px] text-muted-foreground"
-              htmlFor="export-resource"
-            >
-              资源
-            </label>
-            <select
-              id="export-resource"
-              className="h-8 w-full rounded-md border bg-panel px-2 text-xs"
-              value={draft.resource}
-              onChange={(event) =>
-                setDraft({ ...draft, resource: event.target.value as '' | ExportResource })
-              }
-            >
-              <option value="">全部资源</option>
-              {(Object.keys(EXPORT_RESOURCE_LABEL) as ExportResource[]).map((resource) => (
-                <option key={resource} value={resource}>
-                  {EXPORT_RESOURCE_LABEL[resource]}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-[11px] text-muted-foreground" htmlFor="export-from">
-              起（UTC）
-            </label>
-            <Input
-              id="export-from"
-              type="date"
-              className="h-8 w-36 text-xs"
-              value={draft.createdFrom}
-              onChange={(event) => setDraft({ ...draft, createdFrom: event.target.value })}
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-[11px] text-muted-foreground" htmlFor="export-to">
-              止（UTC）
-            </label>
-            <Input
-              id="export-to"
-              type="date"
-              className="h-8 w-36 text-xs"
-              value={draft.createdTo}
-              onChange={(event) => setDraft({ ...draft, createdTo: event.target.value })}
-            />
-          </div>
-          <Button size="sm" className="h-8 text-xs" onClick={applyFilters}>
-            筛选
-          </Button>
-          <Button variant="outline" size="sm" className="h-8 text-xs" onClick={clearFilters}>
-            清除
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 text-xs"
-            disabled={exports.exporting}
-            onClick={() => void exports.exportCsv()}
-          >
-            {exports.exporting ? '导出中…' : '导出 CSV'}
-          </Button>
-          {filterError && <span className="text-xs text-danger">{filterError}</span>}
-        </CardContent>
-        {exports.message && <p className="text-xs text-muted-foreground">{exports.message}</p>}
-      </Card>
+      <ExportAuditFilterBar
+        activePreset={activePreset}
+        draft={draft}
+        exportMessage={exports.message}
+        exporting={exports.exporting}
+        filterError={filterError}
+        onApply={applyFilters}
+        onChange={setDraft}
+        onClear={clearFilters}
+        onExport={() => void exports.exportCsv()}
+        onPreset={applyPreset}
+      />
 
       {error && (
         <Card className="border-danger/30 bg-danger/5">

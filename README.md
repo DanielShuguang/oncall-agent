@@ -168,8 +168,8 @@ oncall/
 
 | 模块 | 状态 | 验证方式 |
 |---|---|---|
-| 文档（12 篇 + 106 篇 ADR + 评测基线） | ✅ 完成 | — |
-| 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡 / 运行回放 / 成本页） | ✅ 可用 | `tsc --noEmit`、`oxlint 0`、`oxfmt --check` 通过；`vitest` 28 files / 146 tests；`pnpm build` 成功（2942 modules） |
+| 文档（12 篇 + 107 篇 ADR + 评测基线） | ✅ 完成 | — |
+| 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡 / 运行回放 / 成本页） | ✅ 可用 | `tsc --noEmit`、`oxlint 0`、`oxfmt --check` 通过；`vitest` 29 files / 149 tests；`pnpm build` 成功（2944 modules） |
 | 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **534 passed + 42 skipped**；设 `ONCALL_TEST_DATABASE_URL`（指向一个可清空的库）后 **573 passed + 3 skipped**，再加 `ONCALL_TEST_REDIS_URL` 为 **576 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约与审批快照、引用快照与内容回收、个人预算与账本快照、工单自助查询、工单详情、会话列表/标题搜索/分页/重命名/移除/恢复/置顶、资产查询接表、运行过程回放与载荷上限、批量会话详情、工具配置变更历史、历史引用回填、已移除会话分页与搜索、已移除会话批量恢复、批量恢复逐条结果、会话恢复审计、会话恢复审计分页、恢复审计按 session 反查、恢复审计 CSV 导出、恢复审计列表总数、恢复审计统计、恢复审计统计按过滤、恢复审计按日期范围、审批积压与等待统计、审批统计分组、审批列表分页、已办审批按决议时间排序、已办审批筛选、审批列表导出 CSV、审批列表首屏总数、审批统计按小时分布、审批统计聚合导出、恢复审计统计导出、会话批量移除、会话置顶上限、置顶容量提示、置顶审计与分页、置顶审计日期过滤、置顶审计保留清理、置顶审计 CSV 导出、置顶审计统计、置顶审计统计跟随过滤、置顶审计统计 CSV 导出、置顶审计首屏总数、记住审计过滤与统计窗口、CSV 导出下载审计、计量一致性） |
 | 本地 JWT（W1 D2） | ✅ 已完成 | `tests/test_auth.py` 20 条：签发/验签、过期、alg=none、401 JSON、OpenAPI Bearer、run 归属隔离 |
 | 事件落库 + 断线续传（D4） | ✅ 已完成 | `alembic upgrade head` + `alembic check` 无漂移；`tests/test_store_contract.py`（内存 + Postgres 契约）、`tests/test_chat_stream.py`（落库、幂等回放、503 语义） |
@@ -220,6 +220,7 @@ oncall/
 | CSV 导出下载审计（W6 后补） | ✅ 已完成 | 迁移 `0023` 新增 `export_audits`；审批列表/统计、恢复审计列表/统计、置顶审计列表/统计 6 个业务端点成功生成 CSV 后记录操作人/资源/过滤条件/行数/是否截断；导出审计列表自身也可导出 CSV 并记录（ADR-0096）；审计写入失败导出 503（fail closed），不返回无法留痕的文件；管理员 `GET /admin/export-audits` 按用户/资源/UTC 日期过滤、keyset 翻页、首屏 total；无编辑/删除/下载文件回放，保留 365 天（ADR-0095）；`tests/test_export_audits.py`、`test_store_contract.py`、`web/src/api/exportAudits.test.ts`；[ADR-0094](docs/decisions/0094-export-download-audit.md) |
 | 导出审计保留清理（W6 后补） | ✅ 已完成 | `ONCALL_EXPORT_AUDIT_RETENTION_DAYS`（默认 365 天）独立于事件/正文/恢复/置顶审计；`RetentionSweeper` 按 `created_at` 分批删除，`RetentionResult`/`prune` CLI/日志增加计数，dry-run 只计数；无迁移（仍 0023）；`tests/test_retention.py`、`test_config.py`、`test_store_contract.py`；[ADR-0095](docs/decisions/0095-export-audit-retention.md) |
 | 导出审计列表 CSV（W6 后补） | ✅ 已完成 | 新增第 7 种资源 `export_audits`；`GET /admin/export-audits/export` 与列表同过滤、最多 5000 行，CSV 列为时间/操作人/资源/行数/截断/过滤条件/内容哈希；导出自身也写一条审计，写失败 503；迁移 `0024` 只扩展 CHECK；[ADR-0096](docs/decisions/0096-export-audit-list-export.md) |
+| 导出审计日期快捷预设（W6 后补） | ✅ 已完成 | 导出审计页复用 ADR-0071 的五个 UTC 日期预设，点击即按当前草稿（用户/资源/日期）提交；高亮只由已应用过滤反推，手填日期未筛选不提前高亮；刷新不记忆、无后端/迁移；筛选卡抽到 `ExportAuditFilterBar`，页面回到 300 行内；`web/src/features/console/exportAuditDraft.ts`、`ExportAuditFilterBar.tsx`；[ADR-0107](docs/decisions/0107-export-audit-date-presets.md) |
 | 导出 CSV 内容哈希（W6 后补） | ✅ 已完成 | `export_audits.content_sha256` 记录服务端返回 CSV 的 SHA-256（含 BOM/CRLF），迁移 `0025` 只加可空列；管理员列表、审计 CSV 与页面短值展示；旧记录为空；不做 HMAC/签名、不在响应头返回哈希；[ADR-0097](docs/decisions/0097-export-content-hash.md) |
 | 工具变更历史日期范围（W6 后补） | ✅ 已完成 | `GET /admin/tools/{name}/history` 支持 `changed_from`/`changed_to`（UTC 自然日，两端同时、最多 365 天）；`[from 00:00Z, to+1d 00:00Z)` 窗口；内存/PG 同口径，无迁移；ToolsPage 历史 Dialog 增加应用/清除日期；[ADR-0098](docs/decisions/0098-tool-history-date-range.md) |
 | 工具变更历史 CSV 导出（W6 后补） | ✅ 已完成 | `GET /admin/tools/{name}/history/export` 与历史同日期窗口、最多 5000 行；CSV 六列、BOM/CRLF/公式防护；导出自身写 `resource=tool_setting_history` 下载审计（`row_count`/`content_sha256`），失败 503；`export_audits` CHECK 扩为 8 种（迁移 `0026`）；前端使用已应用日期并丢弃过期响应；[ADR-0099](docs/decisions/0099-tool-history-export.md) |

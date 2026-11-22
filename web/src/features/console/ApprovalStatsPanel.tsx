@@ -9,6 +9,7 @@ import {
 } from '@/components/ui/select';
 import type { ApprovalStats } from '@/api/approvals';
 import { formatDurationMs } from '@/lib/format';
+import { APPROVAL_STATS_REFRESH_MS, formatStatsUpdatedAt } from './approvalStatsRefresh';
 import type { StatsGroup } from './approvalTypes';
 
 const STATS_DAYS = [7, 30, 90] as const;
@@ -25,9 +26,12 @@ interface Props {
   statsGroupView: StatsGroup;
   statsExporting: boolean;
   statsExportMessage: { text: string; failed: boolean } | null;
+  lastUpdatedAt: number | null;
+  refreshing: boolean;
   onChangeDays: (days: number) => void;
   onChangeGroup: (group: StatsGroup) => void;
   onExport: () => void;
+  onRefresh: () => void;
 }
 
 export function ApprovalStatsPanel({
@@ -37,9 +41,12 @@ export function ApprovalStatsPanel({
   statsGroupView,
   statsExporting,
   statsExportMessage,
+  lastUpdatedAt,
+  refreshing,
   onChangeDays,
   onChangeGroup,
   onExport,
+  onRefresh,
 }: Props) {
   return (
     <>
@@ -77,6 +84,19 @@ export function ApprovalStatsPanel({
         >
           {statsExporting ? '导出中…' : '导出统计'}
         </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 text-xs"
+          disabled={refreshing}
+          onClick={onRefresh}
+        >
+          {refreshing ? '刷新中…' : '刷新'}
+        </Button>
+        <span className="text-[11px] text-muted-foreground" aria-live="polite">
+          更新于 {formatStatsUpdatedAt(lastUpdatedAt)} · 页面可见时每{' '}
+          {APPROVAL_STATS_REFRESH_MS / 1000} 秒自动刷新
+        </span>
       </div>
 
       {statsExportMessage && (

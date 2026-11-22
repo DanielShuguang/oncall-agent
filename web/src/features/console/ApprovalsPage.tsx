@@ -48,7 +48,13 @@ export default function ApprovalsPage() {
   const hasActiveFilters = Object.keys(filters).length > 0;
   // 列表分页存在竞态：切状态/刷新后在途的「加载更多」不能把旧页追加回来。
   const listRequest = useRef(0);
-  const { stats, statsGroupView, refresh: refreshStats } = useApprovalStats(statsDays, statsGroup);
+  const {
+    stats,
+    statsGroupView,
+    lastUpdatedAt,
+    refreshing,
+    refresh: refreshStats,
+  } = useApprovalStats(statsDays, statsGroup);
   const exports = useApprovalExports(status, filters, statsDays, statsGroup);
 
   useEffect(() => {
@@ -242,9 +248,12 @@ export default function ApprovalsPage() {
         statsGroupView={statsGroupView}
         statsExporting={exports.statsExporting}
         statsExportMessage={exports.statsExportMessage}
+        lastUpdatedAt={lastUpdatedAt}
+        refreshing={refreshing}
         onChangeDays={changeStatsDays}
         onChangeGroup={changeStatsGroup}
         onExport={() => void exports.exportStatsCsv()}
+        onRefresh={() => void refreshStats()}
       />
 
       {error && (

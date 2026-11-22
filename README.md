@@ -168,8 +168,8 @@ oncall/
 
 | 模块 | 状态 | 验证方式 |
 |---|---|---|
-| 文档（12 篇 + 114 篇 ADR + 评测基线） | ✅ 完成 | — |
-| 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡 / 运行回放 / 成本页） | ✅ 可用 | `tsc --noEmit`、`oxlint 0`、`oxfmt --check` 通过；`vitest` 31 files / 157 tests；`pnpm build` 成功（2946 modules） |
+| 文档（12 篇 + 115 篇 ADR + 评测基线） | ✅ 完成 | — |
+| 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡 / 运行回放 / 成本页） | ✅ 可用 | `tsc --noEmit`、`oxlint 0`、`oxfmt --check` 通过；`vitest` 32 files / 160 tests；`pnpm build` 成功（2947 modules） |
 | 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **537 passed + 42 skipped**；设 `ONCALL_TEST_DATABASE_URL`（指向一个可清空的库）后 **576 passed + 3 skipped**，再加 `ONCALL_TEST_REDIS_URL` 为 **579 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约与审批快照、引用快照与内容回收、个人预算与账本快照、工单自助查询、工单详情、会话列表/标题搜索/分页/重命名/移除/恢复/置顶、资产查询接表、运行过程回放与载荷上限、批量会话详情、工具配置变更历史、历史引用回填、已移除会话分页与搜索、已移除会话批量恢复、批量恢复逐条结果、会话恢复审计、会话恢复审计分页、恢复审计按 session 反查、恢复审计 CSV 导出、恢复审计列表总数、恢复审计统计、恢复审计统计按过滤、恢复审计按日期范围、审批积压与等待统计、审批统计分组、审批列表分页、已办审批按决议时间排序、已办审批筛选、审批列表导出 CSV、审批列表首屏总数、审批统计按小时分布、审批统计聚合导出、恢复审计统计导出、会话批量移除、会话置顶上限、置顶容量提示、置顶审计与分页、置顶审计日期过滤、置顶审计保留清理、置顶审计 CSV 导出、置顶审计统计、置顶审计统计跟随过滤、置顶审计统计 CSV 导出、置顶审计首屏总数、记住审计过滤与统计窗口、CSV 导出下载审计、计量一致性） |
 | 本地 JWT（W1 D2） | ✅ 已完成 | `tests/test_auth.py` 20 条：签发/验签、过期、alg=none、401 JSON、OpenAPI Bearer、run 归属隔离 |
 | 事件落库 + 断线续传（D4） | ✅ 已完成 | `alembic upgrade head` + `alembic check` 无漂移；`tests/test_store_contract.py`（内存 + Postgres 契约）、`tests/test_chat_stream.py`（落库、幂等回放、503 语义） |
@@ -228,6 +228,7 @@ oncall/
 | 工具配置变更历史回滚（ADR-0112） | ✅ 已完成 | `POST /admin/tools/{name}/history/{change_id}/rollback` 读取该条 `before` 快照写回：`before=null` 删除覆盖，代码禁用工具不能回滚开启；有变化才追加一条 `source="rollback"` 新历史（ADR-0114），不改旧记录；前端历史行「回滚」先打开差异预览确认框（ADR-0113）后执行，并刷新列表/历史；无迁移；[ADR-0112](docs/decisions/0112-tool-setting-rollback.md) |
 | 回滚前差异预览（ADR-0113） | ✅ 已完成 | 历史行「回滚」打开确认 Dialog，展示记录时配置、回滚目标与「实际 before 可能不同」；取消不写，确认后执行；纯前端，无迁移；[ADR-0113](docs/decisions/0113-rollback-preview.md) |
 | 回滚来源独立（ADR-0114） | ✅ 已完成 | 回滚追加 `source="rollback"`；普通 PATCH 仍 `tool`、矩阵仍 `matrix`；历史/导出 `source` 枚举扩为 3 种；旧回滚记录保持 `tool`，不回填；无迁移；[ADR-0114](docs/decisions/0114-tool-rollback-source.md) |
+| 审批统计自动刷新（ADR-0115） | ✅ 已完成 | 审批统计在页面可见时每 30 秒自动刷新，重新可见立即补拉；显示「更新于 HH:mm:ss」与手动「刷新」；自动刷新失败保留上一份统计，手动失败才清空；无后端/迁移；[ADR-0115](docs/decisions/0115-approval-stats-auto-refresh.md) |
 | 导出 CSV 内容哈希（W6 后补） | ✅ 已完成 | `export_audits.content_sha256` 记录服务端返回 CSV 的 SHA-256（含 BOM/CRLF），迁移 `0025` 只加可空列；管理员列表、审计 CSV 与页面短值展示；旧记录为空；不做 HMAC/签名、不在响应头返回哈希；[ADR-0097](docs/decisions/0097-export-content-hash.md) |
 | 工具变更历史日期范围（W6 后补） | ✅ 已完成 | `GET /admin/tools/{name}/history` 支持 `changed_from`/`changed_to`（UTC 自然日，两端同时、最多 365 天）；`[from 00:00Z, to+1d 00:00Z)` 窗口；内存/PG 同口径，无迁移；ToolsPage 历史 Dialog 增加应用/清除日期；[ADR-0098](docs/decisions/0098-tool-history-date-range.md) |
 | 工具变更历史 CSV 导出（W6 后补） | ✅ 已完成 | `GET /admin/tools/{name}/history/export` 与历史同日期窗口、最多 5000 行；CSV 六列、BOM/CRLF/公式防护；导出自身写 `resource=tool_setting_history` 下载审计（`row_count`/`content_sha256`），失败 503；`export_audits` CHECK 扩为 8 种（迁移 `0026`）；前端使用已应用日期并丢弃过期响应；[ADR-0099](docs/decisions/0099-tool-history-export.md) |
@@ -392,7 +393,7 @@ W6 基线（3 轮均值，mock 规则路径，口径见 [baseline-v1](docs/eval/
   （[ADR-0029](docs/decisions/0029-ticket-self-service-query.md)、
   [ADR-0038](docs/decisions/0038-ticket-detail.md)）
 - 审批中心顶部有积压/等待统计，但只对审批人，默认近 7 天（可选 7/30/90），且是请求时快照：
-  支持按工具/审批人分组（前 20 组，`approver` 显示 `user_id`）、无告警、页面停留不会自动更新；
+  支持按工具/审批人分组（前 20 组，`approver` 显示 `user_id`）、无告警；统计在页面可见时每 30 秒自动刷新（ADR-0115）；
   按日趋势只有 UTC 日粒度、没有决议
   的日期不出现；等待按 `resolved_at - created_at` 计算，过期单在统计前先被收敛、不计入
   人工等待（[ADR-0048](docs/decisions/0048-approval-stats.md)、

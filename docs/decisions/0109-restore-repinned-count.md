@@ -39,13 +39,13 @@
 
 ## 验证
 
-- 默认：`534 passed + 42 skipped`；PG-only：`573 passed + 3 skipped`；
-  PG+Redis：`576 passed`。
+- 默认：`535 passed + 42 skipped`；PG-only：`574 passed + 3 skipped`；
+  PG+Redis：`577 passed`。
 - `ruff check` / `ruff format --check` 210 files / `mypy app` 119 files 通过。
 - 前端未改逻辑，仅多一列：29 files / 149 tests。
 - 迁移 `0028` 往返：`upgrade head → alembic check → downgrade 0027 → upgrade head`。
 - 用例：`test_store_contract.py::_exercise_restore_pin` 断言批量恢复的
-  `repinned_count` 与容量不足的 0；`test_admin_sessions.py` 列表/CSV 断言新字段。
+  `repinned_count` 与容量不足的 0；`test_admin_sessions.py` 覆盖列表/CSV 的 0 与非零值。
 
 ## 待定
 

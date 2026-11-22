@@ -84,6 +84,36 @@ async def test_list_session_restore_audits(
     assert limited.json()["total"] == 2
 
 
+async def test_restore_audit_serializes_nonzero_repinned_count(
+    client: AsyncClient, mem_store: InMemoryRunStore
+) -> None:
+    run_id = str(uuid.uuid4())
+    await mem_store.create(
+        run_id=run_id,
+        user_id="u_repin",
+        session_id="sess_repin",
+        message="VPN 连不上",
+    )
+    assert await mem_store.pin_session(user_id="u_repin", session_id="sess_repin") is True
+    assert await mem_store.hide_session(user_id="u_repin", session_id="sess_repin") is True
+    assert await mem_store.unhide_session(user_id="u_repin", session_id="sess_repin") is True
+
+    res = await client.get(
+        "/api/admin/session-restores", headers=ADMIN, params={"user_id": "u_repin"}
+    )
+    assert res.status_code == 200
+    item = res.json()["items"][0]
+    assert item["repinned_count"] == 1
+    assert item["restored_count"] == 1
+
+    export = await client.get(
+        "/api/admin/session-restores/export", headers=ADMIN, params={"user_id": "u_repin"}
+    )
+    assert export.status_code == 200
+    rows = list(csv.reader(io.StringIO(export.text.lstrip("\ufeff"))))
+    assert rows[1][5] == "1"
+
+
 async def test_session_restore_audits_paginate(
     client: AsyncClient, mem_store: InMemoryRunStore
 ) -> None:

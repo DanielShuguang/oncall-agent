@@ -8,8 +8,10 @@ import {
   rollbackToolChange,
   testTool,
   updateTool,
+  type ToolChange,
   type ToolInfo,
 } from '@/api/tools';
+import { RollbackPreviewDialog } from './RollbackPreviewDialog';
 import { ToolsDialogs, type TestState } from './ToolsDialogs';
 import { ToolsTable } from './ToolsTable';
 import { useToolHistory } from './useToolHistory';
@@ -23,6 +25,7 @@ export default function ToolsPage() {
   const [rollingBackId, setRollingBackId] = useState<number | null>(null);
   const [rollbackMessage, setRollbackMessage] = useState<string | null>(null);
   const [rollbackError, setRollbackError] = useState<string | null>(null);
+  const [previewChange, setPreviewChange] = useState<ToolChange | null>(null);
   const [tester, setTester] = useState<TestState | null>(null);
   const {
     history,
@@ -78,12 +81,18 @@ export default function ToolsPage() {
   const openToolHistory = (tool: ToolInfo) => {
     setRollbackMessage(null);
     setRollbackError(null);
+    setPreviewChange(null);
     openHistory(tool);
+  };
+
+  const openRollbackPreview = (change: ToolChange) => {
+    setRollbackError(null);
+    setPreviewChange(change);
   };
 
   const onRollback = async (changeId: number) => {
     if (!history) return;
-    if (!window.confirm('将工具配置回滚到该变更发生前的状态？')) return;
+    setPreviewChange(null);
     setRollingBackId(changeId);
     setRollbackMessage(null);
     setRollbackError(null);
@@ -199,6 +208,7 @@ export default function ToolsPage() {
           else {
             setRollbackMessage(null);
             setRollbackError(null);
+            setPreviewChange(null);
             closeHistory();
           }
         }}
@@ -206,7 +216,7 @@ export default function ToolsPage() {
         onClearHistoryFilters={clearHistoryFilters}
         onLoadMoreHistory={loadMoreHistory}
         onReloadExpiredHistory={reloadExpiredHistory}
-        onRollbackHistory={onRollback}
+        onPreviewRollback={openRollbackPreview}
         rollingBackId={rollingBackId}
         rollbackMessage={rollbackMessage}
         rollbackError={rollbackError}
@@ -214,6 +224,14 @@ export default function ToolsPage() {
         exportingHistory={exportingHistory}
         historyExportMessage={historyExportMessage}
         onRunTest={() => void runTest()}
+      />
+
+      <RollbackPreviewDialog
+        change={previewChange}
+        onClose={() => setPreviewChange(null)}
+        onConfirm={() => {
+          if (previewChange) void onRollback(previewChange.id);
+        }}
       />
     </div>
   );

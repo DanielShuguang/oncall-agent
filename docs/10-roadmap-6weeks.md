@@ -2473,8 +2473,8 @@ ADR-0109 让每条恢复审计记录实际恢复的置顶数，但统计卡只�
 | 目标 | `before=null` 删除覆盖；`{enabled, roles}` 重建覆盖，`roles=[]` 为所有登录用户 |
 | 硬边界 | 代码禁用工具回滚开启返回 `422 TOOL_LOCKED`；与 PATCH 一致 |
 | 历史 | 有变化才追加 `source="tool"` 记录；无变化/重复回滚不新增 |
-| 前端 | 历史行「回滚」按钮 + `window.confirm`；成功后刷新工具列表与历史，提示结果 |
-| 范围 | 不做批量回滚、差异预览、矩阵整批撤销；不新增 `rollback` source |
+| 前端 | 历史行「回滚」按钮打开差异预览 Dialog（ADR-0113）；确认后刷新工具列表与历史，提示结果 |
+| 范围 | 不做批量回滚、矩阵整批撤销；不新增 `rollback` source |
 
 验证：默认 **537 passed + 42 skipped**、PG-only **576 passed + 3 skipped**、
 PG+Redis **579 passed**；`ruff check` / `ruff format --check` 210 files /
@@ -2482,6 +2482,26 @@ PG+Redis **579 passed**；`ruff check` / `ruff format --check` 210 files /
 `pnpm build` 通过。
 
 详见 [ADR-0112](decisions/0112-tool-setting-rollback.md)。
+
+---
+
+## W6 后补：工具配置回滚前的差异预览（ADR-0113）
+
+ADR-0112 的 `window.confirm` 看不到 `before → after`；改为独立确认 Dialog，展示
+记录时配置、回滚目标与「实际 before 可能不同」的提示，确认后才写入。只改前端，
+不改后端/迁移。
+
+| 事项 | 落地 |
+|---|---|
+| 数据 | 直接用历史列表已返回的 `ToolChange.before/after`，不额外请求 |
+| 交互 | 回滚按钮打开 Dialog；取消/关闭不写；确认后执行并刷新历史 |
+| 提示 | 记录时快照仅用于预览；实际写入 `before` 是执行瞬间当前配置（last-write-wins） |
+| 范围 | 不做执行瞬间当前配置预取、角色 diff 高亮、批量回滚 |
+
+验证：前端 **31 files / 157 tests**、`tsc`、`oxlint`、`oxfmt --check`、`pnpm build`
+通过；后端未改。
+
+详见 [ADR-0113](decisions/0113-rollback-preview.md)。
 
 ---
 

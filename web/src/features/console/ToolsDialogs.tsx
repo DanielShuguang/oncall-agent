@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { ToolHistoryFilterBar } from './ToolHistoryFilterBar';
-import type { ToolInfo, ToolTestResponse } from '@/api/tools';
+import type { ToolChange, ToolInfo, ToolTestResponse } from '@/api/tools';
 import { describeSnapshot, formatTime, sourceLabel, type HistoryState } from './toolHistoryFormat';
 
 export interface TestState {
@@ -35,7 +35,7 @@ interface ToolsDialogsProps {
   onLoadMoreHistory: () => void;
   onReloadExpiredHistory: () => void;
   onExportHistory: () => void;
-  onRollbackHistory: (changeId: number) => void;
+  onPreviewRollback: (change: ToolChange) => void;
   rollingBackId: number | null;
   rollbackMessage: string | null;
   rollbackError: string | null;
@@ -54,7 +54,7 @@ export function ToolsDialogs({
   onLoadMoreHistory,
   onReloadExpiredHistory,
   onExportHistory,
-  onRollbackHistory,
+  onPreviewRollback,
   rollingBackId,
   rollbackMessage,
   rollbackError,
@@ -201,7 +201,7 @@ export function ToolsDialogs({
                       size="sm"
                       variant="outline"
                       disabled={rollingBackId === item.id}
-                      onClick={() => onRollbackHistory(item.id)}
+                      onClick={() => onPreviewRollback(item)}
                     >
                       {rollingBackId === item.id ? '回滚中…' : '回滚'}
                     </Button>

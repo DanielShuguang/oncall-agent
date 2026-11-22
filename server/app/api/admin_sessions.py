@@ -153,6 +153,7 @@ def _stats_csv(
             ("summary", "restores", "", stats.restores),
             ("summary", "users", "", stats.users),
             ("summary", "sessions", "", stats.sessions),
+            ("summary", "repinned", "", stats.repinned),
         ]
     )
     for day in stats.daily:
@@ -240,6 +241,7 @@ async def session_restore_stats(
         restores=stats.restores,
         users=stats.users,
         sessions=stats.sessions,
+        repinned=stats.repinned,
         daily=[
             SessionRestoreAuditDayOut(day=day.day, restores=day.restores, sessions=day.sessions)
             for day in stats.daily
@@ -295,6 +297,7 @@ async def export_session_restore_stats(
             "X-Export-Restores": str(stats.restores),
             "X-Export-Users": str(stats.users),
             "X-Export-Sessions": str(stats.sessions),
+            "X-Export-Repinned": str(stats.repinned),
         },
     )
 

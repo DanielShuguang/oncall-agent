@@ -161,4 +161,5 @@ class SessionRestoreAuditStatsOut(BaseModel):
     restores: int
     users: int
     sessions: int
+    repinned: int = 0
     daily: list[SessionRestoreAuditDayOut] = Field(default_factory=list)

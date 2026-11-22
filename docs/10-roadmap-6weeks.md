@@ -2418,6 +2418,25 @@ ADR-0108 让恢复时按容量尽力恢复置顶，但审计只记恢复会话�
 
 详见 [ADR-0109](decisions/0109-restore-repinned-count.md)。
 
+## W6 后补：恢复审计统计的恢复置顶汇总（ADR-0110）
+
+ADR-0109 让每条恢复审计记录实际恢复的置顶数，但统计卡只有操作/用户/会话三个汇总；
+容量是否吃紧仍要逐行相加。ADR-0110 在统计接口、CSV 与前端统计卡补一个窗口内
+`repinned` 总和，与既有 `restores`/`users`/`sessions` 同窗口、同过滤，不新增日趋势。
+
+| 事项 | 落地 |
+|---|---|
+| 汇总 | `SessionRestoreAuditStats.repinned` 为窗口内 `repinned_count` 之和；内存遍历、PG `coalesce(sum(...),0)` |
+| 接口 | `/admin/session-restores/stats` 增加 `repinned`，旧客户端可忽略 |
+| CSV | `summary` 增加 `repinned` 行；响应头增加 `X-Export-Repinned` |
+| 前端 | 恢复审计统计卡增加「恢复置顶」第四项，仅总数，不做日趋势 |
+| 范围 | 无迁移；旧审计行按 0 计算；不做按日/按小时/按用户趋势 |
+
+验证：默认 535+42、PG 574+3、PG+Redis 577；ruff 210 / format 210 / mypy 119；
+前端 29 files/149 tests、build 2944 modules。用例锁定 7/30 天窗口的 0/3 与 CSV 汇总。
+
+详见 [ADR-0110](decisions/0110-restore-audit-repinned-stats.md)。
+
 ---
 
 ## 每周固定动作

@@ -20,7 +20,9 @@ from tests.support import auth_headers
 ADMIN = auth_headers(user_id="admin_1", roles=("admin",))
 
 
-async def _restore_once(store: InMemoryRunStore, *, user_id: str, session_id: str) -> None:
+async def _restore_once(
+    store: InMemoryRunStore, *, user_id: str, session_id: str, pinned: bool = False
+) -> None:
     run_id = str(uuid.uuid4())
     await store.create(
         run_id=run_id,
@@ -28,6 +30,8 @@ async def _restore_once(store: InMemoryRunStore, *, user_id: str, session_id: st
         session_id=session_id,
         message="打印机离线",
     )
+    if pinned:
+        assert await store.pin_session(user_id=user_id, session_id=session_id) is True
     assert await store.hide_session(user_id=user_id, session_id=session_id) is True
     assert await store.unhide_session(user_id=user_id, session_id=session_id) is True
 
@@ -620,6 +624,7 @@ async def test_session_restore_audit_stats(
             session_ids=("sess_old",),
             requested_count=1,
             restored_count=4,
+            repinned_count=3,
             restored_at=datetime.now(UTC) - timedelta(days=10),
         )
     )
@@ -631,6 +636,7 @@ async def test_session_restore_audit_stats(
     assert body["restores"] == 2
     assert body["users"] == 2
     assert body["sessions"] == 2
+    assert body["repinned"] == 0
     assert body["since"] and body["until"]
     assert sum(day["restores"] for day in body["daily"]) == 2
     assert sum(day["sessions"] for day in body["daily"]) == 2
@@ -645,6 +651,7 @@ async def test_session_restore_audit_stats(
     assert month_body["restores"] == 3
     assert month_body["users"] == 3
     assert month_body["sessions"] == 6
+    assert month_body["repinned"] == 3
     assert sum(day["restores"] for day in month_body["daily"]) == 3
     assert sum(day["sessions"] for day in month_body["daily"]) == 6
     days = [day["day"] for day in month_body["daily"]]
@@ -703,7 +710,7 @@ async def test_session_restore_audit_stats(
 async def test_export_session_restore_audit_stats_csv(
     client: AsyncClient, mem_store: InMemoryRunStore
 ) -> None:
-    await _restore_once(mem_store, user_id="u_102", session_id="sess_a")
+    await _restore_once(mem_store, user_id="u_102", session_id="sess_a", pinned=True)
     await asyncio.sleep(0.002)
     await _restore_once(mem_store, user_id="u_103", session_id="sess_b")
 
@@ -720,6 +727,7 @@ async def test_export_session_restore_audit_stats_csv(
     assert res.headers["x-export-restores"] == "2"
     assert res.headers["x-export-users"] == "2"
     assert res.headers["x-export-sessions"] == "2"
+    assert res.headers["x-export-repinned"] == "1"
     assert res.text.startswith("\ufeff")
     assert "\r\n" in res.text
     rows = list(csv.reader(io.StringIO(res.text.lstrip("\ufeff"))))
@@ -728,7 +736,7 @@ async def test_export_session_restore_audit_stats_csv(
     assert meta["days"] == "7" and meta["since"] and meta["until"]
     assert "user_id" not in meta and "session_id" not in meta
     summary = {row[1]: row[3] for row in rows if row[0] == "summary"}
-    assert summary == {"restores": "2", "users": "2", "sessions": "2"}
+    assert summary == {"restores": "2", "users": "2", "sessions": "2", "repinned": "1"}
     daily = [row for row in rows if row[0] == "daily"]
     assert {row[1] for row in daily} == {"restores", "sessions"}
     assert sum(int(row[3]) for row in daily if row[1] == "restores") == 2
@@ -743,7 +751,7 @@ async def test_export_session_restore_audit_stats_csv(
     assert filtered.headers["x-export-restores"] == "1"
     filtered_rows = list(csv.reader(io.StringIO(filtered.text.lstrip("\ufeff"))))
     filtered_summary = {row[1]: row[3] for row in filtered_rows if row[0] == "summary"}
-    assert filtered_summary == {"restores": "1", "users": "1", "sessions": "1"}
+    assert filtered_summary == {"restores": "1", "users": "1", "sessions": "1", "repinned": "1"}
     filtered_meta = {row[1]: row[3] for row in filtered_rows if row[0] == "meta"}
     assert filtered_meta["user_id"] == "u_102"
     assert "session_id" not in filtered_meta

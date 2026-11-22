@@ -41,7 +41,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | POST | `/sessions/hide` | 批量从会话列表移除（最多 50，部分成功，返回逐条结果） | W6 后补 |
 | POST | `/sessions/hidden/restore` | 批量恢复已移除会话（最多 50，部分成功，返回逐条结果） | W6 后补 |
 | GET | `/admin/session-restores` | 会话恢复审计（按用户/会话/日期范围过滤，最近在前，游标分页；第一页附总数） | W6 后补 |
-| GET | `/admin/session-restores/stats` | 会话恢复审计统计（窗口内恢复次数/用户数/会话数/UTC 日趋势，可按用户/会话/日期范围过滤） | W6 后补 |
+| GET | `/admin/session-restores/stats` | 会话恢复审计统计（窗口内恢复次数/用户数/会话数/恢复置顶数/UTC 日趋势，可按用户/会话/日期范围过滤） | W6 后补 |
 | GET | `/admin/session-restores/stats/export` | 会话恢复审计统计 CSV 导出（与统计同参数/同窗口，长表） | W6 后补 |
 | GET | `/admin/session-restores/export` | 会话恢复审计 CSV 导出（按用户/会话/日期范围过滤，最多 5000 条） | W6 后补 |
 | GET | `/admin/session-pins` | 会话置顶审计（按用户/会话/动作/日期过滤，`(created_at, id)` 游标分页，第一页附总数） | W6 后补 |
@@ -1153,6 +1153,7 @@ Authorization: Bearer <admin token>
   "restores": 3,
   "users": 1,
   "sessions": 5,
+  "repinned": 3,
   "daily": [
     { "day": "2026-11-13", "restores": 2, "sessions": 3 },
     { "day": "2026-11-14", "restores": 1, "sessions": 2 }
@@ -1195,12 +1196,12 @@ Authorization: Bearer <admin token>
 - 不接收 `cursor`/`limit`；同步导出，日趋势最多 365 天，不做截断
 - CSV 为长表 `section,key,day,value`：`meta` 行（`days`/`since`/`until`；按
   `user_id`/`session_id` 过滤时追加对应 `meta` 行）、`summary` 行
-  （`restores`/`users`/`sessions`）、`daily` 行（每个日期分别有
+  （`restores`/`users`/`sessions`/`repinned`）、`daily` 行（每个日期分别有
   `restores` 与 `sessions` 两行，`day` 为 UTC `YYYY-MM-DD`）
 - 导出文件必须能自证口径：无过滤时只有 `days`/`since`/`until`，带过滤时额外
   写入 `user_id`/`session_id`，下载后即可判断统计范围
 - 响应头 `X-Export-Days`/`X-Export-Restores`/`X-Export-Users`/
-  `X-Export-Sessions`；文件名 `session-restore-stats-{days}d-{UTC}.csv`；
+  `X-Export-Sessions`/`X-Export-Repinned`；文件名 `session-restore-stats-{days}d-{UTC}.csv`；
   `Cache-Control: no-store`；BOM/CRLF/公式注入防护与其它导出一致
 - 管理接口；数据库不可用返回 503；导出会写下载审计（ADR-0094），不做异步导出。旧后端没有该端点时
   前端在统计卡显示错误，不影响统计本身

@@ -212,7 +212,8 @@ class SessionRestoreAuditStats:
     """窗口内的恢复审计汇总（ADR-0065/0066/0067）。
 
     `restores` 是操作次数（审计行数），`sessions` 是真正恢复的会话数之和；
-    `users` 是去重后的操作者数。`daily` 只含有操作的 UTC 自然日，不补零。
+    `users` 是去重后的操作者数，`repinned` 是恢复时实际恢复的置顶数之和；
+    `daily` 只含有操作的 UTC 自然日，不补零。
     """
 
     since: datetime
@@ -220,6 +221,7 @@ class SessionRestoreAuditStats:
     restores: int
     users: int
     sessions: int
+    repinned: int = 0
     daily: tuple[SessionRestoreAuditDayStats, ...] = ()
 
 
@@ -1703,9 +1705,11 @@ class InMemoryRunStore:
         per_day: dict[date, list[int]] = {}
         users: set[str] = set()
         sessions = 0
+        repinned = 0
         for record in records:
             users.add(record.user_id)
             sessions += record.restored_count
+            repinned += record.repinned_count
             day = record.restored_at.astimezone(UTC).date()
             bucket = per_day.setdefault(day, [0, 0])
             bucket[0] += 1
@@ -1716,6 +1720,7 @@ class InMemoryRunStore:
             restores=len(records),
             users=len(users),
             sessions=sessions,
+            repinned=repinned,
             daily=tuple(
                 SessionRestoreAuditDayStats(day=day, restores=values[0], sessions=values[1])
                 for day, values in sorted(per_day.items())
@@ -3012,6 +3017,7 @@ class PostgresRunStore:
                 func.count(),
                 func.count(func.distinct(SessionRestoreAuditRow.user_id)),
                 func.coalesce(func.sum(SessionRestoreAuditRow.restored_count), 0),
+                func.coalesce(func.sum(SessionRestoreAuditRow.repinned_count), 0),
             )
             .select_from(SessionRestoreAuditRow)
             .where(*conditions)
@@ -3028,7 +3034,7 @@ class PostgresRunStore:
             .order_by(day_column)
         )
         async with self._sessionmaker() as session:
-            restores, users, sessions = (await session.execute(summary)).one()
+            restores, users, sessions, repinned = (await session.execute(summary)).one()
             rows = (await session.execute(daily)).all()
         return SessionRestoreAuditStats(
             since=since,
@@ -3036,6 +3042,7 @@ class PostgresRunStore:
             restores=int(restores),
             users=int(users),
             sessions=int(sessions),
+            repinned=int(repinned),
             daily=tuple(
                 SessionRestoreAuditDayStats(
                     day=row[0] if isinstance(row[0], date) else date.fromisoformat(str(row[0])),

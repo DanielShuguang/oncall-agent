@@ -76,7 +76,7 @@ export function AuditStatsCard({
         ) : error ? (
           <p className="text-xs text-danger">统计暂不可用：{error}</p>
         ) : stats ? (
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-4">
             <div>
               <div className="text-[11px] text-muted-foreground">恢复操作</div>
               <div className="text-lg font-semibold text-foreground">{stats.restores}</div>
@@ -88,6 +88,10 @@ export function AuditStatsCard({
             <div>
               <div className="text-[11px] text-muted-foreground">恢复会话</div>
               <div className="text-lg font-semibold text-foreground">{stats.sessions}</div>
+            </div>
+            <div>
+              <div className="text-[11px] text-muted-foreground">恢复置顶</div>
+              <div className="text-lg font-semibold text-foreground">{stats.repinned}</div>
             </div>
           </div>
         ) : null}

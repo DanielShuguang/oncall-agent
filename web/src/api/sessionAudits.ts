@@ -51,6 +51,7 @@ export interface SessionRestoreAuditStats {
   restores: number;
   users: number;
   sessions: number;
+  repinned: number;
   daily: SessionRestoreAuditDayStats[];
 }
 
@@ -60,6 +61,7 @@ export interface SessionRestoreAuditStatsExport {
   restores: number;
   users: number;
   sessions: number;
+  repinned: number;
 }
 
 function applyFilters(params: URLSearchParams, filters: SessionRestoreAuditFilters): void {
@@ -125,5 +127,6 @@ export async function exportSessionRestoreAuditStatsCsv(
     restores: Number(headers.get('X-Export-Restores') ?? 0) || 0,
     users: Number(headers.get('X-Export-Users') ?? 0) || 0,
     sessions: Number(headers.get('X-Export-Sessions') ?? 0) || 0,
+    repinned: Number(headers.get('X-Export-Repinned') ?? 0) || 0,
   };
 }

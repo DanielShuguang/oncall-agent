@@ -146,7 +146,11 @@ Agent 层面：单个工具失败不中断整个 run，`tool.result` 记 `status
 - 把审批做成"再问模型一次" → 等于没审批
 - 审批记录只存"已通过"，不存参数快照 → 出问题无法复盘
 
-## 8. MCP 落地
+## 8. MCP 目标形态（尚未接入）
+
+> 当前实现：全部工具通过 `ToolRegistry` 在进程内直接调用；`app/tools/servers/` 与
+> `client.py` 尚不存在，`pyproject.toml` 也没有 MCP 依赖。下面描述的是接入 MCP 时的
+> 目标结构与边界，不代表已实现。
 
 ### 8.1 为什么用 MCP
 
@@ -154,28 +158,32 @@ Agent 层面：单个工具失败不中断整个 run，`tool.result` 记 `status
 - 和 **LSP 同构**：都是 JSON-RPC，都有 `initialize` 握手、capability 协商、notification 流
   → 你做过 LSP 客户端，理解 MCP 只需一天
 
-### 8.2 结构
+### 8.2 目标结构（当前未创建）
 
 ```
 app/tools/
 ├─ registry.py        # ToolSpec + ToolRegistry + ToolGuard（治理核心）
-├─ servers/
+├─ servers/           # 规划目录：当前不存在
 │  ├─ cmdb.py         # FastMCP server: query_cmdb
 │  ├─ tickets.py      # query_tickets, create_ticket
 │  ├─ kb.py           # search_kb
 │  └─ diagnostic.py   # run_diagnostic
-└─ client.py          # MCP 客户端（stdio / streamable-http）
+└─ client.py          # 规划文件：MCP 客户端（stdio / streamable-http）
 ```
 
-两种部署形态：
+当前只有 `registry.py`、`builtin.py`、`assets.py`、`tickets.py`、`policy.py`；下面三种形态中
+只有「同进程」已实现。
 
-| 形态 | 传输 | 场景 |
-|---|---|---|
-| 同进程 | 直接函数调用（绕过 RPC） | 开发、单机私有化 |
-| 独立进程 | stdio | 工具需要独立依赖/权限边界 |
-| 远程服务 | streamable HTTP | 对接客户真实系统 |
+三种部署形态（目标）：
 
-> 治理逻辑放在 `registry.py`，**不在 MCP server 里**。这样换传输方式时治理不重复实现。
+| 形态 | 传输 | 状态 | 场景 |
+|---|---|---|---|
+| 同进程 | 直接函数调用（绕过 RPC） | **已实现** | 开发、单机私有化 |
+| 独立进程 | stdio | 待接入 | 工具需要独立依赖/权限边界 |
+| 远程服务 | streamable HTTP | 待接入 | 对接客户真实系统 |
+
+> 治理逻辑放在 `registry.py`，**不在 MCP server 里**。当前已按这个边界组织；接入 MCP 后
+> 仍不得在 server 内重复实现治理。
 
 ### 8.3 工具清单（v1）
 

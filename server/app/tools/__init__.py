@@ -1,4 +1,4 @@
-"""工具层：注册表、治理、MCP servers。"""
+"""工具层：注册表与治理；MCP 传输为目标形态，尚未接入。"""
 
 from app.tools.registry import (
     RESERVED_ARGS,

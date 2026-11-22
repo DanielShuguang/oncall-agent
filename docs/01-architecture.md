@@ -30,7 +30,7 @@ OnCall 是一个**可私有化部署的企业服务台 Agent**。它不是聊天
      ▼          ▼           ▼              ▼
 ┌─────────┐ ┌────────┐ ┌──────────┐ ┌──────────┐
 │ agent/  │ │gateway/│ │ tools/   │ │  rag/    │
-│ 状态机  │ │模型网关 │ │ MCP+治理 │ │ 检索     │
+│ 状态机  │ │模型网关 │ │ 工具治理 │ │ 检索     │
 └─────────┘ └────────┘ └──────────┘ └──────────┘
                 │
 ┌───────────────▼──────────────────────────────────────────┐
@@ -132,7 +132,7 @@ agent 决定 create_ticket
 | 后端 | Python 3.12 + FastAPI + Pydantic v2 + SQLAlchemy 2 + Alembic |
 | 编排 | 显式 8 节点状态机（ADR-0012；LangGraph 可选，W4 评估后仍未启用） |
 | 检索 | PostgreSQL 16 + pgvector + tsvector + RRF + 确定性重排（bge-reranker W4 可选） |
-| 工具 | MCP（FastMCP），stdio + streamable HTTP |
+| 工具 | 进程内 `ToolSpec` + `ToolGuard`；MCP（FastMCP，stdio/streamable HTTP）是目标传输，尚未接入 |
 | 模型 | OpenAI 兼容协议；Ollama（dev）/ vLLM（演示） |
 | 观测 | 自研事件表 + 成本表 + 看板；Langfuse 可选 |
 | 部署 | Docker Compose + 离线镜像 |

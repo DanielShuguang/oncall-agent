@@ -11,7 +11,7 @@
 | 3 | [03-api-contract](03-api-contract.md) | REST + SSE 事件协议（前后端唯一契约） | W1 D2 前 |
 | 4 | [04-agent-design](04-agent-design.md) | 8 节点状态机、规则优先、提示词策略 | W2 结束前 |
 | 5 | [05-rag-design](05-rag-design.md) | 解析/切分/混合检索/rerank/引用 | W2 D6 前 |
-| 6 | [06-tool-governance](06-tool-governance.md) | MCP、白名单、权限、超时、重试、审批 | W3 D11 前 |
+| 6 | [06-tool-governance](06-tool-governance.md) | 工具治理（MCP 目标形态，尚未接入）、白名单、权限、超时、重试、审批 | W3 D11 前 |
 | 7 | [07-frontend-design](07-frontend-design.md) | 路由、状态机、组件、流式与续传 | W1 D2 前 |
 | 8 | [08-eval-metrics](08-eval-metrics.md) | 评测集设计、指标口径、报告格式 | W2 D10 前 |
 | 9 | [09-deploy-private](09-deploy-private.md) | 私有化、离线镜像、信创适配 | W6 D27 前 |

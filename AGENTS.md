@@ -29,7 +29,7 @@
 | `server/app/core/` | 配置、日志、SSE 编码、存储、限流、预算 | 掺业务语义 |
 | `server/app/agent/` | 状态机、节点、提示词 | 节点内直接调 HTTP / 写库 / 发事件 |
 | `server/app/gateway/` | 模型选择、调用、计量、降级 | 做业务判断 |
-| `server/app/tools/` | 工具注册、校验、权限、执行、超时 | 在 MCP server 里重复实现治理 |
+| `server/app/tools/` | 工具注册、校验、权限、执行、超时 | 在 MCP server 里重复实现治理（MCP 传输尚未接入，目标边界） |
 | `server/app/rag/` | 解析、切分、索引、检索、引用 | 在业务代码里直接写向量 SQL |
 | `server/app/eval/` | 评测集与执行器 | 静默剔除失败用例 |
 | `web/src/features/chat/` | 状态机、SSE 客户端、对话 UI | 用 boolean 拼状态 |

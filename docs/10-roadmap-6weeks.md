@@ -2430,12 +2430,32 @@ ADR-0109 让每条恢复审计记录实际恢复的置顶数，但统计卡只�
 | 接口 | `/admin/session-restores/stats` 增加 `repinned`，旧客户端可忽略 |
 | CSV | `summary` 增加 `repinned` 行；响应头增加 `X-Export-Repinned` |
 | 前端 | 恢复审计统计卡增加「恢复置顶」第四项，仅总数，不做日趋势 |
-| 范围 | 无迁移；旧审计行按 0 计算；不做按日/按小时/按用户趋势 |
+| 范围 | 无迁移；旧审计行按 0 计算；不做按日/按小时/按用户趋势；未恢复置顶数提示见 ADR-0111 |
 
 验证：默认 535+42、PG 574+3、PG+Redis 577；ruff 210 / format 210 / mypy 119；
 前端 29 files/149 tests、build 2944 modules。用例锁定 7/30 天窗口的 0/3 与 CSV 汇总。
 
 详见 [ADR-0110](decisions/0110-restore-audit-repinned-stats.md)。
+
+---
+
+## W6 后补：恢复审计统计卡标注未恢复置顶数（ADR-0111）
+
+统计卡已有「恢复会话 / 恢复置顶」两个数字，但管理员仍要手算差值。前端按
+`max(0, sessions - repinned)` 派生「未恢复置顶」数量，仅在大于 0 时显示一行提示；
+只标注数量，不判断是原本未置顶还是容量不足。
+
+| 事项 | 落地 |
+|---|---|
+| 派生 | `countUnrestoredPins(stats)` 纯函数；不改 API、不加迁移 |
+| 展示 | 恢复审计统计卡在差值 > 0 时提示「其中 N 个恢复会话未恢复置顶（原本未置顶或容量不足）」 |
+| 语义 | 不把差值称为失败；`repinned > sessions` 的异常值按 0 兜底 |
+| 范围 | 不做比例条、日趋势、按用户拆分 |
+
+验证：后端未改；前端 30 files / 152 tests、`tsc`、`oxlint`、`oxfmt --check` 149 files、
+`pnpm build` 2945 modules。
+
+详见 [ADR-0111](decisions/0111-restore-audit-unrestored-hint.md)。
 
 ---
 

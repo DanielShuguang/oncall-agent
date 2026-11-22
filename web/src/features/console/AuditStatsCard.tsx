@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import type { SessionRestoreAuditFilters, SessionRestoreAuditStats } from '@/api/sessionAudits';
 import { AUDIT_STATS_DAYS, type AuditStatsDays } from './auditFilterMemory';
+import { countUnrestoredPins } from './restoreAuditStats';
 
 interface AuditStatsCardProps {
   stats: SessionRestoreAuditStats | null;
@@ -30,6 +31,7 @@ export function AuditStatsCard({
   onChangeDays,
   onExport,
 }: AuditStatsCardProps) {
+  const unrestoredPins = stats ? countUnrestoredPins(stats) : 0;
   return (
     <Card className="py-0">
       <CardContent className="space-y-3 p-3">
@@ -94,6 +96,11 @@ export function AuditStatsCard({
               <div className="text-lg font-semibold text-foreground">{stats.repinned}</div>
             </div>
           </div>
+        ) : null}
+        {stats && !loading && !error && unrestoredPins > 0 ? (
+          <p className="text-[11px] text-muted-foreground">
+            其中 {unrestoredPins} 个恢复会话未恢复置顶（原本未置顶或容量不足，ADR-0108/0109）。
+          </p>
         ) : null}
         {stats && !loading && !error ? (
           <p className="text-[11px] text-muted-foreground">

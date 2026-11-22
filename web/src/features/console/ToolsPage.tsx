@@ -22,6 +22,7 @@ export default function ToolsPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [rollingBackId, setRollingBackId] = useState<number | null>(null);
   const [rollbackMessage, setRollbackMessage] = useState<string | null>(null);
+  const [rollbackError, setRollbackError] = useState<string | null>(null);
   const [tester, setTester] = useState<TestState | null>(null);
   const {
     history,
@@ -74,11 +75,18 @@ export default function ToolsPage() {
     }
   };
 
+  const openToolHistory = (tool: ToolInfo) => {
+    setRollbackMessage(null);
+    setRollbackError(null);
+    openHistory(tool);
+  };
+
   const onRollback = async (changeId: number) => {
     if (!history) return;
     if (!window.confirm('将工具配置回滚到该变更发生前的状态？')) return;
     setRollingBackId(changeId);
     setRollbackMessage(null);
+    setRollbackError(null);
     try {
       const updated = await rollbackToolChange(history.tool.name, changeId);
       setTools((current) => current.map((item) => (item.name === updated.name ? updated : item)));
@@ -86,7 +94,7 @@ export default function ToolsPage() {
       setRollbackMessage('已回滚，历史中新增一条回滚记录。');
       await reloadHistory();
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : '回滚失败');
+      setRollbackError(exc instanceof Error ? exc.message : '回滚失败');
     } finally {
       setRollingBackId(null);
     }
@@ -173,7 +181,7 @@ export default function ToolsPage() {
         onToggle={(tool) => void onToggle(tool)}
         onReset={(tool) => void onReset(tool)}
         onTest={openTester}
-        onHistory={openHistory}
+        onHistory={openToolHistory}
       />
 
       <p className="text-[11px] text-muted-foreground">
@@ -186,7 +194,14 @@ export default function ToolsPage() {
         tester={tester}
         history={history}
         onTesterChange={setTester}
-        onHistoryChange={(next) => (next ? setHistory(next) : closeHistory())}
+        onHistoryChange={(next) => {
+          if (next) setHistory(next);
+          else {
+            setRollbackMessage(null);
+            setRollbackError(null);
+            closeHistory();
+          }
+        }}
         onReloadHistory={reloadHistory}
         onClearHistoryFilters={clearHistoryFilters}
         onLoadMoreHistory={loadMoreHistory}
@@ -194,6 +209,7 @@ export default function ToolsPage() {
         onRollbackHistory={onRollback}
         rollingBackId={rollingBackId}
         rollbackMessage={rollbackMessage}
+        rollbackError={rollbackError}
         onExportHistory={() => void exportHistory()}
         exportingHistory={exportingHistory}
         historyExportMessage={historyExportMessage}

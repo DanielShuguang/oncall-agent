@@ -148,6 +148,10 @@ async def test_rollback_restores_before_snapshot(client: AsyncClient) -> None:
 
 
 async def test_rollback_rejects_unknown_history_and_employee(client: AsyncClient) -> None:
+    res = await client.post("/api/admin/tools/ghost/history/1/rollback", headers=ADMIN)
+    assert res.status_code == 404
+    assert res.json()["code"] == "TOOL_NOT_FOUND"
+
     res = await client.post("/api/admin/tools/query_cmdb/history/9999/rollback", headers=ADMIN)
     assert res.status_code == 404
     assert res.json()["code"] == "HISTORY_NOT_FOUND"

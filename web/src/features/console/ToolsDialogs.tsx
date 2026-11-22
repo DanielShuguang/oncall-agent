@@ -38,6 +38,7 @@ interface ToolsDialogsProps {
   onRollbackHistory: (changeId: number) => void;
   rollingBackId: number | null;
   rollbackMessage: string | null;
+  rollbackError: string | null;
   exportingHistory: boolean;
   historyExportMessage: string | null;
   onRunTest: () => void;
@@ -56,6 +57,7 @@ export function ToolsDialogs({
   onRollbackHistory,
   rollingBackId,
   rollbackMessage,
+  rollbackError,
   exportingHistory,
   historyExportMessage,
   onRunTest,
@@ -207,8 +209,13 @@ export function ToolsDialogs({
                 </div>
               ))}
               {rollbackMessage && (
-                <div className="rounded-md border border-success/30 bg-success/5 p-2 text-xs text-success">
+                <div className="rounded-md border border-ok/30 bg-ok/5 p-2 text-xs text-ok">
                   {rollbackMessage}
+                </div>
+              )}
+              {rollbackError && (
+                <div className="rounded-md border border-danger/30 bg-danger/5 p-2 text-xs text-danger">
+                  {rollbackError}
                 </div>
               )}
               {history?.loadMoreError && (

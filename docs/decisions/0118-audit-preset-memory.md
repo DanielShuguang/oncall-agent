@@ -41,8 +41,8 @@
 
 - 前端 `pnpm test`：32 files / 163 tests；`tsc --noEmit`、`oxlint` 0/0（145 files）、
   `oxfmt --check` 153 files、`pnpm build` 2947 modules。
-- `auditDatePresets.test.ts` 新增独立 key 用例；后端未改，默认 537+42 / PG 576+3 /
-  PG+Redis 579。
+- `auditDatePresets.test.ts` 新增独立 key 用例；`localPreferences.test.ts` 断言切换账号时
+  三个审计预设 key 一并清理；后端未改，默认 537+42 / PG 576+3 / PG+Redis 579。
 
 ## 待定
 

@@ -74,13 +74,21 @@ describe('approvalStatsRefresh', () => {
     expect(readApprovalStatsAutoRefresh(storage)).toBe(true);
   });
 
-  it('刷新间隔默认 30 秒，只接受 15/30/60', () => {
+  it('刷新间隔默认 30 秒，接受 5–300 的整数', () => {
     const storage = new MemoryStorage();
     expect(readApprovalStatsRefreshInterval(storage)).toBe(30);
 
     writeApprovalStatsRefreshInterval(60, storage);
     expect(readApprovalStatsRefreshInterval(storage)).toBe(60);
     storage.setItem(APPROVAL_STATS_REFRESH_INTERVAL_STORAGE_KEY, '45');
+    expect(readApprovalStatsRefreshInterval(storage)).toBe(45);
+    storage.setItem(APPROVAL_STATS_REFRESH_INTERVAL_STORAGE_KEY, '5');
+    expect(readApprovalStatsRefreshInterval(storage)).toBe(5);
+    storage.setItem(APPROVAL_STATS_REFRESH_INTERVAL_STORAGE_KEY, '300');
+    expect(readApprovalStatsRefreshInterval(storage)).toBe(300);
+    storage.setItem(APPROVAL_STATS_REFRESH_INTERVAL_STORAGE_KEY, '4');
+    expect(readApprovalStatsRefreshInterval(storage)).toBe(30);
+    storage.setItem(APPROVAL_STATS_REFRESH_INTERVAL_STORAGE_KEY, '301');
     expect(readApprovalStatsRefreshInterval(storage)).toBe(30);
     storage.setItem(APPROVAL_STATS_REFRESH_INTERVAL_STORAGE_KEY, 'broken');
     expect(readApprovalStatsRefreshInterval(storage)).toBe(30);

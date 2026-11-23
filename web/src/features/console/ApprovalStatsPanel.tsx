@@ -9,11 +9,8 @@ import {
 } from '@/components/ui/select';
 import type { ApprovalStats } from '@/api/approvals';
 import { formatDurationMs } from '@/lib/format';
-import {
-  APPROVAL_STATS_REFRESH_INTERVAL_OPTIONS,
-  formatStatsUpdatedAt,
-  type ApprovalStatsRefreshSeconds,
-} from './approvalStatsRefresh';
+import type { ApprovalStatsRefreshSeconds } from './approvalStatsRefresh';
+import { ApprovalStatsRefreshControls } from './ApprovalStatsRefreshControls';
 import type { StatsGroup } from './approvalTypes';
 
 const STATS_DAYS = [7, 30, 90] as const;
@@ -98,48 +95,17 @@ export function ApprovalStatsPanel({
         >
           {statsExporting ? '导出中…' : '导出统计'}
         </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-8 text-xs"
-          disabled={refreshing}
-          onClick={onRefresh}
-        >
-          {refreshing ? '刷新中…' : '刷新'}
-        </Button>
-        <Button
-          variant={autoRefreshEnabled ? 'secondary' : 'ghost'}
-          size="sm"
-          className="h-8 text-xs"
-          aria-pressed={autoRefreshEnabled}
-          onClick={() => onToggleAutoRefresh(!autoRefreshEnabled)}
-        >
-          自动刷新：{autoRefreshEnabled ? '开' : '关'}
-        </Button>
-        <Select
-          value={String(refreshIntervalSec)}
-          onValueChange={(next) =>
-            onChangeRefreshInterval(Number(next) as ApprovalStatsRefreshSeconds)
-          }
-        >
-          <SelectTrigger className="h-8 w-28 text-xs" aria-label="自动刷新间隔">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {APPROVAL_STATS_REFRESH_INTERVAL_OPTIONS.map((seconds) => (
-              <SelectItem key={seconds} value={String(seconds)}>
-                {seconds} 秒
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <span className="text-[11px] text-muted-foreground" aria-live="polite">
-          更新于 {formatStatsUpdatedAt(lastUpdatedAt)} ·{' '}
-          {autoRefreshEnabled ? `页面可见时每 ${refreshIntervalSec} 秒自动刷新` : '自动刷新已暂停'}
-        </span>
+        <ApprovalStatsRefreshControls
+          autoRefreshEnabled={autoRefreshEnabled}
+          autoRefreshError={autoRefreshError}
+          lastUpdatedAt={lastUpdatedAt}
+          refreshing={refreshing}
+          refreshIntervalSec={refreshIntervalSec}
+          onToggleAutoRefresh={onToggleAutoRefresh}
+          onChangeRefreshInterval={onChangeRefreshInterval}
+          onRefresh={onRefresh}
+        />
       </div>
-
-      {autoRefreshError && <p className="text-xs text-warn">{autoRefreshError}</p>}
 
       {statsExportMessage && (
         <p className={statsExportMessage.failed ? 'text-xs text-danger' : 'text-xs text-ok'}>

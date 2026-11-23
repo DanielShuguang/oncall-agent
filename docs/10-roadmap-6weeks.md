@@ -2713,8 +2713,23 @@ ADR-0118 只记住两页的日期预设；用户、会话、动作（置顶/取�
 | 交互 | 统计区增加「自动刷新间隔」下拉；只重启本地定时器，不立即请求 |
 | 语义 | 仍只在页面可见时轮询；关闭开关不启动定时器；重开立即补拉一次 |
 | 生命周期 | `setRefreshInterval` 同步写 key；切换账号 `clearLocalPreferences` 删除 |
-| 范围 | 不做自定义秒数、低峰自动降频、跨设备同步；无后端/迁移 |
+| 范围 | 不做低峰自动降频、跨设备同步；自定义秒数见 ADR-0124 |
 
 验证：前端 33 files / 174 tests、`tsc`、`oxlint` 0/0（148 files）、`oxfmt --check` 156 files、`pnpm build` 2950 modules；后端未改 538+42 / 577+3 / 580。
 
 详见 [ADR-0123](decisions/0123-approval-refresh-interval.md)。
+
+
+## W6 后补：审批统计自定义刷新间隔（ADR-0124）
+
+| 事项 | 落地 |
+|---|---|
+| 输入 | 15/30/60 秒仍是快捷档；选「自定义…」或直接输入 5–300 秒整数 |
+| 校验 | 只接受整数；越界/非法值恢复当前值，读取时回退 30 |
+| 存储 | 同 ADR-0123 的 `oncall.approval-stats-refresh-interval.v1`，不再新增 key |
+| 交互 | 回车或失焦应用；只重启本地定时器，不立即请求 |
+| 范围 | 不做低峰自动降频、跨设备同步；无后端/迁移 |
+
+验证：前端 33 files / 174 tests、`tsc`、`oxlint` 0/0（149 files）、`oxfmt --check` 157 files、`pnpm build` 2951 modules；后端未改 538+42 / 577+3 / 580。
+
+详见 [ADR-0124](decisions/0124-approval-refresh-custom-interval.md)。

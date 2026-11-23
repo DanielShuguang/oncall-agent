@@ -231,7 +231,7 @@ oncall/
 | 审批统计自动刷新（ADR-0115） | ✅ 已完成 | 审批统计在页面可见时每 30 秒自动刷新，重新可见立即补拉；显示「更新于 HH:mm:ss」与手动「刷新」；自动刷新失败保留上一份统计，手动失败才清空；无后端/迁移；[ADR-0115](docs/decisions/0115-approval-stats-auto-refresh.md) |
 | 审批统计自动刷新开关与失败提示（ADR-0116） | ✅ 已完成 | 统计区增加「自动刷新：开/关」，关闭时移除定时器与可见性监听，重开立即补拉；自动刷新失败显示提示并保留旧统计，手动失败才清空；开关不持久化；无后端/迁移；[ADR-0116](docs/decisions/0116-approval-stats-auto-refresh-toggle.md) |
 | 回滚预览读取执行瞬间当前配置（ADR-0117） | ✅ 已完成 | 新增只读 `GET /admin/tools/{name}/history/{change_id}/preview`，返回当前覆盖、回滚目标、是否变化、是否可回滚与原因；Dialog 打开即读，读取中/失败/相同/不可回滚时禁用确认；执行仍重新读取；无迁移；[ADR-0117](docs/decisions/0117-rollback-current-preview.md) |
-| 置顶/导出审计页记住日期预设（ADR-0118） | ✅ 已完成 | 两页各自使用独立 `localStorage` key（`oncall.pin-audit-date-preset.v1`、`oncall.export-audit-date-preset.v1`），打开即应用上次预设；只存预设 ID，手填/清除删除；三页互不覆盖，切换账号时统一清理；无后端/迁移；[ADR-0118](docs/decisions/0118-audit-preset-memory.md) |
+| 置顶/导出审计页记住日期预设（ADR-0118） | ✅ 已完成 | 两页各自使用独立 `localStorage` key（`oncall.pin-audit-date-preset.v1`、`oncall.export-audit-date-preset.v1`），打开即应用上次预设；只存预设 ID，手填非预设窗口/清除删除；三页互不覆盖，切换账号时统一清理；无后端/迁移；[ADR-0118](docs/decisions/0118-audit-preset-memory.md) |
 | 导出 CSV 内容哈希（W6 后补） | ✅ 已完成 | `export_audits.content_sha256` 记录服务端返回 CSV 的 SHA-256（含 BOM/CRLF），迁移 `0025` 只加可空列；管理员列表、审计 CSV 与页面短值展示；旧记录为空；不做 HMAC/签名、不在响应头返回哈希；[ADR-0097](docs/decisions/0097-export-content-hash.md) |
 | 工具变更历史日期范围（W6 后补） | ✅ 已完成 | `GET /admin/tools/{name}/history` 支持 `changed_from`/`changed_to`（UTC 自然日，两端同时、最多 365 天）；`[from 00:00Z, to+1d 00:00Z)` 窗口；内存/PG 同口径，无迁移；ToolsPage 历史 Dialog 增加应用/清除日期；[ADR-0098](docs/decisions/0098-tool-history-date-range.md) |
 | 工具变更历史 CSV 导出（W6 后补） | ✅ 已完成 | `GET /admin/tools/{name}/history/export` 与历史同日期窗口、最多 5000 行；CSV 六列、BOM/CRLF/公式防护；导出自身写 `resource=tool_setting_history` 下载审计（`row_count`/`content_sha256`），失败 503；`export_audits` CHECK 扩为 8 种（迁移 `0026`）；前端使用已应用日期并丢弃过期响应；[ADR-0099](docs/decisions/0099-tool-history-export.md) |
@@ -443,7 +443,7 @@ W6 基线（3 轮均值，mock 规则路径，口径见 [baseline-v1](docs/eval/
 - 恢复审计页的快捷日期预设只覆盖 UTC 的近 7/30/90 天、本月/上月，会记住上次**预设**与
   用户/会话过滤、统计窗口（只存本地、按浏览器、不跨设备），手填日期不保存，也不绕过服务端
   365 天上限与 422 校验。
-  置顶/导出审计页有同样的五个快捷预设，并记住上次预设（ADR-0118）；手填日期不保存
+  置顶/导出审计页有同样的五个快捷预设，并记住上次预设（ADR-0118）；手填非预设日期不保存，精确等于预设按预设保存
   （[ADR-0071](docs/decisions/0071-audit-date-presets.md)、[ADR-0075](docs/decisions/0075-audit-preset-memory.md)、[ADR-0078](docs/decisions/0078-audit-filter-memory.md)、[ADR-0091](docs/decisions/0091-pin-audit-date-presets.md)）
 - 会话批量移除只覆盖当前已加载页（默认 20 条），不做跨页选择、按搜索条件批量或移除审计；
   恢复时按容量尽力恢复置顶（[ADR-0108](docs/decisions/0108-hidden-restore-pin.md)），恢复审计记录实际恢复的置顶数（ADR-0109），批量移除仍不写审计

@@ -145,7 +145,7 @@
 | [0115](decisions/0115-approval-stats-auto-refresh.md) | 审批统计自动刷新 | 页面可见时每 30 秒刷新审批统计，重新可见立即补拉；显示更新时间和手动刷新；自动刷新失败保留上一份统计；无后端/迁移 |
 | [0116](decisions/0116-approval-stats-auto-refresh-toggle.md) | 审批统计自动刷新开关与失败提示 | 可暂停 30 秒轮询，关闭时移除定时器/可见性监听；重开立即补拉；自动刷新失败保留旧统计并提示；无后端/迁移 |
 | [0117](decisions/0117-rollback-current-preview.md) | 回滚预览读取执行瞬间当前配置 | 新增只读 `GET /admin/tools/{name}/history/{change_id}/preview`；返回 current/target/changed/rollbackable/reason；代码禁用时预览返回不可回滚原因；执行仍重新读取；无迁移 |
-| [0118](decisions/0118-audit-preset-memory.md) | 置顶/导出审计页记住日期预设 | 两页各用独立 `localStorage` key；打开自动应用上次预设；只存预设 ID，手填/清除删除；三页互不覆盖，切换账号清理；无后端/迁移 |
+| [0118](decisions/0118-audit-preset-memory.md) | 置顶/导出审计页记住日期预设 | 两页各用独立 `localStorage` key；打开自动应用上次预设；只存预设 ID，手填非预设窗口/清除删除；三页互不覆盖，切换账号清理；无后端/迁移 |
 
 > ADR 的写法：背景 → 方案对比 → 决策 → 后果。面试被问"为什么这么做"时，直接念 ADR。
 

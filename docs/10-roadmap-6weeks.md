@@ -2624,10 +2624,10 @@ Dialog 打开时读取当前覆盖、目标、是否变化与是否可回滚；�
 |---|---|
 | key | `oncall.pin-audit-date-preset.v1`、`oncall.export-audit-date-preset.v1`；恢复审计页仍用 `oncall.audit-date-preset.v1` |
 | 读取 | 打开页面校验枚举并生成 UTC 日期窗口作为初始筛选，避免先空请求再切预设 |
-| 写入 | 点击预设或「筛选」且日期区间精确匹配预设时写；手填/清除删除 |
+| 写入 | 点击预设或「筛选」且日期区间精确匹配预设时写；手填非预设窗口/清除删除 |
 | 保留 | 只改用户/会话/动作过滤不删除；三页互不覆盖 |
 | 清理 | 切换账号时 `clearLocalPreferences` 删除两个新 key |
-| 范围 | 只存预设 ID；不存手填日期；不跨设备；无后端/迁移 |
+| 范围 | 只存预设 ID；不存手填的非预设日期；不跨设备；无后端/迁移 |
 
 验证：前端 32 files / 163 tests、`oxlint` 0/0（145 files）、`oxfmt --check` 153 files、
 `build` 2947 modules；后端未改 537+42 / 576+3 / 579。

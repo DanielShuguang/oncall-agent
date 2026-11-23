@@ -39,6 +39,7 @@ from app.schemas.tool import (
     ToolListResponse,
     ToolOut,
     ToolOverrideSnapshot,
+    ToolRollbackPreviewOut,
     ToolTestRequest,
     ToolTestResponse,
     ToolUpdateRequest,
@@ -400,6 +401,55 @@ def _override_from_snapshot(snapshot: ToolOverrideSnapshot | None) -> ToolOverri
         return None
     roles = None if snapshot.roles is None else tuple(snapshot.roles)
     return ToolOverride(enabled=snapshot.enabled, roles=roles)
+
+
+def _override_out(override: ToolOverride | None) -> ToolOverrideSnapshot | None:
+    """把覆盖转成接口快照；None 表示没有覆盖。"""
+    if override is None:
+        return None
+    return ToolOverrideSnapshot(
+        enabled=override.enabled,
+        roles=None if override.roles is None else list(override.roles),
+    )
+
+
+@router.get("/tools/{name}/history/{change_id}/preview")
+async def preview_tool_rollback(
+    name: Annotated[str, Path(min_length=1, max_length=64)],
+    change_id: Annotated[int, Path(ge=1)],
+    policy: Annotated[ToolPolicy, Depends(get_tool_policy)],
+    admin: Annotated[Identity, Depends(require_admin)],
+) -> ToolRollbackPreviewOut:
+    """回滚前读取执行瞬间的当前配置（ADR-0117）。"""
+    spec = default_registry().try_get(name)
+    if spec is None:
+        raise ApiError(404, "TOOL_NOT_FOUND", "工具未注册")
+    try:
+        record = await policy.get_history(name, change_id)
+        if record is None:
+            raise ApiError(404, "HISTORY_NOT_FOUND", "变更记录不存在")
+        target = _override_from_snapshot(
+            None if record.before is None else ToolOverrideSnapshot(**record.before)
+        )
+        current = (await policy.overrides(force=True, allow_stale=False)).get(name)
+    except SQLAlchemyError as exc:
+        log.error(
+            "tool_setting_rollback_preview_failed",
+            tool=name,
+            change_id=change_id,
+            error=str(exc),
+        )
+        raise ApiError(503, "DATABASE_UNAVAILABLE", "工具配置预览失败，请稍后重试") from exc
+    locked = target is not None and target.enabled is True and not spec.enabled
+    return ToolRollbackPreviewOut(
+        tool_name=name,
+        change_id=change_id,
+        current=_override_out(current),
+        target=_override_out(target),
+        changed=current != target,
+        rollbackable=not locked,
+        reason="该工具在代码中已禁用，不能通过回滚开启" if locked else None,
+    )
 
 
 @router.post("/tools/{name}/history/{change_id}/rollback")

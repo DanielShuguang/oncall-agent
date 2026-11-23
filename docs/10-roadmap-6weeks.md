@@ -2568,6 +2568,27 @@ ADR-0115 的 30 秒轮询无法暂停，且自动刷新失败是静默的。本�
 详见 [ADR-0116](decisions/0116-approval-stats-auto-refresh-toggle.md)。
 
 ---
+
+## W6 后补：回滚预览读取执行瞬间当前配置（ADR-0117）
+
+ADR-0113 的确认 Dialog 只有记录时快照与文字说明，看不到服务端当前配置。新增只读预览接口，
+Dialog 打开时读取当前覆盖、目标、是否变化与是否可回滚；预览与执行之间仍可能被其他管理员
+改配置，执行阶段重新读取并以执行瞬间为准。
+
+| 事项 | 落地 |
+|---|---|
+| 接口 | `GET /admin/tools/{name}/history/{change_id}/preview`，仅管理员；只读 |
+| 响应 | `current`/`target`/`changed`/`rollbackable`/`reason` |
+| Dialog | 打开即读；读取中/失败/`changed=false`/不可回滚时禁用确认；显示记录时、执行瞬间与目标 |
+| 执行 | 仍重新读取当前配置；代码禁用开启返回 422 `TOOL_LOCKED`；预览不写历史/审计 |
+| 范围 | 不做批量预览、不加表/迁移；预览值不是 CAS/锁 |
+
+验证：前端 **32 files / 162 tests**、`tsc`、`oxlint` 0/0（145 files）、`oxfmt --check`
+153 files、`pnpm build`（2947 modules）通过；后端默认 537+42、PG-only 576+3、PG+Redis 579。
+
+详见 [ADR-0117](decisions/0117-rollback-current-preview.md)。
+
+---
 ## 每周固定动作
 
 | 时点 | 动作 |

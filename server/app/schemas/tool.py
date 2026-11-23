@@ -54,6 +54,22 @@ class ToolHistoryResponse(BaseModel):
     next_cursor: str | None = None
 
 
+class ToolRollbackPreviewOut(BaseModel):
+    """回滚前的服务端快照（ADR-0117）。"""
+
+    tool_name: str
+    change_id: int
+    #: 预览时读到的当前覆盖；null = 没有覆盖，走代码默认
+    current: ToolOverrideSnapshot | None = None
+    #: 回滚后将写入的覆盖；null = 删除覆盖
+    target: ToolOverrideSnapshot | None = None
+    #: 当前与目标是否不同；相同则回滚不会新增历史
+    changed: bool
+    #: 是否允许执行；代码禁用时不能回滚开启
+    rollbackable: bool
+    reason: str | None = None
+
+
 class ToolUpdateRequest(BaseModel):
     """PATCH 只允许改启用开关；角色走权限矩阵，schema 属于代码契约。
 

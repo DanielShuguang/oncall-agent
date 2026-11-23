@@ -3,6 +3,7 @@ import {
   exampleArgs,
   exportToolHistoryCsv,
   getToolHistory,
+  previewToolRollback,
   rollbackToolChange,
   testTool,
   updateTool,
@@ -60,6 +61,24 @@ describe('tools api', () => {
     const [url, init] = fetchMock.mock.calls[0] ?? [];
     expect(url).toBe('/api/admin/tools/query_cmdb/history/7/rollback');
     expect(init?.method).toBe('POST');
+  });
+  it('回滚预览 GET 到 preview 路径', async () => {
+    const fetchMock = stubFetch({
+      tool_name: 'query_cmdb',
+      change_id: 7,
+      current: null,
+      target: { enabled: false, roles: null },
+      changed: true,
+      rollbackable: true,
+      reason: null,
+    });
+
+    const res = await previewToolRollback('query_cmdb', 7);
+
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(url).toBe('/api/admin/tools/query_cmdb/history/7/preview');
+    expect(init?.method ?? 'GET').toBe('GET');
+    expect(res.target).toEqual({ enabled: false, roles: null });
   });
   it('按 schema 生成可编辑的示例参数', () => {
     const args = exampleArgs({

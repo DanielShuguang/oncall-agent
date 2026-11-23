@@ -117,6 +117,22 @@ export function rollbackToolChange(name: string, changeId: number): Promise<Tool
     {},
   );
 }
+
+export interface ToolRollbackPreview {
+  tool_name: string;
+  change_id: number;
+  current: ToolOverrideSnapshot | null;
+  target: ToolOverrideSnapshot | null;
+  changed: boolean;
+  rollbackable: boolean;
+  reason: string | null;
+}
+
+export function previewToolRollback(name: string, changeId: number): Promise<ToolRollbackPreview> {
+  return getJson<ToolRollbackPreview>(
+    `/admin/tools/${encodeURIComponent(name)}/history/${changeId}/preview`,
+  );
+}
 export interface ToolTestResponse {
   tool: string;
   decision: 'executed' | 'requires_approval' | 'denied' | string;

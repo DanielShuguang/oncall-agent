@@ -70,6 +70,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | PATCH | `/admin/tools/{name}` | 启用/禁用工具（`enabled: null` 恢复默认） | W5 D22 |
 | GET | `/admin/tools/{name}/history` | 工具配置变更历史（谁在何时把启用/角色改成什么；支持 UTC 日期/变更人/来源过滤与最新/最早排序） | W6 后补 |
 | POST | `/admin/tools/{name}/history/{change_id}/rollback` | 回滚到该条变更发生前的配置；追加一条新历史，不改旧记录 | W6 后补 |
+| GET | `/admin/tools/{name}/history/{change_id}/preview` | 只读预览：当前覆盖、回滚目标、是否可回滚 | W6 后补 |
 | POST | `/admin/tools/{name}/test` | 工具试调用（强制走治理链路） | W5 D22 |
 | GET | `/admin/perm-matrix` | 角色 × 工具矩阵 | W3 D12 / W5 D23 |
 | PUT | `/admin/perm-matrix` | 更新矩阵（按工具部分更新） | W5 D23 |
@@ -1604,6 +1605,33 @@ Authorization: Bearer <admin token>
   列表（`items: []`），不返回 404
 - 库不可用 `503 DATABASE_UNAVAILABLE`，不把故障显示成「没有历史」
 - 历史长期保留，不随 run 事件或审批快照清理；只读追加，可通过回滚生成新记录（ADR-0112）
+
+### 回滚预览
+
+```http
+GET /api/admin/tools/query_cmdb/history/42/preview
+Authorization: Bearer <admin>
+```
+
+```json
+{
+  "tool_name": "query_cmdb",
+  "change_id": 42,
+  "current": {"enabled": false, "roles": null},
+  "target": null,
+  "changed": true,
+  "rollbackable": true,
+  "reason": null
+}
+```
+
+- 只读：不写历史/审计/配置；库不可用 `503`
+- `current` 是预览时读到的覆盖，`null` 表示没有覆盖、走代码默认；`target` 是该条历史
+  `before` 还原出的目标，`null` 表示删除覆盖
+- `changed=false` 表示当前已等于目标，回滚不会追加历史
+- `rollbackable=false` 时 `reason` 给出原因（目前是代码已禁用、不能通过回滚开启）；
+  执行阶段仍返回 `422 TOOL_LOCKED`
+- 预览值只用于确认；执行回滚会重新读当前配置，以执行瞬间为准
 
 ### 回滚配置
 

@@ -126,6 +126,19 @@ async def test_rollback_restores_before_snapshot(client: AsyncClient) -> None:
     change_id = (await _history(client))[0]["id"]
     assert isinstance(change_id, int)
 
+    preview = await client.get(
+        f"/api/admin/tools/query_cmdb/history/{change_id}/preview", headers=ADMIN
+    )
+    assert preview.status_code == 200
+    preview_body = preview.json()
+    assert preview_body["tool_name"] == "query_cmdb"
+    assert preview_body["change_id"] == change_id
+    assert preview_body["current"] == {"enabled": False, "roles": None}
+    assert preview_body["target"] is None
+    assert preview_body["changed"] is True
+    assert preview_body["rollbackable"] is True
+    assert preview_body["reason"] is None
+
     res = await client.post(
         f"/api/admin/tools/query_cmdb/history/{change_id}/rollback", headers=ADMIN
     )
@@ -160,6 +173,16 @@ async def test_rollback_restores_before_snapshot(client: AsyncClient) -> None:
     assert res.status_code == 200
     assert len(await _history(client)) == 2
 
+    after_preview = await client.get(
+        f"/api/admin/tools/query_cmdb/history/{change_id}/preview", headers=ADMIN
+    )
+    assert after_preview.status_code == 200
+    after_body = after_preview.json()
+    assert after_body["current"] is None
+    assert after_body["target"] is None
+    assert after_body["changed"] is False
+    assert after_body["rollbackable"] is True
+
 
 async def test_rollback_rejects_unknown_history_and_employee(client: AsyncClient) -> None:
     res = await client.post("/api/admin/tools/ghost/history/1/rollback", headers=ADMIN)
@@ -171,6 +194,17 @@ async def test_rollback_rejects_unknown_history_and_employee(client: AsyncClient
     assert res.json()["code"] == "HISTORY_NOT_FOUND"
 
     res = await client.post("/api/admin/tools/query_cmdb/history/1/rollback", headers=EMPLOYEE)
+    assert res.status_code == 403
+
+    res = await client.get("/api/admin/tools/ghost/history/1/preview", headers=ADMIN)
+    assert res.status_code == 404
+    assert res.json()["code"] == "TOOL_NOT_FOUND"
+
+    res = await client.get("/api/admin/tools/query_cmdb/history/9999/preview", headers=ADMIN)
+    assert res.status_code == 404
+    assert res.json()["code"] == "HISTORY_NOT_FOUND"
+
+    res = await client.get("/api/admin/tools/query_cmdb/history/1/preview", headers=EMPLOYEE)
     assert res.status_code == 403
 
 

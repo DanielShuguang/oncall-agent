@@ -1,21 +1,26 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getApprovalStats, type ApprovalStats } from '@/api/approvals';
 import type { StatsGroup } from './approvalTypes';
-import { APPROVAL_STATS_REFRESH_MS, shouldAutoRefresh } from './approvalStatsRefresh';
+import {
+  APPROVAL_STATS_REFRESH_MS,
+  readApprovalStatsAutoRefresh,
+  shouldAutoRefresh,
+  writeApprovalStatsAutoRefresh,
+} from './approvalStatsRefresh';
 
 export function useApprovalStats(statsDays: number, statsGroup: StatsGroup) {
   const [stats, setStats] = useState<ApprovalStats | null>(null);
   const [statsGroupView, setStatsGroupView] = useState<StatsGroup>(statsGroup);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(readApprovalStatsAutoRefresh);
   const [autoRefreshError, setAutoRefreshError] = useState<string | null>(null);
   const statsRequest = useRef(0);
   // 手动刷新单独用令牌管理按钮状态：后台刷新不应把手动刷新卡在「刷新中」。
   const manualRequest = useRef(0);
   // 关闭开关时，暂停前发出的静默请求仍可能失败；用 ref 判断「当前是否仍启用」，
   // 避免暂停后又冒出一条自动刷新失败提示。
-  const autoRefreshEnabledRef = useRef(true);
+  const autoRefreshEnabledRef = useRef(autoRefreshEnabled);
 
   useEffect(() => {
     let cancelled = false;
@@ -76,6 +81,7 @@ export function useApprovalStats(statsDays: number, statsGroup: StatsGroup) {
     (enabled: boolean) => {
       autoRefreshEnabledRef.current = enabled;
       setAutoRefreshEnabled(enabled);
+      writeApprovalStatsAutoRefresh(enabled);
       setAutoRefreshError(null);
       // 重新打开时立即补拉一次，不必等下一个 30 秒。
       if (enabled) void refresh(true);

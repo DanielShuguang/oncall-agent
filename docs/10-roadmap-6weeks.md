@@ -2553,7 +2553,7 @@ PG+Redis **579**；前端 **31 files / 157 tests**、`tsc`、`oxlint`、`oxfmt -
 ADR-0115 的 30 秒轮询无法暂停，且自动刷新失败是静默的。本页增加「自动刷新：开/关」：
 关闭时移除定时器与可见性监听，重新打开立即补拉；自动刷新失败显示「自动刷新失败，稍后
 重试」，保留旧统计，手动成功或下一次静默成功清除；暂停前在途的失败不会重新点亮提示；
-手动失败仍清空。开关不持久化，无后端/迁移。
+手动失败仍清空。开关默认开启；ADR-0122 起按浏览器持久化，切换账号清理。无后端/迁移。
 
 | 事项 | 落地 |
 |---|---|
@@ -2690,3 +2690,16 @@ ADR-0118 只记住两页的日期预设；用户、会话、动作（置顶/取�
 验证：默认 **538 passed + 42 skipped**、PG-only **577 passed + 3 skipped**、PG+Redis **580 passed**；`ruff check`、`ruff format --check` 210 files、`mypy app` 119 files；前端 33 files/169 tests、build 2950 modules。
 
 详见 [ADR-0121](decisions/0121-tool-history-batch-rollback.md)。
+
+## W6 后补：审批统计自动刷新开关持久化（ADR-0122）
+
+| 事项 | 落地 |
+|---|---|
+| 存储 | `localStorage` key `oncall.approval-stats-auto-refresh.v1`，值 `on`/`off` |
+| 读取 | 默认 `on`；缺失/损坏/存储不可用按开启处理 |
+| 生命周期 | 首次渲染读入；`setAutoRefresh` 同步写；切换账号 `clearLocalPreferences` 删除 |
+| 范围 | 不做服务端同步、自定义间隔、告警/推送；无后端/迁移 |
+
+验证：前端 33 files / 172 tests、`tsc`、`oxlint` 0/0（148 files）、`oxfmt --check` 156 files、`pnpm build` 2950 modules；后端未改 538+42 / 577+3 / 580。
+
+详见 [ADR-0122](decisions/0122-approval-refresh-preference.md)。

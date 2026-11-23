@@ -15,6 +15,10 @@ describe('approvalStatsRefresh', () => {
     expect(shouldAutoRefresh('hidden')).toBe(false);
   });
 
+  it('暂停后即使页面可见也不自动刷新', () => {
+    expect(shouldAutoRefresh('visible', false)).toBe(false);
+  });
+
   it('没有更新时不伪造时间', () => {
     expect(formatStatsUpdatedAt(null)).toBe('尚未更新');
     expect(formatStatsUpdatedAt(0)).toMatch(/^\d{2}:\d{2}:\d{2}$/);

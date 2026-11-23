@@ -1,8 +1,8 @@
 export const APPROVAL_STATS_REFRESH_MS = 30_000;
 
 /** 只在页面可见时轮询，避免后台标签页持续打接口。 */
-export function shouldAutoRefresh(visibility: DocumentVisibilityState): boolean {
-  return visibility === 'visible';
+export function shouldAutoRefresh(visibility: DocumentVisibilityState, enabled = true): boolean {
+  return enabled && visibility === 'visible';
 }
 
 export function formatStatsUpdatedAt(value: number | null): string {

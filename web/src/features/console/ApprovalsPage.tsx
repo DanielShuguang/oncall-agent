@@ -53,6 +53,9 @@ export default function ApprovalsPage() {
     statsGroupView,
     lastUpdatedAt,
     refreshing,
+    autoRefreshEnabled,
+    autoRefreshError,
+    setAutoRefresh,
     refresh: refreshStats,
   } = useApprovalStats(statsDays, statsGroup);
   const exports = useApprovalExports(status, filters, statsDays, statsGroup);
@@ -250,8 +253,11 @@ export default function ApprovalsPage() {
         statsExportMessage={exports.statsExportMessage}
         lastUpdatedAt={lastUpdatedAt}
         refreshing={refreshing}
+        autoRefreshEnabled={autoRefreshEnabled}
+        autoRefreshError={autoRefreshError}
         onChangeDays={changeStatsDays}
         onChangeGroup={changeStatsGroup}
+        onToggleAutoRefresh={setAutoRefresh}
         onExport={() => void exports.exportStatsCsv()}
         onRefresh={() => void refreshStats()}
       />

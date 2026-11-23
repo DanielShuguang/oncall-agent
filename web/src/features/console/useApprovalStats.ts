@@ -8,6 +8,8 @@ export function useApprovalStats(statsDays: number, statsGroup: StatsGroup) {
   const [statsGroupView, setStatsGroupView] = useState<StatsGroup>(statsGroup);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
+  const [autoRefreshError, setAutoRefreshError] = useState<string | null>(null);
   const statsRequest = useRef(0);
   // 手动刷新单独用令牌管理按钮状态：后台刷新不应把手动刷新卡在「刷新中」。
   const manualRequest = useRef(0);
@@ -21,6 +23,7 @@ export function useApprovalStats(statsDays: number, statsGroup: StatsGroup) {
           setStats(data);
           setStatsGroupView(statsGroup);
           setLastUpdatedAt(Date.now());
+          setAutoRefreshError(null);
         }
         return data;
       })
@@ -28,6 +31,7 @@ export function useApprovalStats(statsDays: number, statsGroup: StatsGroup) {
         if (!cancelled && statsRequest.current === requestId) {
           setStats(null);
           setLastUpdatedAt(null);
+          setAutoRefreshError(null);
         }
       });
     return () => {
@@ -47,12 +51,16 @@ export function useApprovalStats(statsDays: number, statsGroup: StatsGroup) {
           setStats(data);
           setStatsGroupView(statsGroup);
           setLastUpdatedAt(Date.now());
+          setAutoRefreshError(null);
         }
       } catch {
         // 后台刷新失败时保留上一份统计；手动刷新才回到错误空态。
         if (statsRequest.current === requestId && !silent) {
           setStats(null);
           setLastUpdatedAt(null);
+          setAutoRefreshError(null);
+        } else if (statsRequest.current === requestId) {
+          setAutoRefreshError('自动刷新失败，显示上次统计');
         }
       } finally {
         if (!silent && manualRequest.current === manualId) setRefreshing(false);
@@ -61,19 +69,39 @@ export function useApprovalStats(statsDays: number, statsGroup: StatsGroup) {
     [statsDays, statsGroup],
   );
 
+  const setAutoRefresh = useCallback(
+    (enabled: boolean) => {
+      setAutoRefreshEnabled(enabled);
+      if (!enabled) setAutoRefreshError(null);
+      // 重新打开时立即补拉一次，不必等下一个 30 秒。
+      if (enabled) void refresh(true);
+    },
+    [refresh],
+  );
+
   useEffect(() => {
+    if (!autoRefreshEnabled) return;
     const timer = window.setInterval(() => {
-      if (shouldAutoRefresh(document.visibilityState)) void refresh(true);
+      if (shouldAutoRefresh(document.visibilityState, autoRefreshEnabled)) void refresh(true);
     }, APPROVAL_STATS_REFRESH_MS);
     const onVisibilityChange = () => {
-      if (shouldAutoRefresh(document.visibilityState)) void refresh(true);
+      if (shouldAutoRefresh(document.visibilityState, autoRefreshEnabled)) void refresh(true);
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
     return () => {
       window.clearInterval(timer);
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
-  }, [refresh]);
+  }, [autoRefreshEnabled, refresh]);
 
-  return { stats, statsGroupView, lastUpdatedAt, refreshing, refresh };
+  return {
+    stats,
+    statsGroupView,
+    lastUpdatedAt,
+    refreshing,
+    autoRefreshEnabled,
+    autoRefreshError,
+    setAutoRefresh,
+    refresh,
+  };
 }

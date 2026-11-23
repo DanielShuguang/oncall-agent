@@ -28,8 +28,11 @@ interface Props {
   statsExportMessage: { text: string; failed: boolean } | null;
   lastUpdatedAt: number | null;
   refreshing: boolean;
+  autoRefreshEnabled: boolean;
+  autoRefreshError: string | null;
   onChangeDays: (days: number) => void;
   onChangeGroup: (group: StatsGroup) => void;
+  onToggleAutoRefresh: (enabled: boolean) => void;
   onExport: () => void;
   onRefresh: () => void;
 }
@@ -43,8 +46,11 @@ export function ApprovalStatsPanel({
   statsExportMessage,
   lastUpdatedAt,
   refreshing,
+  autoRefreshEnabled,
+  autoRefreshError,
   onChangeDays,
   onChangeGroup,
+  onToggleAutoRefresh,
   onExport,
   onRefresh,
 }: Props) {
@@ -93,11 +99,24 @@ export function ApprovalStatsPanel({
         >
           {refreshing ? '刷新中…' : '刷新'}
         </Button>
+        <Button
+          variant={autoRefreshEnabled ? 'secondary' : 'ghost'}
+          size="sm"
+          className="h-8 text-xs"
+          aria-pressed={autoRefreshEnabled}
+          onClick={() => onToggleAutoRefresh(!autoRefreshEnabled)}
+        >
+          自动刷新：{autoRefreshEnabled ? '开' : '关'}
+        </Button>
         <span className="text-[11px] text-muted-foreground" aria-live="polite">
-          更新于 {formatStatsUpdatedAt(lastUpdatedAt)} · 页面可见时每{' '}
-          {APPROVAL_STATS_REFRESH_MS / 1000} 秒自动刷新
+          更新于 {formatStatsUpdatedAt(lastUpdatedAt)} ·{' '}
+          {autoRefreshEnabled
+            ? `页面可见时每 ${APPROVAL_STATS_REFRESH_MS / 1000} 秒自动刷新`
+            : '自动刷新已暂停'}
         </span>
       </div>
+
+      {autoRefreshError && <p className="text-xs text-warn">{autoRefreshError}</p>}
 
       {statsExportMessage && (
         <p className={statsExportMessage.failed ? 'text-xs text-danger' : 'text-xs text-ok'}>

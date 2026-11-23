@@ -29,6 +29,8 @@ export interface HistoryState {
   loadMoreError: string | null;
   /** 失败的后端错误码；CURSOR_EXPIRED 时提供「重新加载」（ADR-0103）。 */
   loadMoreErrorCode: string | null;
+  /** 批量回滚选中的历史 id；刷新/关闭时清空（ADR-0121）。 */
+  selectedIds: number[];
 }
 
 export function formatTime(value: string): string {

@@ -35,7 +35,10 @@ interface ToolsDialogsProps {
   onLoadMoreHistory: () => void;
   onReloadExpiredHistory: () => void;
   onExportHistory: () => void;
-  onPreviewRollback: (change: ToolChange) => void;
+  onPreviewRollback: (change: ToolChange, batchIds?: number[]) => void;
+  onToggleHistorySelection: (changeId: number) => void;
+  onBatchRollback: () => void;
+  batchRolling: boolean;
   rollingBackId: number | null;
   rollbackMessage: string | null;
   rollbackError: string | null;
@@ -55,6 +58,9 @@ export function ToolsDialogs({
   onReloadExpiredHistory,
   onExportHistory,
   onPreviewRollback,
+  onToggleHistorySelection,
+  onBatchRollback,
+  batchRolling,
   rollingBackId,
   rollbackMessage,
   rollbackError,
@@ -185,65 +191,86 @@ export function ToolsDialogs({
                 : '还没有配置变更记录。'}
             </div>
           ) : (
-            <div className="max-h-96 space-y-2 overflow-auto">
-              {history?.items.map((item) => (
-                <div key={item.id} className="rounded-md border p-2 text-xs">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge variant="outline">{sourceLabel(item.source)}</Badge>
-                    <span className="text-muted-foreground">{formatTime(item.changed_at)}</span>
-                    <span className="font-mono">{item.changed_by}</span>
-                  </div>
-                  <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-muted-foreground">
-                      {describeSnapshot(item.before)} → {describeSnapshot(item.after)}
-                    </span>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={rollingBackId === item.id}
-                      onClick={() => onPreviewRollback(item)}
-                    >
-                      {rollingBackId === item.id ? '回滚中…' : '回滚'}
-                    </Button>
-                  </div>
-                </div>
-              ))}
-              {rollbackMessage && (
-                <div className="rounded-md border border-ok/30 bg-ok/5 p-2 text-xs text-ok">
-                  {rollbackMessage}
-                </div>
-              )}
-              {rollbackError && (
-                <div className="rounded-md border border-danger/30 bg-danger/5 p-2 text-xs text-danger">
-                  {rollbackError}
-                </div>
-              )}
-              {history?.loadMoreError && (
-                <div className="flex flex-wrap items-center gap-2 text-xs text-danger">
-                  <span>{history.loadMoreError}</span>
-                  {history.loadMoreErrorCode === 'CURSOR_EXPIRED' && (
-                    <Button size="sm" variant="outline" onClick={onReloadExpiredHistory}>
-                      重新加载
-                    </Button>
-                  )}
-                </div>
-              )}
-              <div className="flex items-center justify-between gap-2 pt-1 text-xs text-muted-foreground">
-                <span>
-                  {history?.total === null || history?.total === undefined
-                    ? `已加载 ${history?.items.length ?? 0} 条`
-                    : `共 ${history.total} 条 · 已加载 ${history.items.length} 条`}
-                </span>
-                {history?.nextCursor && (
+            <div className="space-y-2">
+              {(history?.selectedIds.length ?? 0) > 0 && (
+                <div className="flex items-center justify-between gap-2 rounded-md border border-brand/30 bg-brand/5 p-2 text-xs">
+                  <span>已选 {history?.selectedIds.length} 条，回滚到最早一条之前</span>
                   <Button
                     size="sm"
                     variant="outline"
-                    disabled={history.loadingMore}
-                    onClick={onLoadMoreHistory}
+                    disabled={batchRolling}
+                    onClick={onBatchRollback}
                   >
-                    {history.loadingMore ? '加载中…' : '加载更多'}
+                    {batchRolling ? '回滚中…' : '批量回滚'}
                   </Button>
+                </div>
+              )}
+              <div className="max-h-96 space-y-2 overflow-auto">
+                {history?.items.map((item) => (
+                  <div key={item.id} className="rounded-md border p-2 text-xs">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <input
+                        type="checkbox"
+                        aria-label={`选择变更 ${item.id}`}
+                        checked={history.selectedIds.includes(item.id)}
+                        onChange={() => onToggleHistorySelection(item.id)}
+                      />
+                      <Badge variant="outline">{sourceLabel(item.source)}</Badge>
+                      <span className="text-muted-foreground">{formatTime(item.changed_at)}</span>
+                      <span className="font-mono">{item.changed_by}</span>
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-muted-foreground">
+                        {describeSnapshot(item.before)} → {describeSnapshot(item.after)}
+                      </span>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={rollingBackId === item.id}
+                        onClick={() => onPreviewRollback(item)}
+                      >
+                        {rollingBackId === item.id ? '回滚中…' : '回滚'}
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+                {rollbackMessage && (
+                  <div className="rounded-md border border-ok/30 bg-ok/5 p-2 text-xs text-ok">
+                    {rollbackMessage}
+                  </div>
                 )}
+                {rollbackError && (
+                  <div className="rounded-md border border-danger/30 bg-danger/5 p-2 text-xs text-danger">
+                    {rollbackError}
+                  </div>
+                )}
+                {history?.loadMoreError && (
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-danger">
+                    <span>{history.loadMoreError}</span>
+                    {history.loadMoreErrorCode === 'CURSOR_EXPIRED' && (
+                      <Button size="sm" variant="outline" onClick={onReloadExpiredHistory}>
+                        重新加载
+                      </Button>
+                    )}
+                  </div>
+                )}
+                <div className="flex items-center justify-between gap-2 pt-1 text-xs text-muted-foreground">
+                  <span>
+                    {history?.total === null || history?.total === undefined
+                      ? `已加载 ${history?.items.length ?? 0} 条`
+                      : `共 ${history.total} 条 · 已加载 ${history.items.length} 条`}
+                  </span>
+                  {history?.nextCursor && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={history.loadingMore}
+                      onClick={onLoadMoreHistory}
+                    >
+                      {history.loadingMore ? '加载中…' : '加载更多'}
+                    </Button>
+                  )}
+                </div>
               </div>
             </div>
           )}

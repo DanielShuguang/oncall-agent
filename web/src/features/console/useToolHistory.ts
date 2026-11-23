@@ -51,6 +51,7 @@ export function useToolHistory() {
       loadingMore: false,
       loadMoreError: null,
       loadMoreErrorCode: null,
+      selectedIds: [],
     });
     void (async () => {
       try {
@@ -228,6 +229,22 @@ export function useToolHistory() {
     }
   };
 
+  const clearHistorySelection = () => {
+    setHistory((current) =>
+      current && current.selectedIds.length > 0 ? { ...current, selectedIds: [] } : current,
+    );
+  };
+
+  const toggleHistorySelection = (changeId: number) => {
+    setHistory((current) => {
+      if (!current) return current;
+      const selected = current.selectedIds.includes(changeId)
+        ? current.selectedIds.filter((id) => id !== changeId)
+        : [...current.selectedIds, changeId];
+      return { ...current, selectedIds: selected };
+    });
+  };
+
   return {
     history,
     setHistory,
@@ -240,5 +257,7 @@ export function useToolHistory() {
     reloadExpiredHistory,
     closeHistory,
     exportHistory,
+    clearHistorySelection,
+    toggleHistorySelection,
   };
 }

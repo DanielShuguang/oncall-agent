@@ -70,6 +70,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | PATCH | `/admin/tools/{name}` | 启用/禁用工具（`enabled: null` 恢复默认） | W5 D22 |
 | GET | `/admin/tools/{name}/history` | 工具配置变更历史（谁在何时把启用/角色改成什么；支持 UTC 日期/变更人/来源过滤与最新/最早排序） | W6 后补 |
 | POST | `/admin/tools/{name}/history/{change_id}/rollback` | 回滚到该条变更发生前的配置；追加一条新历史，不改旧记录 | W6 后补 |
+| POST | `/admin/tools/{name}/history/batch-rollback` | 批量回滚到选中记录中最早一条发生前的配置；最多 50 条，只追加一条历史 | W6 后补 |
 | GET | `/admin/tools/{name}/history/{change_id}/preview` | 只读预览：代码默认、当前覆盖、回滚目标、是否可回滚 | W6 后补 |
 | POST | `/admin/tools/{name}/test` | 工具试调用（强制走治理链路） | W5 D22 |
 | GET | `/admin/perm-matrix` | 角色 × 工具矩阵 | W3 D12 / W5 D23 |

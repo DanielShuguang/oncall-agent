@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import {
   exampleArgs,
+  batchRollbackToolChanges,
   listTools,
   rollbackToolChange,
   testTool,
@@ -23,9 +24,11 @@ export default function ToolsPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [rollingBackId, setRollingBackId] = useState<number | null>(null);
+  const [batchRolling, setBatchRolling] = useState(false);
   const [rollbackMessage, setRollbackMessage] = useState<string | null>(null);
   const [rollbackError, setRollbackError] = useState<string | null>(null);
   const [previewChange, setPreviewChange] = useState<ToolChange | null>(null);
+  const [previewBatchIds, setPreviewBatchIds] = useState<number[] | null>(null);
   const [tester, setTester] = useState<TestState | null>(null);
   const {
     history,
@@ -34,6 +37,7 @@ export default function ToolsPage() {
     historyExportMessage,
     openHistory,
     reloadHistory,
+    toggleHistorySelection,
     clearHistoryFilters,
     loadMoreHistory,
     reloadExpiredHistory,
@@ -84,20 +88,45 @@ export default function ToolsPage() {
     setRollbackMessage(null);
     setRollbackError(null);
     setPreviewChange(null);
+    setPreviewBatchIds(null);
     openHistory(tool);
   };
 
-  const openRollbackPreview = (change: ToolChange) => {
+  const openRollbackPreview = (change: ToolChange, batchIds?: number[]) => {
     setRollbackError(null);
+    setPreviewBatchIds(batchIds ?? null);
     setPreviewChange(change);
   };
 
-  const onRollback = async (changeId: number) => {
+  const onRollback = async (changeId: number, batchIds?: number[]) => {
     if (!history) return;
     setPreviewChange(null);
-    setRollingBackId(changeId);
+    setPreviewBatchIds(null);
     setRollbackMessage(null);
     setRollbackError(null);
+    if (batchIds && batchIds.length > 0) {
+      setBatchRolling(true);
+      try {
+        const result = await batchRollbackToolChanges(history.tool.name, batchIds);
+        const updated = await listTools();
+        setTools(updated.items);
+        setNotice(
+          result.changed
+            ? `${result.tool_name} 已批量回滚 ${result.rolled_back} 条；当前实例立即生效，多副本部署下最多 2 秒生效。`
+            : `${result.tool_name} 已是目标状态，未新增回滚记录。`,
+        );
+        setRollbackMessage(
+          result.changed ? '已批量回滚，历史中新增一条回滚记录。' : '当前已是目标状态。',
+        );
+        await reloadHistory();
+      } catch (exc) {
+        setRollbackError(exc instanceof Error ? exc.message : '批量回滚失败');
+      } finally {
+        setBatchRolling(false);
+      }
+      return;
+    }
+    setRollingBackId(changeId);
     try {
       const updated = await rollbackToolChange(history.tool.name, changeId);
       setTools((current) => current.map((item) => (item.name === updated.name ? updated : item)));
@@ -109,6 +138,18 @@ export default function ToolsPage() {
     } finally {
       setRollingBackId(null);
     }
+  };
+
+  const onBatchRollback = () => {
+    if (!history || history.selectedIds.length === 0) return;
+    const selected = history.items.filter((item) => history.selectedIds.includes(item.id));
+    if (selected.length === 0) return;
+    const earliest = selected.reduce((min, item) =>
+      item.changed_at < min.changed_at || (item.changed_at === min.changed_at && item.id < min.id)
+        ? item
+        : min,
+    );
+    openRollbackPreview(earliest, history.selectedIds);
   };
   const onReset = async (tool: ToolInfo) => {
     setBusy(tool.name);
@@ -219,6 +260,9 @@ export default function ToolsPage() {
         onLoadMoreHistory={loadMoreHistory}
         onReloadExpiredHistory={reloadExpiredHistory}
         onPreviewRollback={openRollbackPreview}
+        onToggleHistorySelection={toggleHistorySelection}
+        onBatchRollback={onBatchRollback}
+        batchRolling={batchRolling}
         rollingBackId={rollingBackId}
         rollbackMessage={rollbackMessage}
         rollbackError={rollbackError}
@@ -230,9 +274,13 @@ export default function ToolsPage() {
 
       <RollbackPreviewDialog
         change={previewChange}
-        onClose={() => setPreviewChange(null)}
+        batchCount={previewBatchIds?.length ?? null}
+        onClose={() => {
+          setPreviewChange(null);
+          setPreviewBatchIds(null);
+        }}
         onConfirm={() => {
-          if (previewChange) void onRollback(previewChange.id);
+          if (previewChange) void onRollback(previewChange.id, previewBatchIds ?? undefined);
         }}
       />
     </div>

@@ -189,6 +189,66 @@ async def test_rollback_restores_before_snapshot(client: AsyncClient) -> None:
     assert after_body["rollbackable"] is True
 
 
+async def test_batch_rollback_targets_earliest_before(client: AsyncClient) -> None:
+    first = await client.patch(
+        "/api/admin/tools/query_cmdb", headers=ADMIN, json={"enabled": False}
+    )
+    assert first.status_code == 200
+    second = await client.put(
+        "/api/admin/perm-matrix",
+        headers=ADMIN,
+        json={"tools": [{"name": "query_cmdb", "enabled": True, "roles": ["admin"]}]},
+    )
+    assert second.status_code == 200
+    items = await _history(client)
+    assert len(items) == 2
+    older_id = items[-1]["id"]
+    newer_id = items[0]["id"]
+
+    res = await client.post(
+        "/api/admin/tools/query_cmdb/history/batch-rollback",
+        headers=ADMIN,
+        json={"change_ids": [newer_id, older_id, older_id]},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["tool_name"] == "query_cmdb"
+    assert body["rolled_back"] == 2
+    assert body["changed"] is True
+    assert body["target"] is None
+
+    tool_list = await client.get("/api/admin/tools", headers=ADMIN)
+    assert tool_list.status_code == 200
+    tool = next(item for item in tool_list.json()["items"] if item["name"] == "query_cmdb")
+    assert tool["overridden"] is False
+    assert tool["enabled"] is True
+
+    latest = (await _history(client))[0]
+    assert latest["source"] == "rollback"
+    assert latest["before"] == {"enabled": None, "roles": ["admin"]}
+    assert latest["after"] is None
+
+    empty = await client.post(
+        "/api/admin/tools/query_cmdb/history/batch-rollback",
+        headers=ADMIN,
+        json={"change_ids": []},
+    )
+    assert empty.status_code == 422
+    forbidden = await client.post(
+        "/api/admin/tools/query_cmdb/history/batch-rollback",
+        headers=EMPLOYEE,
+        json={"change_ids": [older_id]},
+    )
+    assert forbidden.status_code == 403
+    unknown = await client.post(
+        "/api/admin/tools/query_cmdb/history/batch-rollback",
+        headers=ADMIN,
+        json={"change_ids": [9999]},
+    )
+    assert unknown.status_code == 404
+    assert unknown.json()["code"] == "HISTORY_NOT_FOUND"
+
+
 async def test_rollback_rejects_unknown_history_and_employee(client: AsyncClient) -> None:
     res = await client.post("/api/admin/tools/ghost/history/1/rollback", headers=ADMIN)
     assert res.status_code == 404

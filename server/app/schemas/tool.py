@@ -72,6 +72,23 @@ class ToolRollbackPreviewOut(BaseModel):
     reason: str | None = None
 
 
+class ToolBatchRollbackRequest(BaseModel):
+    """批量回滚：按 id 选中多条历史，回滚到最早一条之前（ADR-0121）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    change_ids: list[int] = Field(min_length=1, max_length=50)
+
+
+class ToolBatchRollbackOut(BaseModel):
+    """批量回滚结果；target 是这次真正写入的覆盖，null 表示删除覆盖。"""
+
+    tool_name: str
+    rolled_back: int
+    changed: bool
+    target: ToolOverrideSnapshot | None = None
+
+
 class ToolUpdateRequest(BaseModel):
     """PATCH 只允许改启用开关；角色走权限矩阵，schema 属于代码契约。
 

@@ -34,6 +34,8 @@ from app.schemas.tool import (
     PermMatrixTool,
     PermMatrixUpdateRequest,
     PermMatrixUpdateResponse,
+    ToolBatchRollbackOut,
+    ToolBatchRollbackRequest,
     ToolChangeOut,
     ToolHistoryResponse,
     ToolListResponse,
@@ -497,6 +499,66 @@ async def rollback_tool_setting(
         spec,
         policy.effective_spec(spec, override),
         overridden=override is not None,
+    )
+
+
+@router.post("/tools/{name}/history/batch-rollback")
+async def rollback_tool_setting_batch(
+    name: Annotated[str, Path(min_length=1, max_length=64)],
+    body: ToolBatchRollbackRequest,
+    policy: Annotated[ToolPolicy, Depends(get_tool_policy)],
+    admin: Annotated[Identity, Depends(require_admin)],
+) -> ToolBatchRollbackOut:
+    """批量回滚到选中历史中最早一条发生前的状态（ADR-0121）。"""
+    spec = default_registry().try_get(name)
+    if spec is None:
+        raise ApiError(404, "TOOL_NOT_FOUND", "工具未注册")
+    change_ids = list(dict.fromkeys(body.change_ids))
+    try:
+        records = []
+        for change_id in change_ids:
+            record = await policy.get_history(name, change_id)
+            if record is None:
+                raise ApiError(404, "HISTORY_NOT_FOUND", "变更记录不存在")
+            records.append(record)
+        records.sort(key=lambda record: (record.changed_at, record.id))
+        target = _override_from_snapshot(
+            None if records[0].before is None else ToolOverrideSnapshot(**records[0].before)
+        )
+        if target is not None and target.enabled is True and not spec.enabled:
+            raise ApiError(422, "TOOL_LOCKED", "该工具在代码中已禁用，不能通过回滚开启")
+        current = (await policy.overrides(force=True, allow_stale=False)).get(name)
+        if current != target:
+            change = ToolSettingChange(
+                tool_name=name,
+                changed_by=admin.user_id,
+                source="rollback",
+                before=override_snapshot(current),
+                after=override_snapshot(target),
+            )
+            await policy.set_override(name, target, updated_by=admin.user_id, change=change)
+            rolled_back = len(change_ids)
+        else:
+            rolled_back = 0
+    except SQLAlchemyError as exc:
+        log.error(
+            "tool_setting_batch_rollback_failed",
+            tool=name,
+            change_ids=change_ids,
+            error=str(exc),
+        )
+        raise ApiError(503, "DATABASE_UNAVAILABLE", "工具配置回滚失败，请稍后重试") from exc
+    log.info(
+        "tool_setting_batch_rolled_back",
+        tool=name,
+        change_ids=change_ids,
+        by=admin.user_id,
+    )
+    return ToolBatchRollbackOut(
+        tool_name=name,
+        rolled_back=rolled_back,
+        changed=rolled_back > 0,
+        target=_override_out(target),
     )
 
 

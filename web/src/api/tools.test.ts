@@ -3,6 +3,7 @@ import {
   exampleArgs,
   exportToolHistoryCsv,
   getToolHistory,
+  batchRollbackToolChanges,
   previewToolRollback,
   rollbackToolChange,
   testTool,
@@ -61,6 +62,22 @@ describe('tools api', () => {
     const [url, init] = fetchMock.mock.calls[0] ?? [];
     expect(url).toBe('/api/admin/tools/query_cmdb/history/7/rollback');
     expect(init?.method).toBe('POST');
+  });
+  it('批量回滚 POST 到 batch-rollback 路径并带 id 列表', async () => {
+    const fetchMock = stubFetch({
+      tool_name: 'query_cmdb',
+      rolled_back: 2,
+      changed: true,
+      target: null,
+    });
+
+    const res = await batchRollbackToolChanges('query_cmdb', [7, 3]);
+
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(url).toBe('/api/admin/tools/query_cmdb/history/batch-rollback');
+    expect(init?.method).toBe('POST');
+    expect(JSON.parse(String(init?.body))).toEqual({ change_ids: [7, 3] });
+    expect(res.rolled_back).toBe(2);
   });
   it('回滚预览 GET 到 preview 路径', async () => {
     const fetchMock = stubFetch({

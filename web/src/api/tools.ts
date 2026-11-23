@@ -111,6 +111,23 @@ export async function exportToolHistoryCsv(
   };
 }
 
+export interface ToolBatchRollbackResult {
+  tool_name: string;
+  rolled_back: number;
+  changed: boolean;
+  target: ToolOverrideSnapshot | null;
+}
+
+export function batchRollbackToolChanges(
+  name: string,
+  changeIds: number[],
+): Promise<ToolBatchRollbackResult> {
+  return postJson<ToolBatchRollbackResult>(
+    `/admin/tools/${encodeURIComponent(name)}/history/batch-rollback`,
+    { change_ids: changeIds },
+  );
+}
+
 export function rollbackToolChange(name: string, changeId: number): Promise<ToolInfo> {
   return postJson<ToolInfo>(
     `/admin/tools/${encodeURIComponent(name)}/history/${changeId}/rollback`,

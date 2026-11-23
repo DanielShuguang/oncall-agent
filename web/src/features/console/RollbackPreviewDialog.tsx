@@ -15,6 +15,7 @@ import { describeSnapshot, formatTime } from './toolHistoryFormat';
 
 interface RollbackPreviewDialogProps {
   change: ToolChange | null;
+  batchCount?: number | null;
   onClose: () => void;
   onConfirm: () => void;
 }
@@ -29,7 +30,12 @@ interface PreviewError {
   message: string;
 }
 
-export function RollbackPreviewDialog({ change, onClose, onConfirm }: RollbackPreviewDialogProps) {
+export function RollbackPreviewDialog({
+  change,
+  batchCount = null,
+  onClose,
+  onConfirm,
+}: RollbackPreviewDialogProps) {
   const [preview, setPreview] = useState<PreviewState | null>(null);
   const [previewError, setPreviewError] = useState<PreviewError | null>(null);
   const showPreview = change !== null && preview?.changeId === change.id ? preview.data : null;
@@ -79,10 +85,11 @@ export function RollbackPreviewDialog({ change, onClose, onConfirm }: RollbackPr
     <Dialog open={change !== null} onOpenChange={(open) => (!open ? handleClose() : undefined)}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>确认回滚</DialogTitle>
+          <DialogTitle>{batchCount ? `批量回滚 ${batchCount} 条` : '确认回滚'}</DialogTitle>
           <DialogDescription>
-            将 {change?.tool_name} 回滚到 {change ? formatTime(change.changed_at) : ''}{' '}
-            这条变更发生前的配置。
+            {batchCount
+              ? `将 ${change?.tool_name ?? ''} 回滚到选中记录中最早一条发生前的配置；其余选中记录一并撤销。`
+              : `将 ${change?.tool_name ?? ''} 回滚到 ${change ? formatTime(change.changed_at) : ''} 这条变更发生前的配置。`}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-2 text-sm">

@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   APPROVAL_STATS_AUTO_REFRESH_STORAGE_KEY,
   APPROVAL_STATS_REFRESH_INTERVAL_STORAGE_KEY,
-  APPROVAL_STATS_REFRESH_MS,
+  APPROVAL_STATS_REFRESH_INTERVAL_OPTIONS,
+  DEFAULT_APPROVAL_STATS_REFRESH_SECONDS,
   clearApprovalStatsAutoRefresh,
   clearApprovalStatsRefreshInterval,
   formatStatsUpdatedAt,
@@ -14,8 +15,9 @@ import {
 } from './approvalStatsRefresh';
 
 describe('approvalStatsRefresh', () => {
-  it('每 30 秒刷新一次', () => {
-    expect(APPROVAL_STATS_REFRESH_MS).toBe(30_000);
+  it('默认 30 秒，只提供 15/30/60 三档', () => {
+    expect(DEFAULT_APPROVAL_STATS_REFRESH_SECONDS).toBe(30);
+    expect(APPROVAL_STATS_REFRESH_INTERVAL_OPTIONS).toEqual([15, 30, 60]);
   });
 
   it('只在页面可见时自动刷新', () => {

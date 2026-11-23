@@ -228,7 +228,7 @@ oncall/
 | 工具配置变更历史回滚（ADR-0112） | ✅ 已完成 | `POST /admin/tools/{name}/history/{change_id}/rollback` 读取该条 `before` 快照写回：`before=null` 删除覆盖，代码禁用工具不能回滚开启；有变化才追加一条 `source="rollback"` 新历史（ADR-0114），不改旧记录；前端历史行「回滚」先打开差异预览确认框（ADR-0113）后执行，并刷新列表/历史；无迁移；[ADR-0112](docs/decisions/0112-tool-setting-rollback.md) |
 | 回滚前差异预览（ADR-0113） | ✅ 已完成 | 历史行「回滚」打开确认 Dialog，展示记录时配置、回滚目标与「实际 before 可能不同」；取消不写，确认后执行；纯前端，无迁移；[ADR-0113](docs/decisions/0113-rollback-preview.md) |
 | 回滚来源独立（ADR-0114） | ✅ 已完成 | 回滚追加 `source="rollback"`；普通 PATCH 仍 `tool`、矩阵仍 `matrix`；历史/导出 `source` 枚举扩为 3 种；旧回滚记录保持 `tool`，不回填；无迁移；[ADR-0114](docs/decisions/0114-tool-rollback-source.md) |
-| 审批统计自动刷新（ADR-0115） | ✅ 已完成 | 审批统计在页面可见时每 30 秒自动刷新，重新可见立即补拉；显示「更新于 HH:mm:ss」与手动「刷新」；自动刷新失败保留上一份统计，手动失败才清空；无后端/迁移；[ADR-0115](docs/decisions/0115-approval-stats-auto-refresh.md) |
+| 审批统计自动刷新（ADR-0115） | ✅ 已完成 | 审批统计在页面可见时默认每 30 秒自动刷新（可配 15/30/60 秒，ADR-0123），重新可见立即补拉；显示「更新于 HH:mm:ss」与手动「刷新」；自动刷新失败保留上一份统计，手动失败才清空；无后端/迁移；[ADR-0115](docs/decisions/0115-approval-stats-auto-refresh.md) |
 | 审批统计自动刷新开关与失败提示（ADR-0116） | ✅ 已完成 | 统计区增加「自动刷新：开/关」，关闭时移除定时器与可见性监听，重开立即补拉；自动刷新失败显示提示并保留旧统计，手动失败才清空；开关按浏览器记住（ADR-0122）；无后端/迁移；[ADR-0116](docs/decisions/0116-approval-stats-auto-refresh-toggle.md) |
 | 回滚预览读取执行瞬间当前配置（ADR-0117） | ✅ 已完成 | 新增只读 `GET /admin/tools/{name}/history/{change_id}/preview`，返回当前覆盖、回滚目标、是否变化、是否可回滚与原因；Dialog 打开即读，读取中/失败/相同/不可回滚时禁用确认；执行仍重新读取；无迁移；[ADR-0117](docs/decisions/0117-rollback-current-preview.md) |
 | 置顶/导出审计页记住日期预设（ADR-0118） | ✅ 已完成 | 两页各自使用独立 `localStorage` key（`oncall.pin-audit-date-preset.v1`、`oncall.export-audit-date-preset.v1`），打开即应用上次预设；只存预设 ID，手填非预设窗口/清除删除；三页互不覆盖，切换账号时统一清理；无后端/迁移；[ADR-0118](docs/decisions/0118-audit-preset-memory.md) |

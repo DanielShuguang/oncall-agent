@@ -95,6 +95,7 @@ export function useApprovalStats(statsDays: number, statsGroup: StatsGroup) {
   const setRefreshInterval = useCallback((seconds: ApprovalStatsRefreshSeconds) => {
     setRefreshIntervalState(seconds);
     writeApprovalStatsRefreshInterval(seconds);
+    setAutoRefreshError(null);
   }, []);
 
   useEffect(() => {

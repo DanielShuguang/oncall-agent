@@ -59,6 +59,8 @@ class ToolRollbackPreviewOut(BaseModel):
 
     tool_name: str
     change_id: int
+    #: 工具代码里的默认配置；current=null 时用它判断实际生效值
+    code_default: ToolOverrideSnapshot
     #: 预览时读到的当前覆盖；null = 没有覆盖，走代码默认
     current: ToolOverrideSnapshot | None = None
     #: 回滚后将写入的覆盖；null = 删除覆盖

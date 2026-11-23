@@ -136,6 +136,7 @@ async def test_rollback_restores_before_snapshot(client: AsyncClient) -> None:
     preview_body = preview.json()
     assert preview_body["tool_name"] == "query_cmdb"
     assert preview_body["change_id"] == change_id
+    assert preview_body["code_default"] == {"enabled": True, "roles": []}
     assert preview_body["current"] == {"enabled": False, "roles": None}
     assert preview_body["target"] is None
     assert preview_body["changed"] is True
@@ -181,6 +182,7 @@ async def test_rollback_restores_before_snapshot(client: AsyncClient) -> None:
     )
     assert after_preview.status_code == 200
     after_body = after_preview.json()
+    assert after_body["code_default"] == {"enabled": True, "roles": []}
     assert after_body["current"] is None
     assert after_body["target"] is None
     assert after_body["changed"] is False

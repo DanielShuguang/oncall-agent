@@ -444,6 +444,7 @@ async def preview_tool_rollback(
     return ToolRollbackPreviewOut(
         tool_name=name,
         change_id=change_id,
+        code_default=ToolOverrideSnapshot(enabled=spec.enabled, roles=list(spec.roles)),
         current=_override_out(current),
         target=_override_out(target),
         changed=current != target,

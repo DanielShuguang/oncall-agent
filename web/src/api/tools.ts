@@ -121,6 +121,7 @@ export function rollbackToolChange(name: string, changeId: number): Promise<Tool
 export interface ToolRollbackPreview {
   tool_name: string;
   change_id: number;
+  code_default: ToolOverrideSnapshot;
   current: ToolOverrideSnapshot | null;
   target: ToolOverrideSnapshot | null;
   changed: boolean;

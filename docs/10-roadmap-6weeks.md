@@ -2589,6 +2589,27 @@ Dialog 打开时读取当前覆盖、目标、是否变化与是否可回滚；�
 详见 [ADR-0117](decisions/0117-rollback-current-preview.md)。
 
 ---
+
+## W6 后补：回滚预览附带代码默认配置（ADR-0120）
+
+`current=null` 只表示「没有覆盖」，管理员看不到工具代码里的默认启用状态和默认角色。预览响应
+增加 `code_default`，Dialog 增加「代码默认配置」行；`current=null` 时显示「无覆盖，按代码默认生效」。
+
+| 事项 | 落地 |
+|---|---|
+| 接口 | `GET /admin/tools/{name}/history/{change_id}/preview` 增加必填 `code_default` |
+| 字段 | `enabled` 来自 `ToolSpec.enabled`；`roles` 来自 `ToolSpec.roles`，`[]` 表示所有登录用户 |
+| 前端 | Dialog 展示代码默认；无覆盖时解释按默认生效，不把 `null` 误读为禁用 |
+| 只读 | 不查库、不写历史/审计；执行回滚仍以执行瞬间当前配置为准 |
+| 范围 | 不新增表/迁移、不做批量预览；`code_default` 只用于确认预览 |
+
+验证：后端默认 537+42、PG-only 576+3、PG+Redis 579；ruff 210 / format 210 / mypy 119；
+前端 33 files/167 tests、`tsc`、`oxlint` 0/0（148 files）、`oxfmt --check` 156 files、
+`pnpm build`（2949 modules）通过。
+
+详见 [ADR-0120](decisions/0120-rollback-code-default.md)。
+
+---
 ## 每周固定动作
 
 | 时点 | 动作 |

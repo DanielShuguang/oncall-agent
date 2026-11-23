@@ -91,12 +91,20 @@ export function RollbackPreviewDialog({ change, onClose, onConfirm }: RollbackPr
             <span className="font-mono">{describeSnapshot(change?.after ?? null)}</span>
           </div>
           <div className="rounded-md border border-line bg-canvas p-2">
+            <span className="text-muted-foreground">代码默认配置：</span>{' '}
+            <span className="font-mono">
+              {showPreview ? describeSnapshot(showPreview.code_default) : '读取中…'}
+            </span>
+          </div>
+          <div className="rounded-md border border-line bg-canvas p-2">
             <span className="text-muted-foreground">执行瞬间当前配置：</span>{' '}
             <span className="font-mono">
               {loading
                 ? '读取中…'
                 : showPreview
-                  ? describeSnapshot(showPreview.current)
+                  ? showPreview.current
+                    ? describeSnapshot(showPreview.current)
+                    : '无覆盖，按代码默认生效'
                   : '读取失败'}
             </span>
           </div>

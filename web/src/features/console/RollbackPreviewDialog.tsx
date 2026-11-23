@@ -93,7 +93,11 @@ export function RollbackPreviewDialog({ change, onClose, onConfirm }: RollbackPr
           <div className="rounded-md border border-line bg-canvas p-2">
             <span className="text-muted-foreground">代码默认配置：</span>{' '}
             <span className="font-mono">
-              {showPreview ? describeSnapshot(showPreview.code_default) : '读取中…'}
+              {loading
+                ? '读取中…'
+                : showPreview
+                  ? describeSnapshot(showPreview.code_default)
+                  : '读取失败'}
             </span>
           </div>
           <div className="rounded-md border border-line bg-canvas p-2">

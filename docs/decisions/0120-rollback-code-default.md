@@ -27,7 +27,7 @@ ADR-0117 的待定项已经记录了这一点：是否在预览响应里附带�
 2. 预览接口始终返回代码默认，即使 `current` 有覆盖也不省略，便于对照。
 3. 前端回滚 Dialog 增加「代码默认配置」行；`current=null` 时显示「无覆盖，按代码默认生效」，
    不再只显示一个容易误读的「代码默认」。
-4. 只读语义不变：`code_default` 只来自已注册的 `ToolSpec`，不查库、不写历史/审计。
+4. 只读语义不变：`code_default` 本身只来自已注册的 `ToolSpec`，不查库、不写历史/审计；整个预览接口仍读取当前覆盖，库不可用返回 503。
 5. 回滚执行仍重新读取当前配置；`code_default` 只用于确认预览时的解释，不作为执行依据。
 
 ## 后果
@@ -41,7 +41,7 @@ ADR-0117 的待定项已经记录了这一点：是否在预览响应里附带�
 - `server/tests/test_tool_history.py` 的回滚预览断言增加
   `code_default == {"enabled": true, "roles": []}`（`query_cmdb` 代码默认启用、所有登录用户）。
 - 前端 `RollbackPreviewDialog` 展示代码默认与无覆盖提示；现有预览测试继续通过。
-- 默认/PG/PG+Redis 与 ruff/format/mypy 沿用 ADR-0117 基线，本次不改迁移。
+- 默认 537+42 已跑；本次无 store/迁移改动，PG-only/PG+Redis 未重跑，沿用 ADR-0117 基线 576+3/579；ruff/format/mypy 通过。
 
 ## 待定
 

@@ -2600,10 +2600,11 @@ Dialog 打开时读取当前覆盖、目标、是否变化与是否可回滚；�
 | 接口 | `GET /admin/tools/{name}/history/{change_id}/preview` 增加必填 `code_default` |
 | 字段 | `enabled` 来自 `ToolSpec.enabled`；`roles` 来自 `ToolSpec.roles`，`[]` 表示所有登录用户 |
 | 前端 | Dialog 展示代码默认；无覆盖时解释按默认生效，不把 `null` 误读为禁用 |
-| 只读 | 不查库、不写历史/审计；执行回滚仍以执行瞬间当前配置为准 |
+| 只读 | 不写历史/审计/配置；仍读取当前覆盖（库不可用 503），执行回滚仍以执行瞬间当前配置为准 |
 | 范围 | 不新增表/迁移、不做批量预览；`code_default` 只用于确认预览 |
 
-验证：后端默认 537+42、PG-only 576+3、PG+Redis 579；ruff 210 / format 210 / mypy 119；
+验证：后端默认 537+42（本次无 store/迁移改动，PG-only/PG+Redis 未重跑，沿用 ADR-0117 基线 576+3/579）；
+ruff 210 / format 210 / mypy 119；
 前端 33 files/167 tests、`tsc`、`oxlint` 0/0（148 files）、`oxfmt --check` 156 files、
 `pnpm build`（2949 modules）通过。
 

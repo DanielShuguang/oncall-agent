@@ -15,10 +15,11 @@ import {
   auditDatePresetRange,
   clearAuditDatePresetFor,
   PIN_AUDIT_DATE_PRESET_STORAGE_KEY,
-  readAuditDatePresetFor,
   writeAuditDatePresetFor,
   type AuditDatePreset,
 } from './auditDatePresets';
+import { clearPinAuditFilterMemory, writePinAuditFilterMemory } from './auditPageFilterMemory';
+import { initialPinAuditState } from './pinAuditInitialState';
 import {
   EMPTY_PIN_AUDIT_DRAFT,
   PinAuditFilterCard,
@@ -30,18 +31,6 @@ import { usePinAuditExport } from './usePinAuditExport';
 
 const PAGE_SIZE = 20;
 
-function initialPinAuditState(): {
-  filters: SessionPinAuditFilters;
-  draft: PinAuditDraft;
-} {
-  const preset = readAuditDatePresetFor(PIN_AUDIT_DATE_PRESET_STORAGE_KEY);
-  if (!preset) return { filters: {}, draft: EMPTY_PIN_AUDIT_DRAFT };
-  const range = auditDatePresetRange(preset);
-  return {
-    filters: { createdFrom: range.from, createdTo: range.to },
-    draft: { ...EMPTY_PIN_AUDIT_DRAFT, from: range.from, to: range.to },
-  };
-}
 export default function PinAuditPage() {
   const [initial] = useState(initialPinAuditState);
   const [filters, setFilters] = useState<SessionPinAuditFilters>(initial.filters);
@@ -178,6 +167,7 @@ export default function PinAuditPage() {
       nextDraft.from && nextDraft.to ? activeAuditDatePreset(nextDraft.from, nextDraft.to) : null;
     if (preset) writeAuditDatePresetFor(PIN_AUDIT_DATE_PRESET_STORAGE_KEY, preset);
     else clearAuditDatePresetFor(PIN_AUDIT_DATE_PRESET_STORAGE_KEY);
+    writePinAuditFilterMemory({ userId, sessionId, action: nextDraft.action });
     // 立即清空旧行，避免 setFilters 生效前的一帧仍显示旧过滤结果。
     listRequest.current += 1;
     setItems([]);
@@ -214,6 +204,7 @@ export default function PinAuditPage() {
 
   const clearFilters = () => {
     clearAuditDatePresetFor(PIN_AUDIT_DATE_PRESET_STORAGE_KEY);
+    clearPinAuditFilterMemory();
     setDraft(EMPTY_PIN_AUDIT_DRAFT);
     setStatsDays(30);
     setFilterError(null);

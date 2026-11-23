@@ -5,6 +5,10 @@ import {
   PIN_AUDIT_DATE_PRESET_STORAGE_KEY,
 } from '@/features/console/auditDatePresets';
 import { AUDIT_FILTER_MEMORY_KEY } from '@/features/console/auditFilterMemory';
+import {
+  EXPORT_AUDIT_FILTER_STORAGE_KEY,
+  PIN_AUDIT_FILTER_STORAGE_KEY,
+} from '@/features/console/auditPageFilterMemory';
 import { LAST_SESSION_KEY } from '@/features/chat/lastSession';
 import { clearLocalPreferences } from './localPreferences';
 
@@ -16,6 +20,8 @@ describe('clearLocalPreferences', () => {
     storage.setItem(AUDIT_DATE_PRESET_STORAGE_KEY, 'last7');
     storage.setItem(PIN_AUDIT_DATE_PRESET_STORAGE_KEY, 'last30');
     storage.setItem(EXPORT_AUDIT_DATE_PRESET_STORAGE_KEY, 'lastMonth');
+    storage.setItem(PIN_AUDIT_FILTER_STORAGE_KEY, '{"userId":"u_1"}');
+    storage.setItem(EXPORT_AUDIT_FILTER_STORAGE_KEY, '{"userId":"u_2"}');
     storage.setItem('oncall.token', 'keep-token');
     storage.setItem('unrelated', 'keep');
 
@@ -26,6 +32,8 @@ describe('clearLocalPreferences', () => {
     expect(storage.getItem(AUDIT_DATE_PRESET_STORAGE_KEY)).toBeNull();
     expect(storage.getItem(PIN_AUDIT_DATE_PRESET_STORAGE_KEY)).toBeNull();
     expect(storage.getItem(EXPORT_AUDIT_DATE_PRESET_STORAGE_KEY)).toBeNull();
+    expect(storage.getItem(PIN_AUDIT_FILTER_STORAGE_KEY)).toBeNull();
+    expect(storage.getItem(EXPORT_AUDIT_FILTER_STORAGE_KEY)).toBeNull();
     expect(storage.getItem('oncall.token')).toBe('keep-token');
     expect(storage.getItem('unrelated')).toBe('keep');
   });

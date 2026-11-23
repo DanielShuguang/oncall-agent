@@ -27,6 +27,11 @@ import {
   writeAuditDatePresetFor,
   type AuditDatePreset,
 } from './auditDatePresets';
+import {
+  clearExportAuditFilterMemory,
+  readExportAuditFilterMemory,
+  writeExportAuditFilterMemory,
+} from './auditPageFilterMemory';
 import { ExportAuditFilterBar } from './ExportAuditFilterBar';
 import {
   EMPTY_EXPORT_AUDIT_DRAFT,
@@ -50,12 +55,15 @@ function initialExportAuditState(): {
   filters: ExportAuditFilters;
 } {
   const preset = readAuditDatePresetFor(EXPORT_AUDIT_DATE_PRESET_STORAGE_KEY);
-  if (!preset) return { draft: EMPTY_EXPORT_AUDIT_DRAFT, filters: {} };
-  const range = auditDatePresetRange(preset);
-  return {
-    draft: { ...EMPTY_EXPORT_AUDIT_DRAFT, createdFrom: range.from, createdTo: range.to },
-    filters: { createdFrom: range.from, createdTo: range.to },
+  const range = preset ? auditDatePresetRange(preset) : null;
+  const memory = readExportAuditFilterMemory();
+  if (!range && !memory) return { draft: EMPTY_EXPORT_AUDIT_DRAFT, filters: {} };
+  const draft = {
+    ...EMPTY_EXPORT_AUDIT_DRAFT,
+    ...(memory ? { userId: memory.userId, resource: memory.resource } : {}),
+    ...(range ? { createdFrom: range.from, createdTo: range.to } : {}),
   };
+  return { draft, filters: toExportAuditFilters(draft) };
 }
 export default function ExportAuditsPage() {
   const [initial] = useState(initialExportAuditState);
@@ -110,6 +118,7 @@ export default function ExportAuditsPage() {
         : null;
     if (preset) writeAuditDatePresetFor(EXPORT_AUDIT_DATE_PRESET_STORAGE_KEY, preset);
     else clearAuditDatePresetFor(EXPORT_AUDIT_DATE_PRESET_STORAGE_KEY);
+    writeExportAuditFilterMemory({ userId: next.userId, resource: next.resource });
     exports.invalidate();
     requestRef.current += 1;
     setItems([]);
@@ -128,6 +137,7 @@ export default function ExportAuditsPage() {
 
   const clearFilters = () => {
     clearAuditDatePresetFor(EXPORT_AUDIT_DATE_PRESET_STORAGE_KEY);
+    clearExportAuditFilterMemory();
     setFilterError(null);
     exports.invalidate();
     requestRef.current += 1;

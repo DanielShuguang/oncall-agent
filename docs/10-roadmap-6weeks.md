@@ -2632,3 +2632,23 @@ Dialog 打开时读取当前覆盖、目标、是否变化与是否可回滚；�
 验证：前端 32 files / 163 tests、`oxlint` 0/0（145 files）、`oxfmt --check` 153 files、
 `build` 2947 modules；后端未改 537+42 / 576+3 / 579。
 详见 [ADR-0118](decisions/0118-audit-preset-memory.md)。
+
+
+## W6 后补：置顶/导出审计页记住非日期过滤（ADR-0119）
+
+ADR-0118 只记住两页的日期预设；用户、会话、动作（置顶/取消）以及导出页的资源过滤刷新仍丢。
+本 ADR 给两页各加独立过滤 key，只存非日期字段，日期继续由 ADR-0118 管理。
+
+| 事项 | 落地 |
+|---|---|
+| key | `oncall.pin-audit-filters.v1`、`oncall.export-audit-filters.v1`；与日期预设 key 分离 |
+| 置顶页 | 记住 `userId`/`sessionId`/`action`（`all|pin|unpin`） |
+| 导出页 | 记住 `userId`/`resource`（空字符串=全部资源） |
+| 读取 | 打开时与日期预设合并为初始筛选；trim、id 长度 1–64、非法枚举忽略、损坏 JSON 回退空过滤 |
+| 写入 | 点「筛选/应用」时写入本页 key；清除筛选同时删过滤与日期 key；只改日期时对象过滤保留 |
+| 清理 | 切换账号时 `clearLocalPreferences` 删除两个新 key |
+| 范围 | 不存日期、不跨页共享、不等同服务端权限；无后端/迁移 |
+
+验证：前端 33 files / 167 tests、`oxlint` 0/0（148 files）、`oxfmt --check` 156 files、
+`build` 2949 modules；后端未改 537+42 / 576+3 / 579。
+详见 [ADR-0119](decisions/0119-audit-page-filter-memory.md)。

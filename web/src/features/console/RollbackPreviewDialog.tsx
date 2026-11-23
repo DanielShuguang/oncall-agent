@@ -34,8 +34,17 @@ export function RollbackPreviewDialog({ change, onClose, onConfirm }: RollbackPr
   const [previewError, setPreviewError] = useState<PreviewError | null>(null);
   const showPreview = change !== null && preview?.changeId === change.id ? preview.data : null;
   const showError =
-    change !== null && previewError?.changeId === change.id ? previewError.message : null;
+    change !== null && showPreview === null && previewError?.changeId === change.id
+      ? previewError.message
+      : null;
   const loading = change !== null && showPreview === null && showError === null;
+
+  // 关闭时清空预览，避免下次打开同一历史时先展示旧快照、确认按钮提前可用。
+  const handleClose = () => {
+    setPreview(null);
+    setPreviewError(null);
+    onClose();
+  };
 
   useEffect(() => {
     if (!change) return;
@@ -67,7 +76,7 @@ export function RollbackPreviewDialog({ change, onClose, onConfirm }: RollbackPr
     showError === null;
 
   return (
-    <Dialog open={change !== null} onOpenChange={(open) => (!open ? onClose() : undefined)}>
+    <Dialog open={change !== null} onOpenChange={(open) => (!open ? handleClose() : undefined)}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>确认回滚</DialogTitle>
@@ -110,7 +119,7 @@ export function RollbackPreviewDialog({ change, onClose, onConfirm }: RollbackPr
           </p>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
+          <Button variant="outline" onClick={handleClose}>
             取消
           </Button>
           <Button disabled={!canConfirm} onClick={onConfirm}>

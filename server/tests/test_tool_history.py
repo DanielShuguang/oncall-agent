@@ -34,6 +34,9 @@ EMPLOYEE = auth_headers(user_id="u_102", roles=("employee",))
 
 
 class _FailingHistoryStore:
+    async def get_history(self, name: str, change_id: int) -> ToolSettingChangeRecord | None:
+        raise SQLAlchemyError("database down")
+
     async def history(
         self,
         name: str,
@@ -232,10 +235,13 @@ async def test_history_returns_503_when_store_fails(
     mem_tool_settings._store = _FailingHistoryStore()  # type: ignore[assignment]
     try:
         res = await client.get("/api/admin/tools/query_cmdb/history", headers=ADMIN)
+        preview = await client.get("/api/admin/tools/query_cmdb/history/1/preview", headers=ADMIN)
     finally:
         mem_tool_settings._store = original  # type: ignore[assignment]
     assert res.status_code == 503
     assert res.json()["code"] == "DATABASE_UNAVAILABLE"
+    assert preview.status_code == 503
+    assert preview.json()["code"] == "DATABASE_UNAVAILABLE"
 
 
 async def test_in_memory_store_orders_and_limits_history() -> None:

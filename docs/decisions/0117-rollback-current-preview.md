@@ -26,7 +26,8 @@ ADR-0113 的确认 Dialog 展示的是「记录时的变更后快照」（`chang
      `rollbackable=false` 与原因，而不是 422；执行阶段仍返回 422 `TOOL_LOCKED`。
 3. 预览是只读操作：不写历史、不写审计、不改配置；库不可用返回 503。
 4. Dialog 打开时请求预览；读取中、读取失败、`changed=false` 或 `rollbackable=false`
-   时禁用「确认回滚」。取消不产生任何请求副作用。
+   时禁用「确认回滚」。关闭时清空预览与错误，下次打开同一历史重新加载，避免旧快照
+   提前点亮确认按钮。取消不产生任何请求副作用。
 5. 执行回滚时服务端仍重新读取当前配置并以那时为准；预览与执行之间可能被其他管理员
    改动，因此预览是建议值，不是 CAS 或锁。
 6. 不新增表/迁移；不改变回滚请求/响应契约。
@@ -41,7 +42,7 @@ ADR-0113 的确认 Dialog 展示的是「记录时的变更后快照」（`chang
 
 - `server/tests/test_tool_history.py`：回滚前预览返回 `current/target/changed/rollbackable`；
   回滚后同一预览 `changed=false`；未知工具 404 `TOOL_NOT_FOUND`、未知历史 404
-  `HISTORY_NOT_FOUND`、员工 403。
+  `HISTORY_NOT_FOUND`、员工 403、存储失败 503。
 - `web/src/api/tools.test.ts`：预览 GET 路径。
 - 前端 `pnpm test` 32 files/162 tests、`tsc`、`oxlint` 0/0（145 files）、`oxfmt --check`
   153 files、`pnpm build` 2947 modules；后端默认 537+42、PG-only 576+3、PG+Redis 579；

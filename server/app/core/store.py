@@ -205,6 +205,7 @@ class SessionRestoreAuditDayStats:
     day: date
     restores: int
     sessions: int
+    repinned: int = 0
 
 
 @dataclass(frozen=True)
@@ -1711,9 +1712,10 @@ class InMemoryRunStore:
             sessions += record.restored_count
             repinned += record.repinned_count
             day = record.restored_at.astimezone(UTC).date()
-            bucket = per_day.setdefault(day, [0, 0])
+            bucket = per_day.setdefault(day, [0, 0, 0])
             bucket[0] += 1
             bucket[1] += record.restored_count
+            bucket[2] += record.repinned_count
         return SessionRestoreAuditStats(
             since=since,
             until=until,
@@ -1722,7 +1724,12 @@ class InMemoryRunStore:
             sessions=sessions,
             repinned=repinned,
             daily=tuple(
-                SessionRestoreAuditDayStats(day=day, restores=values[0], sessions=values[1])
+                SessionRestoreAuditDayStats(
+                    day=day,
+                    restores=values[0],
+                    sessions=values[1],
+                    repinned=values[2],
+                )
                 for day, values in sorted(per_day.items())
             ),
         )
@@ -3028,6 +3035,7 @@ class PostgresRunStore:
                 day_column,
                 func.count(),
                 func.coalesce(func.sum(SessionRestoreAuditRow.restored_count), 0),
+                func.coalesce(func.sum(SessionRestoreAuditRow.repinned_count), 0),
             )
             .where(*conditions)
             .group_by(day_column)
@@ -3048,6 +3056,7 @@ class PostgresRunStore:
                     day=row[0] if isinstance(row[0], date) else date.fromisoformat(str(row[0])),
                     restores=int(row[1]),
                     sessions=int(row[2]),
+                    repinned=int(row[3]),
                 )
                 for row in rows
             ),

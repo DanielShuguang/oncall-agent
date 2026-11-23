@@ -103,9 +103,29 @@ export function AuditStatsCard({
           </p>
         ) : null}
         {stats && !loading && !error ? (
-          <p className="text-[11px] text-muted-foreground">
-            UTC 日期；{stats.daily.length} 个日期有恢复记录。统计跟随下方已应用的过滤。
-          </p>
+          <div className="space-y-1">
+            <p className="text-[11px] text-muted-foreground">
+              UTC 日期；{stats.daily.length} 个日期有恢复记录。统计跟随下方已应用的过滤。
+            </p>
+            {stats.daily.length > 0 ? (
+              <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-[11px] text-muted-foreground sm:grid-cols-4">
+                <span className="font-medium text-foreground">
+                  最近 {Math.min(7, stats.daily.length)} 天
+                </span>
+                <span>恢复</span>
+                <span>会话</span>
+                <span>置顶</span>
+                {stats.daily.slice(-7).map((day) => (
+                  <div key={day.day} className="contents">
+                    <span className="font-mono">{day.day.slice(5)}</span>
+                    <span>{day.restores}</span>
+                    <span>{day.sessions}</span>
+                    <span>{day.repinned}</span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
         ) : null}
         {message ? (
           <p className={message.failed ? 'text-xs text-danger' : 'text-xs text-ok'}>

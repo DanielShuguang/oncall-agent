@@ -2422,14 +2422,14 @@ ADR-0108 让恢复时按容量尽力恢复置顶，但审计只记恢复会话�
 
 ADR-0109 让每条恢复审计记录实际恢复的置顶数，但统计卡只有操作/用户/会话三个汇总；
 容量是否吃紧仍要逐行相加。ADR-0110 在统计接口、CSV 与前端统计卡补一个窗口内
-`repinned` 总和，与既有 `restores`/`users`/`sessions` 同窗口、同过滤，不新增日趋势。
+`repinned` 总和，与既有 `restores`/`users`/`sessions` 同窗口、同过滤；当时不新增日趋势，按日 `repinned` 后由 ADR-0125 补上。
 
 | 事项 | 落地 |
 |---|---|
 | 汇总 | `SessionRestoreAuditStats.repinned` 为窗口内 `repinned_count` 之和；内存遍历、PG `coalesce(sum(...),0)` |
 | 接口 | `/admin/session-restores/stats` 增加 `repinned`，旧客户端可忽略 |
 | CSV | `summary` 增加 `repinned` 行；响应头增加 `X-Export-Repinned` |
-| 前端 | 恢复审计统计卡增加「恢复置顶」第四项，仅总数，不做日趋势 |
+| 前端 | 恢复审计统计卡增加「恢复置顶」第四项，当时仅总数；按日小表由 ADR-0125 补上 |
 | 范围 | 无迁移；旧审计行按 0 计算；不做按日/按小时/按用户趋势；未恢复置顶数提示见 ADR-0111 |
 
 验证：默认 535+42、PG 574+3、PG+Redis 577；ruff 210 / format 210 / mypy 119；
@@ -2450,7 +2450,7 @@ ADR-0109 让每条恢复审计记录实际恢复的置顶数，但统计卡只�
 | 派生 | `countUnrestoredPins(stats)` 纯函数；不改 API、不加迁移 |
 | 展示 | 恢复审计统计卡在差值 > 0 时提示「其中 N 个恢复会话未恢复置顶（原本未置顶或容量不足）」 |
 | 语义 | 不把差值称为失败；`repinned > sessions` 的异常值按 0 兜底 |
-| 范围 | 不做比例条、日趋势、按用户拆分 |
+| 范围 | 不做比例条、按用户拆分；按日趋势由 ADR-0125 补上 |
 
 验证：后端未改；前端 30 files / 152 tests、`tsc`、`oxlint`、`oxfmt --check` 149 files、
 `pnpm build` 2945 modules。
@@ -2733,3 +2733,17 @@ ADR-0118 只记住两页的日期预设；用户、会话、动作（置顶/取�
 验证：前端 33 files / 174 tests、`tsc`、`oxlint` 0/0（149 files）、`oxfmt --check` 157 files、`pnpm build` 2951 modules；后端未改 538+42 / 577+3 / 580。
 
 详见 [ADR-0124](decisions/0124-approval-refresh-custom-interval.md)。
+
+## W6 后补：恢复审计统计的按日恢复置顶数（ADR-0125）
+
+| 事项 | 落地 |
+|---|---|
+| 数据 | `SessionRestoreAuditDayStats` 增加 `repinned`；与 `restores`/`sessions` 同一 UTC 日/窗口/过滤 |
+| 后端 | 内存按日累加 `repinned_count`；PG 日聚合增加 `coalesce(sum(repinned_count), 0)`；无迁移 |
+| 接口 | `/stats` 的 `daily` 每项增加 `repinned`；统计 CSV 每个日期增加 `("daily","repinned",day,value)` |
+| 前端 | 统计卡在总数下展示最近 7 个有活动的 UTC 日期（恢复/会话/置顶四列） |
+| 范围 | 不做图表、按小时、未恢复置顶日均；日汇总之和与窗口总 `repinned` 一致 |
+
+验证：后端 `test_admin_sessions.py` 14 passed；默认 538+42 / PG 577+3 / PG+Redis 580；前端 33 files/174 tests、`tsc`、`oxlint` 0/0（149 files）、`oxfmt --check` 157 files、`build` 2951 modules。
+
+详见 [ADR-0125](decisions/0125-restore-audit-daily-repinned.md)。

@@ -15,10 +15,10 @@ ADR-0109 已为每条恢复审计记录 `repinned_count`，但审计页顶部统
 ## 决策
 
 1. `SessionRestoreAuditStats` 增加 `repinned`，为窗口内过滤后记录的 `repinned_count` 之和；与 `restores`/`users`/`sessions` 同一窗口。
-2. 内存实现遍历已过滤 records 累加；PG 在汇总查询增加 `coalesce(sum(repinned_count), 0)`，不新增日趋势字段。
+2. 内存实现遍历已过滤 records 累加；PG 在汇总查询增加 `coalesce(sum(repinned_count), 0)`。本 ADR 当时不新增日趋势字段；按日 `repinned` 由 ADR-0125 补上。
 3. `SessionRestoreAuditStatsOut` 增加 `repinned: int = 0`，旧客户端可忽略。
 4. 统计 CSV 的 `summary` 增加 `repinned` 行；响应头增加 `X-Export-Repinned`，与既有 `X-Export-*` 一致。
-5. 前端统计卡增加「恢复置顶」第四项，仅显示总数，不做按日/按小时趋势。
+5. 前端统计卡增加「恢复置顶」第四项，仅显示总数。当时不做按日/按小时趋势；按日小表由 ADR-0125 补上，按小时仍未做。
 6. 无迁移；`repinned` 不是独立审计表，仍以 `session_restore_audits.repinned_count` 为唯一事实源。
 
 ## 后果
@@ -26,7 +26,7 @@ ADR-0109 已为每条恢复审计记录 `repinned_count`，但审计页顶部统
 - 旧审计行的 `repinned_count` 为 0，因此统计也按 0 计入；历史窗口无法区分「当时未置顶」和「容量不足」。
 - `repinned` 只表示恢复了置顶的会话数，不能反推恢复总数；需要同时看 `sessions`。
 - 新增字段是向后兼容的；旧前端忽略，不影响其它统计。
-- 不做日趋势，避免把 `daily` 从两个指标扩成三个后再为每个日期补零。
+- 当时不做日趋势，避免把 `daily` 从两个指标扩成三个后再为每个日期补零；按日 `repinned` 后由 ADR-0125 增加，仍只列有活动的日期。
 
 ## 验证
 
@@ -38,6 +38,6 @@ ADR-0109 已为每条恢复审计记录 `repinned_count`，但审计页顶部统
 
 ## 待定
 
-- 是否给 `daily` 增加恢复置顶趋势；
+- ~~是否给 `daily` 增加恢复置顶趋势~~ 已由 ADR-0125 补上；
 - 是否在统计卡标注「恢复置顶 / 恢复会话」比例；
 - 容量不足时是否在统计卡提示「有会话恢复但未置顶」——已由 ADR-0111 增加未恢复置顶数提示；仍不判断具体原因。

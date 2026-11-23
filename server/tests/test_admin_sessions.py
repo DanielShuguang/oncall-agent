@@ -640,6 +640,7 @@ async def test_session_restore_audit_stats(
     assert body["since"] and body["until"]
     assert sum(day["restores"] for day in body["daily"]) == 2
     assert sum(day["sessions"] for day in body["daily"]) == 2
+    assert sum(day["repinned"] for day in body["daily"]) == 0
     assert all(len(day["day"]) == 10 for day in body["daily"])
 
     month = await client.get(
@@ -654,6 +655,7 @@ async def test_session_restore_audit_stats(
     assert month_body["repinned"] == 3
     assert sum(day["restores"] for day in month_body["daily"]) == 3
     assert sum(day["sessions"] for day in month_body["daily"]) == 6
+    assert sum(day["repinned"] for day in month_body["daily"]) == 3
     days = [day["day"] for day in month_body["daily"]]
     assert days == sorted(days)
     assert len(days) == 2
@@ -738,9 +740,10 @@ async def test_export_session_restore_audit_stats_csv(
     summary = {row[1]: row[3] for row in rows if row[0] == "summary"}
     assert summary == {"restores": "2", "users": "2", "sessions": "2", "repinned": "1"}
     daily = [row for row in rows if row[0] == "daily"]
-    assert {row[1] for row in daily} == {"restores", "sessions"}
+    assert {row[1] for row in daily} == {"restores", "sessions", "repinned"}
     assert sum(int(row[3]) for row in daily if row[1] == "restores") == 2
     assert sum(int(row[3]) for row in daily if row[1] == "sessions") == 2
+    assert sum(int(row[3]) for row in daily if row[1] == "repinned") == 1
 
     filtered = await client.get(
         "/api/admin/session-restores/stats/export",

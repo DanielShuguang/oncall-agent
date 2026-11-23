@@ -159,6 +159,7 @@ def _stats_csv(
     for day in stats.daily:
         rows.append(("daily", "restores", day.day, day.restores))
         rows.append(("daily", "sessions", day.day, day.sessions))
+        rows.append(("daily", "repinned", day.day, day.repinned))
     return csv_document(STATS_CSV_HEADERS, rows)
 
 
@@ -243,7 +244,12 @@ async def session_restore_stats(
         sessions=stats.sessions,
         repinned=stats.repinned,
         daily=[
-            SessionRestoreAuditDayOut(day=day.day, restores=day.restores, sessions=day.sessions)
+            SessionRestoreAuditDayOut(
+                day=day.day,
+                restores=day.restores,
+                sessions=day.sessions,
+                repinned=day.repinned,
+            )
             for day in stats.daily
         ],
     )

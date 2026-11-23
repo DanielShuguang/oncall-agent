@@ -1,4 +1,9 @@
-import { clearLastAuditDatePreset } from '@/features/console/auditDatePresets';
+import {
+  EXPORT_AUDIT_DATE_PRESET_STORAGE_KEY,
+  PIN_AUDIT_DATE_PRESET_STORAGE_KEY,
+  clearAuditDatePresetFor,
+  clearLastAuditDatePreset,
+} from '@/features/console/auditDatePresets';
 import { clearAuditFilterMemory } from '@/features/console/auditFilterMemory';
 import { clearLastSession } from '@/features/chat/lastSession';
 
@@ -10,6 +15,8 @@ export function clearLocalPreferences(storage: PreferenceStorage | null = defaul
   clearLastSession(storage);
   clearAuditFilterMemory(storage);
   clearLastAuditDatePreset(storage);
+  clearAuditDatePresetFor(PIN_AUDIT_DATE_PRESET_STORAGE_KEY, storage);
+  clearAuditDatePresetFor(EXPORT_AUDIT_DATE_PRESET_STORAGE_KEY, storage);
 }
 
 function defaultStorage(): PreferenceStorage | null {

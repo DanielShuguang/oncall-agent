@@ -22,7 +22,7 @@
 | — | [eval/multiturn-v2](eval/multiturn-v2.md) | 多轮评测基线（指代 + 话题切换 + 隔离对照，ADR-0024/0025） | 改 history / 检索参数前 |
 | — | [eval/multiturn-v1](eval/multiturn-v1.md) | 多轮历史基线（ADR-0025 修复前，9 条） | 只看历史对比 |
 | — | [eval/baseline-v0](eval/baseline-v0.md) | W2 历史基线（20 条） | 只看历史对比 |
-| — | [decisions/](decisions/) | 117 篇 ADR：为什么 React / Python / LangGraph / pgvector / SSE / Tailwind+oxc / 依赖版本 / shadcn / Postgres 存储 / 本地 JWT / 离线 RAG 向量化 / 显式调度 / 自研模型网关 / 工具覆盖存库 / 私有化交付 / 审批事务 / 孤儿 run 回收 / 引用全文预览 / 文档级可见性 / 多轮上下文 / 数据保留 / 回答内容回收 / 正文按时间保留 / 多轮评测 / 追问原句优先 / 按用户日预算 / 审批快照保留 / 预算可观测性 / 工单自助查询 / 会话列表 / 历史引用回放 / PDF 解析子进程隔离 / 会话历史分页 / 资产查询接表 / 历史运行过程回放 / 批量会话详情 / 工具配置变更历史 / 工单详情查询 / 会话搜索 / 会话重命名 / 会话从列表移除 / 历史引用回填 / 已移除会话恢复 / 运行过程载荷上限 / 运行过程筛选与耗时聚合 / 审批等待时长 / 已移除会话分页与搜索 / 审批积压与等待统计 / 已移除会话批量恢复 / 审批统计按日趋势 / 审批统计按工具/审批人分组 / 审批列表分页 / 已办审批按决议时间排序 / 已办审批筛选 / 批量恢复逐条结果 / 审批列表导出 CSV / 审批列表首屏总数 / 审批统计按小时分布 / 会话恢复审计 / 会话恢复审计分页 / 恢复审计按 session 反查 / 恢复审计 CSV 导出 / 恢复审计管理页 / 恢复审计列表总数 / 恢复审计统计 / 恢复审计统计按过滤 / 恢复审计按日期范围 / 审批统计聚合导出 / 会话置顶 / 恢复审计统计导出、审计日期快捷预设 / 会话批量移除 / 会话置顶上限 / 置顶容量提示、记住审计日期预设 / 窄屏会话抽屉 / 抽屉焦点陷阱 / 记住审计过滤与统计窗口、刷新恢复上次会话、切换账号清理本地偏好 / 置顶审计、分页、保留清理、CSV 导出、管理页、日期过滤、按日统计与首屏总数、统计跟随过滤、统计 CSV 导出、置顶审计日期快捷预设、置顶审计按小时分布、置顶上限可配置、CSV 导出下载审计、导出审计保留清理、导出审计列表 CSV、导出 CSV 内容哈希、工具历史日期筛选、工具历史 CSV 导出、工具历史分页与总数、工具历史变更人/来源过滤、工具历史游标过期、工具历史游标过期后的重新加载、窄屏会话抽屉左滑关闭、工具历史游标 TTL 可配置、工具历史双向排序、导出审计日期快捷预设、恢复已移除会话时恢复置顶、恢复审计统计的恢复置顶汇总、恢复审计统计未恢复置顶提示、工具配置变更历史回滚、回滚前差异预览、回滚来源独立、审批统计自动刷新、审批统计自动刷新开关与失败提示、回滚预览读取执行瞬间当前配置 | 面试前重读 |
+| — | [decisions/](decisions/) | 118 篇 ADR：为什么 React / Python / LangGraph / pgvector / SSE / Tailwind+oxc / 依赖版本 / shadcn / Postgres 存储 / 本地 JWT / 离线 RAG 向量化 / 显式调度 / 自研模型网关 / 工具覆盖存库 / 私有化交付 / 审批事务 / 孤儿 run 回收 / 引用全文预览 / 文档级可见性 / 多轮上下文 / 数据保留 / 回答内容回收 / 正文按时间保留 / 多轮评测 / 追问原句优先 / 按用户日预算 / 审批快照保留 / 预算可观测性 / 工单自助查询 / 会话列表 / 历史引用回放 / PDF 解析子进程隔离 / 会话历史分页 / 资产查询接表 / 历史运行过程回放 / 批量会话详情 / 工具配置变更历史 / 工单详情查询 / 会话搜索 / 会话重命名 / 会话从列表移除 / 历史引用回填 / 已移除会话恢复 / 运行过程载荷上限 / 运行过程筛选与耗时聚合 / 审批等待时长 / 已移除会话分页与搜索 / 审批积压与等待统计 / 已移除会话批量恢复 / 审批统计按日趋势 / 审批统计按工具/审批人分组 / 审批列表分页 / 已办审批按决议时间排序 / 已办审批筛选 / 批量恢复逐条结果 / 审批列表导出 CSV / 审批列表首屏总数 / 审批统计按小时分布 / 会话恢复审计 / 会话恢复审计分页 / 恢复审计按 session 反查 / 恢复审计 CSV 导出 / 恢复审计管理页 / 恢复审计列表总数 / 恢复审计统计 / 恢复审计统计按过滤 / 恢复审计按日期范围 / 审批统计聚合导出 / 会话置顶 / 恢复审计统计导出、审计日期快捷预设 / 会话批量移除 / 会话置顶上限 / 置顶容量提示、记住审计日期预设 / 窄屏会话抽屉 / 抽屉焦点陷阱 / 记住审计过滤与统计窗口、刷新恢复上次会话、切换账号清理本地偏好 / 置顶审计、分页、保留清理、CSV 导出、管理页、日期过滤、按日统计与首屏总数、统计跟随过滤、统计 CSV 导出、置顶审计日期快捷预设、置顶审计按小时分布、置顶上限可配置、CSV 导出下载审计、导出审计保留清理、导出审计列表 CSV、导出 CSV 内容哈希、工具历史日期筛选、工具历史 CSV 导出、工具历史分页与总数、工具历史变更人/来源过滤、工具历史游标过期、工具历史游标过期后的重新加载、窄屏会话抽屉左滑关闭、工具历史游标 TTL 可配置、工具历史双向排序、导出审计日期快捷预设、恢复已移除会话时恢复置顶、恢复审计统计的恢复置顶汇总、恢复审计统计未恢复置顶提示、工具配置变更历史回滚、回滚前差异预览、回滚来源独立、审批统计自动刷新、审批统计自动刷新开关与失败提示、回滚预览读取执行瞬间当前配置、置顶/导出审计页记住日期预设 | 面试前重读 |
 
 ## ADR（Architecture Decision Record）
 
@@ -118,7 +118,7 @@
 | [0088](decisions/0088-session-pin-audit-total.md) | 置顶审计首屏总数 | `GET /admin/session-pins` 第一页返回同过滤 `total`，后续页 null；`count_session_pin_audits` 与列表共用过滤；计数失败 503；无迁移；前端显示「共 N 条 · 已加载 M 条」 |
 | [0089](decisions/0089-session-pin-audit-stats-filters.md) | 置顶审计统计跟随过滤 | `GET /admin/session-pins/stats` 复用列表的 `user_id`/`session_id`/`action`/`created_from`/`created_to`；`days` 可选并与日期范围二选一；过滤后汇总/日趋势同口径；无迁移；管理页统计卡跟随已应用过滤 |
 | [0090](decisions/0090-session-pin-audit-stats-export.md) | 置顶审计统计 CSV 导出 | `GET /admin/session-pins/stats/export`，与 `/stats` 同参数/同窗口；同步长表 `section,key,day,value`，`meta`/`summary`/`daily`，不截断；`X-Export-*` 头；无迁移 |
-| [0091](decisions/0091-pin-audit-date-presets.md) | 置顶审计日期快捷预设 | 复用 ADR-0071 的近 7/30/90 天、本月/上月，按 UTC 一键应用；不持久化、按区间反推高亮；筛选卡/导出状态拆文件，页面 ≤300 行；无后端/迁移 |
+| [0091](decisions/0091-pin-audit-date-presets.md) | 置顶审计日期快捷预设 | 复用 ADR-0071 的近 7/30/90 天、本月/上月，按 UTC 一键应用；上次预设记忆由 ADR-0118 补上；按区间反推高亮；筛选卡/导出状态拆文件，页面 ≤300 行；无后端/迁移 |
 | [0092](decisions/0092-session-pin-audit-hourly.md) | 置顶审计按小时分布 | `/stats` 增加 UTC 小时（0–23）稀疏 `hourly`，与 `daily` 同窗口/过滤；内存/PG 同口径；CSV 增加 `hourly` 段；无迁移；统计卡展示有活动时段 |
 | [0093](decisions/0093-session-pin-limit-config.md) | 置顶上限可配置 | `ONCALL_SESSION_PIN_LIMIT`（默认 50）经 `build_store` 注入内存/PG；`GET /sessions` 返回实际 `pin_limit`，409 用实际上限；启动期拒绝 `<1`；无迁移 |
 | [0094](decisions/0094-export-download-audit.md) | CSV 导出下载审计 | 迁移 `0023` 新增 `export_audits`；6 个导出端点成功后记录 `user_id`/`resource`/`filters`/`row_count`/`truncated`；写失败 503（fail closed）；管理员 `GET /admin/export-audits` 按用户/资源/UTC 日期过滤、keyset 分页、首屏 total；保留 365 天（ADR-0095） |
@@ -134,7 +134,7 @@
 | [0104](decisions/0104-session-drawer-swipe-close.md) | 窄屏会话抽屉左滑关闭 | 松手时按总位移判定：左滑 ≥80px 且水平 ≥ 垂直 1.5 倍；仅 `mobileOpen` 单指，无跟手动画、无依赖/后端/迁移 |
 | [0105](decisions/0105-tool-history-cursor-ttl-config.md) | 工具历史游标 TTL 可配置 | `ONCALL_TOOL_HISTORY_CURSOR_TTL_MINUTES`（默认 60，范围 1–1440）经 `Settings.tool_history_cursor_ttl_s` 注入签发；解码仍只比较绝对 `e`；无迁移 |
 | [0106](decisions/0106-tool-history-order.md) | 工具配置变更历史双向排序 | `/history` 与 `/history/export` 增加 `order=latest|earliest`；latest 用 before 倒序、earliest 用 after 升序；游标指纹纳入 order；无迁移 |
-| [0107](decisions/0107-export-audit-date-presets.md) | 导出审计日期快捷预设 | 导出审计页复用审计页五个 UTC 日期预设，点击即按当前草稿提交；高亮只由已应用过滤反推；不持久化、无后端/迁移 |
+| [0107](decisions/0107-export-audit-date-presets.md) | 导出审计日期快捷预设 | 导出审计页复用审计页五个 UTC 日期预设，点击即按当前草稿提交；高亮只由已应用过滤反推；上次预设记忆由 ADR-0118 补上 |
 | [0108](decisions/0108-hidden-restore-pin.md) | 恢复已移除会话时恢复置顶 | `hidden_sessions.was_pinned` 记录移除时是否置顶（迁移 `0027`）；恢复在用户锁内先删隐藏行并 `RETURNING was_pinned`，再按请求顺序与当前 `pin_limit` 容量尽力恢复；容量不足仍恢复但不置顶；恢复触发的置顶不写显式审计；旧行默认不恢复 |
 | [0109](decisions/0109-restore-repinned-count.md) | 恢复审计记录恢复置顶数 | `session_restore_audits.repinned_count`（迁移 `0028`）记录恢复时实际恢复的置顶数；CHECK `0..restored_count`；列表/CSV/审计页展示，旧行为 0 |
 | [0110](decisions/0110-restore-audit-repinned-stats.md) | 恢复审计统计的恢复置顶汇总 | 统计接口/CSV 增加窗口内 `repinned` 总和（`0..sessions`）；前端统计卡增加「恢复置顶」；无迁移，旧行按 0 |
@@ -145,6 +145,7 @@
 | [0115](decisions/0115-approval-stats-auto-refresh.md) | 审批统计自动刷新 | 页面可见时每 30 秒刷新审批统计，重新可见立即补拉；显示更新时间和手动刷新；自动刷新失败保留上一份统计；无后端/迁移 |
 | [0116](decisions/0116-approval-stats-auto-refresh-toggle.md) | 审批统计自动刷新开关与失败提示 | 可暂停 30 秒轮询，关闭时移除定时器/可见性监听；重开立即补拉；自动刷新失败保留旧统计并提示；无后端/迁移 |
 | [0117](decisions/0117-rollback-current-preview.md) | 回滚预览读取执行瞬间当前配置 | 新增只读 `GET /admin/tools/{name}/history/{change_id}/preview`；返回 current/target/changed/rollbackable/reason；代码禁用时预览返回不可回滚原因；执行仍重新读取；无迁移 |
+| [0118](decisions/0118-audit-preset-memory.md) | 置顶/导出审计页记住日期预设 | 两页各用独立 `localStorage` key；打开自动应用上次预设；只存预设 ID，手填/清除删除；三页互不覆盖，切换账号清理；无后端/迁移 |
 
 > ADR 的写法：背景 → 方案对比 → 决策 → 后果。面试被问"为什么这么做"时，直接念 ADR。
 

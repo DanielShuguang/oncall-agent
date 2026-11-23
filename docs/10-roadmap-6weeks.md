@@ -2084,7 +2084,7 @@ ADR-0075 只记住日期预设。管理员按用户/会话排查后刷新页面�
 | 入口 | `PinAuditFilterCard` 顶部「快捷日期（UTC）」五个按钮：近 7/30/90 天、本月、上月 |
 | 行为 | 点击把 `createdFrom`/`createdTo` 写入草稿，并调用与「筛选」相同的 `commitFilters`；立即清空旧列表/统计/导出提示 |
 | 高亮 | `activeAuditDatePreset` 只在已应用 `filters.createdFrom/to` 与某预设完全相等时高亮；草稿未应用不提前高亮 |
-| 记忆 | 不持久化，不读写 `oncall.audit-date-preset.v1`；刷新回到空筛选，避免与恢复审计页跨页耦合 |
+| 记忆 | 由 ADR-0118 补上：独立 key `oncall.pin-audit-date-preset.v1`，不读写恢复审计页的 key；只存预设 ID |
 | 组件 | 筛选卡拆到 `PinAuditFilterCard.tsx`，导出状态拆到 `usePinAuditExport.ts`；`PinAuditPage` ≤300 行 |
 | 范围 | 不做自定义区间命名/保存、可配置时区；后端 365 天/UTC 校验不变 |
 | 验证 | 前端 26 files/128 tests、tsc、oxlint 0/0（127 files）、oxfmt 135 files、build 通过；后端未改，沿用 517+40 / 554+3 / 557 |
@@ -2351,9 +2351,9 @@ ADR-0100 只支持从新到旧加载，并留下「是否需要跳到最早/最�
 | 预设 | 近 7/30/90 天、本月、上月；UTC 自然日闭区间，与导出 API 的 `[from 00:00Z, to+1d 00:00Z)` 对齐 |
 | 交互 | 点击预设立即应用（合并当前用户/资源草稿后走同一 `commitFilters`）；日期仍要求两端同时选择 |
 | 高亮 | 只由已应用过滤反推；手填日期但未筛选不提前高亮 |
-| 状态 | 不持久化，刷新回空筛选；无后端/迁移 |
+| 状态 | 由 ADR-0118 补上：独立 key `oncall.export-audit-date-preset.v1`，刷新后自动应用上次预设；无后端/迁移 |
 | 结构 | 筛选卡抽到 `ExportAuditFilterBar`，草稿/转换放到 `exportAuditDraft`，页面 ≤300 行 |
-| 范围 | 不做带时刻的预设、不记忆上次预设、不改导出接口 |
+| 范围 | 不做带时刻的预设；上次预设记忆由 ADR-0118 补上；不改导出接口 |
 | 验证 | 前端 29 files/149 tests、lint 139、format 147、build 2944；后端未改 534+42 / 573+3 / 576 |
 
 详见 [ADR-0107](decisions/0107-export-audit-date-presets.md)。
@@ -2613,3 +2613,22 @@ Dialog 打开时读取当前覆盖、目标、是否变化与是否可回滚；�
 | W4 末成本对不上 | 计量不可信 | 先修埋点，宁可少统计也别统计错 |
 | W5 末后台没做完 | 交付感不足 | 后台降级为"配置文件 + 只读页面" |
 | W6 末跑不起来 | 交付失败 | 用 docker 全量打包，README 只保留一条命令 |
+
+
+## W6 后补：置顶/导出审计页记住日期预设（ADR-0118）
+
+恢复审计页从 ADR-0075 起记住快捷预设；置顶审计（ADR-0091）和导出审计（ADR-0107）页
+只有预设按钮，刷新仍回空筛选。本 ADR 给这两页各加独立 key，记住上次预设。
+
+| 事项 | 落地 |
+|---|---|
+| key | `oncall.pin-audit-date-preset.v1`、`oncall.export-audit-date-preset.v1`；恢复审计页仍用 `oncall.audit-date-preset.v1` |
+| 读取 | 打开页面校验枚举并生成 UTC 日期窗口作为初始筛选，避免先空请求再切预设 |
+| 写入 | 点击预设或「筛选」且日期区间精确匹配预设时写；手填/清除删除 |
+| 保留 | 只改用户/会话/动作过滤不删除；三页互不覆盖 |
+| 清理 | 切换账号时 `clearLocalPreferences` 删除两个新 key |
+| 范围 | 只存预设 ID；不存手填日期；不跨设备；无后端/迁移 |
+
+验证：前端 32 files / 163 tests、`oxlint` 0/0（145 files）、`oxfmt --check` 153 files、
+`build` 2947 modules；后端未改 537+42 / 576+3 / 579。
+详见 [ADR-0118](decisions/0118-audit-preset-memory.md)。

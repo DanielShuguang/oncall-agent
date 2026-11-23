@@ -13,6 +13,10 @@ import {
 import {
   activeAuditDatePreset,
   auditDatePresetRange,
+  clearAuditDatePresetFor,
+  PIN_AUDIT_DATE_PRESET_STORAGE_KEY,
+  readAuditDatePresetFor,
+  writeAuditDatePresetFor,
   type AuditDatePreset,
 } from './auditDatePresets';
 import {
@@ -26,9 +30,22 @@ import { usePinAuditExport } from './usePinAuditExport';
 
 const PAGE_SIZE = 20;
 
+function initialPinAuditState(): {
+  filters: SessionPinAuditFilters;
+  draft: PinAuditDraft;
+} {
+  const preset = readAuditDatePresetFor(PIN_AUDIT_DATE_PRESET_STORAGE_KEY);
+  if (!preset) return { filters: {}, draft: EMPTY_PIN_AUDIT_DRAFT };
+  const range = auditDatePresetRange(preset);
+  return {
+    filters: { createdFrom: range.from, createdTo: range.to },
+    draft: { ...EMPTY_PIN_AUDIT_DRAFT, from: range.from, to: range.to },
+  };
+}
 export default function PinAuditPage() {
-  const [filters, setFilters] = useState<SessionPinAuditFilters>({});
-  const [draft, setDraft] = useState<PinAuditDraft>(EMPTY_PIN_AUDIT_DRAFT);
+  const [initial] = useState(initialPinAuditState);
+  const [filters, setFilters] = useState<SessionPinAuditFilters>(initial.filters);
+  const [draft, setDraft] = useState<PinAuditDraft>(initial.draft);
   const [filterError, setFilterError] = useState<string | null>(null);
   const [items, setItems] = useState<SessionPinAudit[]>([]);
   const [total, setTotal] = useState<number | null>(null);
@@ -157,6 +174,10 @@ export default function PinAuditPage() {
       }
     }
     setFilterError(null);
+    const preset =
+      nextDraft.from && nextDraft.to ? activeAuditDatePreset(nextDraft.from, nextDraft.to) : null;
+    if (preset) writeAuditDatePresetFor(PIN_AUDIT_DATE_PRESET_STORAGE_KEY, preset);
+    else clearAuditDatePresetFor(PIN_AUDIT_DATE_PRESET_STORAGE_KEY);
     // 立即清空旧行，避免 setFilters 生效前的一帧仍显示旧过滤结果。
     listRequest.current += 1;
     setItems([]);
@@ -192,6 +213,7 @@ export default function PinAuditPage() {
   };
 
   const clearFilters = () => {
+    clearAuditDatePresetFor(PIN_AUDIT_DATE_PRESET_STORAGE_KEY);
     setDraft(EMPTY_PIN_AUDIT_DRAFT);
     setStatsDays(30);
     setFilterError(null);

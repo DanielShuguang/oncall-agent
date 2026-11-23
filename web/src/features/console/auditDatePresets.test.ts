@@ -2,10 +2,15 @@ import { describe, expect, it } from 'vitest';
 
 import {
   AUDIT_DATE_PRESET_STORAGE_KEY,
+  EXPORT_AUDIT_DATE_PRESET_STORAGE_KEY,
+  PIN_AUDIT_DATE_PRESET_STORAGE_KEY,
   activeAuditDatePreset,
   auditDatePresetRange,
+  clearAuditDatePresetFor,
   clearLastAuditDatePreset,
+  readAuditDatePresetFor,
   readLastAuditDatePreset,
+  writeAuditDatePresetFor,
   writeLastAuditDatePreset,
 } from './auditDatePresets';
 
@@ -94,6 +99,18 @@ describe('auditDatePreset storage', () => {
     expect(readLastAuditDatePreset(storage)).toBeNull();
   });
 
+  it('keeps per-page preset keys independent', () => {
+    const storage = new MemoryStorage();
+    writeAuditDatePresetFor(PIN_AUDIT_DATE_PRESET_STORAGE_KEY, 'last7', storage);
+    writeAuditDatePresetFor(EXPORT_AUDIT_DATE_PRESET_STORAGE_KEY, 'lastMonth', storage);
+
+    expect(readLastAuditDatePreset(storage)).toBeNull();
+    expect(readAuditDatePresetFor(PIN_AUDIT_DATE_PRESET_STORAGE_KEY, storage)).toBe('last7');
+    expect(readAuditDatePresetFor(EXPORT_AUDIT_DATE_PRESET_STORAGE_KEY, storage)).toBe('lastMonth');
+    clearAuditDatePresetFor(PIN_AUDIT_DATE_PRESET_STORAGE_KEY, storage);
+    expect(readAuditDatePresetFor(PIN_AUDIT_DATE_PRESET_STORAGE_KEY, storage)).toBeNull();
+    expect(readAuditDatePresetFor(EXPORT_AUDIT_DATE_PRESET_STORAGE_KEY, storage)).toBe('lastMonth');
+  });
   it('writes and clears the preset without throwing on unavailable storage', () => {
     const storage = new MemoryStorage();
     writeLastAuditDatePreset('lastMonth', storage);

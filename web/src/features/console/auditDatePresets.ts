@@ -105,3 +105,45 @@ export function clearLastAuditDatePreset(
     // 同 write：清理失败不影响页面状态。
   }
 }
+
+export const PIN_AUDIT_DATE_PRESET_STORAGE_KEY = 'oncall.pin-audit-date-preset.v1';
+export const EXPORT_AUDIT_DATE_PRESET_STORAGE_KEY = 'oncall.export-audit-date-preset.v1';
+
+/** 通用预设记忆：不同审计页用独立 key，避免跨页互相覆盖。 */
+export function readAuditDatePresetFor(
+  key: string,
+  storage: PresetStorage | null = defaultPresetStorage(),
+): AuditDatePreset | null {
+  if (!storage) return null;
+  try {
+    const value = storage.getItem(key);
+    return isAuditDatePreset(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeAuditDatePresetFor(
+  key: string,
+  preset: AuditDatePreset,
+  storage: PresetStorage | null = defaultPresetStorage(),
+): void {
+  if (!storage) return;
+  try {
+    storage.setItem(key, preset);
+  } catch {
+    // 存储不可用时静默降级；当前这次筛选仍然生效。
+  }
+}
+
+export function clearAuditDatePresetFor(
+  key: string,
+  storage: PresetStorage | null = defaultPresetStorage(),
+): void {
+  if (!storage) return;
+  try {
+    storage.removeItem(key);
+  } catch {
+    // 清理失败不影响页面状态。
+  }
+}

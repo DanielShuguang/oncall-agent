@@ -21,6 +21,10 @@ import { formatTime } from '@/lib/format';
 import {
   activeAuditDatePreset,
   auditDatePresetRange,
+  clearAuditDatePresetFor,
+  EXPORT_AUDIT_DATE_PRESET_STORAGE_KEY,
+  readAuditDatePresetFor,
+  writeAuditDatePresetFor,
   type AuditDatePreset,
 } from './auditDatePresets';
 import { ExportAuditFilterBar } from './ExportAuditFilterBar';
@@ -41,9 +45,22 @@ function filterText(filters: Record<string, string>): string {
   return entries.map(([key, value]) => `${key}=${value}`).join(' · ');
 }
 
+function initialExportAuditState(): {
+  draft: ExportAuditDraft;
+  filters: ExportAuditFilters;
+} {
+  const preset = readAuditDatePresetFor(EXPORT_AUDIT_DATE_PRESET_STORAGE_KEY);
+  if (!preset) return { draft: EMPTY_EXPORT_AUDIT_DRAFT, filters: {} };
+  const range = auditDatePresetRange(preset);
+  return {
+    draft: { ...EMPTY_EXPORT_AUDIT_DRAFT, createdFrom: range.from, createdTo: range.to },
+    filters: { createdFrom: range.from, createdTo: range.to },
+  };
+}
 export default function ExportAuditsPage() {
-  const [draft, setDraft] = useState<ExportAuditDraft>(EMPTY_EXPORT_AUDIT_DRAFT);
-  const [filters, setFilters] = useState<ExportAuditFilters>({});
+  const [initial] = useState(initialExportAuditState);
+  const [draft, setDraft] = useState<ExportAuditDraft>(initial.draft);
+  const [filters, setFilters] = useState<ExportAuditFilters>(initial.filters);
   const [items, setItems] = useState<ExportAudit[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [total, setTotal] = useState<number | null>(null);
@@ -87,6 +104,12 @@ export default function ExportAuditsPage() {
       return;
     }
     setFilterError(null);
+    const preset =
+      next.createdFrom && next.createdTo
+        ? activeAuditDatePreset(next.createdFrom, next.createdTo)
+        : null;
+    if (preset) writeAuditDatePresetFor(EXPORT_AUDIT_DATE_PRESET_STORAGE_KEY, preset);
+    else clearAuditDatePresetFor(EXPORT_AUDIT_DATE_PRESET_STORAGE_KEY);
     exports.invalidate();
     requestRef.current += 1;
     setItems([]);
@@ -104,6 +127,7 @@ export default function ExportAuditsPage() {
   };
 
   const clearFilters = () => {
+    clearAuditDatePresetFor(EXPORT_AUDIT_DATE_PRESET_STORAGE_KEY);
     setFilterError(null);
     exports.invalidate();
     requestRef.current += 1;

@@ -198,7 +198,7 @@ export function ToolsDialogs({
                   <Button
                     size="sm"
                     variant="outline"
-                    disabled={batchRolling}
+                    disabled={batchRolling || rollingBackId !== null}
                     onClick={onBatchRollback}
                   >
                     {batchRolling ? '回滚中…' : '批量回滚'}
@@ -213,6 +213,7 @@ export function ToolsDialogs({
                         type="checkbox"
                         aria-label={`选择变更 ${item.id}`}
                         checked={history.selectedIds.includes(item.id)}
+                        disabled={batchRolling || rollingBackId !== null}
                         onChange={() => onToggleHistorySelection(item.id)}
                       />
                       <Badge variant="outline">{sourceLabel(item.source)}</Badge>
@@ -226,7 +227,7 @@ export function ToolsDialogs({
                       <Button
                         size="sm"
                         variant="outline"
-                        disabled={rollingBackId === item.id}
+                        disabled={batchRolling || rollingBackId !== null}
                         onClick={() => onPreviewRollback(item)}
                       >
                         {rollingBackId === item.id ? '回滚中…' : '回滚'}

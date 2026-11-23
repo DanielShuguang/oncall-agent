@@ -2684,7 +2684,7 @@ ADR-0118 只记住两页的日期预设；用户、会话、动作（置顶/取�
 | 返回 | `tool_name` / `rolled_back` / `changed` / `target`；当前已等于目标时 `changed=false` |
 | 历史 | 有变化时只追加一条 `source="rollback"`，不逐条写；旧记录不变 |
 | 错误 | 未知工具/历史 404、员工 403、代码禁用工具不能开启 422 `TOOL_LOCKED`、库不可用 503 |
-| 前端 | 历史行 checkbox 多选；选中 >0 显示「已选 N 条」+批量回滚；确认 Dialog 复用最早一条的预览 |
+| 前端 | 历史行 checkbox 多选；选中 >0 显示「已选 N 条」+批量回滚；确认 Dialog 复用最早一条的预览；批量/单条执行中互相禁用选择与回滚，避免并发写 |
 | 范围 | 不做逐条部分成功、跨工具批量、异步任务、额外批量预览接口；无迁移 |
 
 验证：默认 **538 passed + 42 skipped**、PG-only **577 passed + 3 skipped**、PG+Redis **580 passed**；`ruff check`、`ruff format --check` 210 files、`mypy app` 119 files；前端 33 files/169 tests、build 2950 modules。

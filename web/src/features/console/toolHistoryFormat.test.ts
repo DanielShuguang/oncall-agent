@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { describeSnapshot } from './toolHistoryFormat';
+import { describeSnapshot, sourceLabel } from './toolHistoryFormat';
+
+describe('sourceLabel', () => {
+  it('known sources use readable labels and unknown values pass through', () => {
+    expect(sourceLabel('tool')).toBe('工具开关');
+    expect(sourceLabel('matrix')).toBe('权限矩阵');
+    expect(sourceLabel('rollback')).toBe('回滚');
+    expect(sourceLabel('custom')).toBe('custom');
+  });
+});
 
 describe('describeSnapshot', () => {
   it('null 表示代码默认', () => {

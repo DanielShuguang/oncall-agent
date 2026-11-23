@@ -1,5 +1,7 @@
 /** 审计日期范围快捷预设（ADR-0071）；记住上次选择（ADR-0075）。 */
 
+import { match } from 'ts-pattern';
+
 export type AuditDatePreset = 'last7' | 'last30' | 'last90' | 'thisMonth' | 'lastMonth';
 
 export const AUDIT_DATE_PRESET_STORAGE_KEY = 'oncall.audit-date-preset.v1';
@@ -28,19 +30,25 @@ export function auditDatePresetRange(
   now: Date = new Date(),
 ): { from: string; to: string } {
   const today = utcToday(now);
-  if (preset === 'thisMonth') {
-    const first = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
-    return { from: isoDate(first), to: isoDate(today) };
-  }
-  if (preset === 'lastMonth') {
-    const first = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 1, 1));
-    const last = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 0));
-    return { from: isoDate(first), to: isoDate(last) };
-  }
-  const days = preset === 'last7' ? 7 : preset === 'last30' ? 30 : 90;
-  const from = new Date(today);
-  from.setUTCDate(from.getUTCDate() - (days - 1));
-  return { from: isoDate(from), to: isoDate(today) };
+  const daysAgo = (days: number) => {
+    const from = new Date(today);
+    from.setUTCDate(from.getUTCDate() - (days - 1));
+    return { from: isoDate(from), to: isoDate(today) };
+  };
+  return match(preset)
+    .with('thisMonth', () => {
+      const first = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
+      return { from: isoDate(first), to: isoDate(today) };
+    })
+    .with('lastMonth', () => {
+      const first = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 1, 1));
+      const last = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 0));
+      return { from: isoDate(first), to: isoDate(last) };
+    })
+    .with('last7', () => daysAgo(7))
+    .with('last30', () => daysAgo(30))
+    .with('last90', () => daysAgo(90))
+    .exhaustive();
 }
 
 /** 当前手填/预设区间匹配的预设；用于高亮，不写回存储。 */

@@ -5,6 +5,8 @@
  * 不做权限判定——前端算出来的可见性一律不可信。
  */
 
+import { match } from 'ts-pattern';
+
 export type Visibility = 'public' | 'roles';
 
 export interface KbAccessLike {
@@ -38,10 +40,13 @@ export function parseRoleInput(text: string): { roles: string[]; error: string |
 
 /** 列表与详情里的可见范围标签；未知值不假装成「公开」。 */
 export function accessLabel(access: KbAccessLike): string {
-  if (access.visibility === 'public') return '公开';
-  if (access.visibility !== 'roles') return `未知（${access.visibility}）`;
-  const roles = access.allowed_roles ?? [];
-  return roles.length === 0 ? '指定角色（未配置）' : `仅 ${roles.join('、')}`;
+  return match(access.visibility)
+    .with('public', () => '公开')
+    .with('roles', () => {
+      const roles = access.allowed_roles ?? [];
+      return roles.length === 0 ? '指定角色（未配置）' : `仅 ${roles.join('、')}`;
+    })
+    .otherwise((visibility) => `未知（${visibility}）`);
 }
 
 export function isRestricted(access: KbAccessLike): boolean {

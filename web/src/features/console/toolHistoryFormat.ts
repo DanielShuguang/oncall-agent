@@ -1,5 +1,7 @@
 /** 工具变更历史的展示类型与格式化；与弹窗组件分开，避免单文件超行数限制。 */
 
+import { match } from 'ts-pattern';
+
 import type { ToolChange, ToolHistoryOrder, ToolInfo, ToolOverrideSnapshot } from '@/api/tools';
 
 export interface HistoryState {
@@ -47,8 +49,9 @@ export function describeSnapshot(snapshot: ToolOverrideSnapshot | null): string 
 }
 
 export function sourceLabel(source: string): string {
-  if (source === 'matrix') return '权限矩阵';
-  if (source === 'tool') return '工具开关';
-  if (source === 'rollback') return '回滚';
-  return source;
+  return match(source)
+    .with('matrix', () => '权限矩阵')
+    .with('tool', () => '工具开关')
+    .with('rollback', () => '回滚')
+    .otherwise((value) => value);
 }

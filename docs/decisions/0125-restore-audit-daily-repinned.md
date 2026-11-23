@@ -37,13 +37,13 @@ UTC 日聚合里多求和一个字段，不新增表、不新增端点，就能�
 - 旧审计行的 `repinned_count` 为 0，日汇总同样为 0；无法反推「当时未置顶」还是「容量不足」。
 - 日汇总的 `repinned` 之和等于窗口总 `repinned`；`restores`/`sessions` 的既有口径不变。
 - CSV 每个日期从两行变为三行，读取方按 `section=daily` + `key` 过滤即可，列结构不变。
-- 统计卡只展示最近 7 天，长时间窗口仍以总数为主，避免把卡片拉成表格。
+- 统计卡只展示最近 7 个活动日，长时间窗口仍以总数为主，避免把卡片拉成表格。
 - 导出仍同步、无截断；不新增下载审计资源。
 
 ## 验证
 
 - 默认 `538 passed + 42 skipped`；PG-only/PG+Redis 预期 577+3 / 580；本次无 store 迁移。
-- `ruff check` / `ruff format --check` 180 files / `mypy app` 119 files。
+- `ruff check` / `ruff format --check` 210 files / `mypy app` 119 files。
 - `test_admin_sessions.py`：7 天窗口 `daily.repinned` 之和为 0，30 天窗口为 3；统计 CSV 的
   `daily` 包含 `repinned` 行且求和为 1。
 - 前端 33 files/174 tests、`tsc --noEmit`、`oxlint` 0/0、`oxfmt --check`、`pnpm build` 通过。

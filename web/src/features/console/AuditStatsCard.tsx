@@ -110,7 +110,7 @@ export function AuditStatsCard({
             {stats.daily.length > 0 ? (
               <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-[11px] text-muted-foreground sm:grid-cols-4">
                 <span className="font-medium text-foreground">
-                  最近 {Math.min(7, stats.daily.length)} 天
+                  最近 {Math.min(7, stats.daily.length)} 个活动日
                 </span>
                 <span>恢复</span>
                 <span>会话</span>

@@ -152,7 +152,7 @@
 | [0122](decisions/0122-approval-refresh-preference.md) | 审批统计自动刷新开关持久化 | 浏览器 localStorage 存 `on`/`off`；缺失/损坏按开启；切换账号清理；无后端/迁移 |
 | [0123](decisions/0123-approval-refresh-interval.md) | 审批统计自动刷新间隔可配置 | 15/30/60 秒三档，默认 30；非法/损坏回退 30；只重启本地定时器；切换账号清理；无后端/迁移 |
 | [0124](decisions/0124-approval-refresh-custom-interval.md) | 审批统计自定义刷新间隔 | 5–300 秒整数，默认 30；15/30/60 仍是快捷档；非法/越界回退 30；只重启定时器；切换账号清理；无后端/迁移 |
-| [0125](decisions/0125-restore-audit-daily-repinned.md) | 恢复审计统计按日恢复置顶数 | `daily` 增加 `repinned`（按 UTC 日求和的 `repinned_count`）；统计 CSV 每个日期多一行 `daily,repinned`；前端统计卡展示最近 7 天恢复/会话/置顶；无迁移 |
+| [0125](decisions/0125-restore-audit-daily-repinned.md) | 恢复审计统计按日恢复置顶数 | `daily` 增加 `repinned`（按 UTC 日求和的 `repinned_count`）；统计 CSV 每个日期多一行 `daily,repinned`；前端统计卡展示最近 7 个活动日恢复/会话/置顶；无迁移 |
 
 > ADR 的写法：背景 → 方案对比 → 决策 → 后果。面试被问"为什么这么做"时，直接念 ADR。
 

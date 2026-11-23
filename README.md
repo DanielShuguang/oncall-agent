@@ -238,7 +238,7 @@ oncall/
 | 审批统计自动刷新开关持久化（ADR-0122） | ✅ 已完成 | `localStorage` 记 `oncall.approval-stats-auto-refresh.v1`（`on`/`off`），缺失/损坏按开启；切换账号清理；只影响本浏览器，不跨设备；无后端/迁移；[ADR-0122](docs/decisions/0122-approval-refresh-preference.md) |
 | 审批统计自动刷新间隔可配置（ADR-0123） | ✅ 已完成 | 统计区增加 15/30/60 秒快捷档，默认 30 秒；`localStorage` 记 `oncall.approval-stats-refresh-interval.v1`，非法/损坏回退 30；只重启本地定时器，不立即请求；切换账号清理；无后端/迁移；[ADR-0123](docs/decisions/0123-approval-refresh-interval.md) |
 | 审批统计自定义刷新间隔（ADR-0124） | ✅ 已完成 | 快捷档之外可填 5–300 秒整数；同一 `localStorage` key；非法/越界恢复当前值，读取时回退 30；只重启定时器，不立即请求；切换账号清理；无后端/迁移；[ADR-0124](docs/decisions/0124-approval-refresh-custom-interval.md) |
-| 恢复审计统计按日恢复置顶（ADR-0125） | ✅ 已完成 | 恢复审计统计 `daily` 增加 `repinned`；统计 CSV 每个 UTC 日期多一行；审计页统计卡展示最近 7 天恢复/会话/置顶；总数与日汇总同口径；无迁移；[ADR-0125](docs/decisions/0125-restore-audit-daily-repinned.md) |
+| 恢复审计统计按日恢复置顶（ADR-0125） | ✅ 已完成 | 恢复审计统计 `daily` 增加 `repinned`；统计 CSV 每个 UTC 日期多一行；审计页统计卡展示最近 7 个活动日恢复/会话/置顶；总数与日汇总同口径；无迁移；[ADR-0125](docs/decisions/0125-restore-audit-daily-repinned.md) |
 | 导出 CSV 内容哈希（W6 后补） | ✅ 已完成 | `export_audits.content_sha256` 记录服务端返回 CSV 的 SHA-256（含 BOM/CRLF），迁移 `0025` 只加可空列；管理员列表、审计 CSV 与页面短值展示；旧记录为空；不做 HMAC/签名、不在响应头返回哈希；[ADR-0097](docs/decisions/0097-export-content-hash.md) |
 | 工具变更历史日期范围（W6 后补） | ✅ 已完成 | `GET /admin/tools/{name}/history` 支持 `changed_from`/`changed_to`（UTC 自然日，两端同时、最多 365 天）；`[from 00:00Z, to+1d 00:00Z)` 窗口；内存/PG 同口径，无迁移；ToolsPage 历史 Dialog 增加应用/清除日期；[ADR-0098](docs/decisions/0098-tool-history-date-range.md) |
 | 工具变更历史 CSV 导出（W6 后补） | ✅ 已完成 | `GET /admin/tools/{name}/history/export` 与历史同日期窗口、最多 5000 行；CSV 六列、BOM/CRLF/公式防护；导出自身写 `resource=tool_setting_history` 下载审计（`row_count`/`content_sha256`），失败 503；`export_audits` CHECK 扩为 8 种（迁移 `0026`）；前端使用已应用日期并丢弃过期响应；[ADR-0099](docs/decisions/0099-tool-history-export.md) |
@@ -453,7 +453,7 @@ W6 基线（3 轮均值，mock 规则路径，口径见 [baseline-v1](docs/eval/
   置顶/导出审计页有同样的五个快捷预设，并记住上次预设（ADR-0118）；手填非预设日期不保存，精确等于预设按预设保存
   （[ADR-0071](docs/decisions/0071-audit-date-presets.md)、[ADR-0075](docs/decisions/0075-audit-preset-memory.md)、[ADR-0078](docs/decisions/0078-audit-filter-memory.md)、[ADR-0091](docs/decisions/0091-pin-audit-date-presets.md)）
 - 会话批量移除只覆盖当前已加载页（默认 20 条），不做跨页选择、按搜索条件批量或移除审计；
-  恢复时按容量尽力恢复置顶（[ADR-0108](docs/decisions/0108-hidden-restore-pin.md)），恢复审计记录实际恢复的置顶数（ADR-0109），统计卡展示最近 7 天按日恢复/会话/置顶（ADR-0125），批量移除仍不写审计
+  恢复时按容量尽力恢复置顶（[ADR-0108](docs/decisions/0108-hidden-restore-pin.md)），恢复审计记录实际恢复的置顶数（ADR-0109），统计卡展示最近 7 个活动日按日恢复/会话/置顶（ADR-0125），批量移除仍不写审计
   （[ADR-0072](docs/decisions/0072-session-batch-hide.md)）
 - 置顶数量上限默认 50，部署可用 `ONCALL_SESSION_PIN_LIMIT` 调整（重启生效）；`GET /sessions`
   返回实际 `pinned_count`/`pin_limit`，前端据此提前禁用置顶按钮

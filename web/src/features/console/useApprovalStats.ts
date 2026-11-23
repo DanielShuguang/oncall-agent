@@ -13,6 +13,9 @@ export function useApprovalStats(statsDays: number, statsGroup: StatsGroup) {
   const statsRequest = useRef(0);
   // 手动刷新单独用令牌管理按钮状态：后台刷新不应把手动刷新卡在「刷新中」。
   const manualRequest = useRef(0);
+  // 关闭开关时，暂停前发出的静默请求仍可能失败；用 ref 判断「当前是否仍启用」，
+  // 避免暂停后又冒出一条自动刷新失败提示。
+  const autoRefreshEnabledRef = useRef(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -59,8 +62,8 @@ export function useApprovalStats(statsDays: number, statsGroup: StatsGroup) {
           setStats(null);
           setLastUpdatedAt(null);
           setAutoRefreshError(null);
-        } else if (statsRequest.current === requestId) {
-          setAutoRefreshError('自动刷新失败，显示上次统计');
+        } else if (statsRequest.current === requestId && autoRefreshEnabledRef.current) {
+          setAutoRefreshError('自动刷新失败，稍后重试');
         }
       } finally {
         if (!silent && manualRequest.current === manualId) setRefreshing(false);
@@ -71,8 +74,9 @@ export function useApprovalStats(statsDays: number, statsGroup: StatsGroup) {
 
   const setAutoRefresh = useCallback(
     (enabled: boolean) => {
+      autoRefreshEnabledRef.current = enabled;
       setAutoRefreshEnabled(enabled);
-      if (!enabled) setAutoRefreshError(null);
+      setAutoRefreshError(null);
       // 重新打开时立即补拉一次，不必等下一个 30 秒。
       if (enabled) void refresh(true);
     },

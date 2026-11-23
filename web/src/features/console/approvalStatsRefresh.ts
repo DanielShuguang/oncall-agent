@@ -1,6 +1,11 @@
 export const APPROVAL_STATS_REFRESH_MS = 30_000;
+export const DEFAULT_APPROVAL_STATS_REFRESH_SECONDS = 30;
+export const APPROVAL_STATS_REFRESH_INTERVAL_OPTIONS = [15, 30, 60] as const;
+export type ApprovalStatsRefreshSeconds = (typeof APPROVAL_STATS_REFRESH_INTERVAL_OPTIONS)[number];
 
 export const APPROVAL_STATS_AUTO_REFRESH_STORAGE_KEY = 'oncall.approval-stats-auto-refresh.v1';
+export const APPROVAL_STATS_REFRESH_INTERVAL_STORAGE_KEY =
+  'oncall.approval-stats-refresh-interval.v1';
 
 type PreferenceStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 
@@ -34,6 +39,45 @@ export function clearApprovalStatsAutoRefresh(
   if (!storage) return;
   try {
     storage.removeItem(APPROVAL_STATS_AUTO_REFRESH_STORAGE_KEY);
+  } catch {
+    // 同上。
+  }
+}
+
+/** 默认 30 秒；只接受 15/30/60，损坏或越界值按默认处理。 */
+export function readApprovalStatsRefreshInterval(
+  storage: PreferenceStorage | null = defaultStorage(),
+): ApprovalStatsRefreshSeconds {
+  if (!storage) return DEFAULT_APPROVAL_STATS_REFRESH_SECONDS;
+  try {
+    const value = Number(storage.getItem(APPROVAL_STATS_REFRESH_INTERVAL_STORAGE_KEY));
+    return (
+      APPROVAL_STATS_REFRESH_INTERVAL_OPTIONS.find((option) => option === value) ??
+      DEFAULT_APPROVAL_STATS_REFRESH_SECONDS
+    );
+  } catch {
+    return DEFAULT_APPROVAL_STATS_REFRESH_SECONDS;
+  }
+}
+
+export function writeApprovalStatsRefreshInterval(
+  seconds: ApprovalStatsRefreshSeconds,
+  storage: PreferenceStorage | null = defaultStorage(),
+): void {
+  if (!storage) return;
+  try {
+    storage.setItem(APPROVAL_STATS_REFRESH_INTERVAL_STORAGE_KEY, String(seconds));
+  } catch {
+    // 同上。
+  }
+}
+
+export function clearApprovalStatsRefreshInterval(
+  storage: PreferenceStorage | null = defaultStorage(),
+): void {
+  if (!storage) return;
+  try {
+    storage.removeItem(APPROVAL_STATS_REFRESH_INTERVAL_STORAGE_KEY);
   } catch {
     // 同上。
   }

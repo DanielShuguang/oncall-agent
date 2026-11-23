@@ -2,10 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { getApprovalStats, type ApprovalStats } from '@/api/approvals';
 import type { StatsGroup } from './approvalTypes';
 import {
-  APPROVAL_STATS_REFRESH_MS,
   readApprovalStatsAutoRefresh,
+  readApprovalStatsRefreshInterval,
   shouldAutoRefresh,
   writeApprovalStatsAutoRefresh,
+  writeApprovalStatsRefreshInterval,
+  type ApprovalStatsRefreshSeconds,
 } from './approvalStatsRefresh';
 
 export function useApprovalStats(statsDays: number, statsGroup: StatsGroup) {
@@ -14,6 +16,7 @@ export function useApprovalStats(statsDays: number, statsGroup: StatsGroup) {
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(readApprovalStatsAutoRefresh);
+  const [refreshIntervalSec, setRefreshIntervalState] = useState(readApprovalStatsRefreshInterval);
   const [autoRefreshError, setAutoRefreshError] = useState<string | null>(null);
   const statsRequest = useRef(0);
   // 手动刷新单独用令牌管理按钮状态：后台刷新不应把手动刷新卡在「刷新中」。
@@ -83,17 +86,22 @@ export function useApprovalStats(statsDays: number, statsGroup: StatsGroup) {
       setAutoRefreshEnabled(enabled);
       writeApprovalStatsAutoRefresh(enabled);
       setAutoRefreshError(null);
-      // 重新打开时立即补拉一次，不必等下一个 30 秒。
+      // 重新打开时立即补拉一次，不必等下一个周期。
       if (enabled) void refresh(true);
     },
     [refresh],
   );
 
+  const setRefreshInterval = useCallback((seconds: ApprovalStatsRefreshSeconds) => {
+    setRefreshIntervalState(seconds);
+    writeApprovalStatsRefreshInterval(seconds);
+  }, []);
+
   useEffect(() => {
     if (!autoRefreshEnabled) return;
     const timer = window.setInterval(() => {
       if (shouldAutoRefresh(document.visibilityState, autoRefreshEnabled)) void refresh(true);
-    }, APPROVAL_STATS_REFRESH_MS);
+    }, refreshIntervalSec * 1000);
     const onVisibilityChange = () => {
       if (shouldAutoRefresh(document.visibilityState, autoRefreshEnabled)) void refresh(true);
     };
@@ -102,7 +110,7 @@ export function useApprovalStats(statsDays: number, statsGroup: StatsGroup) {
       window.clearInterval(timer);
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
-  }, [autoRefreshEnabled, refresh]);
+  }, [autoRefreshEnabled, refresh, refreshIntervalSec]);
 
   return {
     stats,
@@ -111,7 +119,9 @@ export function useApprovalStats(statsDays: number, statsGroup: StatsGroup) {
     refreshing,
     autoRefreshEnabled,
     autoRefreshError,
+    refreshIntervalSec,
     setAutoRefresh,
+    setRefreshInterval,
     refresh,
   };
 }

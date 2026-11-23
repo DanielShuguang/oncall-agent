@@ -2703,3 +2703,18 @@ ADR-0118 只记住两页的日期预设；用户、会话、动作（置顶/取�
 验证：前端 33 files / 172 tests、`tsc`、`oxlint` 0/0（148 files）、`oxfmt --check` 156 files、`pnpm build` 2950 modules；后端未改 538+42 / 577+3 / 580。
 
 详见 [ADR-0122](decisions/0122-approval-refresh-preference.md)。
+
+## W6 后补：审批统计自动刷新间隔可配置（ADR-0123）
+
+| 事项 | 落地 |
+|---|---|
+| 存储 | `localStorage` key `oncall.approval-stats-refresh-interval.v1`，值 `15`/`30`/`60` |
+| 默认 | 30 秒；缺失、损坏、越界、存储不可用都回退 30 |
+| 交互 | 统计区增加「自动刷新间隔」下拉；只重启本地定时器，不立即请求 |
+| 语义 | 仍只在页面可见时轮询；关闭开关不启动定时器；重开立即补拉一次 |
+| 生命周期 | `setRefreshInterval` 同步写 key；切换账号 `clearLocalPreferences` 删除 |
+| 范围 | 不做自定义秒数、低峰自动降频、跨设备同步；无后端/迁移 |
+
+验证：前端 33 files / 174 tests、`tsc`、`oxlint` 0/0（148 files）、`oxfmt --check` 156 files、`pnpm build` 2950 modules；后端未改 538+42 / 577+3 / 580。
+
+详见 [ADR-0123](decisions/0123-approval-refresh-interval.md)。

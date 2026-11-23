@@ -1,12 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
   APPROVAL_STATS_AUTO_REFRESH_STORAGE_KEY,
+  APPROVAL_STATS_REFRESH_INTERVAL_STORAGE_KEY,
   APPROVAL_STATS_REFRESH_MS,
   clearApprovalStatsAutoRefresh,
+  clearApprovalStatsRefreshInterval,
   formatStatsUpdatedAt,
   readApprovalStatsAutoRefresh,
+  readApprovalStatsRefreshInterval,
   shouldAutoRefresh,
   writeApprovalStatsAutoRefresh,
+  writeApprovalStatsRefreshInterval,
 } from './approvalStatsRefresh';
 
 describe('approvalStatsRefresh', () => {
@@ -66,6 +70,25 @@ describe('approvalStatsRefresh', () => {
     writeApprovalStatsAutoRefresh(false, storage);
     clearApprovalStatsAutoRefresh(storage);
     expect(readApprovalStatsAutoRefresh(storage)).toBe(true);
+  });
+
+  it('刷新间隔默认 30 秒，只接受 15/30/60', () => {
+    const storage = new MemoryStorage();
+    expect(readApprovalStatsRefreshInterval(storage)).toBe(30);
+
+    writeApprovalStatsRefreshInterval(60, storage);
+    expect(readApprovalStatsRefreshInterval(storage)).toBe(60);
+    storage.setItem(APPROVAL_STATS_REFRESH_INTERVAL_STORAGE_KEY, '45');
+    expect(readApprovalStatsRefreshInterval(storage)).toBe(30);
+    storage.setItem(APPROVAL_STATS_REFRESH_INTERVAL_STORAGE_KEY, 'broken');
+    expect(readApprovalStatsRefreshInterval(storage)).toBe(30);
+  });
+
+  it('清除刷新间隔后回到默认 30 秒', () => {
+    const storage = new MemoryStorage();
+    writeApprovalStatsRefreshInterval(15, storage);
+    clearApprovalStatsRefreshInterval(storage);
+    expect(readApprovalStatsRefreshInterval(storage)).toBe(30);
   });
 });
 

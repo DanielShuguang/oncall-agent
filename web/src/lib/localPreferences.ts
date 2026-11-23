@@ -4,7 +4,10 @@ import {
   clearAuditDatePresetFor,
   clearLastAuditDatePreset,
 } from '@/features/console/auditDatePresets';
-import { clearApprovalStatsAutoRefresh } from '@/features/console/approvalStatsRefresh';
+import {
+  clearApprovalStatsAutoRefresh,
+  clearApprovalStatsRefreshInterval,
+} from '@/features/console/approvalStatsRefresh';
 import { clearAuditFilterMemory } from '@/features/console/auditFilterMemory';
 import {
   clearExportAuditFilterMemory,
@@ -25,6 +28,7 @@ export function clearLocalPreferences(storage: PreferenceStorage | null = defaul
   clearPinAuditFilterMemory(storage);
   clearExportAuditFilterMemory(storage);
   clearApprovalStatsAutoRefresh(storage);
+  clearApprovalStatsRefreshInterval(storage);
 }
 
 function defaultStorage(): PreferenceStorage | null {

@@ -9,7 +9,11 @@ import {
 } from '@/components/ui/select';
 import type { ApprovalStats } from '@/api/approvals';
 import { formatDurationMs } from '@/lib/format';
-import { APPROVAL_STATS_REFRESH_MS, formatStatsUpdatedAt } from './approvalStatsRefresh';
+import {
+  APPROVAL_STATS_REFRESH_INTERVAL_OPTIONS,
+  formatStatsUpdatedAt,
+  type ApprovalStatsRefreshSeconds,
+} from './approvalStatsRefresh';
 import type { StatsGroup } from './approvalTypes';
 
 const STATS_DAYS = [7, 30, 90] as const;
@@ -30,9 +34,11 @@ interface Props {
   refreshing: boolean;
   autoRefreshEnabled: boolean;
   autoRefreshError: string | null;
+  refreshIntervalSec: ApprovalStatsRefreshSeconds;
   onChangeDays: (days: number) => void;
   onChangeGroup: (group: StatsGroup) => void;
   onToggleAutoRefresh: (enabled: boolean) => void;
+  onChangeRefreshInterval: (seconds: ApprovalStatsRefreshSeconds) => void;
   onExport: () => void;
   onRefresh: () => void;
 }
@@ -48,9 +54,11 @@ export function ApprovalStatsPanel({
   refreshing,
   autoRefreshEnabled,
   autoRefreshError,
+  refreshIntervalSec,
   onChangeDays,
   onChangeGroup,
   onToggleAutoRefresh,
+  onChangeRefreshInterval,
   onExport,
   onRefresh,
 }: Props) {
@@ -108,11 +116,26 @@ export function ApprovalStatsPanel({
         >
           自动刷新：{autoRefreshEnabled ? '开' : '关'}
         </Button>
+        <Select
+          value={String(refreshIntervalSec)}
+          onValueChange={(next) =>
+            onChangeRefreshInterval(Number(next) as ApprovalStatsRefreshSeconds)
+          }
+        >
+          <SelectTrigger className="h-8 w-28 text-xs" aria-label="自动刷新间隔">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {APPROVAL_STATS_REFRESH_INTERVAL_OPTIONS.map((seconds) => (
+              <SelectItem key={seconds} value={String(seconds)}>
+                {seconds} 秒
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <span className="text-[11px] text-muted-foreground" aria-live="polite">
           更新于 {formatStatsUpdatedAt(lastUpdatedAt)} ·{' '}
-          {autoRefreshEnabled
-            ? `页面可见时每 ${APPROVAL_STATS_REFRESH_MS / 1000} 秒自动刷新`
-            : '自动刷新已暂停'}
+          {autoRefreshEnabled ? `页面可见时每 ${refreshIntervalSec} 秒自动刷新` : '自动刷新已暂停'}
         </span>
       </div>
 

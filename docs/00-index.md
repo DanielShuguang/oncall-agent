@@ -150,7 +150,8 @@
 | [0120](decisions/0120-rollback-code-default.md) | 回滚预览附带工具代码默认配置 | 预览响应增加 `code_default`（enabled/roles），用于解释 `current=null`；不查库、不改变只读语义；无迁移 |
 | [0121](decisions/0121-tool-history-batch-rollback.md) | 工具配置变更历史批量回滚 | 多选后回滚到最早选中记录的 `before`；只写一条 `source="rollback"` 历史；1–50 条、全有或全无；无迁移 |
 | [0122](decisions/0122-approval-refresh-preference.md) | 审批统计自动刷新开关持久化 | 浏览器 localStorage 存 `on`/`off`；缺失/损坏按开启；切换账号清理；无后端/迁移 |
-| [0123](decisions/0123-approval-refresh-interval.md) | 审批统计自动刷新间隔可配置 | 15/30/60 秒三档，默认 30；非法/损坏回退 30；只重启本地定时器；切换账号清理；无后端/迁移 |`r`n| [0124](decisions/0124-approval-refresh-custom-interval.md) | 审批统计自定义刷新间隔 | 5–300 秒整数，默认 30；15/30/60 仍是快捷档；非法/越界回退 30；只重启定时器；切换账号清理；无后端/迁移 |
+| [0123](decisions/0123-approval-refresh-interval.md) | 审批统计自动刷新间隔可配置 | 15/30/60 秒三档，默认 30；非法/损坏回退 30；只重启本地定时器；切换账号清理；无后端/迁移 |
+| [0124](decisions/0124-approval-refresh-custom-interval.md) | 审批统计自定义刷新间隔 | 5–300 秒整数，默认 30；15/30/60 仍是快捷档；非法/越界回退 30；只重启定时器；切换账号清理；无后端/迁移 |
 
 > ADR 的写法：背景 → 方案对比 → 决策 → 后果。面试被问"为什么这么做"时，直接念 ADR。
 

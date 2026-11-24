@@ -9,6 +9,7 @@ import {
   EXPORT_AUDIT_FILTER_STORAGE_KEY,
   PIN_AUDIT_FILTER_STORAGE_KEY,
 } from '@/features/console/auditPageFilterMemory';
+import { APPROVAL_STATS_GROUP_STORAGE_KEY } from '@/features/console/approvalStatsGroup';
 import { APPROVAL_STATS_WINDOW_STORAGE_KEY } from '@/features/console/approvalStatsWindow';
 import { PIN_AUDIT_STATS_WINDOW_STORAGE_KEY } from '@/features/console/pinAuditStatsWindow';
 import {
@@ -30,6 +31,7 @@ describe('clearLocalPreferences', () => {
     storage.setItem(EXPORT_AUDIT_FILTER_STORAGE_KEY, '{"userId":"u_2"}');
     storage.setItem(PIN_AUDIT_STATS_WINDOW_STORAGE_KEY, '90');
     storage.setItem(APPROVAL_STATS_WINDOW_STORAGE_KEY, '30');
+    storage.setItem(APPROVAL_STATS_GROUP_STORAGE_KEY, 'tool');
     storage.setItem(APPROVAL_STATS_AUTO_REFRESH_STORAGE_KEY, 'off');
     storage.setItem(APPROVAL_STATS_REFRESH_INTERVAL_STORAGE_KEY, '60');
     storage.setItem('oncall.token', 'keep-token');
@@ -46,6 +48,7 @@ describe('clearLocalPreferences', () => {
     expect(storage.getItem(EXPORT_AUDIT_FILTER_STORAGE_KEY)).toBeNull();
     expect(storage.getItem(PIN_AUDIT_STATS_WINDOW_STORAGE_KEY)).toBeNull();
     expect(storage.getItem(APPROVAL_STATS_WINDOW_STORAGE_KEY)).toBeNull();
+    expect(storage.getItem(APPROVAL_STATS_GROUP_STORAGE_KEY)).toBeNull();
     expect(storage.getItem(APPROVAL_STATS_AUTO_REFRESH_STORAGE_KEY)).toBeNull();
     expect(storage.getItem(APPROVAL_STATS_REFRESH_INTERVAL_STORAGE_KEY)).toBeNull();
     expect(storage.getItem('oncall.token')).toBe('keep-token');

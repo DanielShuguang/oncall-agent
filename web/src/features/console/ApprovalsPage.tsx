@@ -24,6 +24,7 @@ import { ApprovalTableCard } from './ApprovalTableCard';
 import type { ApprovalResolveState, StatsGroup } from './approvalTypes';
 import { useApprovalExports } from './useApprovalExports';
 import { useApprovalStats } from './useApprovalStats';
+import { readApprovalStatsGroup, writeApprovalStatsGroup } from './approvalStatsGroup';
 import { readApprovalStatsWindow, writeApprovalStatsWindow } from './approvalStatsWindow';
 
 const STATUS_OPTIONS = [
@@ -45,7 +46,7 @@ export default function ApprovalsPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [resolver, setResolver] = useState<ApprovalResolveState | null>(null);
   const [statsDays, setStatsDays] = useState<number>(readApprovalStatsWindow);
-  const [statsGroup, setStatsGroup] = useState<StatsGroup>('none');
+  const [statsGroup, setStatsGroup] = useState<StatsGroup>(readApprovalStatsGroup);
   const hasActiveFilters = Object.keys(filters).length > 0;
   // 列表分页存在竞态：切状态/刷新后在途的「加载更多」不能把旧页追加回来。
   const listRequest = useRef(0);
@@ -169,6 +170,7 @@ export default function ApprovalsPage() {
     if (next === statsGroup) return;
     exports.invalidateStats();
     setStatsGroup(next);
+    writeApprovalStatsGroup(next);
   };
 
   const openResolve = (approval: ApprovalOut, decision: ApprovalDecision) => {

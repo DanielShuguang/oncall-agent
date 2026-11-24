@@ -13,6 +13,7 @@ import {
   clearExportAuditFilterMemory,
   clearPinAuditFilterMemory,
 } from '@/features/console/auditPageFilterMemory';
+import { clearApprovalStatsGroup } from '@/features/console/approvalStatsGroup';
 import { clearApprovalStatsWindow } from '@/features/console/approvalStatsWindow';
 import { clearPinAuditStatsWindow } from '@/features/console/pinAuditStatsWindow';
 import { clearLastSession } from '@/features/chat/lastSession';
@@ -30,6 +31,7 @@ export function clearLocalPreferences(storage: PreferenceStorage | null = defaul
   clearPinAuditFilterMemory(storage);
   clearPinAuditStatsWindow(storage);
   clearApprovalStatsWindow(storage);
+  clearApprovalStatsGroup(storage);
   clearExportAuditFilterMemory(storage);
   clearApprovalStatsAutoRefresh(storage);
   clearApprovalStatsRefreshInterval(storage);

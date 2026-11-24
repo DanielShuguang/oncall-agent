@@ -2778,3 +2778,19 @@ ADR-0118 只记住两页的日期预设；用户、会话、动作（置顶/取�
 验证：前端 35 files/180 tests、`tsc --noEmit`、`oxlint` 0/0（153 files）、`oxfmt --check` 161 files、`pnpm build` 2953 modules；后端未改 538+42 / 577+3 / 580。
 
 详见 [ADR-0127](decisions/0127-approval-stats-window.md)。
+---
+
+## W6 后补：审批统计分组按浏览器记住（ADR-0128）
+
+审批统计的「不分组/按工具/按审批人」原先刷新后回到不分组，与窗口偏好（ADR-0127）不一致。现在：
+
+| 事项 | 落地 |
+|---|---|
+| 存储 | `localStorage` 键 `oncall.approval-stats-group.v1`，只存 `none`/`tool`/`approver`；默认 `none` 不写，非法写入按 `none` 删除 |
+| 读取 | 首屏惰性读；缺失/损坏/非法值回退 `none` |
+| 写入 | 切换分组先失效统计导出，再写 key；`none` 删除 key |
+| 范围 | 统计卡与统计导出共用；不改窗口/自动刷新开关/间隔；不跨设备；无后端/迁移 |
+
+验证：前端 36 files/183 tests、`tsc --noEmit`、`oxlint` 0/0（155 files）、`oxfmt --check` 163 files、`pnpm build` 2954 modules；后端未改 538+42 / 577+3 / 580。
+
+详见 [ADR-0128](decisions/0128-approval-stats-group.md)。

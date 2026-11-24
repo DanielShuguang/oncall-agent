@@ -14,7 +14,7 @@
 
 ## 决策
 
-1. 新增 `oncall.approval-stats-window.v1`，值为 `7`/`30`/`90` 的字符串；默认 7 天不写 key（删除）。
+1. 新增 `oncall.approval-stats-window.v1`，值为 `7`/`30`/`90` 的字符串；默认 7 天不写 key（删除）；写入无效/越界值时按 7 处理并删除 key。
 2. `ApprovalsPage` 用 `readApprovalStatsWindow` 懒初始化 `statsDays`；切换窗口时写 key。
 3. 切换账号由 `clearLocalPreferences` 清该 key，避免下一位用户继承上一位的统计视角。
 4. 与列表状态、待办/已办切换、工具/审批人/日期筛选无关；不跨设备同步。
@@ -28,7 +28,7 @@
 
 ## 验证
 
-- `approvalStatsWindow.test.ts` 3 用例：默认/非法回退、写 30/7 删除/清除、存储异常静默。
+- `approvalStatsWindow.test.ts` 3 用例：默认/非法回退、写 30/7/45 的删除语义、存储异常静默。
 - `localPreferences.test.ts` 断言切换账号清 key。
 - 前端 `tsc`、`oxlint 0`、`vitest`、`oxfmt --check`、`pnpm build` 通过。
 

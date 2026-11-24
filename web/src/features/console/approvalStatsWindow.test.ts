@@ -41,6 +41,8 @@ describe('approval stats window memory', () => {
     expect(storage.getItem(APPROVAL_STATS_WINDOW_STORAGE_KEY)).toBe('90');
     writeApprovalStatsWindow(7, storage);
     expect(storage.getItem(APPROVAL_STATS_WINDOW_STORAGE_KEY)).toBeNull();
+    writeApprovalStatsWindow(45, storage);
+    expect(storage.getItem(APPROVAL_STATS_WINDOW_STORAGE_KEY)).toBeNull();
     writeApprovalStatsWindow(30, storage);
     clearApprovalStatsWindow(storage);
     expect(storage.getItem(APPROVAL_STATS_WINDOW_STORAGE_KEY)).toBeNull();

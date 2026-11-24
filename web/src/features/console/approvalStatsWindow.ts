@@ -40,11 +40,12 @@ export function writeApprovalStatsWindow(
 ): void {
   if (!storage) return;
   try {
-    if (value === 7) {
+    const normalized = normalize(value);
+    if (normalized === 7) {
       storage.removeItem(APPROVAL_STATS_WINDOW_STORAGE_KEY);
       return;
     }
-    storage.setItem(APPROVAL_STATS_WINDOW_STORAGE_KEY, String(normalize(value)));
+    storage.setItem(APPROVAL_STATS_WINDOW_STORAGE_KEY, String(normalized));
   } catch {
     // 本地偏好失败不能影响审批统计。
   }

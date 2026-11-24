@@ -2687,7 +2687,7 @@ ADR-0118 只记住两页的日期预设；用户、会话、动作（置顶/取�
 | 前端 | 历史行 checkbox 多选；选中 >0 显示「已选 N 条」+批量回滚；确认 Dialog 复用最早一条的预览；批量/单条执行中互相禁用选择与回滚，避免并发写 |
 | 范围 | 不做逐条部分成功、跨工具批量、异步任务、额外批量预览接口；无迁移 |
 
-验证：默认 **538 passed + 42 skipped**、PG-only **577 passed + 3 skipped**、PG+Redis **580 passed**；`ruff check`、`ruff format --check` 210 files、`mypy app` 119 files；前端 33 files/169 tests、build 2950 modules。
+验证：默认 **539 passed + 43 skipped**、PG-only **579 passed + 3 skipped**、PG+Redis **582 passed**；`ruff check`、`ruff format --check` 210 files、`mypy app` 119 files；前端 33 files/169 tests、build 2950 modules。
 
 详见 [ADR-0121](decisions/0121-tool-history-batch-rollback.md)。
 
@@ -2794,3 +2794,25 @@ ADR-0118 只记住两页的日期预设；用户、会话、动作（置顶/取�
 验证：前端 36 files/183 tests、`tsc --noEmit`、`oxlint` 0/0（155 files）、`oxfmt --check` 163 files、`pnpm build` 2954 modules；后端未改 538+42 / 577+3 / 580。
 
 详见 [ADR-0128](decisions/0128-approval-stats-group.md)。
+
+---
+
+## W6 后补：工具配置变更历史保留清理（ADR-0129）
+
+`tool_setting_changes` 此前「长期保留」，管理 API 每次真正变化一行，表随操作次数无限增长。ADR-0129
+
+新增独立保留期，默认 365 天，由 `RetentionSweeper` 按 `changed_at` 清理，不并入事件/正文/审批快照。
+
+| 事项 | 落地 |
+|---|---|
+| 配置 | `ONCALL_TOOL_HISTORY_RETENTION_DAYS`，默认 365，必须 >= 1 |
+| 清理 | `ToolSettingStore.prune_history` 按 `(changed_at,id)` 批量删除；`dry_run` 只计数 |
+| 链路 | 顺序在导出审计之后、计量之前；结果含 `tool_history_before` / `tool_history` |
+| 兼容 | 无迁移；超过保留期的历史不可回滚、不可导出 |
+| 范围 | 不做冷归档/按工具保留；需要回滚的变更应在保留期内完成 |
+
+验证：默认 **539 passed + 43 skipped**、PG-only **579 passed + 3 skipped**、PG+Redis **582 passed**；
+
+`ruff check` / `ruff format --check` 210 files / `mypy app` 119 files；前端未改 36 files/183 tests、build 2954。
+
+详见 [ADR-0129](decisions/0129-tool-history-retention.md)。

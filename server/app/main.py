@@ -24,6 +24,7 @@ from app.core.store import get_store
 from app.gateway.meter import get_model_call_store
 from app.runs.recovery import RunRecovery
 from app.runs.retention import RetentionSweeper
+from app.tools.policy import get_tool_policy
 
 log = get_logger(__name__)
 
@@ -98,7 +99,11 @@ async def _sweep_stale_runs(stop: asyncio.Event) -> None:
 async def _sweep_retention(stop: asyncio.Event) -> None:
     settings = get_settings()
     sweeper = RetentionSweeper(
-        get_store(), get_model_call_store(), get_approval_store(), settings=settings
+        get_store(),
+        get_model_call_store(),
+        get_approval_store(),
+        tool_history=get_tool_policy(),
+        settings=settings,
     )
     while not stop.is_set():
         try:
@@ -112,6 +117,7 @@ async def _sweep_retention(stop: asyncio.Event) -> None:
                 or result.session_restores
                 or result.session_pin_audits
                 or result.export_audits
+                or result.tool_history
             ):
                 log.info(
                     "retention_pruned",
@@ -124,6 +130,7 @@ async def _sweep_retention(stop: asyncio.Event) -> None:
                     session_restores=result.session_restores,
                     session_pin_audits=result.session_pin_audits,
                     export_audits=result.export_audits,
+                    tool_history=result.tool_history,
                     batch=result.batch,
                     events_before=result.events_before.isoformat(),
                     calls_before=result.calls_before.isoformat(),
@@ -131,6 +138,7 @@ async def _sweep_retention(stop: asyncio.Event) -> None:
                     session_restores_before=result.session_restores_before.isoformat(),
                     session_pin_audits_before=result.session_pin_audits_before.isoformat(),
                     export_audits_before=result.export_audits_before.isoformat(),
+                    tool_history_before=result.tool_history_before.isoformat(),
                 )
             if result.capped:
                 # 跑到批次上限还有候选：清理在追赶，不是「已经清完」
@@ -146,6 +154,7 @@ async def _sweep_retention(stop: asyncio.Event) -> None:
                     session_restores=result.session_restores,
                     session_pin_audits=result.session_pin_audits,
                     export_audits=result.export_audits,
+                    tool_history=result.tool_history,
                 )
         except Exception as exc:  # 库没起来时不能让后台任务炸掉整个进程
             log.warning("retention_sweep_failed", error=str(exc))

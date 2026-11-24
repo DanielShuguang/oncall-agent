@@ -112,6 +112,9 @@ class Settings(BaseSettings):
     #: CSV 导出下载审计的保留天数（ADR-0095）。导出记录同属治理证据，但体量
     #: 随导出次数增长；默认一年，按 `created_at` 独立清理。
     export_audit_retention_days: int = 365
+    #: 工具配置变更历史的保留天数（ADR-0129）。管理 API 每次变更一行，
+    #: 长期不清理会无限增长；默认一年，按 `changed_at` 独立清理。
+    tool_history_retention_days: int = 365
     #: 单个用户最多置顶的会话数（ADR-0093）。默认与历史行为一致（50）；
     #: 由 `build_store` 传给内存/Postgres 实现，列表接口同样返回该值。
     session_pin_limit: int = 50
@@ -192,6 +195,8 @@ class Settings(BaseSettings):
             raise ValueError("ONCALL_SESSION_PIN_AUDIT_RETENTION_DAYS 必须 >= 1")
         if self.export_audit_retention_days < 1:
             raise ValueError("ONCALL_EXPORT_AUDIT_RETENTION_DAYS 必须 >= 1")
+        if self.tool_history_retention_days < 1:
+            raise ValueError("ONCALL_TOOL_HISTORY_RETENTION_DAYS 必须 >= 1")
         if self.session_pin_limit < 1:
             raise ValueError("ONCALL_SESSION_PIN_LIMIT 必须 >= 1")
         if not 1 <= self.tool_history_cursor_ttl_minutes <= 1440:

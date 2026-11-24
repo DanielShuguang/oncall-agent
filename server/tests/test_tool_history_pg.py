@@ -202,3 +202,29 @@ async def test_history_filters_by_utc_window(
     assert len(await store.history("query_cmdb", until=now + timedelta(hours=1))) == 1
     assert await store.history("query_cmdb", since=now + timedelta(hours=1)) == []
     assert await store.history("query_cmdb", until=now - timedelta(hours=1)) == []
+
+
+async def test_prunes_history_before_cutoff(
+    pg_tool_history: PostgresToolSettingStore,
+) -> None:
+    store = pg_tool_history
+    for admin in ("admin_1", "admin_2"):
+        await store.upsert(
+            "query_cmdb",
+            ToolOverride(enabled=False),
+            updated_by=admin,
+            change=ToolSettingChange(
+                tool_name="query_cmdb",
+                changed_by=admin,
+                source="tool",
+                before=None,
+                after={"enabled": False, "roles": None},
+            ),
+        )
+    assert len(await store.history("query_cmdb")) == 2
+    cutoff = datetime.now(UTC) + timedelta(days=1)
+    assert await store.prune_history(changed_before=cutoff, dry_run=True) == 2
+    assert len(await store.history("query_cmdb")) == 2
+    assert await store.prune_history(changed_before=cutoff) == 2
+    assert await store.history("query_cmdb") == []
+    assert await store.prune_history(changed_before=cutoff) == 0

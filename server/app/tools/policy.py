@@ -125,6 +125,14 @@ class ToolSettingStore(Protocol):
         change_id: int,
     ) -> ToolSettingChangeRecord | None: ...
 
+    async def prune_history(
+        self,
+        *,
+        changed_before: datetime,
+        limit: int = 200,
+        dry_run: bool = False,
+    ) -> int: ...
+
 
 class InMemoryToolSettingStore:
     """测试与无库演示；进程重启即丢失，和内存 RunStore 的定位一致。"""
@@ -232,6 +240,23 @@ class InMemoryToolSettingStore:
             if row.id == change_id and row.tool_name == name:
                 return row
         return None
+
+    async def prune_history(
+        self,
+        *,
+        changed_before: datetime,
+        limit: int = 200,
+        dry_run: bool = False,
+    ) -> int:
+        candidates = sorted(
+            (row for row in self._history if row.changed_at < changed_before),
+            key=lambda row: (row.changed_at, row.id),
+        )[:limit]
+        if dry_run or not candidates:
+            return len(candidates)
+        stale = {row.id for row in candidates}
+        self._history = [row for row in self._history if row.id not in stale]
+        return len(stale)
 
     def _new_record(
         self, change: ToolSettingChange, *, changed_at: datetime | None = None
@@ -432,6 +457,29 @@ class PostgresToolSettingStore:
             after=row.after,
         )
 
+    async def prune_history(
+        self,
+        *,
+        changed_before: datetime,
+        limit: int = 200,
+        dry_run: bool = False,
+    ) -> int:
+        ids_stmt = (
+            select(ToolSettingChangeRow.id)
+            .where(ToolSettingChangeRow.changed_at < changed_before)
+            .order_by(ToolSettingChangeRow.changed_at, ToolSettingChangeRow.id)
+            .limit(limit)
+        )
+        async with self._sessionmaker() as session:
+            ids = list((await session.scalars(ids_stmt)).all())
+            if dry_run or not ids:
+                return len(ids)
+            await session.execute(
+                delete(ToolSettingChangeRow).where(ToolSettingChangeRow.id.in_(ids))
+            )
+            await session.commit()
+        return len(ids)
+
     @staticmethod
     def _change_row(change: ToolSettingChange) -> ToolSettingChangeRow:
         return ToolSettingChangeRow(
@@ -588,6 +636,17 @@ class ToolPolicy:
         change_id: int,
     ) -> ToolSettingChangeRecord | None:
         return await self._store.get_history(name, change_id)
+
+    async def prune_history(
+        self,
+        *,
+        changed_before: datetime,
+        limit: int = 200,
+        dry_run: bool = False,
+    ) -> int:
+        return await self._store.prune_history(
+            changed_before=changed_before, limit=limit, dry_run=dry_run
+        )
 
     def invalidate(self) -> None:
         self._cached = None

@@ -20,6 +20,12 @@ from app.core.store import InMemoryRunStore
 from app.gateway.meter import InMemoryModelCallStore, ModelCallRecord
 from app.runs.retention import RetentionSweeper
 from app.schemas.event import EventType, RunStatus
+from app.tools.policy import (
+    InMemoryToolSettingStore,
+    ToolOverride,
+    ToolPolicy,
+    ToolSettingChange,
+)
 
 
 def _settings(**overrides: object) -> Settings:
@@ -314,6 +320,7 @@ async def test_sweep_cutoffs_follow_settings() -> None:
     assert result.session_restores_before == now - timedelta(days=365)
     assert result.session_pin_audits_before == now - timedelta(days=365)
     assert result.export_audits_before == now - timedelta(days=365)
+    assert result.tool_history_before == now - timedelta(days=365)
 
 
 async def test_invalid_limit_is_rejected() -> None:
@@ -599,6 +606,44 @@ async def test_prunes_export_audits_by_own_retention() -> None:
     assert await store.list_export_audits() == []
     again = await sweeper.sweep(now=later)
     assert again.export_audits == 0
+
+
+async def test_prunes_tool_history_by_own_retention() -> None:
+    """工具配置变更历史按自己的保留期清理（ADR-0129），默认一年。"""
+    store = InMemoryRunStore()
+    tool_store = InMemoryToolSettingStore()
+    await tool_store.upsert(
+        "query_cmdb",
+        ToolOverride(enabled=False),
+        updated_by="admin",
+        change=ToolSettingChange(
+            tool_name="query_cmdb",
+            changed_by="admin",
+            source="tool",
+            before=None,
+            after={"enabled": False, "roles": None},
+        ),
+    )
+    assert len(await tool_store.history("query_cmdb")) == 1
+
+    sweeper = RetentionSweeper(
+        store,
+        InMemoryModelCallStore(),
+        InMemoryApprovalStore(),
+        tool_history=ToolPolicy(tool_store, ttl_s=0),
+        settings=_settings(),
+    )
+    now = datetime.now(UTC)
+    later = now + timedelta(days=366)
+    dry = await sweeper.sweep(now=later, dry_run=True)
+    assert dry.tool_history == 1
+    assert len(await tool_store.history("query_cmdb")) == 1
+
+    result = await sweeper.sweep(now=later)
+    assert result.tool_history == 1
+    assert await tool_store.history("query_cmdb") == []
+    again = await sweeper.sweep(now=later)
+    assert again.tool_history == 0
 
 
 async def test_prunes_expired_approval_grants_only() -> None:

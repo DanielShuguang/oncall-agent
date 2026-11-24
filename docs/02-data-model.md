@@ -417,7 +417,9 @@ CREATE INDEX idx_tool_setting_changes_tool_time
 - 只对**真正变化**的工具追加一行；无变化的 PATCH / 矩阵保存不落行
 - 与 `tool_settings` 的写入在同一事务里：历史写失败则配置一起回滚
 - 只记录管理 API 的写入；进程内系统/测试调用 `set_override` 没有可信操作人，不写历史
-- 长期保留，不随 run 事件或审批快照清理；管理页按工具查看最近 N 条
+- 默认保留 365 天（`ONCALL_TOOL_HISTORY_RETENTION_DAYS`），由 `RetentionSweeper` 按
+  `changed_at` 独立清理（[ADR-0129](decisions/0129-tool-history-retention.md)）；超过保留期的历史
+  不可回滚/不可导出，需要回滚的变更应在保留期内完成
 
 ### 2.6 知识库
 
@@ -601,6 +603,7 @@ CREATE TABLE user_budgets (
 | session_restore_audits | 365 天 | `ONCALL_SESSION_RESTORE_AUDIT_RETENTION_DAYS`；恢复审计独立于事件/正文保留期，按 `restored_at` 清理（[ADR-0059](decisions/0059-session-restore-audit.md)） |
 | session_pin_audits | 365 天 | `ONCALL_SESSION_PIN_AUDIT_RETENTION_DAYS`；置顶审计独立清理，按 `created_at` 判断（[ADR-0083](decisions/0083-session-pin-audit-retention.md)） |
 | export_audits | 365 天 | `ONCALL_EXPORT_AUDIT_RETENTION_DAYS`；CSV 导出下载审计按 `created_at` 独立清理（[ADR-0095](decisions/0095-export-audit-retention.md)） |
+| tool_setting_changes | 365 天 | `ONCALL_TOOL_HISTORY_RETENTION_DAYS`；工具配置变更历史按 `changed_at` 独立清理（[ADR-0129](decisions/0129-tool-history-retention.md)） |
 | kb_documents / kb_chunks | 不清理 | 知识库由管理员维护，删除是业务操作，不是保留策略 |
 | 评测报告（文件） | 永久 | 不入库，体量小，是能力证明（§2.8） |
 
@@ -614,7 +617,7 @@ CREATE TABLE user_budgets (
 > `resolved_at`，授权看 `expires_at`（§4、[ADR-0027](decisions/0027-approval-snapshot-retention.md)）。
 > **上传文件不单独落盘**（解析后写 `kb_documents` / `kb_chunks`），
 > 早期文档里的「附件 30 天」没有对应表，已删除。
-> 顺序是「事件 → 正文 → 审批快照 → 过期授权 → 计量」，且配置层强制正文保留期**不短于**事件保留期：
+> 顺序是「事件 → 正文 → 审批快照 → 过期授权 → 恢复审计 → 置顶审计 → 导出审计 → 工具历史 → 计量」，且配置层强制正文保留期**不短于**事件保留期：
 > `message.delta` / `message.completed` 里是同一段回答正文，事件还在时清 runs 等于没清
 > （[ADR-0023](decisions/0023-run-content-retention.md)）。正文清理是**按时间**的删除，
 > 与 [ADR-0022](decisions/0022-run-content-visibility.md) 的**按权限**回收正交：前者删了就不再回来，

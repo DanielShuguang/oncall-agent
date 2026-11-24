@@ -127,6 +127,7 @@ def test_retention_params_are_validated() -> None:
     assert settings.session_restore_audit_retention_days == 365
     assert settings.session_pin_audit_retention_days == 365
     assert settings.export_audit_retention_days == 365
+    assert settings.tool_history_retention_days == 365
     assert settings.tool_history_cursor_ttl_minutes == 60
 
 

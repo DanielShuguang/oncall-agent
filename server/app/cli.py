@@ -34,6 +34,7 @@ from app.gateway.meter import build_model_call_store
 from app.runs.citation_backfill import backfill_citations
 from app.runs.recovery import RunRecovery
 from app.runs.retention import RetentionSweeper
+from app.tools.policy import get_tool_policy
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -123,6 +124,7 @@ async def _prune(args: argparse.Namespace) -> int:
         build_store(settings),
         build_model_call_store(settings),
         build_approval_store(settings),
+        tool_history=get_tool_policy(),
         settings=settings,
     )
     try:
@@ -141,6 +143,7 @@ async def _prune(args: argparse.Namespace) -> int:
                 "session_restores_before": result.session_restores_before.isoformat(),
                 "session_pin_audits_before": result.session_pin_audits_before.isoformat(),
                 "export_audits_before": result.export_audits_before.isoformat(),
+                "tool_history_before": result.tool_history_before.isoformat(),
                 "runs": len(result.run_ids),
                 "events": result.events,
                 "calls": result.calls,
@@ -150,6 +153,7 @@ async def _prune(args: argparse.Namespace) -> int:
                 "session_restores": result.session_restores,
                 "session_pin_audits": result.session_pin_audits,
                 "export_audits": result.export_audits,
+                "tool_history": result.tool_history,
                 "batch": result.batch,
                 "capped": result.capped,
                 "dry_run": result.dry_run,

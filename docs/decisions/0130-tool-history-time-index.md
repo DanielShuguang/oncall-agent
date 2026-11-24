@@ -35,6 +35,7 @@ LIMIT batch
 - 保留清理可走 `(changed_at, id)` 索引做范围扫描 + 有序取批，避免全表排序。
 - 多一个索引会增加少量写入成本；`tool_setting_changes` 只在管理写入时追加，可接受。
 - 迁移可逆，不涉及数据回填。
+- 0029 使用普通 `CREATE INDEX`，升级期间会对 `tool_setting_changes` 持 `SHARE` 锁、阻塞写入；该表只在管理配置变更时追加，量级小，升级窗口可接受。若现场表很大，应在维护窗口执行，或评估 `CREATE INDEX CONCURRENTLY`（当前不采用，避免迁移事务与可重复性问题）。
 
 ## 验证
 

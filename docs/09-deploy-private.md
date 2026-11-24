@@ -184,6 +184,7 @@ make loadtest
 必须同时把正文保留期调到不短于它，否则启动失败（错误信息会说明两种改法）。立即处理或先看候选：`cd server && uv run python -m app.cli prune --dry-run`（输出含 `content_before` / `content_runs` / `approval_snapshots` / `approval_grants` / `session_restores_before` / `session_restores` / `session_pin_audits_before` / `session_pin_audits` / `tool_history_before` / `tool_history`），确认后 `make prune`（[ADR-0021](decisions/0021-data-retention.md)、[ADR-0023](decisions/0023-run-content-retention.md)、[ADR-0027](decisions/0027-approval-snapshot-retention.md)、[ADR-0059](decisions/0059-session-restore-audit.md)、[ADR-0083](decisions/0083-session-pin-audit-retention.md)） |
 | 历史引用回填 | ADR-0031 之前写入的 run 没有 `runs.citations` 快照；事件与正文都还在时可用 `make backfill-citations`（或 `python -m app.cli backfill-citations --dry-run`）从最后一条 `message.completed` 重建。默认扫描 100 场（`--limit`），可重复执行，写过的不再入选；事件/正文已过保留期的 run 跳过。回填不改变可见性：详情仍按当前权限与正文保留期过滤（[ADR-0042](decisions/0042-citation-backfill.md)） |
 | 升级 | 先跑 alembic 迁移 → 再滚动重启 api |
+| 升级注意 | ADR-0130 的 `0029` 迁移会创建普通索引，升级期间短暂持有 `SHARE` 锁并阻塞 `tool_setting_changes` 写入；该表只在管理配置变更时追加，量级小可接受。现场表很大时安排在维护窗口执行。 |
 | 回滚 | 镜像 tag + 数据库迁移的 downgrade 脚本（每次迁移必须写 downgrade） |
 
 ## 9. 安全清单

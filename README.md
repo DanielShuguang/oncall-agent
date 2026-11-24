@@ -168,8 +168,8 @@ oncall/
 
 | 模块 | 状态 | 验证方式 |
 |---|---|---|
-| 文档（12 篇 + 125 篇 ADR + 评测基线） | ✅ 完成 | — |
-| 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡 / 运行回放 / 成本页） | ✅ 可用 | `tsc --noEmit`、`oxlint 0`、`oxfmt --check` 通过；`vitest` 33 files / 174 tests；`pnpm build` 成功（2951 modules） |
+| 文档（12 篇 + 126 篇 ADR + 评测基线） | ✅ 完成 | — |
+| 前端骨架（状态机 / SSE 客户端 / 页面 / 审批卡 / 运行回放 / 成本页） | ✅ 可用 | `tsc --noEmit`、`oxlint 0`、`oxfmt --check` 通过；`vitest` 34 files / 177 tests；`pnpm build` 成功（2952 modules） |
 | 后端骨架（事件契约 / SSE / 健康检查） | ✅ 可运行 | 默认 `pytest` **538 passed + 42 skipped**；设 `ONCALL_TEST_DATABASE_URL`（指向一个可清空的库）后 **577 passed + 3 skipped**，再加 `ONCALL_TEST_REDIS_URL` 为 **580 passed**（含并发 seq、pgvector 检索、可见性矩阵、会话历史隔离、审批并发与事务回滚、孤儿回收并发、保留清理契约与审批快照、引用快照与内容回收、个人预算与账本快照、工单自助查询、工单详情、会话列表/标题搜索/分页/重命名/移除/恢复/置顶、资产查询接表、运行过程回放与载荷上限、批量会话详情、工具配置变更历史、历史引用回填、已移除会话分页与搜索、已移除会话批量恢复、批量恢复逐条结果、会话恢复审计、会话恢复审计分页、恢复审计按 session 反查、恢复审计 CSV 导出、恢复审计列表总数、恢复审计统计、恢复审计统计按过滤、恢复审计按日期范围、审批积压与等待统计、审批统计分组、审批列表分页、已办审批按决议时间排序、已办审批筛选、审批列表导出 CSV、审批列表首屏总数、审批统计按小时分布、审批统计聚合导出、恢复审计统计导出、会话批量移除、会话置顶上限、置顶容量提示、置顶审计与分页、置顶审计日期过滤、置顶审计保留清理、置顶审计 CSV 导出、置顶审计统计、置顶审计统计跟随过滤、置顶审计统计 CSV 导出、置顶审计首屏总数、记住审计过滤与统计窗口、CSV 导出下载审计、计量一致性） |
 | 本地 JWT（W1 D2） | ✅ 已完成 | `tests/test_auth.py` 20 条：签发/验签、过期、alg=none、401 JSON、OpenAPI Bearer、run 归属隔离 |
 | 事件落库 + 断线续传（D4） | ✅ 已完成 | `alembic upgrade head` + `alembic check` 无漂移；`tests/test_store_contract.py`（内存 + Postgres 契约）、`tests/test_chat_stream.py`（落库、幂等回放、503 语义） |
@@ -239,6 +239,7 @@ oncall/
 | 审批统计自动刷新间隔可配置（ADR-0123） | ✅ 已完成 | 统计区增加 15/30/60 秒快捷档，默认 30 秒；`localStorage` 记 `oncall.approval-stats-refresh-interval.v1`，非法/损坏回退 30；只重启本地定时器，不立即请求；切换账号清理；无后端/迁移；[ADR-0123](docs/decisions/0123-approval-refresh-interval.md) |
 | 审批统计自定义刷新间隔（ADR-0124） | ✅ 已完成 | 快捷档之外可填 5–300 秒整数；同一 `localStorage` key；非法/越界恢复当前值，读取时回退 30；只重启定时器，不立即请求；切换账号清理；无后端/迁移；[ADR-0124](docs/decisions/0124-approval-refresh-custom-interval.md) |
 | 恢复审计统计按日恢复置顶（ADR-0125） | ✅ 已完成 | 恢复审计统计 `daily` 增加 `repinned`；统计 CSV 每个 UTC 日期多一行；审计页统计卡展示最近 7 个活动日恢复/会话/置顶；总数与日汇总同口径；无迁移；[ADR-0125](docs/decisions/0125-restore-audit-daily-repinned.md) |
+| 置顶审计统计窗口记忆（ADR-0126） | ✅ 已完成 | PinAuditPage 的 7/30/90 天统计窗口存 `oncall.pin-audit-stats-window.v1`，刷新/重开保持；默认 30 天不写，清除/切账号回默认；日期范围仍优先；纯前端、无迁移；[ADR-0126](docs/decisions/0126-pin-audit-stats-window.md) |
 | 导出 CSV 内容哈希（W6 后补） | ✅ 已完成 | `export_audits.content_sha256` 记录服务端返回 CSV 的 SHA-256（含 BOM/CRLF），迁移 `0025` 只加可空列；管理员列表、审计 CSV 与页面短值展示；旧记录为空；不做 HMAC/签名、不在响应头返回哈希；[ADR-0097](docs/decisions/0097-export-content-hash.md) |
 | 工具变更历史日期范围（W6 后补） | ✅ 已完成 | `GET /admin/tools/{name}/history` 支持 `changed_from`/`changed_to`（UTC 自然日，两端同时、最多 365 天）；`[from 00:00Z, to+1d 00:00Z)` 窗口；内存/PG 同口径，无迁移；ToolsPage 历史 Dialog 增加应用/清除日期；[ADR-0098](docs/decisions/0098-tool-history-date-range.md) |
 | 工具变更历史 CSV 导出（W6 后补） | ✅ 已完成 | `GET /admin/tools/{name}/history/export` 与历史同日期窗口、最多 5000 行；CSV 六列、BOM/CRLF/公式防护；导出自身写 `resource=tool_setting_history` 下载审计（`row_count`/`content_sha256`），失败 503；`export_audits` CHECK 扩为 8 种（迁移 `0026`）；前端使用已应用日期并丢弃过期响应；[ADR-0099](docs/decisions/0099-tool-history-export.md) |

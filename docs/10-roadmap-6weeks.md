@@ -2747,3 +2747,18 @@ ADR-0118 只记住两页的日期预设；用户、会话、动作（置顶/取�
 验证：后端 `test_admin_sessions.py` 14 passed；默认 538+42 / PG 577+3 / PG+Redis 580；前端 33 files/174 tests、`tsc`、`oxlint` 0/0（149 files）、`oxfmt --check` 157 files、`build` 2951 modules。
 
 详见 [ADR-0125](decisions/0125-restore-audit-daily-repinned.md)。
+
+## W6 后补：置顶审计统计窗口按浏览器记住（ADR-0126）
+
+| 事项 | 落地 |
+|---|---|
+| 偏好 | `oncall.pin-audit-stats-window.v1` 只存 `7`/`30`/`90`；默认 30 不写 key |
+| 初始化 | PinAuditPage 懒读偏好作为 `statsDays` 初始值；非法/损坏/存储不可用回退 30 |
+| 写入 | 点 7/30/90 时写入；切回 30 删除 key |
+| 清除 | 清除过滤同时清日期预设、非日期过滤与统计窗口 |
+| 账号 | `clearLocalPreferences` 清该 key |
+| 范围 | 不改 API/后端/迁移；不跨设备同步 |
+
+验证：前端 34 files / 177 tests、`tsc`、`oxlint` 0/0（151 files）、`oxfmt --check` 151 files、`pnpm build` 2952 modules；后端未改 538+42 / 577+3 / 580。
+
+详见 [ADR-0126](decisions/0126-pin-audit-stats-window.md)。

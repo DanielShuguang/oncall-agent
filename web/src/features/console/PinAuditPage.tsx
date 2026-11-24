@@ -21,6 +21,11 @@ import {
 import { clearPinAuditFilterMemory, writePinAuditFilterMemory } from './auditPageFilterMemory';
 import { initialPinAuditState } from './pinAuditInitialState';
 import {
+  clearPinAuditStatsWindow,
+  readPinAuditStatsWindow,
+  writePinAuditStatsWindow,
+} from './pinAuditStatsWindow';
+import {
   EMPTY_PIN_AUDIT_DRAFT,
   PinAuditFilterCard,
   type PinAuditDraft,
@@ -42,7 +47,7 @@ export default function PinAuditPage() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [statsDays, setStatsDays] = useState<number>(30);
+  const [statsDays, setStatsDays] = useState<number>(readPinAuditStatsWindow);
   const [stats, setStats] = useState<SessionPinAuditStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
   const [statsError, setStatsError] = useState<string | null>(null);
@@ -118,6 +123,7 @@ export default function PinAuditPage() {
     setStatsLoading(true);
     setStatsError(null);
     setStatsDays(days);
+    writePinAuditStatsWindow(days);
   };
 
   const loadMore = async () => {
@@ -207,6 +213,7 @@ export default function PinAuditPage() {
     clearPinAuditFilterMemory();
     setDraft(EMPTY_PIN_AUDIT_DRAFT);
     setStatsDays(30);
+    clearPinAuditStatsWindow();
     setFilterError(null);
     listRequest.current += 1;
     setItems([]);

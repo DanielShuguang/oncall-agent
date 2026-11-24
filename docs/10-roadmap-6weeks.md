@@ -2762,3 +2762,19 @@ ADR-0118 只记住两页的日期预设；用户、会话、动作（置顶/取�
 验证：前端 34 files / 177 tests、`tsc`、`oxlint` 0/0（151 files）、`oxfmt --check` 151 files、`pnpm build` 2952 modules；后端未改 538+42 / 577+3 / 580。
 
 详见 [ADR-0126](decisions/0126-pin-audit-stats-window.md)。
+---
+
+## W6 后补：审批统计窗口按浏览器记住（ADR-0127）
+
+审批统计 7/30/90 天窗口原先每次打开都回 7 天，与自动刷新开关/间隔的本地记忆不一致。现在：
+
+| 事项 | 落地 |
+|---|---|
+| 存储 | `localStorage` 键 `oncall.approval-stats-window.v1`，只存 `7`/`30`/`90`；默认 7 天不写，清除/切账号删除 |
+| 读取 | 首屏惰性读；缺失/损坏/越界回退 7 |
+| 写入 | 点击 7/30/90 后立即写；7 天删除键，回默认 |
+| 范围 | 只影响审批统计窗口；不改自动刷新开关/间隔；不跨设备；无后端/迁移 |
+
+验证：前端 35 files/180 tests、`tsc --noEmit`、`oxlint` 0/0（153 files）、`oxfmt --check` 161 files、`pnpm build` 2953 modules；后端未改 538+42 / 577+3 / 580。
+
+详见 [ADR-0127](decisions/0127-approval-stats-window.md)。

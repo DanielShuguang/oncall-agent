@@ -2813,6 +2813,23 @@ ADR-0118 只记住两页的日期预设；用户、会话、动作（置顶/取�
 
 验证：默认 **539 passed + 43 skipped**、PG-only **579 passed + 3 skipped**、PG+Redis **582 passed**；
 
-`ruff check` / `ruff format --check` 210 files / `mypy app` 119 files；前端未改 36 files/183 tests、build 2954。
+`ruff check` / `ruff format --check` 211 files / `mypy app` 119 files；前端未改 36 files/183 tests、build 2954。
 
 详见 [ADR-0129](decisions/0129-tool-history-retention.md)。
+
+---
+
+## W6 后补：工具历史保留清理时间索引（ADR-0130）
+
+`tool_setting_changes` 原先只有 `(tool_name, changed_at DESC)` 索引；保留清理跨工具按 `changed_at` 裁剪，用不上该索引，会退化成全表扫描 + 排序。
+
+| 事项 | 落地 |
+|---|---|
+| 索引 | 新增 `idx_tool_setting_changes_time (changed_at, id)`；保留按工具查询索引 |
+| 迁移 | `0029` 只创建/删除索引，不改表结构 |
+| 范围 | 不改清理语义、API、前端；真实数据量的 `EXPLAIN` 验证留待后续 |
+| 兼容 | 可逆；无数据回填 |
+
+验证：默认 **539 passed + 43 skipped**、PG-only **579 passed + 3 skipped**、PG+Redis **582 passed**；`ruff check` / `ruff format --check` 211 files / `mypy app` 119 files；前端未改 36 files/183 tests、build 2954。
+
+详见 [ADR-0130](decisions/0130-tool-history-time-index.md)。

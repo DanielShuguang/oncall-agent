@@ -63,4 +63,6 @@ class ToolSettingChange(Base):
     __table_args__ = (
         # 管理页按工具查最近 N 条；历史表只增，索引跟着写入增长
         Index("idx_tool_setting_changes_tool_time", "tool_name", text("changed_at DESC")),
+        # 保留清理按 changed_at 跨工具裁剪；没有该索引会退化成全表扫描 + 排序
+        Index("idx_tool_setting_changes_time", "changed_at", "id"),
     )

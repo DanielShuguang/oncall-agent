@@ -20,7 +20,10 @@ function normalize(value: string): StatsGroup {
     : 'none';
 }
 
-/** 只接受 none/tool/approver；缺失、损坏或存储不可用时回到不分组。 */
+/**
+ * 只接受 none/tool/approver；缺失、损坏或存储不可用时回到不分组。
+ * 读到非法值或 `none` 时顺手删除，避免每次打开都解析同一个无效 key。
+ */
 export function readApprovalStatsGroup(
   storage: StatsGroupStorage | null = defaultStorage(),
 ): StatsGroup {
@@ -28,7 +31,9 @@ export function readApprovalStatsGroup(
   try {
     const raw = storage.getItem(APPROVAL_STATS_GROUP_STORAGE_KEY);
     if (!raw) return 'none';
-    return normalize(raw);
+    const normalized = normalize(raw);
+    if (normalized === 'none') storage.removeItem(APPROVAL_STATS_GROUP_STORAGE_KEY);
+    return normalized;
   } catch {
     return 'none';
   }

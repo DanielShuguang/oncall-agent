@@ -30,9 +30,12 @@ describe('approval stats group memory', () => {
     expect(
       readApprovalStatsGroup(makeStorage({ [APPROVAL_STATS_GROUP_STORAGE_KEY]: 'approver' })),
     ).toBe('approver');
-    expect(readApprovalStatsGroup(makeStorage({ [APPROVAL_STATS_GROUP_STORAGE_KEY]: 'bad' }))).toBe(
-      'none',
-    );
+    const invalid = makeStorage({ [APPROVAL_STATS_GROUP_STORAGE_KEY]: 'bad' });
+    expect(readApprovalStatsGroup(invalid)).toBe('none');
+    expect(invalid.getItem(APPROVAL_STATS_GROUP_STORAGE_KEY)).toBeNull();
+    const explicitNone = makeStorage({ [APPROVAL_STATS_GROUP_STORAGE_KEY]: 'none' });
+    expect(readApprovalStatsGroup(explicitNone)).toBe('none');
+    expect(explicitNone.getItem(APPROVAL_STATS_GROUP_STORAGE_KEY)).toBeNull();
   });
 
   it('写非默认分组、none 删除、清除删除', () => {

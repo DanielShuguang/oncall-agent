@@ -2833,3 +2833,20 @@ ADR-0118 只记住两页的日期预设；用户、会话、动作（置顶/取�
 验证：默认 **539 passed + 43 skipped**、PG-only **579 passed + 3 skipped**、PG+Redis **582 passed**；`ruff check` / `ruff format --check` 211 files / `mypy app` 119 files；前端未改 36 files/183 tests、build 2954。
 
 详见 [ADR-0130](decisions/0130-tool-history-time-index.md)。
+
+---
+
+## W6 后补：会话列表翻页去重（ADR-0131）
+
+会话列表用 `(updated_at, session_id)` keyset 游标翻页；翻页期间有新 run 写入时，旧会话会移动到下一页，直接拼接会产生重复行和 React key 冲突。
+
+| 事项 | 落地 |
+|---|---|
+| 去重 | `mergeSessionPage(current, incoming)` 按 `session_id` 保留首次出现，顺序为已加载项 + 新出现项 |
+| 接线 | `useSessionList.loadMore` 用它替换 `[...prev, ...page.items]`；首屏刷新仍整体替换 |
+| 范围 | 只解决重复；新 run 导致旧游标跳过的页仍靠刷新重置，README 明说 |
+| 兼容 | 纯前端，无 API/后端/迁移；空页返回原引用，避免无意义渲染 |
+
+验证：前端 **37 files / 186 tests**、`tsc --noEmit`、`oxlint` 0/0（157 files）、`oxfmt --check` 165 files、`pnpm build` 2955 modules；后端未改 539+42 / 579+3 / 582。
+
+详见 [ADR-0131](decisions/0131-session-page-dedup.md)。

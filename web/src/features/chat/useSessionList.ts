@@ -7,6 +7,7 @@ import {
   type SessionSummary,
 } from '@/api/sessions';
 import { keepVisibleSelection } from './sessionSelection';
+import { mergeSessionPage } from './sessionPage';
 
 export function useSessionList() {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -93,7 +94,7 @@ export function useSessionList() {
     try {
       const page = await listSessions(20, cursor, query || null);
       if (requestId !== sessionsRequest.current) return;
-      setSessions((prev) => [...prev, ...page.items]);
+      setSessions((prev) => mergeSessionPage(prev, page.items));
       setCursor(page.next_cursor);
       setPinnedCount(page.pinned_count ?? null);
       setPinLimit(page.pin_limit ?? null);

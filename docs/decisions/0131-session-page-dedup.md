@@ -2,7 +2,7 @@
 
 ## 背景
 
-会话历史使用 keyset `(updated_at, session_id)` 游标翻页（ADR-0033）。翻页期间若有新 run 写入，旧会话会移动到下一页，后一页可能再次返回已加载的 `session_id`；前端直接 `[...prev, ...page.items]` 会产生重复行和 React key 冲突。
+会话历史使用 keyset `(updated_at, session_id)` 游标翻页（ADR-0033）。翻页期间实时聚合/置顶状态变化，已加载会话可能再次出现在后续页，后一页会返回已加载的 `session_id`；前端直接 `[...prev, ...page.items]` 会产生重复行和 React key 冲突。
 
 ## 备选
 
@@ -14,21 +14,21 @@
 
 ## 决策
 
-1. 新增纯函数 `mergeSessionPage(current, incoming)`：按 `session_id` 保留首次出现，顺序为「已加载项 + 新出现项」。
+1. 新增纯函数 `mergeSessionPage(current, incoming)`：按 `session_id` 保留首次出现的位置；若后页副本的 `updated_at` 不早于已加载项，用后页字段覆盖（置顶/标题不留在旧值）；同一页内重复仍只保留第一个。
 2. `useSessionList.loadMore` 用它替换直接拼接；首屏 `refresh` 仍整体替换。
-3. 空页返回原数组引用，避免无意义渲染。
+3. 空页或无实际新增/覆盖时返回原数组引用，避免无意义渲染。
 4. 只解决重复，不解决「新 run 导致旧游标跳过一页」；跳过仍通过刷新重置，README 明说。
 
 ## 后果
 
-- 重复行和 React key 冲突消失；已加载顺序不变。
+- 重复行和 React key 冲突消失；已加载顺序不变；重复项字段以后页较新副本为准。
 - 客户端多一次 `Set` 去重（每页 20 条，可忽略）。
 - 跳过问题仍在；如需彻底一致，需要快照分页或服务端会话版本，超出本 ADR。
 
 ## 验证
 
-- `sessionPage.test.ts` 3 用例：跳过已加载、页内重复、空页保持引用。
-- 前端 37 files / 186 tests、`tsc`、`oxlint` 0/0、`oxfmt --check`、`build` 2955 modules 通过（本次实测）。
+- `sessionPage.test.ts` 5 用例：跳过已加载、页内重复、较新副本覆盖置顶状态、较早副本不覆盖、空页保持引用。
+- 前端 37 files / 188 tests、`tsc`、`oxlint` 0/0、`oxfmt --check`、`build` 2955 modules 通过（本次实测）。
 
 ## 待定
 

@@ -158,7 +158,7 @@
 | [0128](decisions/0128-approval-stats-group.md) | 审批统计分组按浏览器记住 | oncall.approval-stats-group.v1 只存 none/tool/approver，默认 none 不写；刷新/重开保持，切换账号回默认；纯前端、无迁移 |
 | [0129](decisions/0129-tool-history-retention.md) | 工具配置变更历史保留清理 | ONCALL_TOOL_HISTORY_RETENTION_DAYS 默认 365；按 changed_at 独立清理，dry-run/批量；无迁移 |
 | [0130](decisions/0130-tool-history-time-index.md) | 工具历史保留清理时间索引 | 新增 `(changed_at, id)` 索引（迁移 0029），避免跨工具清理全表扫描；保留按工具查询索引；无 API 变更 |
-| [0131](decisions/0131-session-page-dedup.md) | 会话列表翻页去重 | 游标翻页期间新 run 可能让会话重复出现在下一页；前端按 `session_id` 保留首次出现，只去重不解决跳过 |
+| [0131](decisions/0131-session-page-dedup.md) | 会话列表翻页去重 | 游标翻页期间实时聚合/置顶变化可能让已加载会话再次出现在后续页；前端保留首次位置，较新副本覆盖字段，只去重不解决跳过 |
 
 > ADR 的写法：背景 → 方案对比 → 决策 → 后果。面试被问"为什么这么做"时，直接念 ADR。
 

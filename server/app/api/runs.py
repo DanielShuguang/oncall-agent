@@ -349,7 +349,7 @@ async def list_hidden_sessions(
                 user_id=identity.user_id,
                 query=query or None,
             )
-            if cursor is None
+            if not cursor
             else None
         )
     except SQLAlchemyError as exc:

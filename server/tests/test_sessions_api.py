@@ -605,6 +605,17 @@ async def test_hidden_list_total_is_first_page_only(
     ).json()
     assert second["total"] is None
 
+    # 空字符串游标等价于未传游标：列表按首屏解析，total 也必须返回（ADR-0134）
+    empty_cursor = (
+        await client.get("/api/sessions/hidden", params={"limit": 1, "cursor": ""})
+    ).json()
+    assert empty_cursor["total"] == 2
+
+    # 计数与列表不是同一快照：total 小于已加载条数时降级为 null
+    mem_store.count_hidden_sessions = AsyncMock(return_value=0)  # type: ignore[method-assign]
+    degraded = (await client.get("/api/sessions/hidden")).json()
+    assert degraded["total"] is None
+
     mem_store.count_hidden_sessions = AsyncMock(side_effect=SQLAlchemyError("boom"))  # type: ignore[method-assign]
     res = await client.get("/api/sessions/hidden")
     assert res.status_code == 503

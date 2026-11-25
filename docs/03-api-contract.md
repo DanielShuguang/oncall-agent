@@ -36,7 +36,7 @@ Base：`/api`　鉴权：`Authorization: Bearer <token>`（v1 用本地签发的
 | POST | `/sessions/{session_id}/pin` | 置顶会话（幂等，204；单用户默认上限 50，`ONCALL_SESSION_PIN_LIMIT` 可配，超出 409） | W6 后补 |
 | DELETE | `/sessions/{session_id}/pin` | 取消置顶（幂等，204） | W6 后补 |
 | DELETE | `/sessions/{session_id}` | 从会话列表移除（软移除；不删 run/事件/审批，204；同事务清置顶） | W6 后补 |
-| GET | `/sessions/hidden` | 本人从列表移除的会话（游标分页 + 标题搜索，ADR-0043/0047） | W6 后补 |
+| GET | `/sessions/hidden` | 本人从列表移除的会话（游标分页 + 标题搜索 + 首屏总数，ADR-0043/0047/0134） | W6 后补 |
 | DELETE | `/sessions/{session_id}/hidden` | 恢复已移除的会话（只删 `hidden_sessions` 行，204） | W6 后补 |
 | POST | `/sessions/hide` | 批量从会话列表移除（最多 50，部分成功，返回逐条结果） | W6 后补 |
 | POST | `/sessions/hidden/restore` | 批量恢复已移除会话（最多 50，部分成功，返回逐条结果） | W6 后补 |
@@ -801,6 +801,7 @@ Authorization: Bearer <token>
       "was_pinned": true
     }
   ],
+  "total": 1,
   "next_cursor": "eyJ0IjoiMjAyNi0xMS0xMlQwOTozMDowMFoiLCJzIjoic2Vzc18wMUgifQ"
 }
 ```
@@ -832,6 +833,9 @@ Content-Type: application/json
 - `GET /sessions/hidden` 只返回**本人**从列表移除的会话，按 `hidden_at DESC, session_id DESC`；
   `limit` 1–50，默认 50；`cursor` 是 `(hidden_at, session_id)` 的 keyset 游标（base64url JSON），
   当前页取满时返回 `next_cursor`，下一页为空时为 `null`
+- 第一页附 `total`（ADR-0134），按当前 `q` 统计；有 `cursor` 的后续页为 `null`。
+  计数与列表是两次查询；若计数后又有恢复导致 `total < len(items)`，降级为 `null`。
+  计数或列表失败都返回 `503`，不返回部分列表
 - 搜索 `q` 与主列表同口径：大小写不敏感，同时匹配显示标题（自定义标题优先）与首条非空
   `input`；**不搜回答正文**。`q` 最长 100 字符，空白按没有搜索处理
 - 标题口径与普通会话列表一致：展示截到 60 字符；`run_count` 是该会话仍存在的 run 数

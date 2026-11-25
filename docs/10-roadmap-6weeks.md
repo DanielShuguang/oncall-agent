@@ -2879,3 +2879,17 @@ ADR-0118 只记住两页的日期预设；用户、会话、动作（置顶/取�
 | 语义 | 只提示，不自动取消置顶；取消置顶始终可用；新增置顶仍由后端 409 兜底 |
 | 范围 | 纯前端；不做一键清理超限、容量管理页 |
 | 验证 | 默认 539+43 / PG 579+3 / PG+Redis 582；前端 38 files/191 tests、oxlint 159、format 167、build 2956 |
+
+---
+
+### W6 后补：已移除会话列表首屏总数（ADR-0134）
+
+| 项 | 落地 |
+|---|---|
+| 接口 | `GET /sessions/hidden` 首屏增加 `total`；有 `cursor` 的后续页为 `null` |
+| 计数 | `count_hidden_sessions` 与列表同口径（有 run、标题搜索）；计数/列表失败都 503 |
+| 降级 | 两次查询非同一快照；`total < len(items)` 时置 `null`，避免「共 0 条 · 已加载 1 条」 |
+| 前端 | 首屏显示「共 N 条 · 已加载 M 条」；`total=null` 时只显示已加载；单条恢复本地减一，批量恢复重拉首屏 |
+| 范围 | 无迁移；不做页码/跳页、总数缓存、已移除排序切换 |
+
+验证：默认 **540 passed + 43 skipped**、PG-only **580 passed + 3 skipped**、PG+Redis **583 passed**；ruff 211 / format 211 / mypy 119；前端 **38 files / 191 tests**、oxlint 159、format 167、build 2956。

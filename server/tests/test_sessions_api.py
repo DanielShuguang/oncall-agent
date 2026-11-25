@@ -585,6 +585,32 @@ async def test_rename_session_database_failure_is_503(
     assert res.json()["code"] == "DATABASE_UNAVAILABLE"
 
 
+async def test_hidden_list_total_is_first_page_only(
+    client: AsyncClient, mem_store: InMemoryRunStore
+) -> None:
+    await _run(mem_store, "sess_t1", "第一个")
+    await asyncio.sleep(0.001)
+    await _run(mem_store, "sess_t2", "第二个")
+    assert (await client.delete("/api/sessions/sess_t1")).status_code == 204
+    assert (await client.delete("/api/sessions/sess_t2")).status_code == 204
+
+    first = (await client.get("/api/sessions/hidden", params={"limit": 1})).json()
+    assert first["total"] == 2
+    assert first["next_cursor"]
+    second = (
+        await client.get(
+            "/api/sessions/hidden",
+            params={"limit": 1, "cursor": first["next_cursor"]},
+        )
+    ).json()
+    assert second["total"] is None
+
+    mem_store.count_hidden_sessions = AsyncMock(side_effect=SQLAlchemyError("boom"))  # type: ignore[method-assign]
+    res = await client.get("/api/sessions/hidden")
+    assert res.status_code == 503
+    assert res.json()["code"] == "DATABASE_UNAVAILABLE"
+
+
 async def test_hide_session_removes_from_list_and_search(
     client: AsyncClient, mem_store: InMemoryRunStore
 ) -> None:
@@ -601,15 +627,19 @@ async def test_hide_session_removes_from_list_and_search(
     # 重复移除幂等
     assert (await client.delete("/api/sessions/sess_hide")).status_code == 204
 
-    # 已移除视图（ADR-0043）：能找回并恢复
-    hidden_items = (await client.get("/api/sessions/hidden")).json()["items"]
+    # 已移除视图（ADR-0043）：能找回并恢复；首屏带总数（ADR-0134）
+    hidden_page = (await client.get("/api/sessions/hidden")).json()
+    hidden_items = hidden_page["items"]
     assert [item["session_id"] for item in hidden_items] == ["sess_hide"]
     assert hidden_items[0]["title"] == "打印机离线"
     assert hidden_items[0]["run_count"] == 1
+    assert hidden_page["total"] == 1
     assert (await client.delete("/api/sessions/sess_hide/hidden")).status_code == 204
     restored = (await client.get("/api/sessions")).json()["items"]
     assert {item["session_id"] for item in restored} == {"sess_hide", "sess_keep"}
-    assert (await client.get("/api/sessions/hidden")).json()["items"] == []
+    empty_page = (await client.get("/api/sessions/hidden")).json()
+    assert empty_page["items"] == []
+    assert empty_page["total"] == 0
     assert (await client.delete("/api/sessions/sess_hide/hidden")).status_code == 404
 
     # 软移除：run 与详情仍可直接访问，只是不再出现在列表/搜索里

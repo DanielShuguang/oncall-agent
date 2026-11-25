@@ -49,6 +49,7 @@ export interface SessionListProps {
   /** 已移除的会话折叠区（ADR-0043） */
   hiddenOpen: boolean;
   hiddenSessions: HiddenSession[];
+  hiddenTotal: number | null;
   hiddenLoading: boolean;
   hiddenError: string | null;
   /** 批量恢复后的部分成功提示（ADR-0055）；不占用错误样式 */

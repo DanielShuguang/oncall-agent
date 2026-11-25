@@ -119,6 +119,7 @@ export default function ChatPage() {
         onHideSelected={() => void hideSelected()}
         hiddenOpen={hidden.hiddenOpen}
         hiddenSessions={hidden.hiddenSessions}
+        hiddenTotal={hidden.hiddenTotal}
         hiddenLoading={hidden.hiddenLoading}
         hiddenError={hidden.hiddenError}
         hiddenNotice={hidden.hiddenNotice}

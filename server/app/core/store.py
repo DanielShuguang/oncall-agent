@@ -796,6 +796,15 @@ class RunStore(Protocol):
         """
         ...
 
+    async def count_hidden_sessions(self, *, user_id: str, query: str | None = None) -> int:
+        """统计该用户当前从列表移除的会话数（ADR-0134）。
+
+        与 `list_hidden_sessions` 同口径：没有 run 的残留行不计；`query` 仍是
+        标题/首条问题的子串匹配。首屏 total 与列表不是同一快照，路由在
+        `total < len(items)` 时降级为 None（与审批/审计列表一致）。
+        """
+        ...
+
     async def unhide_session(self, *, user_id: str, session_id: str) -> bool:
         """把会话恢复到该用户的列表（ADR-0043）。
 
@@ -1546,6 +1555,43 @@ class InMemoryRunStore:
             ]
             return len(candidates)
 
+    def _hidden_session_items(self, user_id: str, query: str | None) -> list[HiddenSessionSummary]:
+        by_session: dict[str, list[RunRecord]] = {}
+        for record in self._runs.values():
+            if record.user_id == user_id:
+                by_session.setdefault(record.session_id, []).append(record)
+        items: list[HiddenSessionSummary] = []
+        #: 首条非空 input 的原文；搜索同时匹配它和自定义标题（ADR-0040/0047）
+        generated: dict[str, str | None] = {}
+        for (hidden_user, session_id), hidden_at in self._hidden_sessions.items():
+            if hidden_user != user_id:
+                continue
+            records = by_session.get(session_id)
+            if not records:
+                continue
+            records.sort(key=lambda record: (record.started_at, record.run_id))
+            first_input = next((record.input for record in records if record.input.strip()), None)
+            generated[session_id] = first_input
+            custom = self._session_titles.get((user_id, session_id))
+            items.append(
+                HiddenSessionSummary(
+                    session_id=session_id,
+                    title=custom if custom is not None else first_input,
+                    run_count=len(records),
+                    hidden_at=hidden_at,
+                    was_pinned=(user_id, session_id) in self._hidden_session_pins,
+                )
+            )
+        if query:
+            needle = query.lower()
+            items = [
+                item
+                for item in items
+                if _matches_session_query(needle, item.title, generated.get(item.session_id))
+            ]
+        items.sort(key=lambda item: (item.hidden_at, item.session_id), reverse=True)
+        return items
+
     async def list_hidden_sessions(
         self,
         *,
@@ -1556,42 +1602,7 @@ class InMemoryRunStore:
         query: str | None = None,
     ) -> list[HiddenSessionSummary]:
         async with self._lock:
-            by_session: dict[str, list[RunRecord]] = {}
-            for record in self._runs.values():
-                if record.user_id == user_id:
-                    by_session.setdefault(record.session_id, []).append(record)
-            items: list[HiddenSessionSummary] = []
-            #: 首条非空 input 的原文；搜索同时匹配它和自定义标题（ADR-0040/0047）
-            generated: dict[str, str | None] = {}
-            for (hidden_user, session_id), hidden_at in self._hidden_sessions.items():
-                if hidden_user != user_id:
-                    continue
-                records = by_session.get(session_id)
-                if not records:
-                    continue
-                records.sort(key=lambda record: (record.started_at, record.run_id))
-                first_input = next(
-                    (record.input for record in records if record.input.strip()), None
-                )
-                generated[session_id] = first_input
-                custom = self._session_titles.get((user_id, session_id))
-                items.append(
-                    HiddenSessionSummary(
-                        session_id=session_id,
-                        title=custom if custom is not None else first_input,
-                        run_count=len(records),
-                        hidden_at=hidden_at,
-                        was_pinned=(user_id, session_id) in self._hidden_session_pins,
-                    )
-                )
-            if query:
-                needle = query.lower()
-                items = [
-                    item
-                    for item in items
-                    if _matches_session_query(needle, item.title, generated.get(item.session_id))
-                ]
-            items.sort(key=lambda item: (item.hidden_at, item.session_id), reverse=True)
+            items = self._hidden_session_items(user_id, query)
             if before_hidden_at is not None and before_session_id is not None:
                 items = [
                     item
@@ -1599,6 +1610,10 @@ class InMemoryRunStore:
                     if (item.hidden_at, item.session_id) < (before_hidden_at, before_session_id)
                 ]
             return items[:limit]
+
+    async def count_hidden_sessions(self, *, user_id: str, query: str | None = None) -> int:
+        async with self._lock:
+            return len(self._hidden_session_items(user_id, query))
 
     async def unhide_session(self, *, user_id: str, session_id: str) -> bool:
         return bool(await self.unhide_sessions(user_id=user_id, session_ids=[session_id]))
@@ -2876,6 +2891,57 @@ class PostgresRunStore:
             )
             for row in rows
         ]
+
+    async def count_hidden_sessions(self, *, user_id: str, query: str | None = None) -> int:
+        # 与 list_hidden_sessions 同口径，但不取 run_count/游标：按 session_id 去重计数。
+        ranked = (
+            select(
+                Run.session_id,
+                Run.input,
+                func.row_number()
+                .over(
+                    partition_by=Run.session_id,
+                    order_by=(Run.started_at.asc(), Run.id.asc()),
+                )
+                .label("rn"),
+            )
+            .where(
+                Run.user_id == user_id,
+                func.length(func.regexp_replace(Run.input, r"\s", "", "g")) > 0,
+            )
+            .subquery()
+        )
+        first_input = select(ranked.c.session_id, ranked.c.input).where(ranked.c.rn == 1).subquery()
+        stmt = (
+            select(func.count(func.distinct(HiddenSessionRow.session_id)))
+            .select_from(HiddenSessionRow)
+            .join(
+                Run,
+                and_(
+                    Run.user_id == HiddenSessionRow.user_id,
+                    Run.session_id == HiddenSessionRow.session_id,
+                ),
+            )
+            .outerjoin(first_input, first_input.c.session_id == HiddenSessionRow.session_id)
+            .outerjoin(
+                SessionTitleRow,
+                and_(
+                    SessionTitleRow.user_id == HiddenSessionRow.user_id,
+                    SessionTitleRow.session_id == HiddenSessionRow.session_id,
+                ),
+            )
+            .where(HiddenSessionRow.user_id == user_id)
+        )
+        if query:
+            needle = query.lower()
+            stmt = stmt.where(
+                or_(
+                    func.strpos(func.lower(func.coalesce(SessionTitleRow.title, "")), needle) > 0,
+                    func.strpos(func.lower(func.coalesce(first_input.c.input, "")), needle) > 0,
+                )
+            )
+        async with self._sessionmaker() as session:
+            return int((await session.execute(stmt)).scalar_one())
 
     async def unhide_session(self, *, user_id: str, session_id: str) -> bool:
         return bool(await self.unhide_sessions(user_id=user_id, session_ids=[session_id]))

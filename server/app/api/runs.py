@@ -344,8 +344,19 @@ async def list_hidden_sessions(
             before_session_id=before_session_id,
             query=query or None,
         )
+        total = (
+            await store.count_hidden_sessions(
+                user_id=identity.user_id,
+                query=query or None,
+            )
+            if cursor is None
+            else None
+        )
     except SQLAlchemyError as exc:
         raise ApiError(503, "DATABASE_UNAVAILABLE", "database unavailable") from exc
+    # 计数与列表是两次查询；计数后又有恢复会让 total 小于已加载条数，降级成未知。
+    if total is not None and total < len(items):
+        total = None
     next_cursor = (
         _encode_session_cursor(items[-1].hidden_at, items[-1].session_id)
         if len(items) == limit
@@ -362,6 +373,7 @@ async def list_hidden_sessions(
             )
             for item in items
         ],
+        total=total,
         next_cursor=next_cursor,
     )
 

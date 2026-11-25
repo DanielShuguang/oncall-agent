@@ -105,6 +105,8 @@ export interface HiddenSession {
 
 export interface HiddenSessionPage {
   items: HiddenSession[];
+  //: 首屏同过滤总数（ADR-0134）；后续页为 null
+  total: number | null;
   next_cursor: string | null;
 }
 

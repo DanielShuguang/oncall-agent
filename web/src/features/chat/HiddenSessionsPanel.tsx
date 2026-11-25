@@ -7,6 +7,7 @@ import { formatUpdated } from './sessionFormat';
 interface HiddenSessionsPanelProps {
   open: boolean;
   sessions: HiddenSession[];
+  total: number | null;
   loading: boolean;
   error: string | null;
   notice: string | null;
@@ -31,6 +32,7 @@ interface HiddenSessionsPanelProps {
 export function HiddenSessionsPanel({
   open,
   sessions,
+  total,
   loading,
   error,
   notice,
@@ -115,6 +117,13 @@ export function HiddenSessionsPanel({
               {query.trim() ? '没有匹配的已移除会话。' : '没有已移除的会话。'}
             </p>
           )}
+          {sessions.length > 0 && (
+            <p className="px-1 text-[11px] text-muted-foreground">
+              {total === null
+                ? `已加载 ${sessions.length} 条`
+                : `共 ${total} 条 · 已加载 ${sessions.length} 条`}
+            </p>
+          )}{' '}
           {sessions.map((item) => (
             <div
               key={item.session_id}

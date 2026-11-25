@@ -903,6 +903,9 @@ async def _exercise_hidden_sessions(store: RunStore) -> None:
     assert [item.session_id for item in hidden_before] == ["sess_drop"]
     assert hidden_before[0].title == "要移除"
     assert hidden_before[0].run_count == 1
+    assert await store.count_hidden_sessions(user_id=user) == 1
+    assert await store.count_hidden_sessions(user_id=user, query="要移除") == 1
+    assert await store.count_hidden_sessions(user_id=user, query="vpn") == 0
 
     # 重复移除幂等（保留第一次的 hidden_at）；别人的会话不受影响，也不能由本人移除
     assert await store.hide_session(user_id=user, session_id="sess_drop") is True
@@ -936,6 +939,9 @@ async def _exercise_hidden_sessions(store: RunStore) -> None:
         before_session_id=first_page[-1].session_id,
     )
     assert [item.session_id for item in second_page] == ["sess_drop"]
+    assert await store.count_hidden_sessions(user_id=user) == 3
+    assert await store.count_hidden_sessions(user_id=user, query="vpn") == 1
+    assert await store.count_hidden_sessions(user_id=other) == 0
     assert [
         item.session_id
         for item in await store.list_hidden_sessions(user_id=user, limit=10, query="vpn")

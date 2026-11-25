@@ -32,6 +32,8 @@ class HiddenSessionOut(BaseModel):
 
 class HiddenSessionListResponse(BaseModel):
     items: list[HiddenSessionOut]
+    #: 首屏同过滤总数（ADR-0134）；后续页为 null
+    total: int | None = None
     #: keyset 游标（ADR-0047）；只在当前页取满时返回，下一页为空时为 null
     next_cursor: str | None = None
 

@@ -53,6 +53,7 @@ export function SessionList({
   onHideSelected,
   hiddenOpen,
   hiddenSessions,
+  hiddenTotal,
   hiddenLoading,
   hiddenError,
   hiddenNotice,
@@ -266,6 +267,7 @@ export function SessionList({
       <HiddenSessionsPanel
         open={hiddenOpen}
         sessions={hiddenSessions}
+        total={hiddenTotal}
         loading={hiddenLoading}
         error={hiddenError}
         notice={hiddenNotice}

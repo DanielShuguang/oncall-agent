@@ -20,6 +20,8 @@ export function useHiddenSessions(refreshSessions: () => void) {
   const [hiddenDraftQuery, setHiddenDraftQuery] = useState('');
   const [hiddenCursor, setHiddenCursor] = useState<string | null>(null);
   const [hiddenLoadingMore, setHiddenLoadingMore] = useState(false);
+  //: 首屏同过滤总数（ADR-0134）；后续页不清空，恢复时本地减一
+  const [hiddenTotal, setHiddenTotal] = useState<number | null>(null);
   const [restoringId, setRestoringId] = useState<string | null>(null);
   // 批量恢复（ADR-0049/0055）：一次最多 50 个，部分成功；选中只作用于当前已加载页
   const [hiddenSelected, setHiddenSelected] = useState<Set<string>>(new Set());
@@ -41,6 +43,7 @@ export function useHiddenSessions(refreshSessions: () => void) {
     setHiddenLoadingMore(false);
     setHiddenSessions([]);
     setHiddenCursor(null);
+    setHiddenTotal(null);
     setHiddenSelected(new Set());
     updateHiddenQuery('');
     setHiddenDraftQuery('');
@@ -57,6 +60,7 @@ export function useHiddenSessions(refreshSessions: () => void) {
       if (requestId === hiddenRequest.current) {
         setHiddenSessions(page.items);
         setHiddenCursor(page.next_cursor);
+        setHiddenTotal(page.total ?? null);
       }
     } catch (err) {
       if (requestId === hiddenRequest.current) {
@@ -86,6 +90,7 @@ export function useHiddenSessions(refreshSessions: () => void) {
     const nextQuery = hiddenDraftQuery.trim();
     updateHiddenQuery(nextQuery);
     setHiddenCursor(null);
+    setHiddenTotal(null);
     setHiddenSelected(new Set());
     setHiddenNotice(null);
     void loadFirstPage(nextQuery);
@@ -123,6 +128,7 @@ export function useHiddenSessions(refreshSessions: () => void) {
       setHiddenLoading(false);
       setHiddenLoadingMore(false);
       setHiddenSessions((prev) => prev.filter((item) => item.session_id !== targetSessionId));
+      setHiddenTotal((prev) => (prev === null ? null : Math.max(0, prev - 1)));
       setHiddenSelected((prev) => {
         const next = new Set(prev);
         next.delete(targetSessionId);
@@ -185,6 +191,7 @@ export function useHiddenSessions(refreshSessions: () => void) {
     setHiddenDraftQuery,
     hiddenCursor,
     hiddenLoadingMore,
+    hiddenTotal,
     restoringId,
     hiddenSelected,
     restoringBatch,

@@ -1165,8 +1165,8 @@ Authorization: Bearer <admin token>
   "sessions": 5,
   "repinned": 3,
   "daily": [
-    { "day": "2026-11-13", "restores": 2, "sessions": 3, "repinned": 2 },
-    { "day": "2026-11-14", "restores": 1, "sessions": 2, "repinned": 1 }
+    { "day": "2026-11-13", "restores": 2, "sessions": 3, "repinned": 2, "unrestored": 1 },
+    { "day": "2026-11-14", "restores": 1, "sessions": 2, "repinned": 1, "unrestored": 1 }
   ]
 }
 ```
@@ -1185,8 +1185,9 @@ Authorization: Bearer <admin token>
   会话算一次操作、多个会话。按 `session_id` 过滤时匹配的是包含该会话的整行审计，
   `sessions` 仍是这些行的 `restored_count` 之和，可能大于 1
 - `daily` 按 `restored_at` 的 UTC 自然日聚合，只含有恢复活动的日期，升序、不补零；
-  每项 `restores` 是操作数，`sessions` 是当天恢复会话数，`repinned` 是当天恢复置顶数。
-  日汇总之和与总汇总一致（ADR-0125）
+  每项 `restores` 是操作数，`sessions` 是当天恢复会话数，`repinned` 是当天恢复置顶数，
+  `unrestored` 是当天「恢复但未置顶」的会话数；始终满足 `sessions = repinned + unrestored`。
+  日汇总之和与总汇总一致（ADR-0125/0136）
 - 统计默认全局；传 `user_id`/`session_id` 时与列表、首屏 `total`、导出使用
   同一过滤口径。管理页统计卡跟随下方已应用的过滤，无过滤时显示「全部用户」
 - 无迁移、无新索引，复用 `idx_session_restore_audits_time`；统计与列表是两条
@@ -1208,7 +1209,7 @@ Authorization: Bearer <admin token>
 - CSV 为长表 `section,key,day,value`：`meta` 行（`days`/`since`/`until`；按
   `user_id`/`session_id` 过滤时追加对应 `meta` 行）、`summary` 行
   （`restores`/`users`/`sessions`/`repinned`）、`daily` 行（每个日期分别有
-  `restores`/`sessions`/`repinned` 三行，`day` 为 UTC `YYYY-MM-DD`）
+  `restores`/`sessions`/`repinned`/`unrestored` 四行，`day` 为 UTC `YYYY-MM-DD`；ADR-0136）
 - 导出文件必须能自证口径：无过滤时只有 `days`/`since`/`until`，带过滤时额外
   写入 `user_id`/`session_id`，下载后即可判断统计范围
 - 响应头 `X-Export-Days`/`X-Export-Restores`/`X-Export-Users`/

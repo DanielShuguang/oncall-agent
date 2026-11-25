@@ -2905,3 +2905,22 @@ ADR-0118 只记住两页的日期预设；用户、会话、动作（置顶/取�
 | 范围 | 不记状态、不写 URL、不跨设备；无 API/迁移 |
 
 验证：前端 39 files / 198 tests、tsc、oxlint 161、format 169、build 2957；后端未改 540+43 / 580+3 / 583。
+
+---
+
+## W6 后补：恢复审计统计按日未恢复置顶数（ADR-0136）
+
+`daily` 已有 `repinned`，但「恢复但未置顶」只能前端用 `sessions - repinned` 相减，CSV 与第三方调用方各自推导。现在服务端直接返回 `unrestored`：
+
+| 事项 | 落地 |
+|---|---|
+| 数据 | `SessionRestoreAuditDayStats` 增加 `unrestored`；内存按日累加 `restored_count - repinned_count`，PG 用 `coalesce(sum(restored_count - repinned_count), 0)` |
+| 接口 | `/stats` 的 `daily` 每项增加 `unrestored`；旧客户端可忽略 |
+| CSV | 每个日期增加 `("daily","unrestored",day,value)`，列结构不变 |
+| 前端 | 统计卡最近 7 个活动日表增加「未恢复」列；不再在前端相减 |
+| 范围 | 不改窗口/过滤/权限/游标；不做按用户/会话拆分；无迁移 |
+
+验证：默认 540+43 / PG 580+3 / PG+Redis 583；ruff 211 / format 211 / mypy 119；
+前端 39 files/198 tests、`tsc`、`oxlint` 0/0、`oxfmt --check`、`build` 2957 modules。
+
+详见 [ADR-0136](decisions/0136-restore-audit-unrestored.md)。

@@ -160,6 +160,7 @@ def _stats_csv(
         rows.append(("daily", "restores", day.day, day.restores))
         rows.append(("daily", "sessions", day.day, day.sessions))
         rows.append(("daily", "repinned", day.day, day.repinned))
+        rows.append(("daily", "unrestored", day.day, day.unrestored))
     return csv_document(STATS_CSV_HEADERS, rows)
 
 
@@ -249,6 +250,7 @@ async def session_restore_stats(
                 restores=day.restores,
                 sessions=day.sessions,
                 repinned=day.repinned,
+                unrestored=day.unrestored,
             )
             for day in stats.daily
         ],

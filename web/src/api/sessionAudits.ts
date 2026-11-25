@@ -43,6 +43,7 @@ export interface SessionRestoreAuditDayStats {
   restores: number;
   sessions: number;
   repinned: number;
+  unrestored: number;
 }
 
 export interface SessionRestoreAuditStats {

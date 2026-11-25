@@ -155,6 +155,7 @@ class SessionRestoreAuditDayOut(BaseModel):
     restores: int
     sessions: int
     repinned: int = 0
+    unrestored: int = 0
 
 
 class SessionRestoreAuditStatsOut(BaseModel):

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   APPROVAL_FILTER_STORAGE_KEY,
   clearApprovalFilterMemory,
+  filtersAfterStatusChange,
   readApprovalFilterMemory,
   writeApprovalFilterMemory,
 } from './approvalFilterMemory';
@@ -79,5 +80,29 @@ describe('approvalFilterMemory', () => {
     writeApprovalFilterMemory({ tool: 'query_cmdb' }, storage);
     clearApprovalFilterMemory(storage);
     expect(readApprovalFilterMemory(storage)).toEqual({});
+  });
+});
+
+describe('filtersAfterStatusChange', () => {
+  it('切到待办清空内存筛选但不读取记忆', () => {
+    let called = false;
+    const next = filtersAfterStatusChange('pending', 'approved', { tool: 'query_cmdb' }, () => {
+      called = true;
+      return { resolvedBy: 'admin' };
+    });
+    expect(next).toEqual({});
+    expect(called).toBe(false);
+  });
+
+  it('从待办切到已办时恢复记忆', () => {
+    const saved = { tool: 'query_cmdb', resolvedBy: 'admin' };
+    expect(filtersAfterStatusChange('approved', 'pending', {}, () => saved)).toEqual(saved);
+  });
+
+  it('已办状态之间保留当前筛选', () => {
+    const filters = { tool: 'query_cmdb' };
+    expect(
+      filtersAfterStatusChange('rejected', 'approved', filters, () => ({ resolvedBy: 'admin' })),
+    ).toBe(filters);
   });
 });

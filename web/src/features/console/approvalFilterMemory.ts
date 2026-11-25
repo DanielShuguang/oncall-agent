@@ -62,6 +62,17 @@ function toFilters(value: ApprovalFilterMemory): ApprovalListFilters {
   };
 }
 
+export function filtersAfterStatusChange(
+  nextStatus: string,
+  currentStatus: string,
+  currentFilters: ApprovalListFilters,
+  readMemory: () => ApprovalListFilters = readApprovalFilterMemory,
+): ApprovalListFilters {
+  if (nextStatus === 'pending') return {};
+  if (currentStatus === 'pending') return readMemory();
+  return currentFilters;
+}
+
 export function readApprovalFilterMemory(
   storage: FilterStorage | null = defaultStorage(),
 ): ApprovalListFilters {

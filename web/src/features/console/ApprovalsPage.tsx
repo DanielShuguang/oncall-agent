@@ -18,7 +18,7 @@ import {
   type ApprovalOut,
 } from '@/api/approvals';
 import { ApprovalFilterCard } from './ApprovalFilterCard';
-import { readApprovalFilterMemory, writeApprovalFilterMemory } from './approvalFilterMemory';
+import { filtersAfterStatusChange, writeApprovalFilterMemory } from './approvalFilterMemory';
 import { ApprovalResolveDialog } from './ApprovalResolveDialog';
 import { ApprovalStatsPanel } from './ApprovalStatsPanel';
 import { ApprovalTableCard } from './ApprovalTableCard';
@@ -149,8 +149,7 @@ export default function ApprovalsPage() {
     // 先让在途请求失效并清空旧列表：否则切到已办时，上一帧仍会渲染待办行，
     // 且表头已变成「决议时间」（ADR-0053）。
     // 待办不显示筛选；切回已办时恢复上次记住的已办筛选（ADR-0135）。
-    const nextFilters =
-      next === 'pending' ? {} : status === 'pending' ? readApprovalFilterMemory() : filters;
+    const nextFilters = filtersAfterStatusChange(next, status, filters);
     listRequest.current += 1;
     setStatus(next);
     setItems([]);

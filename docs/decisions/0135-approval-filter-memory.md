@@ -46,7 +46,7 @@
 - `approvalFilterMemory.test.ts`：保存/trim 读取、空筛选/非法字段删除 key、损坏
   JSON/存储异常回退、清除。
 - `localPreferences.test.ts`：切换账号清 `oncall.approval-filters.v1`。
-- 前端 39 files / 195 tests、`tsc --noEmit`、`oxlint` 0/0（161 files）、
+- 前端 39 files / 198 tests、`tsc --noEmit`、`oxlint` 0/0（161 files）、
   `oxfmt --check` 169 files、`pnpm build` 2957 modules。
 - 后端未改：默认 540+43 / PG 580+3 / PG+Redis 583。
 

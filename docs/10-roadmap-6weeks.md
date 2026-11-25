@@ -2904,4 +2904,4 @@ ADR-0118 只记住两页的日期预设；用户、会话、动作（置顶/取�
 | 校验 | trim、id ≤64、日期 `YYYY-MM-DD`；损坏 JSON/存储异常忽略 |
 | 范围 | 不记状态、不写 URL、不跨设备；无 API/迁移 |
 
-验证：前端 39 files / 195 tests、tsc、oxlint 161、format 169、build 2957；后端未改 540+43 / 580+3 / 583。
+验证：前端 39 files / 198 tests、tsc、oxlint 161、format 169、build 2957；后端未改 540+43 / 580+3 / 583。

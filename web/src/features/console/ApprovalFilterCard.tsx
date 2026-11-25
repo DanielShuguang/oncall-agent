@@ -5,15 +5,16 @@ import { Input } from '@/components/ui/input';
 import type { ApprovalListFilters } from '@/api/approvals';
 
 interface Props {
+  initial?: ApprovalListFilters;
   onApply: (filters: ApprovalListFilters) => void;
   onClear: () => void;
 }
 
-export function ApprovalFilterCard({ onApply, onClear }: Props) {
-  const [tool, setTool] = useState('');
-  const [resolvedBy, setResolvedBy] = useState('');
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
+export function ApprovalFilterCard({ initial, onApply, onClear }: Props) {
+  const [tool, setTool] = useState(initial?.tool ?? '');
+  const [resolvedBy, setResolvedBy] = useState(initial?.resolvedBy ?? '');
+  const [from, setFrom] = useState(initial?.resolvedFrom ?? '');
+  const [to, setTo] = useState(initial?.resolvedTo ?? '');
   const [error, setError] = useState<string | null>(null);
 
   const apply = () => {

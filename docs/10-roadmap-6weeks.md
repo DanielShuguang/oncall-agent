@@ -2893,3 +2893,15 @@ ADR-0118 只记住两页的日期预设；用户、会话、动作（置顶/取�
 | 范围 | 无迁移；不做页码/跳页、总数缓存、已移除排序切换 |
 
 验证：默认 **540 passed + 43 skipped**、PG-only **580 passed + 3 skipped**、PG+Redis **583 passed**；ruff 211 / format 211 / mypy 119；前端 **38 files / 191 tests**、oxlint 159、format 167、build 2956。
+
+### W6 后补：已办审批筛选按浏览器记住（ADR-0135）
+
+| 项 | 落地 |
+|---|---|
+| 入口 | 审批中心「已办」筛选卡；待办不显示筛选 |
+| 记忆 | `oncall.approval-filters.v1`：工具/审批人/决议开始/结束；只存已办 |
+| 语义 | 进待办仍空筛选、不删记忆；切到已办恢复；三个已办状态间保留；清除/空筛选删 key |
+| 校验 | trim、id ≤64、日期 `YYYY-MM-DD`；损坏 JSON/存储异常忽略 |
+| 范围 | 不记状态、不写 URL、不跨设备；无 API/迁移 |
+
+验证：前端 39 files / 195 tests、tsc、oxlint 161、format 169、build 2957；后端未改 540+43 / 580+3 / 583。

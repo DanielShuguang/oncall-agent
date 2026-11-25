@@ -18,6 +18,7 @@ import {
   type ApprovalOut,
 } from '@/api/approvals';
 import { ApprovalFilterCard } from './ApprovalFilterCard';
+import { readApprovalFilterMemory, writeApprovalFilterMemory } from './approvalFilterMemory';
 import { ApprovalResolveDialog } from './ApprovalResolveDialog';
 import { ApprovalStatsPanel } from './ApprovalStatsPanel';
 import { ApprovalTableCard } from './ApprovalTableCard';
@@ -140,12 +141,16 @@ export default function ApprovalsPage() {
     setError(null);
     setNotice(null);
     exports.invalidateList();
+    writeApprovalFilterMemory(next);
     setFilters(next);
   };
 
   const changeStatus = (next: string) => {
     // 先让在途请求失效并清空旧列表：否则切到已办时，上一帧仍会渲染待办行，
     // 且表头已变成「决议时间」（ADR-0053）。
+    // 待办不显示筛选；切回已办时恢复上次记住的已办筛选（ADR-0135）。
+    const nextFilters =
+      next === 'pending' ? {} : status === 'pending' ? readApprovalFilterMemory() : filters;
     listRequest.current += 1;
     setStatus(next);
     setItems([]);
@@ -156,7 +161,7 @@ export default function ApprovalsPage() {
     setError(null);
     setNotice(null);
     exports.invalidateList();
-    if (next === 'pending') setFilters({});
+    setFilters(nextFilters);
   };
 
   const changeStatsDays = (days: number) => {
@@ -247,7 +252,7 @@ export default function ApprovalsPage() {
       )}
 
       {status !== 'pending' && (
-        <ApprovalFilterCard onApply={resetList} onClear={() => resetList({})} />
+        <ApprovalFilterCard initial={filters} onApply={resetList} onClear={() => resetList({})} />
       )}
 
       <ApprovalStatsPanel

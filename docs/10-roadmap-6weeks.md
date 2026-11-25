@@ -2867,3 +2867,15 @@ ADR-0118 只记住两页的日期预设；用户、会话、动作（置顶/取�
 验证：前端 **37 files / 188 tests**、`tsc --noEmit`、`oxlint` 0/0（157 files）、`oxfmt --check` 165 files、`pnpm build` 2955 modules；后端未改 539+43 / 579+3 / 582。
 
 详见 [ADR-0132](decisions/0132-hidden-session-pin-flag.md)。
+
+---
+
+### W6 后补：置顶超限提示（ADR-0133）
+
+| 项 | 落地 |
+|---|---|
+| 触发 | `pinnedCount > pinLimit`（配置调小、既有置顶未清理） |
+| 展示 | 会话侧栏顶部 warn 提示「已置顶 X 个，超过上限 Y 个；新置顶已禁用，请取消置顶或调高上限」 |
+| 语义 | 只提示，不自动取消置顶；取消置顶始终可用；新增置顶仍由后端 409 兜底 |
+| 范围 | 纯前端；不做一键清理超限、容量管理页 |
+| 验证 | 默认 539+43 / PG 579+3 / PG+Redis 582；前端 38 files/191 tests、oxlint 159、format 167、build 2956 |

@@ -3,6 +3,7 @@
 import type { RefObject } from 'react';
 import { Plus, Search, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import type { PinOverflow } from './pinLimit';
 
 interface SessionListChromeProps {
   closeButtonRef: RefObject<HTMLButtonElement | null>;
@@ -19,6 +20,7 @@ interface SessionListChromeProps {
   query: string;
   sessionCount: number;
   batchNotice: string | null;
+  pinOverflow: PinOverflow | null;
   onRetry: () => void;
 }
 
@@ -37,6 +39,7 @@ export function SessionListChrome({
   query,
   sessionCount,
   batchNotice,
+  pinOverflow,
   onRetry,
 }: SessionListChromeProps) {
   return (
@@ -96,6 +99,12 @@ export function SessionListChrome({
       </form>
 
       {loading && <p className="px-1 py-2 text-xs text-muted-foreground">加载中…</p>}
+      {pinOverflow && !error && (
+        <output className="block rounded-md border border-warn/30 bg-warn/5 px-2 py-1.5 text-xs text-warn">
+          已置顶 {pinOverflow.pinned} 个，超过上限 {pinOverflow.limit}{' '}
+          个；新置顶已禁用，请取消置顶或调高上限。
+        </output>
+      )}
       {batchNotice && !error && (
         <p className="px-1 py-1 text-xs text-muted-foreground" aria-live="polite">
           {batchNotice}

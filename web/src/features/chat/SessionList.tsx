@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type TouchEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { cn } from 'cn';
 import { isDrawerSwipeClose } from './drawerSwipe';
+import { pinLimitOverflow } from './pinLimit';
 import { nextFocusTarget } from './focusTrap';
 import type { SessionListProps } from './SessionList.types';
 import { HiddenSessionsPanel } from './HiddenSessionsPanel';
@@ -163,6 +164,7 @@ export function SessionList({
   const allBatchSelected =
     sessions.length > 0 && sessions.every((item) => batchSelected.has(item.session_id));
   const pinLimitReached = pinnedCount !== null && pinLimit !== null && pinnedCount >= pinLimit;
+  const pinOverflow = pinLimitOverflow(pinnedCount, pinLimit);
   const allHiddenSelected =
     hiddenSessions.length > 0 &&
     hiddenSessions.every((item) => hiddenSelected.has(item.session_id));
@@ -202,6 +204,7 @@ export function SessionList({
         query={query}
         sessionCount={sessions.length}
         batchNotice={batchNotice}
+        pinOverflow={pinOverflow}
         onRetry={onRetry}
       />
 

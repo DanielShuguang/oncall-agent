@@ -3124,6 +3124,10 @@ class PostgresRunStore:
             .order_by(day_column)
         )
         async with self._sessionmaker() as session:
+            # 汇总与日趋势必须读同一快照：默认 READ COMMITTED 下，两条查询之间
+            # 若有恢复审计写入，daily 的 sums 会与汇总对不上；日行新增
+            # unrestored 后还会破坏 sessions = repinned + unrestored。
+            await session.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ"))
             restores, users, sessions, repinned = (await session.execute(summary)).one()
             rows = (await session.execute(daily)).all()
         return SessionRestoreAuditStats(

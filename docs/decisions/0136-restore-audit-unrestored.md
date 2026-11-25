@@ -32,6 +32,9 @@ sessions = repinned + unrestored
    仍是唯一事实源。
 6. 不新增窗口总 `unrestored` 字段：总量可由客户端对 `daily` 求和，避免重复维护。
 7. 前端最近活动日表增加「未恢复」列，直接显示服务端值，不再在前端相减。
+8. PG 的汇总与 `daily` 在同一个 `REPEATABLE READ` 只读快照里执行；否则两条查询
+   之间若有恢复写入，`daily` 的和会与 summary 不一致，`sessions =
+   repinned + unrestored` 也可能在日行与总行之间漂移。
 
 ## 后果
 
@@ -39,6 +42,7 @@ sessions = repinned + unrestored
 - 旧记录/旧后端缺 `repinned_count` 时按 0 处理，此时 `unrestored` 等于
   `sessions`，与「当时没有恢复置顶概念」的语义一致。
 - 只增加一个只读字段，不改变窗口、过滤、权限与游标。
+- PG 统计使用 `REPEATABLE READ` 只读快照，汇总与日趋势不会因并发写入互相矛盾。
 
 ## 验证
 

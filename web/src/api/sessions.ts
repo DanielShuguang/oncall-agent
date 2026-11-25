@@ -99,6 +99,8 @@ export interface HiddenSession {
   title: string | null;
   run_count: number;
   hidden_at: string;
+  /** 移除时是否置顶；恢复时按容量尽力恢复（ADR-0108） */
+  was_pinned: boolean;
 }
 
 export interface HiddenSessionPage {

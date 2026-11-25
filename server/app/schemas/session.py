@@ -26,6 +26,8 @@ class HiddenSessionOut(BaseModel):
     title: str | None
     run_count: int
     hidden_at: datetime
+    #: 移除时是否置顶；恢复时按容量尽力恢复（ADR-0108）
+    was_pinned: bool = False
 
 
 class HiddenSessionListResponse(BaseModel):

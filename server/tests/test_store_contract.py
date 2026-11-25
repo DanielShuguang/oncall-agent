@@ -761,6 +761,10 @@ async def _exercise_restore_pin(store: RunStore) -> None:
 
     assert await store.pin_session(user_id=user, session_id="sess_rp_a") is True
     assert await store.hide_session(user_id=user, session_id="sess_rp_a") is True
+    hidden_a = {
+        item.session_id: item for item in await store.list_hidden_sessions(user_id=user, limit=10)
+    }
+    assert hidden_a["sess_rp_a"].was_pinned is True
     assert await store.unhide_session(user_id=user, session_id="sess_rp_a") is True
     restored = {item.session_id: item for item in await store.list_sessions(user_id=user, limit=10)}
     assert restored["sess_rp_a"].pinned is True

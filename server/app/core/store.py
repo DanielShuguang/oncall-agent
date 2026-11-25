@@ -296,6 +296,8 @@ class HiddenSessionSummary:
     title: str | None
     run_count: int
     hidden_at: datetime
+    #: 移除时是否置顶（ADR-0108）；列表用它提示「恢复后会按容量尽力置顶」
+    was_pinned: bool = False
 
 
 def _matches_session_query(needle: str, *candidates: str | None) -> bool:
@@ -1579,6 +1581,7 @@ class InMemoryRunStore:
                         title=custom if custom is not None else first_input,
                         run_count=len(records),
                         hidden_at=hidden_at,
+                        was_pinned=(user_id, session_id) in self._hidden_session_pins,
                     )
                 )
             if query:
@@ -2810,6 +2813,7 @@ class PostgresRunStore:
             select(
                 HiddenSessionRow.session_id,
                 HiddenSessionRow.hidden_at,
+                HiddenSessionRow.was_pinned,
                 title,
                 func.count(Run.id).label("run_count"),
             )
@@ -2853,6 +2857,7 @@ class PostgresRunStore:
             stmt.group_by(
                 HiddenSessionRow.session_id,
                 HiddenSessionRow.hidden_at,
+                HiddenSessionRow.was_pinned,
                 SessionTitleRow.title,
                 first_input.c.input,
             )
@@ -2867,6 +2872,7 @@ class PostgresRunStore:
                 title=row.title,
                 run_count=int(row.run_count),
                 hidden_at=row.hidden_at,
+                was_pinned=bool(row.was_pinned),
             )
             for row in rows
         ]

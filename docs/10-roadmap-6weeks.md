@@ -2850,3 +2850,20 @@ ADR-0118 只记住两页的日期预设；用户、会话、动作（置顶/取�
 验证：前端 **37 files / 188 tests**、`tsc --noEmit`、`oxlint` 0/0（157 files）、`oxfmt --check` 165 files、`pnpm build` 2955 modules；后端未改 539+43 / 579+3 / 582。
 
 详见 [ADR-0131](decisions/0131-session-page-dedup.md)。
+
+---
+
+## W6 后补：已移除会话列表显示移除时置顶（ADR-0132）
+
+`hidden_sessions` 已保存 `was_pinned`（ADR-0108），但折叠区只显示标题/轮数/移除时间，用户看不到恢复后是否会重新置顶。
+
+| 事项 | 落地 |
+|---|---|
+| 接口 | `GET /sessions/hidden` 的 `items[]` 增加只读 `was_pinned`；旧行默认 `false` |
+| 存储 | 内存用 `_hidden_session_pins`；PG 直接读 `hidden_sessions.was_pinned`，与恢复逻辑同源 |
+| 前端 | 移除时间后显示「移除时置顶（恢复按容量尽力）」；不承诺一定恢复 |
+| 范围 | 无新表/迁移；不做恢复后预计置顶，实际以恢复结果为准 |
+
+验证：前端 **37 files / 188 tests**、`tsc --noEmit`、`oxlint` 0/0（157 files）、`oxfmt --check` 165 files、`pnpm build` 2955 modules；后端未改 539+43 / 579+3 / 582。
+
+详见 [ADR-0132](decisions/0132-hidden-session-pin-flag.md)。

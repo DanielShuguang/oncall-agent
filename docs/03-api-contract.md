@@ -797,7 +797,8 @@ Authorization: Bearer <token>
       "session_id": "sess_01H...",
       "title": "打印机离线",
       "run_count": 2,
-      "hidden_at": "2026-11-12T09:30:00Z"
+      "hidden_at": "2026-11-12T09:30:00Z",
+      "was_pinned": true
     }
   ],
   "next_cursor": "eyJ0IjoiMjAyNi0xMS0xMlQwOTozMDowMFoiLCJzIjoic2Vzc18wMUgifQ"
@@ -835,6 +836,8 @@ Content-Type: application/json
   `input`；**不搜回答正文**。`q` 最长 100 字符，空白按没有搜索处理
 - 标题口径与普通会话列表一致：展示截到 60 字符；`run_count` 是该会话仍存在的 run 数
   （移除不删 run）
+- `was_pinned` 是移除时是否置顶（ADR-0108/0132），只读；恢复时按当前 `pin_limit` 与
+  请求顺序尽力恢复，`true` 不保证一定恢复置顶。旧行默认 `false`，不回填
 - 翻页期间恢复/移除会话会让列表变化，可能重复或跳过一页；刷新（重新展开）即重置。
   移除时间本身不会变（重复移除保留第一次时间），所以已加载页的游标仍然稳定
 - 非法 `cursor` 返回 `400 {"code":"INVALID_CURSOR"}`；`q` 超过 100 字符返回 422

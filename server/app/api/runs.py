@@ -358,6 +358,7 @@ async def list_hidden_sessions(
                 title=_session_title(item.title),
                 run_count=item.run_count,
                 hidden_at=item.hidden_at,
+                was_pinned=item.was_pinned,
             )
             for item in items
         ],

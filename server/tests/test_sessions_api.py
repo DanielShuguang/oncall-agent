@@ -747,7 +747,10 @@ async def test_hide_sessions_batch(client: AsyncClient, mem_store: InMemoryRunSt
     }
     assert (await client.get("/api/sessions")).json()["items"] == []
     hidden_items = (await client.get("/api/sessions/hidden")).json()["items"]
-    assert {item["session_id"] for item in hidden_items} == {"sess_hide_a", "sess_hide_b"}
+    hidden_by_id = {item["session_id"]: item for item in hidden_items}
+    assert set(hidden_by_id) == {"sess_hide_a", "sess_hide_b"}
+    assert hidden_by_id["sess_hide_a"]["was_pinned"] is True
+    assert hidden_by_id["sess_hide_b"]["was_pinned"] is False
     # 隐藏清置顶：置顶端点返回 404，且恢复后不回到顶部
     assert (await client.post("/api/sessions/sess_hide_a/pin")).status_code == 404
 

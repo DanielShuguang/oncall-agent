@@ -134,6 +134,7 @@ export function HiddenSessionsPanel({
                 </span>
                 <span className="block text-[11px] text-muted-foreground">
                   {item.run_count} 轮 · 移除于 {formatUpdated(item.hidden_at)}
+                  {item.was_pinned ? ' · 移除时置顶（恢复按容量尽力）' : ''}
                 </span>
               </div>
               <Button
